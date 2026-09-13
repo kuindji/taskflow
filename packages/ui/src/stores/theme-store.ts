@@ -8,10 +8,16 @@ import type {
     ThemeRecord,
     ThemeSource,
 } from "@taskflow/shared";
-import { sendRequest } from "../hooks/useWebSocket";
-import { getPrimary } from "@/lib/connection-registry";
+import { getPrimary, sendRequest } from "@/lib/connection-registry";
 import { useSettingsStore } from "./settings-store";
 import { registerBackendReset } from "./store-reset";
+
+/** Themes are app-level: every theme request addresses primary. */
+function sendToPrimary<T>(type: string, payload: unknown = {}): Promise<T> {
+    const primary = getPrimary();
+    if (!primary) return Promise.reject(new Error("No primary backend"));
+    return sendRequest<T>(primary, type, payload);
+}
 
 // Eagerly resolve the default bundled theme so `resolved` is never null.
 // This ensures terminals and Monaco have a valid theme before settings load.
@@ -72,7 +78,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     async fetchThemes(options) {
         try {
             const primary = getPrimary();
-            const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
+            const { themes } = await sendToPrimary<ThemeListResponse>(MSG.THEMES_LIST);
             themesBackendId = primary;
 
             const preferredThemeId =
@@ -119,19 +125,19 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     },
 
     async importTheme(theme: ThemeSource) {
-        const response = await sendRequest<ThemeImportResponse>(MSG.THEME_IMPORT, { theme });
+        const response = await sendToPrimary<ThemeImportResponse>(MSG.THEME_IMPORT, { theme });
         applyImportResponse(set, response);
     },
 
     async importThemeFile(path: string) {
-        const response = await sendRequest<ThemeImportResponse>(MSG.THEME_IMPORT_FILE, { path });
+        const response = await sendToPrimary<ThemeImportResponse>(MSG.THEME_IMPORT_FILE, { path });
         applyImportResponse(set, response);
     },
 
     async scanTerminalApps() {
         set({ scanning: true });
         try {
-            const { apps } = await sendRequest<ThemeImportScanResponse>(MSG.THEME_IMPORT_SCAN);
+            const { apps } = await sendToPrimary<ThemeImportScanResponse>(MSG.THEME_IMPORT_SCAN);
             set({ scannedApps: apps, scanning: false });
         } catch {
             set({ scanning: false });
@@ -140,7 +146,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
     async deleteTheme(themeId: string) {
         const deletingActive = themeId === get().activeThemeId;
-        const { themes } = await sendRequest<ThemeListResponse>(MSG.THEME_DELETE, { id: themeId });
+        const { themes } = await sendToPrimary<ThemeListResponse>(MSG.THEME_DELETE, {
+            id: themeId,
+        });
         const fallbackId = deletingActive ? DEFAULT_THEME_ID : get().activeThemeId;
         const record = themes.find((t) => t.id === fallbackId) ?? themes[0];
 

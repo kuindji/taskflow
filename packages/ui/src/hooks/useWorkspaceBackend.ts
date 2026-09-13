@@ -1,6 +1,5 @@
-import { useSyncExternalStore } from "react";
-import { getPrimary, onPrimaryChange } from "@/lib/connection-registry";
 import { useActiveWorkspace } from "./useActiveWorkspace";
+import { usePrimaryBackend } from "./usePrimaryBackend";
 
 /**
  * The machine the open workspace belongs to. Master workspace belongs to
@@ -9,7 +8,7 @@ import { useActiveWorkspace } from "./useActiveWorkspace";
  */
 export function useWorkspaceBackend(): string | null {
     const workspace = useActiveWorkspace();
-    const primaryId = useSyncExternalStore(onPrimaryChange, getPrimary);
+    const primaryId = usePrimaryBackend();
     if (workspace.scope === "master") return primaryId;
     return workspace.project?.backendId ?? null;
 }

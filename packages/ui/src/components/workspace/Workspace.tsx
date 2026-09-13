@@ -461,6 +461,7 @@ export function Workspace() {
                 <FlowInputDialog
                     key={flowInputState.flowId}
                     open
+                    backendId={flowInputState.backendId}
                     flowName={flowInputState.flowName}
                     inputs={flowInputState.inputs}
                     onSubmit={handleFlowInputSubmit}

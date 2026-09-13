@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { FolderOpen } from "lucide-react";
+import { usePrimaryBackend } from "@/hooks/usePrimaryBackend";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 
 interface NewProjectDialogProps {
     open: boolean;
@@ -22,6 +24,8 @@ export function NewProjectDialog({ open, onOpenChange, onSubmit, error }: NewPro
     const [path, setPath] = useState("");
 
     const hasElectronPicker = typeof window.taskflow?.selectProjectDirectory === "function";
+    // A new project is added to primary; the picker lists this machine's folders.
+    const localOnlyHint = useLocalOnlyHint(usePrimaryBackend());
 
     const resetForm = useCallback(() => {
         setPath("");
@@ -43,9 +47,10 @@ export function NewProjectDialog({ open, onOpenChange, onSubmit, error }: NewPro
     }, [canSubmit, path, onSubmit]);
 
     const handleBrowse = useCallback(async () => {
+        if (localOnlyHint) return;
         const selected = await window.taskflow?.selectProjectDirectory();
         if (selected) setPath(selected);
-    }, []);
+    }, [localOnlyHint]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -68,15 +73,19 @@ export function NewProjectDialog({ open, onOpenChange, onSubmit, error }: NewPro
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-project-path">Directory</Label>
                         {hasElectronPicker ? (
-                            <Button
-                                variant="outline"
-                                onClick={handleBrowse}
-                                className="justify-start gap-2 font-normal">
-                                <FolderOpen className="h-4 w-4 shrink-0" />
-                                <span className="truncate text-left">
-                                    {path || "Select a directory..."}
-                                </span>
-                            </Button>
+                            // A disabled button takes no pointer events, so the wrapper carries the tooltip.
+                            <span title={localOnlyHint ?? undefined} className="flex flex-col">
+                                <Button
+                                    variant="outline"
+                                    onClick={handleBrowse}
+                                    disabled={localOnlyHint !== null}
+                                    className="justify-start gap-2 font-normal">
+                                    <FolderOpen className="h-4 w-4 shrink-0" />
+                                    <span className="truncate text-left">
+                                        {path || "Select a directory..."}
+                                    </span>
+                                </Button>
+                            </span>
                         ) : (
                             <Input
                                 id="new-project-path"

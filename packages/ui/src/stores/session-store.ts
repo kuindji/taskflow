@@ -94,7 +94,7 @@ function refetchRecords(
  * The machine a session runs on: the one it was created on or last reported
  * from, else the machine of the workspace whose tab holds it.
  */
-function sessionBackend(sessionId: string): string | null {
+export function sessionBackend(sessionId: string): string | null {
     const noted = sessionBackendOf(sessionId);
     if (noted) return noted;
     for (const [workspaceKey, tabs] of Object.entries(useSessionStore.getState().tabsByWorkspace)) {

@@ -181,4 +181,25 @@ export function onStatusChange(
     };
 }
 
+/**
+ * Primary's connection status, following primary as it changes rather than
+ * binding to whichever backend was primary at subscription time. The app's
+ * connected/error state subscribes on mount, before anything has connected.
+ */
+export function onPrimaryStatusChange(handler: (status: ConnectionStatus) => void): () => void {
+    let off: () => void = () => {};
+    const follow = (): void => {
+        off();
+        const id = primaryId;
+        off = id ? onStatusChange(id, handler) : () => {};
+        if (!id) handler({ connected: false, reconnecting: false });
+    };
+    follow();
+    const offPrimary = onPrimaryChange(follow);
+    return () => {
+        off();
+        offPrimary();
+    };
+}
+
 export type { ConnectionStatus };

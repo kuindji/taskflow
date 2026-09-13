@@ -51,8 +51,6 @@ describe("store reset registry", () => {
             "src/lib/connection.ts",
             "src/lib/connection-registry.ts",
             "src/stores/backend-store.ts",
-            // Forwards to the registry and holds nothing; deleted in Task 19.
-            "src/hooks/useWebSocket.ts",
             // Writes that return nothing it keeps.
             "src/lib/attribute-api.ts",
             // Asks for the shell list per launch; nothing kept between calls.
@@ -63,6 +61,8 @@ describe("store reset registry", () => {
             "src/hooks/useRemoteAgentStatus.ts",
             // Component state only; requests carry the row's machine.
             "src/hooks/useRunMenu.ts",
+            // Binds requests to the workspace's machine; holds nothing.
+            "src/hooks/useWorkspaceRequest.ts",
             // Routes events into session-store and session-activity, which register the resets.
             "src/stores/session-subscriptions.ts",
         ]);

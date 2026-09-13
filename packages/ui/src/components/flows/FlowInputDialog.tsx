@@ -11,19 +11,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { FolderOpen } from "lucide-react";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 
 interface FlowInputDialogProps {
     open: boolean;
+    /** The machine the flow runs on: its file inputs are paths there. */
+    backendId: string | null;
     flowName: string;
     inputs: FlowInputDefinition[];
     onSubmit: (values: Record<string, string>) => void;
     onCancel: () => void;
 }
 
-function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInputDialogProps) {
+function FlowInputDialog({
+    open,
+    backendId,
+    flowName,
+    inputs,
+    onSubmit,
+    onCancel,
+}: FlowInputDialogProps) {
     const [values, setValues] = useState<Record<string, string>>(() =>
         Object.fromEntries(inputs.map((input) => [input.id, ""])),
     );
+    const localOnlyHint = useLocalOnlyHint(backendId);
 
     const updateValue = useCallback((id: string, value: string) => {
         setValues((prev) => ({ ...prev, [id]: value }));
@@ -31,12 +42,13 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
 
     const handleFilePick = useCallback(
         async (id: string) => {
+            if (localOnlyHint) return;
             const filePath = await window.taskflow?.selectFile?.();
             if (filePath) {
                 updateValue(id, filePath);
             }
         },
-        [updateValue],
+        [localOnlyHint, updateValue],
     );
 
     const allFilled = inputs.every((input) => values[input.id]?.trim());
@@ -67,13 +79,16 @@ function FlowInputDialog({ open, flowName, inputs, onSubmit, onCancel }: FlowInp
                                     className="flex-1"
                                 />
                                 {input.type === "filepath" && (
-                                    <Button
-                                        variant="outline"
-                                        size="icon-sm"
-                                        onClick={() => void handleFilePick(input.id)}
-                                        title="Browse...">
-                                        <FolderOpen className="h-4 w-4" />
-                                    </Button>
+                                    // A disabled button takes no pointer events, so the wrapper carries the tooltip.
+                                    <span title={localOnlyHint ?? "Browse..."}>
+                                        <Button
+                                            variant="outline"
+                                            size="icon-sm"
+                                            onClick={() => void handleFilePick(input.id)}
+                                            disabled={localOnlyHint !== null}>
+                                            <FolderOpen className="h-4 w-4" />
+                                        </Button>
+                                    </span>
                                 )}
                             </div>
                         </div>

@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useFileStore } from "@/stores/file-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 
 interface CreateFileDialogProps {
     open: boolean;
@@ -26,6 +27,7 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
     const createFile = useFileStore((s) => s.createFile);
     const createDirectory = useFileStore((s) => s.createDirectory);
     const expandToPathAndLoad = useFileStore((s) => s.expandToPathAndLoad);
+    const backendId = useWorkspaceBackend();
 
     useEffect(() => {
         if (open) {
@@ -47,6 +49,7 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
     }, []);
 
     const handleSubmit = async () => {
+        if (!backendId) return;
         const trimmed = name.trim();
         const validationError = validate(trimmed);
         if (validationError) {
@@ -58,9 +61,9 @@ function CreateFileDialog({ open, onOpenChange, directoryPath, mode }: CreateFil
         const fullPath = directoryPath + "/" + trimmed;
         try {
             if (mode === "file") {
-                await createFile(fullPath);
+                await createFile(backendId, fullPath);
             } else {
-                await createDirectory(fullPath);
+                await createDirectory(backendId, fullPath);
             }
             void expandToPathAndLoad(directoryPath);
             onOpenChange(false);

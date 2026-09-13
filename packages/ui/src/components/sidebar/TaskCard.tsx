@@ -458,6 +458,7 @@ export function TaskCard({
             {runMenu.flowInputState && (
                 <FlowInputDialog
                     open
+                    backendId={task.backendId}
                     flowName={runMenu.flowInputState.flowName}
                     inputs={runMenu.flowInputState.inputs}
                     onSubmit={runMenu.onFlowInputSubmit}

@@ -7,6 +7,8 @@ import { useUIStore } from "@/stores/ui-store";
 import { openFileInApp } from "@/lib/open-file";
 import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
 import { registerBackendReset } from "@/stores/store-reset";
+import { useBackendStore } from "@/stores/backend-store";
+import { isLocalBackend } from "@/hooks/useIsLocalBackend";
 import { getWrappedLineWindow, getWrappedRangeForMatch } from "@/lib/terminal-wrapped-links";
 import { getWorkspaceKey, getWorkingDir, openExternalFile } from "./terminal-links";
 
@@ -255,13 +257,15 @@ async function handlePathActivation(
     const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
     const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
 
-    const stat = await cachedFileStat(
-        workspaceKey ? workspaceBackendId(workspaceKey) : null,
-        resolved,
-    );
+    const backendId = workspaceKey ? workspaceBackendId(workspaceKey) : null;
+    const stat = await cachedFileStat(backendId, resolved);
     if (!stat.exists) return;
 
-    const isExternal = event.metaKey || event.ctrlKey;
+    // Finder and the external editor see this machine's files: a path on
+    // another machine opens in the app instead.
+    const isExternal =
+        (event.metaKey || event.ctrlKey) &&
+        isLocalBackend(useBackendStore.getState().machines, backendId);
 
     if (stat.isDirectory) {
         if (isExternal) {

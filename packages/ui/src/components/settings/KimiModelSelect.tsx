@@ -3,16 +3,18 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDownIcon } from "lucide-react";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
 import type { KimiModelInfo, KimiModelsResponse } from "@taskflow/shared";
 
 interface KimiModelSelectProps {
+    /** The machine whose Kimi CLI lists the models. */
+    backendId: string | null;
     value: string;
     onChange: (model: string) => void;
 }
 
-function KimiModelSelect({ value, onChange }: KimiModelSelectProps) {
+function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<KimiModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
@@ -21,16 +23,26 @@ function KimiModelSelect({ value, onChange }: KimiModelSelectProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
+    // Another machine has its own models.
     useEffect(() => {
-        if (!open || models !== null || fetchFailed) return;
-        sendRequest<KimiModelsResponse>(MSG.KIMI_MODELS, {})
+        setModels(null);
+        setFetchFailed(false);
+    }, [backendId]);
+
+    useEffect(() => {
+        if (!open || !backendId || models !== null || fetchFailed) return;
+        let cancelled = false;
+        sendRequest<KimiModelsResponse>(backendId, MSG.KIMI_MODELS, {})
             .then((res) => {
-                setModels(res.models);
+                if (!cancelled) setModels(res.models);
             })
             .catch(() => {
-                setFetchFailed(true);
+                if (!cancelled) setFetchFailed(true);
             });
-    }, [open, models, fetchFailed]);
+        return () => {
+            cancelled = true;
+        };
+    }, [open, backendId, models, fetchFailed]);
 
     useEffect(() => {
         setPortalContainer(

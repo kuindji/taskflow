@@ -3,11 +3,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CanvasAddon } from "@xterm/addon-canvas";
-import { useSessionStore } from "@/stores/session-store";
+import { sessionBackend, useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useThemeStore } from "@/stores/theme-store";
-import { onEvent, sendRequest } from "@/hooks/useWebSocket";
+import { onEvent, sendRequest } from "@/lib/connection-registry";
 import {
     DEFAULT_TERMINAL_FONT_FAMILY,
     DEFAULT_TERMINAL_FONT_SIZE,
@@ -263,11 +263,19 @@ function getOrCreateTerminal(
         }
     });
 
+    /** Session ids are unique across machines; its history lives where it runs. */
+    function requestFromSessionMachine<T>(type: string, payload: unknown): Promise<T> {
+        const backendId = sessionBackend(sessionId);
+        if (!backendId) return Promise.reject(new Error("Session has no machine"));
+        return sendRequest<T>(backendId, type, payload);
+    }
+
     function ensureHistoryLoaded(): Promise<void> {
         if (historyLoadPromise) return historyLoadPromise;
-        historyLoadPromise = sendRequest<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, {
-            sessionId,
-        })
+        historyLoadPromise = requestFromSessionMachine<SessionSnapshotResponse>(
+            MSG.SESSION_SNAPSHOT,
+            { sessionId },
+        )
             .then(async ({ snapshot, lastSequence, cursorHidden }) => {
                 if (snapshot !== null) {
                     writer.write(snapshot);
@@ -287,7 +295,7 @@ function getOrCreateTerminal(
     }
 
     async function replayFromHistory() {
-        return sendRequest<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
+        return requestFromSessionMachine<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
             taskId,
             projectId,
             master,

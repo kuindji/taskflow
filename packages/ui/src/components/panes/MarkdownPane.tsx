@@ -8,6 +8,7 @@ import { MarkdownToolbar } from "@/components/panes/markdown/MarkdownToolbar";
 import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
 import { useUIStore } from "@/stores/ui-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
+import { useIsLocalBackend } from "@/hooks/useIsLocalBackend";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
 import type { ObsidianState } from "@taskflow/shared";
 import { getInternalEditorId } from "@/lib/open-file";
@@ -29,14 +30,17 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
     const inWiki = wikiRoot !== null && filePath.startsWith(`${wikiRoot}/`);
     const showRailToggle = mode === "preview" && inWiki;
     const [obsidian, setObsidian] = useState<ObsidianState | null>(null);
+    const backendId = workspaceBackendId(workspaceKey);
+    // Obsidian opens on this machine: a remote machine's wiki offers no button.
+    const isLocal = useIsLocalBackend(backendId);
 
     useEffect(() => {
-        if (!inWiki || wikiRoot === null) {
+        if (!inWiki || wikiRoot === null || !backendId || !isLocal) {
             setObsidian(null);
             return;
         }
         let cancelled = false;
-        void fetchObsidianState(wikiRoot).then(
+        void fetchObsidianState(backendId, wikiRoot).then(
             (state) => {
                 if (!cancelled) setObsidian(state);
             },
@@ -45,7 +49,7 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
         return () => {
             cancelled = true;
         };
-    }, [inWiki, wikiRoot]);
+    }, [backendId, inWiki, isLocal, wikiRoot]);
 
     const canOpenInObsidian = obsidian?.installed === true && obsidian.vault === "registered";
     const handleOpenInObsidian = useCallback(() => {

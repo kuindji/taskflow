@@ -1,4 +1,5 @@
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
+import { useBackendStore } from "@/stores/backend-store";
 
 interface OpenCodeSectionProps {
     defaultModel: string;
@@ -13,9 +14,12 @@ function OpenCodeSection({
     onModelChange,
     onAutoApproveChange,
 }: OpenCodeSectionProps) {
+    // Settings are primary's, so its OpenCode CLI lists the models.
+    const primaryId = useBackendStore((s) => s.primaryId);
     return (
         <OpenCodeOptions
             mode="defaults"
+            backendId={primaryId}
             modelValue={defaultModel}
             autoApprove={autoApprove}
             onModelChange={onModelChange}

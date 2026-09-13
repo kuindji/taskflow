@@ -10,6 +10,8 @@ import { SettingRow } from "@/components/settings/sections/SettingRow";
 import type { KimiPermissionMode } from "@taskflow/shared";
 
 interface KimiOptionsProps {
+    /** The machine the session runs on (settings: primary); lists its models. */
+    backendId: string | null;
     modelValue: string;
     permissionMode: KimiPermissionMode;
     onModelChange: (value: string) => void;
@@ -42,6 +44,7 @@ const PERMISSION_OPTIONS: { value: KimiPermissionMode; label: string }[] = [
 ];
 
 function KimiOptions({
+    backendId,
     modelValue,
     permissionMode,
     onModelChange,
@@ -53,7 +56,11 @@ function KimiOptions({
     return (
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
-                <KimiModelSelect value={modelValue} onChange={onModelChange} />
+                <KimiModelSelect
+                    backendId={backendId}
+                    value={modelValue}
+                    onChange={onModelChange}
+                />
             </SettingRow>
             <SettingRow label={l.permission} hint={l.permissionHint}>
                 <Select

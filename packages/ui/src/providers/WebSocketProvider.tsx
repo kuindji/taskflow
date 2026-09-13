@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { onStatusChange } from "../hooks/useWebSocket";
 import { initConnectivity } from "../hooks/useConnectivity";
-import { openConnection } from "../lib/connection-registry";
+import { onPrimaryStatusChange, openConnection } from "../lib/connection-registry";
 import { setPrimaryBackend, useBackendStore } from "../stores/backend-store";
 import { WsContext } from "./ws-context";
 
@@ -23,8 +22,8 @@ async function connectDevRenderer(): Promise<void> {
 
 async function attachAll(taskflow: NonNullable<Window["taskflow"]>): Promise<void> {
     const store = useBackendStore.getState();
-    // Primary first: the shim's status subscribers follow it, and some of them
-    // subscribed at import, before anything connected.
+    // Primary first: the provider's status subscription follows it, and
+    // subscribed on mount, before anything connected.
     setPrimaryBackend(LOCAL_BACKEND_ID);
     // Every known machine gets a row, local's included (from `getAttached()`).
     await store.refresh();
@@ -47,7 +46,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const unsubscribe = onStatusChange((status) => {
+        const unsubscribe = onPrimaryStatusChange((status) => {
             setConnected(status.connected);
             if (status.connected || status.reconnecting) {
                 setError(null);

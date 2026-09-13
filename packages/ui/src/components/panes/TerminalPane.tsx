@@ -28,6 +28,8 @@ import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
 import { useTerminalModifierBlur } from "./terminal/useTerminalModifierBlur";
 import type { Tab } from "@/stores/session-helpers";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
+import { useIsLocalBackend } from "@/hooks/useIsLocalBackend";
 
 const RESIZE_DEBOUNCE_MS = 250;
 
@@ -76,6 +78,9 @@ function TerminalPane({
     const { workingDir } = useActiveWorkspace();
     const workingDirRef = useRef(workingDir);
     workingDirRef.current = workingDir;
+    const isLocal = useIsLocalBackend(useWorkspaceBackend());
+    const isLocalRef = useRef(isLocal);
+    isLocalRef.current = isLocal;
 
     // Stable callback for sendInput so we can use it in the data handler
     const sendInputRef = useRef(sendInput);
@@ -390,12 +395,13 @@ function TerminalPane({
         function isAcceptableDrag(e: DragEvent) {
             if (!e.dataTransfer) return false;
             const types = Array.from(e.dataTransfer.types);
-            return (
-                types.includes("application/x-taskflow-path") ||
-                types.includes("Files") ||
-                types.includes("text/uri-list") ||
-                types.includes("text/plain")
-            );
+            // Taskflow's own explorer drags the session machine's paths.
+            if (types.includes("application/x-taskflow-path")) return true;
+            // A native drop names this machine's files, which a session on
+            // another machine cannot see.
+            const nativeFiles = types.includes("Files") || types.includes("text/uri-list");
+            if (nativeFiles && !isLocalRef.current) return false;
+            return nativeFiles || types.includes("text/plain");
         }
 
         function onDragOver(e: DragEvent) {

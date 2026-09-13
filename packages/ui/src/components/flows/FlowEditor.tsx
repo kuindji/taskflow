@@ -64,7 +64,12 @@ function FlowEditor({
     onCancel,
     onDelete,
 }: FlowEditorProps) {
-    const projects = useProjectStore((s) => s.projects);
+    const allProjects = useProjectStore((s) => s.projects);
+    // A flow is scoped to a project on the machine it is saved to.
+    const projects = useMemo(
+        () => allProjects.filter((project) => project.backendId === backendId),
+        [allProjects, backendId],
+    );
     const projectOptions = useMemo(
         () => selectableProjects(projects, flow?.projectId ? [flow.projectId] : []),
         [flow, projects],

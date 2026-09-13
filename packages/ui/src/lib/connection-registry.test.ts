@@ -4,6 +4,7 @@ import {
     closeConnection,
     onEvent,
     onPrimaryChange,
+    onPrimaryStatusChange,
     onStatusChange,
     openConnection,
     rekeyConnection,
@@ -129,5 +130,25 @@ describe("connection registry", () => {
 
         // Only the status replayed on subscribe.
         expect(seen).toEqual([true]);
+    });
+
+    test("primary's status subscription follows primary as it changes", async () => {
+        const a = startServer("A");
+        const b = startServer("B");
+        servers.push(a, b);
+        await openConnection("a", a.origin);
+
+        // Subscribed before anything is primary, as the provider does on mount.
+        const seen: boolean[] = [];
+        const off = onPrimaryStatusChange((status) => seen.push(status.connected));
+        setPrimary("a");
+        await openConnection("b", b.origin);
+        // A status change on a machine that is not primary is not primary's.
+        closeConnection("b", "detach");
+        closeConnection("a", "detach");
+        off();
+
+        // Not connected, a's live status, then a's close (which also clears primary).
+        expect(seen).toEqual([false, true, false, false]);
     });
 });

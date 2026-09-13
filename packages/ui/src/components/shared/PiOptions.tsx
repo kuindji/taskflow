@@ -11,6 +11,8 @@ import { SettingRow } from "@/components/settings/sections/SettingRow";
 import type { PiThinkingLevel } from "@taskflow/shared";
 
 interface PiOptionsProps {
+    /** The machine the session runs on (settings: primary); lists its models. */
+    backendId: string | null;
     modelValue: string;
     thinkingValue: PiThinkingLevel;
     toolsValue: string;
@@ -43,6 +45,7 @@ const LABELS = {
 const THINKING_OPTIONS: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 function PiOptions({
+    backendId,
     modelValue,
     thinkingValue,
     toolsValue,
@@ -56,7 +59,7 @@ function PiOptions({
     return (
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
-                <PiModelSelect value={modelValue} onChange={onModelChange} />
+                <PiModelSelect backendId={backendId} value={modelValue} onChange={onModelChange} />
             </SettingRow>
             <SettingRow label={l.thinking} hint={l.thinkingHint}>
                 <Select

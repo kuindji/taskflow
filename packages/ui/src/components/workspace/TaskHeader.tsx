@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import type { Scoped } from "@/lib/backend-scope";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
@@ -146,13 +146,16 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
         if (pulling || !gitRepoPath) return;
         setPulling(true);
         try {
-            await sendRequest(MSG.GIT_PULL, { path: gitRepoPath });
+            // The repository is on the record's machine.
+            const backendId = (task ?? project)?.backendId;
+            if (!backendId) return;
+            await sendRequest(backendId, MSG.GIT_PULL, { path: gitRepoPath });
         } catch {
             // Pull failed — user will see the error via git output
         } finally {
             setPulling(false);
         }
-    }, [pulling, gitRepoPath]);
+    }, [pulling, gitRepoPath, task, project]);
 
     const showPush = !hasChanges && !commitDisabled;
     const showCreatePr =

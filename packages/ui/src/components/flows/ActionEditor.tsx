@@ -22,6 +22,8 @@ import { selectableProjectId, selectableProjects } from "@/lib/project-visibilit
 
 interface ActionEditorProps {
     action: ActionDefinition | null;
+    /** The machine the action is saved to; its project picker offers only that machine's. */
+    backendId: string | null;
     defaultProjectId?: string;
     onSave: (action: ActionDefinition) => void;
     onCancel: () => void;
@@ -103,6 +105,7 @@ function normalizeAgentOptions(
 
 function ActionEditor({
     action,
+    backendId,
     defaultProjectId,
     onSave,
     onCancel,
@@ -110,7 +113,12 @@ function ActionEditor({
     deleteDisabled = false,
     deleteDisabledReason,
 }: ActionEditorProps) {
-    const projects = useProjectStore((s) => s.projects);
+    const allProjects = useProjectStore((s) => s.projects);
+    // An action is scoped to a project on the machine it is saved to.
+    const projects = useMemo(
+        () => allProjects.filter((project) => project.backendId === backendId),
+        [allProjects, backendId],
+    );
     const projectOptions = useMemo(
         () => selectableProjects(projects, action?.projectId ? [action.projectId] : []),
         [action, projects],

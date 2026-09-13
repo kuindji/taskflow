@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/select";
 import { Plus, Repeat } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
-import { getPrimary } from "@/lib/connection-registry";
-import { definitionBackend, useFlowStore } from "@/stores/flow-store";
+import { usePrimaryBackend } from "@/hooks/usePrimaryBackend";
+import { useFlowStore } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
 import { FlowEditor } from "./FlowEditor";
 import { ActionEditor } from "./ActionEditor";
@@ -22,9 +22,24 @@ function FlowManagementDialog() {
     const open = useUIStore((s) => s.flowManagementOpen);
     const toggleFlowManagement = useUIStore((s) => s.toggleFlowManagement);
 
-    const flows = useFlowStore((s) => s.flows);
-    const actions = useFlowStore((s) => s.actions);
-    const projects = useProjectStore((s) => s.projects);
+    // An app-level manager: it shows and edits primary's definitions only.
+    // Another machine's are changed by hard-switching to it.
+    const primaryId = usePrimaryBackend();
+    const allFlows = useFlowStore((s) => s.flows);
+    const allActions = useFlowStore((s) => s.actions);
+    const allProjects = useProjectStore((s) => s.projects);
+    const flows = useMemo(
+        () => allFlows.filter((flow) => flow.backendId === primaryId),
+        [allFlows, primaryId],
+    );
+    const actions = useMemo(
+        () => allActions.filter((action) => action.backendId === primaryId),
+        [allActions, primaryId],
+    );
+    const projects = useMemo(
+        () => allProjects.filter((project) => project.backendId === primaryId),
+        [allProjects, primaryId],
+    );
     const activeProjectId = useUIStore((s) => s.activeProjectId);
 
     const [tab, setTab] = useState<"flows" | "actions">("actions");
@@ -34,15 +49,11 @@ function FlowManagementDialog() {
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
 
     useEffect(() => {
-        if (!open) return;
-        // The app-level manager addresses primary; other machines' definitions
-        // arrive with their bootstrap.
-        const primary = getPrimary();
-        if (!primary) return;
+        if (!open || !primaryId) return;
         const { fetchFlows, fetchActions } = useFlowStore.getState();
-        void fetchFlows(primary);
-        void fetchActions(primary);
-    }, [open]);
+        void fetchFlows(primaryId);
+        void fetchActions(primaryId);
+    }, [open, primaryId]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
     const referencedProjectIds = useMemo(
@@ -105,35 +116,45 @@ function FlowManagementDialog() {
         [toggleFlowManagement],
     );
 
-    const handleSaveFlow = useCallback(async (flow: FlowDefinition) => {
-        const store = useFlowStore.getState();
-        await store.saveFlow(definitionBackend(store.flows, flow.id), flow);
-        setSelectedId(flow.id);
-        setCreating(false);
-    }, []);
+    const handleSaveFlow = useCallback(
+        async (flow: FlowDefinition) => {
+            if (!primaryId) throw new Error("Not connected to a backend");
+            await useFlowStore.getState().saveFlow(primaryId, flow);
+            setSelectedId(flow.id);
+            setCreating(false);
+        },
+        [primaryId],
+    );
 
-    const handleSaveAction = useCallback(async (action: ActionDefinition) => {
-        const store = useFlowStore.getState();
-        await store.saveAction(definitionBackend(store.actions, action.id), action);
-        setSelectedId(action.id);
-        setCreating(false);
-    }, []);
+    const handleSaveAction = useCallback(
+        async (action: ActionDefinition) => {
+            if (!primaryId) throw new Error("Not connected to a backend");
+            await useFlowStore.getState().saveAction(primaryId, action);
+            setSelectedId(action.id);
+            setCreating(false);
+        },
+        [primaryId],
+    );
 
-    const handleDeleteFlow = useCallback(async (flowId: string) => {
-        const store = useFlowStore.getState();
-        const flow = store.flows.find((f) => f.id === flowId);
-        if (flow) await store.deleteFlow(flow);
-        setSelectedId(null);
-        setCreating(false);
-    }, []);
+    const handleDeleteFlow = useCallback(
+        async (flowId: string) => {
+            const flow = flows.find((f) => f.id === flowId);
+            if (flow) await useFlowStore.getState().deleteFlow(flow);
+            setSelectedId(null);
+            setCreating(false);
+        },
+        [flows],
+    );
 
-    const handleDeleteAction = useCallback(async (actionId: string) => {
-        const store = useFlowStore.getState();
-        const action = store.actions.find((a) => a.id === actionId);
-        if (action) await store.deleteAction(action);
-        setSelectedId(null);
-        setCreating(false);
-    }, []);
+    const handleDeleteAction = useCallback(
+        async (actionId: string) => {
+            const action = actions.find((a) => a.id === actionId);
+            if (action) await useFlowStore.getState().deleteAction(action);
+            setSelectedId(null);
+            setCreating(false);
+        },
+        [actions],
+    );
 
     const switchTab = useCallback((newTab: "flows" | "actions") => {
         setTab(newTab);
@@ -299,9 +320,7 @@ function FlowManagementDialog() {
                                         : selectedFlow?.id
                                 }
                                 flow={creating ? null : selectedFlow}
-                                backendId={
-                                    creating ? getPrimary() : (selectedFlow?.backendId ?? null)
-                                }
+                                backendId={primaryId}
                                 globalActions={actions}
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSaveFlow}
@@ -321,6 +340,7 @@ function FlowManagementDialog() {
                                         : selectedAction?.id
                                 }
                                 action={creating ? null : selectedAction}
+                                backendId={primaryId}
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSaveAction}
                                 onCancel={clearSelection}

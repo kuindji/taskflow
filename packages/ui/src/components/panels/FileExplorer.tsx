@@ -40,8 +40,8 @@ function FileExplorer() {
             return;
         }
 
-        void fetchTree(workingDir);
-        void fetchGitStatus(workingDir);
+        void fetchTree(backendId, workingDir);
+        void fetchGitStatus(backendId, workingDir);
         void watchPath(backendId, workingDir);
 
         return () => {

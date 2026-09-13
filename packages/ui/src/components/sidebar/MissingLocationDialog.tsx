@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { FolderOpen } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 
 interface MissingLocationDialogProps {
     project: Scoped<Project> | null;
@@ -34,9 +35,11 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
     const removeProject = useProjectStore((s) => s.removeProject);
     const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // The picker lists this machine's folders; a remote project's path is on its own.
+    const localOnlyHint = useLocalOnlyHint(project?.backendId ?? null);
 
     const handleChangeLocation = useCallback(async () => {
-        if (!project) return;
+        if (!project || localOnlyHint) return;
         setError(null);
         const selected = await window.taskflow?.selectProjectDirectory();
         if (!selected) return;
@@ -46,7 +49,7 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to update project location");
         }
-    }, [project, updateProject, onOpenChange]);
+    }, [project, localOnlyHint, updateProject, onOpenChange]);
 
     const handleRemove = useCallback(async () => {
         if (!project) return;
@@ -78,12 +81,16 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
                         <Button variant="destructive" onClick={() => setConfirmRemoveOpen(true)}>
                             Remove Project
                         </Button>
-                        <Button
-                            onClick={() => void handleChangeLocation()}
-                            className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
-                            <FolderOpen className="h-4 w-4" />
-                            Change Location
-                        </Button>
+                        {/* A disabled button takes no pointer events, so the wrapper carries the tooltip. */}
+                        <span title={localOnlyHint ?? undefined}>
+                            <Button
+                                onClick={() => void handleChangeLocation()}
+                                disabled={localOnlyHint !== null}
+                                className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
+                                <FolderOpen className="h-4 w-4" />
+                                Change Location
+                            </Button>
+                        </span>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

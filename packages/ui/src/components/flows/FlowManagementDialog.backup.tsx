@@ -293,6 +293,9 @@ function FlowManagementDialog() {
                                         : selectedAction?.id
                                 }
                                 action={creating ? null : selectedAction}
+                                backendId={
+                                    creating ? getPrimary() : (selectedAction?.backendId ?? null)
+                                }
                                 defaultProjectId={defaultProjectId}
                                 onSave={handleSaveAction}
                                 onCancel={clearSelection}

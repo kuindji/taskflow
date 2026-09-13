@@ -10,6 +10,7 @@ import {
     AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { useFileStore } from "@/stores/file-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 
 interface MoveFileDialogProps {
     open: boolean;
@@ -24,6 +25,7 @@ function MoveFileDialog({ open, onOpenChange, sourcePath, destinationDir }: Move
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const renameFile = useFileStore((s) => s.renameFile);
+    const backendId = useWorkspaceBackend();
 
     useEffect(() => {
         if (open) {
@@ -33,11 +35,12 @@ function MoveFileDialog({ open, onOpenChange, sourcePath, destinationDir }: Move
     }, [open]);
 
     const handleMove = async () => {
+        if (!backendId) return;
         setSubmitting(true);
         setError(null);
         try {
             const newPath = destinationDir + "/" + fileName;
-            await renameFile(sourcePath, newPath);
+            await renameFile(backendId, sourcePath, newPath);
             onOpenChange(false);
         } catch (e) {
             console.error("Move failed:", e);

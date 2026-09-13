@@ -508,6 +508,7 @@ export function ProjectGroup({
             {runMenu.flowInputState && (
                 <FlowInputDialog
                     open
+                    backendId={project.backendId}
                     flowName={runMenu.flowInputState.flowName}
                     inputs={runMenu.flowInputState.inputs}
                     onSubmit={runMenu.onFlowInputSubmit}

@@ -3,7 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useBackendStore } from "@/stores/backend-store";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { useIsLocalBackend } from "@/hooks/useIsLocalBackend";
+
+const REMOTE_DATA_DIR_HINT =
+    "Primary is another machine: its data folder can only be changed on that machine.";
 import {
     MSG,
     ALL_AGENT_TYPES,
@@ -73,7 +77,10 @@ function SettingsModal() {
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
-    const remoteAgent = useRemoteAgentStatus();
+    const remoteAgent = useRemoteAgentStatus(primaryId);
+    // The data folder is picked with this machine's native dialog, so only a
+    // local primary can take the path it returns.
+    const primaryIsLocal = useIsLocalBackend(primaryId);
     const [migrating, setMigrating] = useState(false);
     const [migrationError, setMigrationError] = useState<string | null>(null);
     const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -83,8 +90,9 @@ function SettingsModal() {
         if (!open) return;
 
         void fetchDataDir();
+        if (!primaryId) return;
 
-        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
+        sendRequest<ShellListResponse>(primaryId, MSG.SHELLS_LIST, {}).then(
             (response) => {
                 setShells(response.shells);
                 setSystemShellPath(response.systemShellPath);
@@ -95,19 +103,19 @@ function SettingsModal() {
             },
         );
 
-        sendRequest<RuntimeListResponse>(MSG.RUNTIMES_LIST, {}).then(
+        sendRequest<RuntimeListResponse>(primaryId, MSG.RUNTIMES_LIST, {}).then(
             (response) => setRuntimes(response.runtimes),
             () => setRuntimes([]),
         );
 
-        sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {}).then(
+        sendRequest<SystemInfoResponse>(primaryId, MSG.SYSTEM_INFO, {}).then(
             (info) => {
                 setSystemEditors(info.editors);
                 setSystemHostname(info.hostname);
             },
             () => {},
         );
-    }, [open, fetchDataDir]);
+    }, [open, fetchDataDir, primaryId]);
 
     const handleOpenChange = useCallback(
         (value: boolean) => {
@@ -154,6 +162,7 @@ function SettingsModal() {
     );
 
     const handleChangeDataDir = useCallback(async () => {
+        if (!primaryIsLocal) return;
         const selected = await window.taskflow?.selectProjectDirectory();
         if (!selected) return;
         if (selected === dataDirInfo?.dataDir) return;
@@ -178,6 +187,7 @@ function SettingsModal() {
     }, [
         confirmDataDirChange,
         dataDirInfo?.dataDir,
+        primaryIsLocal,
         updateDataDir,
         showMigrationError,
         showDataDirChangedAlert,
@@ -477,6 +487,7 @@ function SettingsModal() {
                                 dataDirInfo={dataDirInfo}
                                 migrating={migrating}
                                 migrationError={migrationError}
+                                dataDirDisabledReason={primaryIsLocal ? null : REMOTE_DATA_DIR_HINT}
                                 confirmBeforeExit={settings.general.confirmBeforeExit}
                                 discoverable={settings.network.discoverable}
                                 displayName={settings.network.displayName}

@@ -20,7 +20,7 @@ import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
-import { onEvent } from "@/hooks/useWebSocket";
+import { onEvent } from "@/lib/connection-registry";
 import { resolveLinkTarget } from "@/lib/markdown/link-target";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
@@ -243,8 +243,10 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
 
     const loadContent = useCallback(async () => {
         const loadId = ++loadIdRef.current;
+        // No machine yet, nothing to read from; the pane keeps loading.
+        if (backendId === null) return;
         try {
-            const text = await readFile(filePath);
+            const text = await readFile(backendId, filePath);
             if (loadId !== loadIdRef.current) return;
             setContent(text);
             setLoadedPath(filePath);
@@ -258,7 +260,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                 setLoading(false);
             }
         }
-    }, [filePath, readFile]);
+    }, [backendId, filePath, readFile]);
 
     // Initial load
     useEffect(() => {
@@ -268,7 +270,9 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
 
     // Track file changes
     useEffect(() => {
-        return onEvent(MSG.FILE_CHANGED, (payload) => {
+        return onEvent(MSG.FILE_CHANGED, (payload, fromBackendId) => {
+            // The same path on another machine is another file.
+            if (fromBackendId !== backendId) return;
             const event = payload as FileChangeEvent;
             if (event.type === "delete") return;
             const covers = event.recursive
@@ -276,7 +280,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                 : event.path === filePath;
             if (covers) void loadContent();
         });
-    }, [filePath, loadContent]);
+    }, [backendId, filePath, loadContent]);
 
     // Restore once *this file's* content has rendered. Gating on `loadedPath`
     // rather than `loading` matters: on an in-tab navigation `filePath` changes
@@ -351,6 +355,8 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
      */
     const toggleTaskLine = useCallback(
         (path: string, snapshot: string, line: number) => {
+            // The file lives on the machine the pane showed it from.
+            if (backendId === null) return;
             queueToggle(path, async () => {
                 const loadId = loadIdRef.current;
                 // The write belongs to `path` — the document the clicked
@@ -362,7 +368,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     shownPathRef.current === path && loadId === loadIdRef.current;
                 let current: string;
                 try {
-                    current = await readFile(path);
+                    current = await readFile(backendId, path);
                 } catch {
                     if (stillShown()) void loadContent();
                     return;
@@ -379,13 +385,13 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                 if (next === current) return;
                 if (stillShown()) setContent(next);
                 try {
-                    await writeFile(path, next);
+                    await writeFile(backendId, path, next);
                 } catch {
                     if (stillShown()) void loadContent();
                 }
             });
         },
-        [loadContent, readFile, writeFile],
+        [backendId, loadContent, readFile, writeFile],
     );
 
     const handleClick = useCallback(

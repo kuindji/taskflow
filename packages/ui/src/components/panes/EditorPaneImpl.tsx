@@ -180,7 +180,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             setDirty(true);
             setLoading(false);
         } else {
-            void readFile(filePath)
+            void readFile(backendId, filePath)
                 .then((content) => {
                     if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     editor.setValue(content);
@@ -206,7 +206,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             if (!editorReadyRef.current) return;
-            void writeFile(filePath, editor.getValue())
+            void writeFile(backendId, filePath, editor.getValue())
                 .then(() => {
                     setEditorDirty(backendId, filePath, false);
                     setDirty(false);
@@ -277,7 +277,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                         if (!editorRef.current || !editorReadyRef.current || backendId === null)
                             return;
                         try {
-                            await writeFile(filePath, editorRef.current.getValue());
+                            await writeFile(backendId, filePath, editorRef.current.getValue());
                             setEditorDirty(backendId, filePath, false);
                             setDirty(false);
                         } catch (err: unknown) {

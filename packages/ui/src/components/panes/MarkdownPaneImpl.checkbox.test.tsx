@@ -31,13 +31,13 @@ function releaseReads() {
 // every render would make `loadContent` unstable and re-read the file on each
 // re-render, which is not how the pane behaves in the app.
 const fileStore = {
-    readFile: (path: string) => {
+    readFile: (_backendId: string, path: string) => {
         if (path !== heldPath) return Promise.resolve(files.get(path) ?? "");
         return new Promise<string>((resolve) => {
             heldReads.push(() => resolve(files.get(path) ?? ""));
         });
     },
-    writeFile: (path: string, content: string) => {
+    writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);
         writes.push(content);
         return Promise.resolve();
@@ -48,16 +48,9 @@ await mock.module("@/stores/file-store", () => ({
     useFileStore: (selector: (s: unknown) => unknown) => selector(fileStore),
 }));
 
-// onEvent is a no-op: this models the window *before* the file watcher's
-// FILE_CHANGED event reaches the other pane, not a broken subscription.
-await mock.module("@/hooks/useWebSocket", () => ({
-    onEvent: () => () => {},
-    getBackendPort: () => 7100,
-    sendRequest: () => Promise.resolve({}),
-    sendFireAndForget: () => {},
-    onStatusChange: () => () => {},
-    connectWebSocket: () => Promise.resolve(),
-}));
+// No backend is connected, so no FILE_CHANGED ever arrives: this models the
+// window *before* the file watcher's event reaches the other pane, not a
+// broken subscription.
 
 await mock.module("@/hooks/useActiveWorkspace", () => ({
     MASTER_WORKSPACE_KEY: "master",
@@ -67,7 +60,7 @@ await mock.module("@/hooks/useActiveWorkspace", () => ({
     useActiveWorkspace: () => ({
         scope: "project" as const,
         task: null,
-        project: { id: "p1", path: "/w" },
+        project: { id: "p1", path: "/w", backendId: "local" },
         workingDir: "/w",
         workspaceKey: "project:p1",
     }),

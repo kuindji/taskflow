@@ -3,11 +3,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDownIcon } from "lucide-react";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
 import type { PiModelInfo, PiModelsResponse } from "@taskflow/shared";
 
 interface PiModelSelectProps {
+    /** The machine whose Pi CLI lists the models. */
+    backendId: string | null;
     value: string;
     onChange: (model: string) => void;
 }
@@ -16,7 +18,7 @@ function modelKey(m: PiModelInfo): string {
     return `${m.provider}/${m.id}`;
 }
 
-function PiModelSelect({ value, onChange }: PiModelSelectProps) {
+function PiModelSelect({ backendId, value, onChange }: PiModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<PiModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
@@ -25,16 +27,26 @@ function PiModelSelect({ value, onChange }: PiModelSelectProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
+    // Another machine has its own models.
     useEffect(() => {
-        if (!open || models !== null || fetchFailed) return;
-        sendRequest<PiModelsResponse>(MSG.PI_MODELS, {})
+        setModels(null);
+        setFetchFailed(false);
+    }, [backendId]);
+
+    useEffect(() => {
+        if (!open || !backendId || models !== null || fetchFailed) return;
+        let cancelled = false;
+        sendRequest<PiModelsResponse>(backendId, MSG.PI_MODELS, {})
             .then((res) => {
-                setModels(res.models);
+                if (!cancelled) setModels(res.models);
             })
             .catch(() => {
-                setFetchFailed(true);
+                if (!cancelled) setFetchFailed(true);
             });
-    }, [open, models, fetchFailed]);
+        return () => {
+            cancelled = true;
+        };
+    }, [open, backendId, models, fetchFailed]);
 
     useEffect(() => {
         setPortalContainer(

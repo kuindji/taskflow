@@ -26,7 +26,7 @@ describe("resolveBackendHost", () => {
 
     // Only the spellings `localhost` itself resolves to are accepted. The rest of
     // 127/8 is loopback but unreachable from every client that dials by name —
-    // `packages/ui/src/hooks/useWebSocket.ts` and the CLI both use `localhost`.
+    // `packages/ui/src/providers/WebSocketProvider.tsx` and the CLI both use `localhost`.
     test.each(["127.0.0.2", "127.255.255.254", "0.0.0.0", "::", "192.168.1.5", "10.0.0.1", "127.0.0.999", "example.com"])(
         "refuses to bind the unauthenticated backend to %p",
         (host) => {

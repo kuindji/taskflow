@@ -326,6 +326,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
+                    backendId={agentBackendId}
                     modelValue={model}
                     autoApprove={ocAutoApprove}
                     onModelChange={setModel}
@@ -333,6 +334,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "pi" ? (
                 <PiOptions
+                    backendId={agentBackendId}
                     modelValue={model}
                     thinkingValue={piThinking}
                     toolsValue={piTools}
@@ -342,6 +344,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "kimi" ? (
                 <KimiOptions
+                    backendId={agentBackendId}
                     modelValue={model}
                     permissionMode={kimiPermissionMode}
                     onModelChange={setModel}

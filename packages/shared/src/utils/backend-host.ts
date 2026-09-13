@@ -13,7 +13,7 @@ const DEFAULT_BACKEND_HOST = "127.0.0.1";
 
 /**
  * Only the addresses `localhost` itself resolves to. The rest of 127/8 is loopback
- * too, but the desktop renderer (`packages/ui/src/hooks/useWebSocket.ts`) and every
+ * too, but the dev renderer (`packages/ui/src/providers/WebSocketProvider.tsx`) and every
  * spawned agent dial the backend by name, so binding e.g. `127.0.0.2` would leave
  * them unable to reach it. Widening this set means teaching those clients the host.
  */

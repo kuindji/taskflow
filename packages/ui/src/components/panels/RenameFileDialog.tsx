@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useFileStore } from "@/stores/file-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 
 interface RenameFileDialogProps {
     open: boolean;
@@ -26,6 +27,7 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
     const [submitting, setSubmitting] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const renameFile = useFileStore((s) => s.renameFile);
+    const backendId = useWorkspaceBackend();
 
     useEffect(() => {
         if (open) {
@@ -55,6 +57,7 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
     }, []);
 
     const handleSubmit = async () => {
+        if (!backendId) return;
         const trimmed = name.trim();
         const validationError = validate(trimmed);
         if (validationError) {
@@ -68,7 +71,7 @@ function RenameFileDialog({ open, onOpenChange, filePath, isDirectory }: RenameF
         setSubmitting(true);
         setError(null);
         try {
-            await renameFile(filePath, parentDir + trimmed);
+            await renameFile(backendId, filePath, parentDir + trimmed);
             onOpenChange(false);
         } catch (e) {
             setError(e instanceof Error ? e.message : "Rename failed");

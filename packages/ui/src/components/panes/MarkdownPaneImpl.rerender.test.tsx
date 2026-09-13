@@ -28,8 +28,8 @@ await mock.module("@/lib/markdown/rehype-task-list-line", () => ({
 
 const files = new Map<string, string>();
 const fileStore = {
-    readFile: (path: string) => Promise.resolve(files.get(path) ?? ""),
-    writeFile: (path: string, content: string) => {
+    readFile: (_backendId: string, path: string) => Promise.resolve(files.get(path) ?? ""),
+    writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);
         return Promise.resolve();
     },
@@ -37,15 +37,6 @@ const fileStore = {
 
 await mock.module("@/stores/file-store", () => ({
     useFileStore: (selector: (s: unknown) => unknown) => selector(fileStore),
-}));
-
-await mock.module("@/hooks/useWebSocket", () => ({
-    onEvent: () => () => {},
-    getBackendPort: () => 7100,
-    sendRequest: () => Promise.resolve({}),
-    sendFireAndForget: () => {},
-    onStatusChange: () => () => {},
-    connectWebSocket: () => Promise.resolve(),
 }));
 
 // Stands in for the task/project stores the real hook subscribes to. Like the
@@ -62,7 +53,7 @@ await mock.module("@/hooks/useActiveWorkspace", () => ({
         return {
             scope: "project" as const,
             task: null,
-            project: { id: "p1", path: "/w" },
+            project: { id: "p1", path: "/w", backendId: "local" },
             workingDir: "/w",
             workspaceKey: "project:p1",
         };

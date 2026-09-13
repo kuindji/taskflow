@@ -18,6 +18,8 @@ interface GeneralSectionProps {
     dataDirInfo: DataDirInfo | null;
     migrating: boolean;
     migrationError: string | null;
+    /** Why the data folder cannot be changed from here; null when it can. */
+    dataDirDisabledReason: string | null;
     confirmBeforeExit: boolean;
     discoverable: boolean;
     displayName: string;
@@ -33,6 +35,7 @@ function GeneralSection({
     dataDirInfo,
     migrating,
     migrationError,
+    dataDirDisabledReason,
     confirmBeforeExit,
     discoverable,
     displayName,
@@ -67,11 +70,12 @@ function GeneralSection({
                     tooltipContent={dataDirInfo?.dataDir ?? "Loading..."}>
                     {dataDirInfo?.dataDir ?? "Loading..."}
                 </TruncatedText>
-                <div className="flex flex-wrap gap-1.5">
+                {/* A disabled button takes no pointer events, so the wrapper carries the tooltip. */}
+                <div className="flex flex-wrap gap-1.5" title={dataDirDisabledReason ?? undefined}>
                     <Button
                         variant="outline"
                         size="sm"
-                        disabled={migrating}
+                        disabled={migrating || dataDirDisabledReason !== null}
                         onClick={onChangeDataDir}>
                         {migrating ? "Moving..." : "Change..."}
                     </Button>
@@ -79,12 +83,15 @@ function GeneralSection({
                         <Button
                             variant="outline"
                             size="sm"
-                            disabled={migrating}
+                            disabled={migrating || dataDirDisabledReason !== null}
                             onClick={onResetDataDir}>
                             Reset
                         </Button>
                     )}
                 </div>
+                {dataDirDisabledReason && (
+                    <p className="text-muted-foreground text-xxs">{dataDirDisabledReason}</p>
+                )}
                 {migrationError && <p className="text-destructive text-xs">{migrationError}</p>}
                 {dataDirInfo && !dataDirInfo.isDefault && (
                     <p className="text-muted-foreground text-xxs">

@@ -16,6 +16,7 @@ import { useFileStore } from "@/stores/file-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 import useIsElectron from "@/hooks/useIsElectron";
 import { openFileInApp } from "@/lib/open-file";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
@@ -49,6 +50,7 @@ function WikiPanel() {
     const root = useWikiRoot();
     const isElectron = useIsElectron();
     const backendId = useWorkspaceBackend();
+    const localOnlyHint = useLocalOnlyHint(backendId);
     const index = useWikiStore((s) =>
         backendId && root ? s.indexByBackend[backendId]?.[root] : undefined,
     );
@@ -69,13 +71,14 @@ function WikiPanel() {
     );
 
     // The registry read hits the disk, so it happens when the menu opens rather
-    // than on every render.
+    // than on every render. Obsidian opens on this machine, so a remote wiki
+    // does not ask.
     const handleMenuOpenChange = useCallback(
         (open: boolean) => {
-            if (!open || root === null) return;
-            void fetchObsidianState(root).then(setObsidian, () => setObsidian(null));
+            if (!open || root === null || !backendId || localOnlyHint) return;
+            void fetchObsidianState(backendId, root).then(setObsidian, () => setObsidian(null));
         },
-        [root],
+        [backendId, localOnlyHint, root],
     );
 
     const handleOpen = useCallback(
@@ -108,7 +111,7 @@ function WikiPanel() {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                {obsidian?.installed === true && (
+                                {obsidian?.installed === true && !localOnlyHint && (
                                     <DropdownMenuItem
                                         disabled={obsidian.vault !== "registered"}
                                         title={
@@ -122,8 +125,13 @@ function WikiPanel() {
                                     </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem
+                                    disabled={!backendId || localOnlyHint !== null}
+                                    title={localOnlyHint ?? undefined}
                                     onSelect={() => {
-                                        void useFileStore.getState().revealInFinder(root);
+                                        if (!backendId) return;
+                                        void useFileStore
+                                            .getState()
+                                            .revealInFinder(backendId, root);
                                     }}>
                                     <FolderOpen className="h-4 w-4" />
                                     Reveal in Finder

@@ -1,31 +1,11 @@
 // packages/ui/src/stores/file-store.test.ts
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { MSG } from "@taskflow/shared";
 import type { FileNode } from "@taskflow/shared";
-
-/** Requests that still go through the primary-routed shim (directory listings). */
-const sent: { type: string; payload: unknown }[] = [];
-
-await mock.module("@/hooks/useWebSocket", () => ({
-    onEvent: () => () => {},
-    sendRequest: (type: string, payload: unknown) => {
-        sent.push({ type, payload });
-        if (type === MSG.FILE_LIST_DIR)
-            return Promise.resolve({ entries: [], gitignorePatterns: [] });
-        return Promise.resolve({});
-    },
-    sendFireAndForget: (type: string, payload: unknown) => {
-        sent.push({ type, payload });
-    },
-    getBackendPort: () => 7100,
-    onStatusChange: () => () => {},
-    connectWebSocket: () => Promise.resolve(),
-}));
-
-const { useFileStore } = await import("./file-store");
-const { closeConnection, openConnection } = await import("@/lib/connection-registry");
-const { startTestServer } = await import("@/lib/test-ws-server");
-const { resetBackend } = await import("./store-reset");
+import { useFileStore } from "./file-store";
+import { closeConnection, openConnection } from "@/lib/connection-registry";
+import { startTestServer } from "@/lib/test-ws-server";
+import { resetBackend } from "./store-reset";
 
 const root = "/repo";
 const tree: FileNode = {
@@ -54,10 +34,13 @@ const tree: FileNode = {
     ],
 };
 
+const EMPTY_LISTING = { entries: [], gitignorePatterns: [] };
+
 // Two machines, each holding the same repository at the same path.
 /** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
 let desktopNextUnwatchHold: Promise<void> | null = null;
 const desktop = startTestServer("desktop", (type) => {
+    if (type === MSG.FILE_LIST_DIR) return EMPTY_LISTING;
     if (type !== MSG.FILE_UNWATCH || !desktopNextUnwatchHold) return { from: "desktop" };
     const hold = desktopNextUnwatchHold;
     desktopNextUnwatchHold = null;
@@ -65,11 +48,12 @@ const desktop = startTestServer("desktop", (type) => {
 });
 /** While set, laptop's FILE_WATCH answers wait for it. */
 let laptopWatchHold: Promise<void> | null = null;
-const laptop = startTestServer("laptop", (type) =>
-    type === MSG.FILE_WATCH && laptopWatchHold
+const laptop = startTestServer("laptop", (type) => {
+    if (type === MSG.FILE_LIST_DIR) return EMPTY_LISTING;
+    return type === MSG.FILE_WATCH && laptopWatchHold
         ? laptopWatchHold.then(() => ({ from: "laptop" }))
-        : { from: "laptop" },
-);
+        : { from: "laptop" };
+});
 
 /** Holds laptop's watch answers until the returned function is called. */
 function holdLaptopWatch(): () => void {
@@ -91,8 +75,8 @@ async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
-function listedDirs(): string[] {
-    return sent
+function listedDirs(server: typeof desktop): string[] {
+    return server.received
         .filter((m) => m.type === MSG.FILE_LIST_DIR)
         .map((m) => (m.payload as { path: string }).path)
         .sort();
@@ -110,8 +94,15 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-    useFileStore.setState({ tree, treePath: root, watched: { backendId: "desktop", path: root } });
-    sent.length = 0;
+    useFileStore.setState({
+        tree,
+        treePath: root,
+        treeBackendId: "desktop",
+        loadingDirs: new Set<string>(),
+        watched: { backendId: "desktop", path: root },
+    });
+    desktop.received.length = 0;
+    laptop.received.length = 0;
 });
 
 afterAll(() => {
@@ -133,7 +124,7 @@ describe("file-store recursive change events", () => {
         await settle();
 
         // Loaded dirs at or under the path, plus the path's parent (the dir itself may be gone).
-        expect(listedDirs()).toEqual([root, `${root}/src`, `${root}/src/deep`]);
+        expect(listedDirs(desktop)).toEqual([root, `${root}/src`, `${root}/src/deep`]);
     });
 
     test("a recursive event below the root also refreshes the nearest loaded parent", async () => {
@@ -145,21 +136,21 @@ describe("file-store recursive change events", () => {
         });
         await settle();
 
-        expect(listedDirs()).toEqual([`${root}/src`, `${root}/src/deep`]);
+        expect(listedDirs(desktop)).toEqual([`${root}/src`, `${root}/src/deep`]);
     });
 
     test("a plain event still refetches only the parent directory", async () => {
         desktop.broadcast(MSG.FILE_CHANGED, { type: "modify", path: `${root}/docs/a.md` });
         await settle();
 
-        expect(listedDirs()).toEqual([`${root}/docs`]);
+        expect(listedDirs(desktop)).toEqual([`${root}/docs`]);
     });
 
     test("an event for a sibling path that merely shares the root's prefix is ignored", async () => {
         desktop.broadcast(MSG.FILE_CHANGED, { type: "modify", path: `${root}-old/docs/a.md` });
         await settle();
 
-        expect(listedDirs()).toEqual([]);
+        expect(listedDirs(desktop)).toEqual([]);
     });
 });
 
@@ -168,13 +159,21 @@ describe("file-store across machines", () => {
         laptop.broadcast(MSG.FILE_CHANGED, { type: "modify", path: `${root}/docs/a.md` });
         await settle();
 
-        expect(listedDirs()).toEqual([]);
+        expect(listedDirs(desktop)).toEqual([]);
+        expect(listedDirs(laptop)).toEqual([]);
+    });
+
+    test("expanding a directory lists it on the machine that listed the tree", async () => {
+        // Same path on both machines: only the tree's own machine knows its contents.
+        useFileStore.setState({ treeBackendId: "laptop" });
+
+        await useFileStore.getState().expandDir(`${root}/src/closed`);
+
+        expect(listedDirs(laptop)).toEqual([`${root}/src/closed`]);
+        expect(listedDirs(desktop)).toEqual([]);
     });
 
     test("opening the same path on a second machine watches it there and releases the first", async () => {
-        desktop.received.length = 0;
-        laptop.received.length = 0;
-
         await useFileStore.getState().watchPath("laptop", root);
 
         expect(watchRequests(laptop, MSG.FILE_WATCH)).toEqual([{ path: root }]);
@@ -184,8 +183,6 @@ describe("file-store across machines", () => {
 
     test("a watch that lands after the pane moved to another machine is released where it landed", async () => {
         useFileStore.setState({ watched: null });
-        desktop.received.length = 0;
-        laptop.received.length = 0;
         const release = holdLaptopWatch();
 
         const late = useFileStore.getState().watchPath("laptop", root);
@@ -205,7 +202,6 @@ describe("file-store across machines", () => {
 
     test("a watch unwatched before it lands is released and not recorded", async () => {
         useFileStore.setState({ watched: null });
-        laptop.received.length = 0;
         const release = holdLaptopWatch();
 
         const late = useFileStore.getState().watchPath("laptop", root);
@@ -220,8 +216,6 @@ describe("file-store across machines", () => {
     });
 
     test("an unwatch answered after the next watch landed does not forget that watch", async () => {
-        desktop.received.length = 0;
-        laptop.received.length = 0;
         let release = () => {};
         desktopNextUnwatchHold = new Promise<void>((resolve) => {
             release = resolve;
@@ -239,7 +233,6 @@ describe("file-store across machines", () => {
     });
 
     test("a move to another machine cancelled while the old watch is released forgets the old watch", async () => {
-        desktop.received.length = 0;
         let release = () => {};
         desktopNextUnwatchHold = new Promise<void>((resolve) => {
             release = resolve;

@@ -6,7 +6,7 @@ import type {
     GitStatusResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { confirm } from "@/stores/dialog-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -181,6 +181,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const [unstagedCollapsed, setUnstagedCollapsed] = useState(false);
     const repoVersionRef = useRef(0);
     const diffRequestIdRef = useRef(0);
+    const request = useWorkspaceRequest();
 
     const containerClasses = useMemo(
         () => cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
@@ -190,7 +191,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
     const fetchStatus = useCallback(
         async (repoVersion = repoVersionRef.current) => {
             try {
-                const { status } = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
+                const { status } = await request<GitStatusResponse>(MSG.GIT_STATUS, {
                     path: repoPath,
                 });
                 if (repoVersion !== repoVersionRef.current) return;
@@ -200,7 +201,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                 console.error("Failed to fetch git status:", err);
             }
         },
-        [repoPath],
+        [repoPath, request],
     );
 
     useEffect(() => {
@@ -222,7 +223,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             setDiffTab(fromStaged ? "staged" : "unstaged");
         }
         try {
-            const result = await sendRequest<GitDiffFileContentResult>(MSG.GIT_DIFF_FILE_CONTENT, {
+            const result = await request<GitDiffFileContentResult>(MSG.GIT_DIFF_FILE_CONTENT, {
                 repoPath,
                 filePath,
             });
@@ -249,7 +250,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
     async function stageFile(file: GitFileStatus) {
         try {
-            await sendRequest(MSG.GIT_STAGE, { repoPath, filePath: file.path });
+            await request(MSG.GIT_STAGE, { repoPath, filePath: file.path });
             await fetchStatus();
             if (selectedFile === file.path) void showDiff(file.path);
         } catch (err) {
@@ -259,7 +260,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
     async function unstageFile(file: GitFileStatus) {
         try {
-            await sendRequest(MSG.GIT_UNSTAGE, { repoPath, filePath: file.path });
+            await request(MSG.GIT_UNSTAGE, { repoPath, filePath: file.path });
             await fetchStatus();
             if (selectedFile === file.path) void showDiff(file.path);
         } catch (err) {
@@ -269,7 +270,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
     async function stageAll() {
         try {
-            await sendRequest(MSG.GIT_STAGE, { repoPath });
+            await request(MSG.GIT_STAGE, { repoPath });
             await fetchStatus();
             if (selectedFile) void showDiff(selectedFile);
         } catch (err) {
@@ -279,7 +280,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
 
     async function unstageAll() {
         try {
-            await sendRequest(MSG.GIT_UNSTAGE, { repoPath });
+            await request(MSG.GIT_UNSTAGE, { repoPath });
             await fetchStatus();
             if (selectedFile) void showDiff(selectedFile);
         } catch (err) {
@@ -295,7 +296,7 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             confirmLabel: "Revert",
             variant: "destructive",
             onConfirm: async () => {
-                await sendRequest(MSG.GIT_REVERT_FILE, {
+                await request(MSG.GIT_REVERT_FILE, {
                     repoPath,
                     filePath: file.path,
                     status: file.status,

@@ -25,6 +25,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { sendRequest } from "@/lib/connection-registry";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 import { DEFAULT_TERMINAL_SHELL } from "@taskflow/shared";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import {
@@ -57,6 +58,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const createSession = useSessionStore((s) => s.createSession);
     // The terminal opens on the workspace's machine, with that machine's shell.
     const backendId = useWorkspaceBackend();
+    // Opening externally and revealing happen on the backend's machine's desktop.
+    const localOnlyHint = useLocalOnlyHint(backendId);
+    const localOnlyLabel = localOnlyHint ? " (not on this machine)" : "";
     const configuredShell = useSettingsStore(
         (s) =>
             (backendId ? s.byBackend[backendId] : s.settings)?.terminal.defaultShell ??
@@ -109,8 +113,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     }, [filePath, rootPath]);
 
     const handleOpenExternal = useCallback(() => {
-        void openExternal(filePath);
-    }, [filePath, openExternal]);
+        if (!backendId || localOnlyHint) return;
+        void openExternal(backendId, filePath);
+    }, [backendId, filePath, localOnlyHint, openExternal]);
 
     const handleOpenInTerminal = useCallback(async () => {
         if (!workspace.scope || !backendId) return;
@@ -137,8 +142,9 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     }, [filePath, isDirectory, workspace, backendId, configuredShell, createSession]);
 
     const handleReveal = useCallback(() => {
-        void revealInFinder(filePath);
-    }, [filePath, revealInFinder]);
+        if (!backendId || localOnlyHint) return;
+        void revealInFinder(backendId, filePath);
+    }, [backendId, filePath, localOnlyHint, revealInFinder]);
 
     const handleNativeContextMenu = useCallback(
         async (event: React.MouseEvent<HTMLDivElement>) => {
@@ -178,12 +184,20 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             }
 
             if (!isDirectory) {
-                items.push({ id: "open-external", label: "Open in External Editor" });
+                items.push({
+                    id: "open-external",
+                    label: `Open in External Editor${localOnlyLabel}`,
+                    enabled: !localOnlyHint,
+                });
                 actions["open-external"] = handleOpenExternal;
             }
 
             items.push(
-                { id: "reveal", label: "Reveal in Finder" },
+                {
+                    id: "reveal",
+                    label: `Reveal in Finder${localOnlyLabel}`,
+                    enabled: !localOnlyHint,
+                },
                 { id: "open-terminal", label: "Open in Terminal" },
             );
 
@@ -206,6 +220,8 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             handleReveal,
             isDirectory,
             isMarkdown,
+            localOnlyHint,
+            localOnlyLabel,
             setContextMenuPath,
         ],
     );
@@ -258,12 +274,18 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                             </ContextMenuItem>
                         )}
                         {!isDirectory && (
-                            <ContextMenuItem onSelect={handleOpenExternal}>
+                            <ContextMenuItem
+                                disabled={localOnlyHint !== null}
+                                title={localOnlyHint ?? undefined}
+                                onSelect={handleOpenExternal}>
                                 <ExternalLink />
-                                Open in External Editor
+                                Open in External Editor{localOnlyLabel}
                             </ContextMenuItem>
                         )}
-                        <ContextMenuItem onSelect={handleReveal}>
+                        <ContextMenuItem
+                            disabled={localOnlyHint !== null}
+                            title={localOnlyHint ?? undefined}
+                            onSelect={handleReveal}>
                             <FolderOpen />
                             Reveal in Finder
                         </ContextMenuItem>

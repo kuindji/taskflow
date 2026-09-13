@@ -33,8 +33,9 @@ await mock.module("@/hooks/useAgentAvailability", () => ({
     ): boolean => agents.find((agent) => agent.type === type)?.available ?? true,
 }));
 
-await mock.module("@/hooks/useWebSocket", () => ({
-    sendRequest: (): Promise<GitStatusResponse> =>
+// Git requests go to the workspace's machine; the dialog only needs a status.
+await mock.module("@/hooks/useWorkspaceRequest", () => ({
+    useWorkspaceRequest: () => (): Promise<GitStatusResponse> =>
         Promise.resolve({
             status: {
                 branch: "main",

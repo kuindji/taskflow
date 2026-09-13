@@ -7,7 +7,7 @@ import type {
     GitLogResult,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -125,12 +125,13 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
     const [diffError, setDiffError] = useState(false);
     const repoVersionRef = useRef(0);
     const requestIdRef = useRef(0);
+    const request = useWorkspaceRequest();
 
     const fetchLog = useCallback(
         async (skip: number, repoVersion = repoVersionRef.current) => {
             setLogLoading(true);
             try {
-                const result = await sendRequest<GitLogResult>(MSG.GIT_LOG, {
+                const result = await request<GitLogResult>(MSG.GIT_LOG, {
                     repoPath,
                     limit: PAGE_SIZE,
                     skip,
@@ -147,7 +148,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                 if (repoVersion === repoVersionRef.current) setLogLoading(false);
             }
         },
-        [repoPath],
+        [repoPath, request],
     );
 
     useEffect(() => {
@@ -177,7 +178,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         setDiffLoading(false);
         setDiffError(false);
         try {
-            const result = await sendRequest<GitCommitFilesResult>(MSG.GIT_COMMIT_FILES, {
+            const result = await request<GitCommitFilesResult>(MSG.GIT_COMMIT_FILES, {
                 repoPath,
                 hash,
             });
@@ -205,7 +206,7 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         if (isBinary(file)) return;
         setDiffLoading(true);
         try {
-            const result = await sendRequest<GitFileContentPair>(MSG.GIT_COMMIT_DIFF_FILE, {
+            const result = await request<GitFileContentPair>(MSG.GIT_COMMIT_DIFF_FILE, {
                 repoPath,
                 hash: selectedHash,
                 path: file.path,

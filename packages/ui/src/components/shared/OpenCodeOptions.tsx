@@ -4,6 +4,8 @@ import { OpenCodeModelSelect } from "@/components/settings/OpenCodeModelSelect";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
 
 interface OpenCodeOptionsProps {
+    /** The machine the session runs on (settings: primary); lists its models. */
+    backendId: string | null;
     modelValue: string;
     autoApprove: boolean;
     onModelChange: (value: string) => void;
@@ -28,6 +30,7 @@ const LABELS = {
 };
 
 function OpenCodeOptions({
+    backendId,
     modelValue,
     autoApprove,
     onModelChange,
@@ -39,7 +42,11 @@ function OpenCodeOptions({
     return (
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
-                <OpenCodeModelSelect value={modelValue} onChange={onModelChange} />
+                <OpenCodeModelSelect
+                    backendId={backendId}
+                    value={modelValue}
+                    onChange={onModelChange}
+                />
             </SettingRow>
             <SettingRow label={l.autoApprove} hint={l.autoApproveHint} className="h-8">
                 <div className="flex items-center gap-2.5">

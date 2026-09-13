@@ -10,6 +10,7 @@ import {
     AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { useFileStore } from "@/stores/file-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 
 interface DeleteFileDialogProps {
     open: boolean;
@@ -23,6 +24,7 @@ function DeleteFileDialog({ open, onOpenChange, filePath, isDirectory }: DeleteF
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const deleteFile = useFileStore((s) => s.deleteFile);
+    const backendId = useWorkspaceBackend();
 
     useEffect(() => {
         if (open) {
@@ -32,10 +34,11 @@ function DeleteFileDialog({ open, onOpenChange, filePath, isDirectory }: DeleteF
     }, [open]);
 
     const handleDelete = async () => {
+        if (!backendId) return;
         setSubmitting(true);
         setError(null);
         try {
-            await deleteFile(filePath);
+            await deleteFile(backendId, filePath);
             onOpenChange(false);
         } catch (e) {
             console.error("Delete failed:", e);

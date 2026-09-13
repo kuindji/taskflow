@@ -7,7 +7,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import type { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -84,7 +84,8 @@ function useWorkspaceTabOps({
 
         let shell = defaultShellPath;
         if (!shell) {
-            const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+            if (!backendId) return;
+            const res = await sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {});
             shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
         }
         if (!shell) return;
@@ -111,6 +112,7 @@ function useWorkspaceTabOps({
             targetKey,
         );
     }, [
+        backendId,
         configuredShell,
         createSession,
         defaultShellPath,

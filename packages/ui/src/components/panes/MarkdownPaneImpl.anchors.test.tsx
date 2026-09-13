@@ -17,8 +17,8 @@ const files = new Map<string, string>();
 // object per call hands out new `readFile`/`writeFile` identities every render,
 // which makes the pane's `loadContent` unstable and re-read the file forever.
 const fileStore = {
-    readFile: (path: string) => Promise.resolve(files.get(path) ?? ""),
-    writeFile: (path: string, content: string) => {
+    readFile: (_backendId: string, path: string) => Promise.resolve(files.get(path) ?? ""),
+    writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);
         return Promise.resolve();
     },
@@ -26,15 +26,6 @@ const fileStore = {
 
 await mock.module("@/stores/file-store", () => ({
     useFileStore: (selector: (s: typeof fileStore) => unknown) => selector(fileStore),
-}));
-
-await mock.module("@/hooks/useWebSocket", () => ({
-    onEvent: () => () => {},
-    getBackendPort: () => 7100,
-    sendRequest: () => Promise.resolve({}),
-    sendFireAndForget: () => {},
-    onStatusChange: () => () => {},
-    connectWebSocket: () => Promise.resolve(),
 }));
 
 await mock.module("@/hooks/useActiveWorkspace", () => ({
@@ -45,7 +36,7 @@ await mock.module("@/hooks/useActiveWorkspace", () => ({
     useActiveWorkspace: () => ({
         scope: "project" as const,
         task: null,
-        project: { id: "p1", path: "/w" },
+        project: { id: "p1", path: "/w", backendId: "local" },
         workingDir: "/w",
         workspaceKey: "project:p1",
     }),

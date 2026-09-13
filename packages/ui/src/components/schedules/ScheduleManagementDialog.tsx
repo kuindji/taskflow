@@ -24,7 +24,7 @@ import { useConnectivity } from "@/hooks/useConnectivity";
 import { useProjectStore } from "@/stores/project-store";
 import { useFlowStore } from "@/stores/flow-store";
 import type { Scoped } from "@/lib/backend-scope";
-import { getPrimary } from "@/lib/connection-registry";
+import { usePrimaryBackend } from "@/hooks/usePrimaryBackend";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
 import { selectableProjects } from "@/lib/project-visibility";
@@ -66,9 +66,24 @@ function ScheduleManagementDialog() {
     const open = useUIStore((s) => s.scheduleManagementOpen);
     const toggleScheduleManagement = useUIStore((s) => s.toggleScheduleManagement);
 
-    const schedules = useScheduleStore((s) => s.schedules);
-    const projects = useProjectStore((s) => s.projects);
-    const allActions = useFlowStore((s) => s.actions);
+    // An app-level view: it shows and edits primary's schedules only. Another
+    // machine's are changed by hard-switching to it.
+    const primaryId = usePrimaryBackend();
+    const everySchedule = useScheduleStore((s) => s.schedules);
+    const everyProject = useProjectStore((s) => s.projects);
+    const everyAction = useFlowStore((s) => s.actions);
+    const schedules = useMemo(
+        () => everySchedule.filter((schedule) => schedule.backendId === primaryId),
+        [everySchedule, primaryId],
+    );
+    const projects = useMemo(
+        () => everyProject.filter((project) => project.backendId === primaryId),
+        [everyProject, primaryId],
+    );
+    const allActions = useMemo(
+        () => everyAction.filter((action) => action.backendId === primaryId),
+        [everyAction, primaryId],
+    );
     const activeProjectId = useUIStore((s) => s.activeProjectId);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -79,14 +94,10 @@ function ScheduleManagementDialog() {
     const online = useConnectivity();
 
     useEffect(() => {
-        if (!open) return;
-        // The app-level view addresses primary; other machines' schedules and
-        // actions arrive with their bootstrap and stay current through events.
-        const primary = getPrimary();
-        if (!primary) return;
-        void useScheduleStore.getState().fetchSchedules(primary);
-        void useFlowStore.getState().fetchActions(primary);
-    }, [open]);
+        if (!open || !primaryId) return;
+        void useScheduleStore.getState().fetchSchedules(primaryId);
+        void useFlowStore.getState().fetchActions(primaryId);
+    }, [open, primaryId]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
     const projectOptions = useMemo(

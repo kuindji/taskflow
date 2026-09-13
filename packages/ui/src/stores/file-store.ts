@@ -8,8 +8,7 @@ import type {
     FileReadResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "../hooks/useWebSocket";
-import { onEvent as onEventFrom, sendRequest as sendRequestTo } from "@/lib/connection-registry";
+import { onEvent, sendRequest } from "@/lib/connection-registry";
 import { useDiffStore } from "./diff-store";
 import { registerBackendReset } from "./store-reset";
 
@@ -78,6 +77,8 @@ interface PendingMove {
 interface FileStore {
     tree: FileNode | null;
     treePath: string | null;
+    /** The machine that listed `tree`; its directories are fetched from there. */
+    treeBackendId: string | null;
     gitignorePatterns: string[];
     gitStatus: GitStatusResult | null;
     gitStatusPath: string | null;
@@ -90,20 +91,20 @@ interface FileStore {
     onOpenFile: ((path: string) => void) | null;
     dragOverPath: string | null;
     pendingMove: PendingMove | null;
-    fetchTree(path: string): Promise<void>;
+    fetchTree(backendId: string, path: string): Promise<void>;
     fetchDir(dirPath: string): Promise<void>;
-    fetchGitStatus(path: string): Promise<void>;
+    fetchGitStatus(backendId: string, path: string): Promise<void>;
     watchPath(backendId: string, path: string): Promise<void>;
     unwatchPath(backendId: string, path: string): Promise<void>;
     clearExplorerState(): void;
-    readFile(path: string): Promise<string>;
-    writeFile(path: string, content: string): Promise<void>;
-    renameFile(oldPath: string, newPath: string): Promise<void>;
-    deleteFile(path: string): Promise<void>;
-    createFile(path: string): Promise<void>;
-    createDirectory(path: string): Promise<void>;
-    openExternal(path: string): Promise<void>;
-    revealInFinder(path: string): Promise<void>;
+    readFile(backendId: string, path: string): Promise<string>;
+    writeFile(backendId: string, path: string, content: string): Promise<void>;
+    renameFile(backendId: string, oldPath: string, newPath: string): Promise<void>;
+    deleteFile(backendId: string, path: string): Promise<void>;
+    createFile(backendId: string, path: string): Promise<void>;
+    createDirectory(backendId: string, path: string): Promise<void>;
+    openExternal(backendId: string, path: string): Promise<void>;
+    revealInFinder(backendId: string, path: string): Promise<void>;
     expandToPathAndLoad(targetPath: string): Promise<void>;
     toggleDir(path: string): void;
     expandDir(path: string): Promise<void>;
@@ -131,12 +132,15 @@ function isWatchOf(watch: WatchedPath | null, backendId: string, path: string): 
     return watch?.backendId === backendId && watch.path === path;
 }
 let gitStatusRequestId = 0;
+/** The machine `gitStatus` came from: the same path on another machine is another repo. */
+let gitStatusBackendId: string | null = null;
 
 const emptyLoadingDirs = new Set<string>();
 
 export const useFileStore = create<FileStore>((set, get) => ({
     tree: null,
     treePath: null,
+    treeBackendId: null,
     gitignorePatterns: [],
     gitStatus: null,
     gitStatusPath: null,
@@ -149,16 +153,21 @@ export const useFileStore = create<FileStore>((set, get) => ({
     onOpenFile: null,
     dragOverPath: null,
     pendingMove: null,
-    async fetchTree(path) {
+    async fetchTree(backendId, path) {
         const requestId = ++treeRequestId;
-        set((state) => ({
-            loading: true,
-            tree: state.treePath === path ? state.tree : null,
-            treePath: state.treePath === path ? state.treePath : null,
-            gitignorePatterns: state.treePath === path ? state.gitignorePatterns : [],
-            loadingDirs: emptyLoadingDirs,
-        }));
+        set((state) => {
+            const same = state.treePath === path && state.treeBackendId === backendId;
+            return {
+                loading: true,
+                tree: same ? state.tree : null,
+                treePath: same ? state.treePath : null,
+                treeBackendId: same ? state.treeBackendId : null,
+                gitignorePatterns: same ? state.gitignorePatterns : [],
+                loadingDirs: emptyLoadingDirs,
+            };
+        });
         const { entries, gitignorePatterns } = await sendRequest<FileListDirResponse>(
+            backendId,
             MSG.FILE_LIST_DIR,
             { path },
         );
@@ -173,21 +182,31 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({
             tree: rootNode,
             treePath: path,
+            treeBackendId: backendId,
             gitignorePatterns,
             loading: false,
             expandedDirs: new Set([path]),
         });
     },
     async fetchDir(dirPath) {
-        if (get().loadingDirs.has(dirPath)) return;
+        const backendId = get().treeBackendId;
+        if (!backendId || get().loadingDirs.has(dirPath)) return;
         const newLoading = new Set(get().loadingDirs);
         newLoading.add(dirPath);
         set({ loadingDirs: newLoading });
         try {
-            const { entries } = await sendRequest<FileListDirResponse>(MSG.FILE_LIST_DIR, {
-                path: dirPath,
-            });
+            const { entries } = await sendRequest<FileListDirResponse>(
+                backendId,
+                MSG.FILE_LIST_DIR,
+                { path: dirPath },
+            );
             set((state) => {
+                // The explorer moved to another machine while this was answered.
+                if (state.treeBackendId !== backendId) {
+                    const updatedLoading = new Set(state.loadingDirs);
+                    updatedLoading.delete(dirPath);
+                    return { loadingDirs: updatedLoading };
+                }
                 const updatedLoading = new Set(state.loadingDirs);
                 updatedLoading.delete(dirPath);
                 const newTree = state.tree
@@ -206,14 +225,18 @@ export const useFileStore = create<FileStore>((set, get) => ({
             });
         }
     },
-    async fetchGitStatus(path) {
+    async fetchGitStatus(backendId, path) {
         const requestId = ++gitStatusRequestId;
+        const same = gitStatusBackendId === backendId;
         set((state) => ({
-            gitStatus: state.gitStatusPath === path ? state.gitStatus : null,
-            gitStatusPath: state.gitStatusPath === path ? state.gitStatusPath : null,
+            gitStatus: same && state.gitStatusPath === path ? state.gitStatus : null,
+            gitStatusPath: same && state.gitStatusPath === path ? state.gitStatusPath : null,
         }));
-        const { status } = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, { path });
+        const { status } = await sendRequest<GitStatusResponse>(backendId, MSG.GIT_STATUS, {
+            path,
+        });
         if (requestId !== gitStatusRequestId) return;
+        gitStatusBackendId = backendId;
         set({ gitStatus: status, gitStatusPath: path });
     },
     async watchPath(backendId, path) {
@@ -223,11 +246,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
         requestedWatch = { backendId, path };
         if (!fileChangeSubscriptionReady) {
             fileChangeSubscriptionReady = true;
-            onEventFrom(MSG.FILE_CHANGED, (payload, fromBackendId) => {
+            onEvent(MSG.FILE_CHANGED, (payload, fromBackendId) => {
                 const event = payload as FileChangeEvent;
                 const watched = get().watched;
                 if (!watched || fromBackendId !== watched.backendId) return;
-                const watchedPath = watched.path;
+                const { backendId: watchedBackendId, path: watchedPath } = watched;
                 if (!isSameOrChild(event.path, watchedPath)) return;
                 if (event.recursive) {
                     pendingRecursiveDirs.add(event.path);
@@ -253,7 +276,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
                     }
                     pendingChangedDirs.clear();
                     pendingRecursiveDirs.clear();
-                    get().fetchGitStatus(watchedPath).catch(console.error);
+                    get().fetchGitStatus(watchedBackendId, watchedPath).catch(console.error);
                 }, 150);
             });
         }
@@ -263,7 +286,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             set({ watched: null });
             // Released on the machine that holds it, which may not be the new one.
             // A machine that cannot be reached has no watch left to release.
-            await sendRequestTo(previous.backendId, MSG.FILE_UNWATCH, {
+            await sendRequest(previous.backendId, MSG.FILE_UNWATCH, {
                 path: previous.path,
             }).catch(() => {});
             if (generation !== watchGeneration) return;
@@ -276,16 +299,16 @@ export const useFileStore = create<FileStore>((set, get) => ({
             if (state.statsByProject !== prevState.statsByProject) {
                 const watched = get().watched;
                 if (watched) {
-                    get().fetchGitStatus(watched.path).catch(console.error);
+                    get().fetchGitStatus(watched.backendId, watched.path).catch(console.error);
                 }
             }
         });
-        await sendRequestTo(backendId, MSG.FILE_WATCH, { path });
+        await sendRequest(backendId, MSG.FILE_WATCH, { path });
         if (generation !== watchGeneration) {
             // The backend holds this watch for us now. Release it unless a newer
             // request wants the same one: the backend keeps one per client and path.
             if (!isWatchOf(requestedWatch, backendId, path)) {
-                await sendRequestTo(backendId, MSG.FILE_UNWATCH, { path }).catch(() => {});
+                await sendRequest(backendId, MSG.FILE_UNWATCH, { path }).catch(() => {});
             }
             return;
         }
@@ -307,16 +330,18 @@ export const useFileStore = create<FileStore>((set, get) => ({
             diffStoreUnsubscribe();
             diffStoreUnsubscribe = null;
         }
-        await sendRequestTo(backendId, MSG.FILE_UNWATCH, { path });
+        await sendRequest(backendId, MSG.FILE_UNWATCH, { path });
         // A watch that landed while this was answered is the newer one: keep it.
         if (isWatchOf(get().watched, backendId, path)) set({ watched: null });
     },
     clearExplorerState() {
         treeRequestId += 1;
         gitStatusRequestId += 1;
+        gitStatusBackendId = null;
         set({
             tree: null,
             treePath: null,
+            treeBackendId: null,
             gitignorePatterns: [],
             gitStatus: null,
             gitStatusPath: null,
@@ -358,32 +383,36 @@ export const useFileStore = create<FileStore>((set, get) => ({
         }
         set({ expandedDirs });
     },
-    async readFile(path) {
-        const { content } = await sendRequest<FileReadResponse>(MSG.FILE_READ, { path });
+    async readFile(backendId, path) {
+        const { content } = await sendRequest<FileReadResponse>(backendId, MSG.FILE_READ, {
+            path,
+        });
         return content;
     },
-    async writeFile(path, content) {
-        await sendRequest(MSG.FILE_WRITE, { path, content });
+    async writeFile(backendId, path, content) {
+        await sendRequest(backendId, MSG.FILE_WRITE, { path, content });
         const watched = get().watched;
-        if (watched && path.startsWith(watched.path)) await get().fetchGitStatus(watched.path);
+        if (watched?.backendId === backendId && path.startsWith(watched.path)) {
+            await get().fetchGitStatus(backendId, watched.path);
+        }
     },
-    async renameFile(oldPath, newPath) {
-        await sendRequest(MSG.FILE_RENAME, { oldPath, newPath });
+    async renameFile(backendId, oldPath, newPath) {
+        await sendRequest(backendId, MSG.FILE_RENAME, { oldPath, newPath });
     },
-    async deleteFile(path) {
-        await sendRequest(MSG.FILE_DELETE_FILE, { path });
+    async deleteFile(backendId, path) {
+        await sendRequest(backendId, MSG.FILE_DELETE_FILE, { path });
     },
-    async createFile(path) {
-        await sendRequest(MSG.FILE_WRITE, { path, content: "" });
+    async createFile(backendId, path) {
+        await sendRequest(backendId, MSG.FILE_WRITE, { path, content: "" });
     },
-    async createDirectory(path) {
-        await sendRequest(MSG.FILE_MKDIR, { path });
+    async createDirectory(backendId, path) {
+        await sendRequest(backendId, MSG.FILE_MKDIR, { path });
     },
-    async openExternal(path) {
-        await sendRequest(MSG.FILE_OPEN_EXTERNAL, { path });
+    async openExternal(backendId, path) {
+        await sendRequest(backendId, MSG.FILE_OPEN_EXTERNAL, { path });
     },
-    async revealInFinder(path) {
-        await sendRequest(MSG.FILE_REVEAL, { path });
+    async revealInFinder(backendId, path) {
+        await sendRequest(backendId, MSG.FILE_REVEAL, { path });
     },
     toggleDir(path) {
         const { expandedDirs } = get();

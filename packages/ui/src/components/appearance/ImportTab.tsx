@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useThemeStore } from "../../stores/theme-store";
+import { usePrimaryBackend } from "@/hooks/usePrimaryBackend";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 import type { ThemeSource } from "@taskflow/shared";
 
 function ImportTab() {
+    // Themes are imported into primary, which reads the picked file from its own disk.
+    const localOnlyHint = useLocalOnlyHint(usePrimaryBackend());
     const scannedApps = useThemeStore((s) => s.scannedApps);
     const scanning = useThemeStore((s) => s.scanning);
     const scanTerminalApps = useThemeStore((s) => s.scanTerminalApps);
@@ -25,6 +29,7 @@ function ImportTab() {
     }
 
     async function handleFileImport() {
+        if (localOnlyHint) return;
         const path = await window.taskflow?.selectThemeFile();
         if (!path) return;
         setImporting("file");
@@ -41,13 +46,16 @@ function ImportTab() {
                 <p className="text-muted-foreground text-sm">
                     Import themes from your terminal apps or files.
                 </p>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleFileImport}
-                    disabled={importing === "file"}>
-                    {importing === "file" ? "Importing..." : "From File..."}
-                </Button>
+                {/* A disabled button takes no pointer events, so the wrapper carries the tooltip. */}
+                <span title={localOnlyHint ?? undefined}>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleFileImport}
+                        disabled={importing === "file" || localOnlyHint !== null}>
+                        {importing === "file" ? "Importing..." : "From File..."}
+                    </Button>
+                </span>
             </div>
 
             {scanning && (

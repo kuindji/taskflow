@@ -7,7 +7,7 @@ import type {
     GitCommitResult,
 } from "@taskflow/shared";
 import { AGENT_DISPLAY_NAMES, ALL_AGENT_TYPES, isAgentType, MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { isAgentAvailable, useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -46,6 +46,8 @@ interface CommitDialogProps {
 export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
     // The commit agent runs on the workspace's machine, with that machine's defaults.
     const backendId = useWorkspaceBackend();
+    // Git runs on that machine too.
+    const request = useWorkspaceRequest();
     const defaultAgent = useSettingsStore(
         (s) => (backendId ? s.byBackend[backendId] : s.settings)?.general.defaultAgent ?? "claude",
     );
@@ -97,7 +99,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     // Fetch git status when dialog opens to determine mode
     useEffect(() => {
         if (!open) return;
-        sendRequest<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
+        request<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
             (res) => {
                 const changed =
                     res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
@@ -112,7 +114,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             },
             () => setHasChanges(true), // Assume changes on error
         );
-    }, [open, repoPath]);
+    }, [open, repoPath, request]);
 
     const handlePushChange = useCallback((checked: boolean) => {
         setPush(checked);
@@ -144,11 +146,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             if (prOnly) {
                 // PR-only mode — everything is committed and pushed
                 const prTitle = message.trim() || null;
-                const status = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
+                const status = await request<GitStatusResponse>(MSG.GIT_STATUS, {
                     path: repoPath,
                 });
                 const title = prTitle ?? status.status.branch ?? "update";
-                await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
+                await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title,
                     taskId,
@@ -159,14 +161,14 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
 
             if (pushOnly) {
                 // Push-only mode
-                await sendRequest(MSG.GIT_PUSH, { path: repoPath });
+                await request(MSG.GIT_PUSH, { path: repoPath });
                 if (createPr) {
                     // Use current branch name or a generic title
-                    const status = await sendRequest<GitStatusResponse>(MSG.GIT_STATUS, {
+                    const status = await request<GitStatusResponse>(MSG.GIT_STATUS, {
                         path: repoPath,
                     });
                     const branchName = status.status.branch ?? "update";
-                    await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
+                    await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                         path: repoPath,
                         title: branchName,
                         taskId,
@@ -210,14 +212,14 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             let commitMessage = message.trim();
 
             if (!commitMessage) {
-                const result = await sendRequest<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
+                const result = await request<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
                     path: repoPath,
                     includeUnstaged,
                 });
                 commitMessage = result.message;
             }
 
-            const commitResult = await sendRequest<GitCommitResult>(MSG.GIT_COMMIT, {
+            const commitResult = await request<GitCommitResult>(MSG.GIT_COMMIT, {
                 path: repoPath,
                 message: commitMessage,
                 push,
@@ -225,7 +227,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             });
 
             if (createPr) {
-                await sendRequest<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
+                await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title: commitResult.message,
                     taskId,
@@ -249,6 +251,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         createPr,
         includeUnstaged,
         repoPath,
+        request,
         taskId,
         sessionOwner,
         createSession,
