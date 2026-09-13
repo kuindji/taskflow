@@ -35,7 +35,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
-| 21 | The hard switch | in-review round 1 done | `840ca15c` | `3530513e`, `26dd8d0d` | R1: 2 fixed (Codex), 1 rejected |
+| 21 | The hard switch | in-review round 2 done | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex) |
 | 22 | End-to-end verification on two machines | pending | | | |
 
 ## Review round results
@@ -1215,6 +1215,20 @@ Three findings; two confirmed and fixed in `26dd8d0d`, one rejected.
 The handshake-failure test's `main.detached` assertion is now `not.toContain("local")`: the unwanted target is
 detached again on refusal, which is the fix.
 
+### Task 21, round 2 (Codex gpt-5.5, prompted review of `840ca15c..26dd8d0d`, packages/ui)
+
+One finding, confirmed and fixed in `6d504ac7`. Codex found nothing else, did not re-raise the R1 rejection, and ran
+`hard-switch.test.ts` (13 pass) and `MachinesMenu.test.tsx` (11 pass):
+
+1. **A refused switch closed a machine the target turned out to be an alias of — confirmed, fixed.** `b-uid` attached;
+   saved record `desktop.local:main` offline and unwanted handshakes as `b-uid` (`merged: true`), so `attach` answers
+   `b-uid`; a local buffer goes dirty meanwhile → dirty refusal → `refuse(..., "b-uid")` detached `b-uid`, because
+   `wanted` was read from the alias row only. Test "a refusal leaves attached a machine the target turned out to be an
+   alias of" (red on `26dd8d0d`: `b-uid` row `offline`, `keepAttached: false`). Fix: before attaching, snapshot the ids
+   of rows that are `keepAttached` or `attached`; a refusal detaches the live id only when neither the passed id nor
+   the live id is in it. The unreachable refusal goes through the same `refuse`, so it is judged the same way (not
+   separately tested).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1816,8 +1830,15 @@ detached again on refusal, which is the fix.
   switch whose per-machine detach rejects still completes and returns `ok: true` (primary already moved, sockets
   closed, rows offline; only main's persisted intent may be stale). A target drop mid-switch is treated as an ordinary
   drop, not a switch failure.
+- Task 21 R2: "wanted" is judged over both the passed id and the id `attach` answers, against rows as they stood before
+  the attach (`keepAttached` or `attached`), so an alias refusal never detaches the canonical machine.
 
 ## Validation baseline
+
+After Task 21 R2 fix (`6d504ac7`): `hard-switch.test.ts` 14 pass (new test red on `26dd8d0d`); `backend-store` +
+`hard-switch` 29 pass in both orders; `aggregation` + `hard-switch` 30 pass; `MachinesMenu.test.tsx` 11 pass;
+`bun test packages/ui` 316 pass, 9 fail (the known nine); `bun run typecheck` clean; eslint and prettier clean on the
+two changed files.
 
 After Task 21 R1 fix (`26dd8d0d`): `hard-switch.test.ts` 13 pass (2 new tests red on `3530513e`); `backend-store` +
 `hard-switch` 28 pass in both orders; `aggregation` + `hard-switch` 29 pass; `MachinesMenu.test.tsx` 11 pass;
@@ -2131,6 +2152,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 21 review round 2 — Codex gpt-5.5 prompted review of `840ca15c..26dd8d0d` (packages/ui). R1 fixed two
-findings in `26dd8d0d` (refusal detaches an unwanted target again; failed detach no longer aborts the switch) and
-rejected one (drop mid-switch); tell Codex about the rejection so it is not re-raised without new evidence.
+Next step: Task 21 review round 3 — Codex gpt-5.5 prompted review of `840ca15c..6d504ac7` (packages/ui). R2 fixed one
+finding in `6d504ac7` (a refusal whose target was an alias of an attached machine no longer detaches it). Tell Codex
+about the R1 rejection (drop mid-switch) and the recorded R1/R2 decisions so they are not re-raised without new
+evidence.
