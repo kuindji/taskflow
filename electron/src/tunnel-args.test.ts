@@ -140,6 +140,15 @@ describe("known hosts helpers", () => {
         }
     });
 
+    // The alias is also the first field of a known_hosts line, where `*` and
+    // `?` are wildcards, `!` negates and `,` separates patterns: a line filed
+    // under `taskflow-*-22` would vouch for every machine on port 22.
+    test("the alias holds no known_hosts pattern syntax", () => {
+        for (const host of ["*", "desk?op", "!a", "a,b"]) {
+            expect(hostKeyAlias({ ...record, host })).not.toMatch(/[*?!,]/);
+        }
+    });
+
     test("encoding the alias keeps distinct hosts apart", () => {
         expect(hostKeyAlias({ ...record, host: "a b" })).not.toBe(
             hostKeyAlias({ ...record, host: "a%20b" }),
@@ -181,6 +190,23 @@ describe("classifyTunnelFailure", () => {
         expect(
             classifyTunnelFailure("ssh: connect to host 1.2.3.4 port 22: Connection refused", 255)
                 .kind,
+        ).toBe("no-route");
+    });
+
+    // macOS spells ETIMEDOUT and ENETUNREACH this way; the first is what ssh
+    // prints for a machine that is asleep or off the network.
+    test("no route, in the operating system's own words", () => {
+        expect(
+            classifyTunnelFailure(
+                "ssh: connect to host 10.255.255.1 port 22: Operation timed out",
+                255,
+            ).kind,
+        ).toBe("no-route");
+        expect(
+            classifyTunnelFailure(
+                "ssh: connect to host 1.2.3.4 port 22: Network is unreachable",
+                255,
+            ).kind,
         ).toBe("no-route");
     });
 
