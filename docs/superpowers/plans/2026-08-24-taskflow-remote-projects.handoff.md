@@ -32,7 +32,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
-| 18 | Routing for sidebar rows and background work | implemented | `c586fef` | `ae16a8a` | |
+| 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
 | 20 | Electron main across several backends | pending | | | |
 | 21 | The hard switch | pending | | | |
@@ -1017,6 +1017,25 @@ Codex otherwise checked attach/detach/add/remove against store, preload, IPC and
 native vs Radix menu construction, row status and icon derivation, port validation, zustand selectors and type hygiene;
 it reran six test files (60 pass) and `bun run typecheck` (pass). **Task 17 is clear.**
 
+### Task 18, round 1 (Codex gpt-5.5, prompted review of `c586fef..ae16a8a`, packages)
+
+Two findings, both rejected on the same premise:
+
+1. **`sessionBackend()` falls back to a bare-id workspace lookup for synced sessions, so a session could route to
+   another machine holding the same owner id — rejected.** The fallback (`session-store.ts:97`) reads the tab's
+   workspace key and `workspaceBackendId` matches `task:<id>`/`project:<id>` by id. Session ids and task/project ids are
+   `randomUUID()` (`backend/src/services/task-store.ts:517,859`); the spec builds on that ("UUIDs already collide-free
+   across machines", spec lines 41, 126). Main and dev backends sharing one data dir share one backend uid and dedup into
+   one machine. Without a collision the fallback resolves the owner's machine. Same premise as Task 11 R1 #2, Task 12
+   R3 and Task 16 R1.
+2. **Notification navigation matches `backendId` + id but then sets the bare active project/task id — rejected.**
+   `activeProjectId`/`activeTaskId` are flat by spec design (line 41) for the same reason; matching `backendId` in
+   the lookup is defensive, not a claim that ids collide.
+
+Own read before the report: exited sessions are forgotten from `sessionBackends` but resume still resolves through the
+tab; `TerminalPane` catches the new resume throw into its error line; `Workspace` run actions bail without a machine.
+Reran `useRunMenu.routing` (2 pass), `AttributesSection` (19 pass), `bun run typecheck` (clean). **Task 18 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1758,4 +1777,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 18 review round 1 — one prompted gpt-5.5 review of `c586fef..ae16a8a` (packages only).
+Next step: implement Task 19 (Primary-only managers, gating, and removing the shim) — record HEAD as its base commit first.
