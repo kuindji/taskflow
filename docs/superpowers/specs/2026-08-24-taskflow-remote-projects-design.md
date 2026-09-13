@@ -235,11 +235,16 @@ Three details the merge rule alone does not settle:
   for an already-attached backend; it is never trusted for identity, since
   anyone on the LAN can advertise one.
 
-The uid is minted once per data directory. Changing the data directory
-(`SETTINGS_UPDATE_DATA_DIR`) therefore changes the backend's identity, and the
-old record goes stale rather than following it. That is the correct outcome — a
-new data directory is a different set of projects and tasks — but it must be
-deliberate rather than discovered.
+The uid is minted once per install and per instance: it lives in `BASE_DIR`
+(`~/.taskflow`), named for the `instanceId`. Per instance because `main` and
+`dev-*` backends on one machine share `BASE_DIR` and the data directory, and one
+uid between them would merge two attachable machines into one record. Per
+install rather than per data directory because moving the data directory
+(`SETTINGS_UPDATE_DATA_DIR`) is a change of *contents*, not of machine: the
+record, its host and its trust decision all still describe the same box, and
+should keep working after the move rather than going stale. (Amended in plan
+review round 4; the earlier text said "per data directory", which the plan never
+implemented.)
 
 This is the one addition to the carried-over transport half that is not a
 widening: `backendUid` is a new field in the beacon and in `SYSTEM_INFO`, and it

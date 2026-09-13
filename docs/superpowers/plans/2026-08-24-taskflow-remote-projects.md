@@ -119,15 +119,25 @@ than the superseded plan specified. Verify it still holds with
 do not add a second bind test.
 
 **Files:**
-- Modify: `packages/backend/src/config.ts:69-79`
-- Modify: `packages/backend/src/index.ts:416`, `:470`, and the `shutdown` handler at `:499`
+- Modify: `packages/backend/src/config.ts:64-79`
+- Modify: `packages/backend/src/handlers/system.ts` and `packages/backend/src/handlers/system.test.ts`
+- Modify: `packages/backend/src/index.ts:419-424` (the `registerSystemHandlers` call), `:484` (port file), and the `shutdown` handler at `:513`
 - Modify: `packages/shared/src/constants.ts`
-- Modify: `packages/shared/src/types/system.ts:15-18`
+- Modify: `packages/shared/src/types/system.ts:15-19`
 - Test: `packages/backend/tests/config/backend-uid.test.ts`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `PROTOCOL_VERSION: number` from `@taskflow/shared`; `config.instancePortFile: string`; `config.backendUid: string`; `SystemInfo.hostname: string`, `SystemInfo.protocolVersion?: number`, `SystemInfo.backendUid?: string`.
+- Produces: `PROTOCOL_VERSION: number` from `@taskflow/shared`; `config.instancePortFile: string`; `config.backendUid: string`; `SystemInfo.hostname: string`, `SystemInfo.protocolVersion?: number`, `SystemInfo.backendUid?: string`. `SystemInfo.schedulerEnabled` stays.
+
+**Identity is per install and per instance, not per data directory.** The uid
+file lives in `BASE_DIR` (`~/.taskflow`) and is named for the instance, so a
+`main` and a `dev-*` backend on one machine — which share `BASE_DIR` *and* the
+data directory — get two uids and can both be attached, as the machines menu
+shows them. Minting it inside `dataDir` would give them one uid, and `adoptUid`
+(Task 5) would merge them into one record. It also means moving the data
+directory (`SETTINGS_UPDATE_DATA_DIR`) does **not** change a backend's identity;
+the spec's "Backend identity" section is amended to say so.
 
 - [ ] **Step 1: Confirm the bind precondition**
 
@@ -202,24 +212,37 @@ describe("readOrCreateBackendUid", () => {
     test("mints a uid once and returns the same one afterwards", async () => {
         const dir = await mkdtemp(join(tmpdir(), "uid-"));
         try {
-            const first = readOrCreateBackendUid(dir);
-            const second = readOrCreateBackendUid(dir);
+            const first = readOrCreateBackendUid(dir, "main");
+            const second = readOrCreateBackendUid(dir, "main");
             expect(first).toBe(second);
             expect(first).toMatch(/^[0-9a-f]{32}$/);
-            expect((await readFile(join(dir, "backend-uid"), "utf-8")).trim()).toBe(first);
+            expect((await readFile(join(dir, "backend-uid-main"), "utf-8")).trim()).toBe(first);
         } finally {
             await rm(dir, { recursive: true, force: true });
         }
     });
 
-    test("two data directories get different uids", async () => {
+    test("two base directories get different uids", async () => {
         const a = await mkdtemp(join(tmpdir(), "uid-a-"));
         const b = await mkdtemp(join(tmpdir(), "uid-b-"));
         try {
-            expect(readOrCreateBackendUid(a)).not.toBe(readOrCreateBackendUid(b));
+            expect(readOrCreateBackendUid(a, "main")).not.toBe(readOrCreateBackendUid(b, "main"));
         } finally {
             await rm(a, { recursive: true, force: true });
             await rm(b, { recursive: true, force: true });
+        }
+    });
+
+    test("two instances in one base directory get different uids", async () => {
+        // main and dev-* share BASE_DIR (and the data dir). One uid between them
+        // would make adoptUid merge them into a single record.
+        const dir = await mkdtemp(join(tmpdir(), "uid-"));
+        try {
+            expect(readOrCreateBackendUid(dir, "main")).not.toBe(
+                readOrCreateBackendUid(dir, "dev-feature-x"),
+            );
+        } finally {
+            await rm(dir, { recursive: true, force: true });
         }
     });
 });
@@ -243,15 +266,18 @@ Then, above the `config` object:
 
 ```ts
 /**
- * A backend's stable identity, minted once per data directory. Host names and
- * IP addresses are how you *reach* a backend; this is what one *is*, so the
- * client cannot attach the same backend twice under two aliases.
+ * A backend's stable identity, minted once per install and per instance. Host
+ * names and IP addresses are how you *reach* a backend; this is what one *is*,
+ * so the client cannot attach the same backend twice under two aliases.
+ *
+ * Keyed by instance because `main` and `dev-*` share BASE_DIR and the data
+ * directory; one uid between them would merge them into one record.
  *
  * Synchronous on purpose: `config` is built at module load and everything
  * downstream expects a plain string, not a promise.
  */
-export function readOrCreateBackendUid(baseDir: string): string {
-    const file = join(baseDir, "backend-uid");
+export function readOrCreateBackendUid(baseDir: string, instanceId: string): string {
+    const file = join(baseDir, `backend-uid-${instanceId}`);
     if (existsSync(file)) {
         const existing = readFileSync(file, "utf-8").trim();
         if (/^[0-9a-f]{32}$/.test(existing)) return existing;
@@ -272,7 +298,7 @@ In the `config` object, next to `portFile`:
     /** Stable, spawner-independent port file. Read over ssh when multicast is unavailable. */
     instancePortFile: join(BASE_DIR, `${instanceId}.port`),
     /** Stable backend identity. See readOrCreateBackendUid. */
-    backendUid: readOrCreateBackendUid(BASE_DIR),
+    backendUid: readOrCreateBackendUid(BASE_DIR, instanceId),
 ```
 
 - [ ] **Step 8: Run test to verify it passes**
@@ -288,6 +314,7 @@ In `packages/shared/src/types/system.ts`, extend the interface:
 export interface SystemInfo {
     editors: EditorInfo[];
     homedir: string;
+    schedulerEnabled: boolean;
     /** The backend machine's hostname. What the network name setting falls back
      *  to, and the only way the renderer can name the machine it is talking to. */
     hostname: string;
@@ -300,29 +327,48 @@ export interface SystemInfo {
 }
 ```
 
-In `packages/backend/src/index.ts`, change the `SYSTEM_INFO` registration at line 416:
+The handler lives in `packages/backend/src/handlers/system.ts`, not in
+`index.ts` — registering a second `SYSTEM_INFO` in `index.ts` would silently win
+or lose against `registerSystemHandlers` depending on order. Extend its deps and
+its reply:
 
 ```ts
-        router.register(MSG.SYSTEM_INFO, async () => ({
-            editors,
-            homedir: homedir(),
-            hostname: hostname(),
-            protocolVersion: PROTOCOL_VERSION,
-            backendUid: config.backendUid,
-        }));
+interface SystemHandlerDeps {
+    router: Router;
+    editors: EditorInfo[];
+    homedir: string;
+    schedulerEnabled: boolean;
+    hostname: string;
+    protocolVersion: number;
+    backendUid: string;
+}
+
+export function registerSystemHandlers(deps: SystemHandlerDeps): void {
+    const { router, editors, homedir, schedulerEnabled, hostname, protocolVersion, backendUid } =
+        deps;
+
+    router.register(MSG.SYSTEM_INFO, async (): Promise<SystemInfo> => {
+        return { editors, homedir, schedulerEnabled, hostname, protocolVersion, backendUid };
+    });
+}
 ```
 
-Add `PROTOCOL_VERSION` to the existing `@taskflow/shared` import in that file, and `hostname` to the existing `os` import.
+In `packages/backend/src/index.ts`, the `registerSystemHandlers({...})` call at
+line 419 gains `hostname: hostname()`, `protocolVersion: PROTOCOL_VERSION` and
+`backendUid: config.backendUid`. Add `PROTOCOL_VERSION` to the existing
+`@taskflow/shared` import in that file, and `hostname` to the existing `os`
+import. `packages/backend/src/handlers/system.test.ts` builds the deps and
+asserts the reply with `toEqual`; give it the three new fields.
 
 - [ ] **Step 10: Write and remove the stable port file**
 
-In `packages/backend/src/index.ts`, immediately after the existing `writeFile(config.portFile, ...)` at line 470:
+In `packages/backend/src/index.ts`, immediately after the existing `writeFile(config.portFile, ...)` at line 484:
 
 ```ts
         await writeFile(config.instancePortFile, String(startedServer.port));
 ```
 
-In the `shutdown` handler (line 499), before the process exits:
+In the `shutdown` handler (line 513), before the process exits:
 
 ```ts
             await rm(config.instancePortFile, { force: true });
@@ -338,7 +384,7 @@ Expected: PASS, no type errors.
 - [ ] **Step 12: Commit**
 
 ```bash
-git add packages/backend/src/config.ts packages/backend/src/index.ts packages/shared/src/constants.ts packages/shared/src/types/system.ts packages/backend/tests/config/backend-uid.test.ts
+git add packages/backend/src/config.ts packages/backend/src/index.ts packages/backend/src/handlers/system.ts packages/backend/src/handlers/system.test.ts packages/shared/src/constants.ts packages/shared/src/types/system.ts packages/backend/tests/config/backend-uid.test.ts
 git commit -m "feat(backend): report a protocol version and a stable backend uid
 
 The backend now has an identity of its own, minted once per data directory,
@@ -356,7 +402,7 @@ instance filter can no longer see them."
 ---
 ### Task 2: Per-client file watcher ownership
 
-Watchers are owned per path today: `watch()` stops any existing watcher for a path before creating its own (`file-watcher.ts:122-123`) and `FILE_UNWATCH` stops it globally (`handlers/file.ts:72-76`). One client per backend made that safe. Attaching a second client makes it a bug, and this plan *causes* it, because detach sends `FILE_UNWATCH`:
+Watchers are owned per path today: `watch()` stops any existing watcher for a path before creating its own (`file-watcher.ts:151`) and `FILE_UNWATCH` stops it globally (`handlers/file.ts:72-76`). One client per backend made that safe. Attaching a second client makes it a bug, and this plan *causes* it, because detach sends `FILE_UNWATCH`:
 
 1. The desktop app watches `/repo` for its open task.
 2. The laptop, viewing the same project remotely, watches `/repo`; the backend stops the desktop's watcher and installs the laptop's.
@@ -368,7 +414,7 @@ Watches become refcounted by path, and a dropped connection releases its own ref
 **Files:**
 - Modify: `packages/backend/src/ws/router.ts`
 - Modify: `packages/backend/src/ws/server.ts:63`, `:70-80`, `:93`
-- Modify: `packages/backend/src/services/file-watcher.ts:34`, `:122-160`
+- Modify: `packages/backend/src/services/file-watcher.ts:50-54`, `:150-174`, `:200`
 - Modify: `packages/backend/src/handlers/file.ts:62-77`
 - Test: `packages/backend/tests/services/file-watcher-ownership.test.ts`
 
@@ -402,7 +448,7 @@ async function tempDir(): Promise<string> {
     return dir;
 }
 
-/** Chokidar is not synchronous; give it a beat to notice. */
+/** The recursive watcher batches over a 100 ms window; give it a beat. */
 function settle(ms = 400): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -467,25 +513,28 @@ Expected: FAIL — `watch` takes two arguments, and `release` / `releaseClient` 
 
 - [ ] **Step 3: Refcount the watchers**
 
-In `packages/backend/src/services/file-watcher.ts`, change the watcher map to
-carry its owners. Replace the declaration at line 34:
+The watcher is the in-house recursive one (`./recursive-watcher`); chokidar is
+gone. In `packages/backend/src/services/file-watcher.ts`, give each active
+watcher its owners. Extend `ActiveWatcher` (`:50-54`):
 
 ```ts
-    private watchers = new Map<string, ActiveWatcher>();
+interface ActiveWatcher {
+    handle: RecursiveWatchHandle;
+    /** Flipped by `stop` so a stat batch still in flight cannot emit afterwards. */
+    state: { closed: boolean };
+    /** Clients holding this watch. The handle closes when the last one goes. */
+    owners: Set<string>;
+}
 ```
 
-with:
-
-```ts
-    private watchers = new Map<string, ActiveWatcher & { owners: Set<string> }>();
-```
-
-Replace `watch` (line 122) with:
+Replace the head of `watch` (`:150-152`). Today it begins with
+`await this.stop(dirPath)`, which is exactly the replace-the-other-client's-watcher
+behaviour this task removes:
 
 ```ts
     /**
      * Watch `dirPath` on behalf of `clientId`. Several clients may watch one
-     * path: the chokidar watcher is shared and reference counted, because two
+     * path: the recursive watcher is shared and reference counted, because two
      * clients on one backend is now normal and one of them releasing must not
      * blind the other.
      */
@@ -499,29 +548,34 @@ Replace `watch` (line 122) with:
             existing.owners.add(clientId);
             return;
         }
-
-        const watcher = chokidar.watch(dirPath, {
-            ignored: (path) => this.shouldIgnorePath(path),
-            ignoreInitial: true,
-            ignorePermissionErrors: true,
+        const state = { closed: false };
 ```
 
-Leave the rest of the chokidar setup exactly as it is. Where the method
-currently stores the watcher, store the owner set with it:
+Leave the rest of the method — `emit`, the `watchRecursive(...)` call with its
+`onFlush` and `onError`, and `emitBatch` — exactly as it is, and add the owner
+set where the entry is built:
 
 ```ts
-        this.watchers.set(dirPath, { watcher, onChange, owners: new Set([clientId]) });
+        const active: ActiveWatcher = {
+            handle: watchRecursive(dirPath, { /* unchanged */ }),
+            state,
+            owners: new Set([clientId]),
+        };
 ```
 
-Match the existing `ActiveWatcher` fields — do not invent new ones beyond
-`owners`.
+Two consequences of sharing worth knowing. The `onChange` that runs is the
+*first* watcher's; every caller passes the same `broadcast` closure
+(`handlers/file.ts:65-68`), so that is fine, and a per-client callback would be
+a different design. And `onError` (`:162-169`) already forgets the entry and
+tells clients to refresh; with owners that means any owner's next `FILE_WATCH`
+recreates it, which is the behaviour wanted.
 
 - [ ] **Step 4: Add release and releaseClient**
 
 Below `watch`, and above the existing `stop`:
 
 ```ts
-    /** Drop one client's interest in a path. Stops chokidar only when the last goes. */
+    /** Drop one client's interest in a path. Closes the handle only when the last goes. */
     async release(dirPath: string, clientId: string): Promise<void> {
         const entry = this.watchers.get(dirPath);
         if (!entry) return;
@@ -538,7 +592,7 @@ Below `watch`, and above the existing `stop`:
     }
 ```
 
-Change `stop` (line 146) from `async stop(` to `private async stop(`. `stopAll`
+Change `stop` (line 200) from `async stop(` to `private async stop(`. `stopAll`
 already iterates the map and is unchanged; it is the shutdown path and does not
 care about owners.
 
@@ -640,6 +694,11 @@ In `message`, pass the context through:
 Add `onDisconnect` to the returned object and to `createServer`'s declared
 return type, next to `onConnect`.
 
+`Bun.serve`'s websocket data type is inferred from the `upgrade` call, so type
+the server as `Server<SocketData>` — `open`, `close` and `message` then receive
+`ServerWebSocket<SocketData>`. Leaving it `Server<unknown>` makes
+`clients.add(ws)` a type error.
+
 - [ ] **Step 8: Route watch and unwatch through the client id**
 
 In `packages/backend/src/handlers/file.ts`, change the two registrations:
@@ -676,7 +735,7 @@ is already wired, add:
 
 Place it beside the existing `onConnect` registration. A client that vanishes
 without sending `FILE_UNWATCH` — a crash, a killed tunnel — must not leave a
-recursive chokidar watcher running for the life of the backend.
+recursive watcher running for the life of the backend.
 
 - [ ] **Step 10: Verify the whole suite and typecheck**
 
@@ -799,7 +858,7 @@ Create `electron/src/backend-records.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import type { BackendRecord } from "@taskflow/shared";
-import { adoptUid, normalizeRecords, upsertRecord } from "./backend-records";
+import { adoptUid, normalizeRecords, recordFromDiscovered, upsertRecord } from "./backend-records";
 
 function record(patch: Partial<BackendRecord> = {}): BackendRecord {
     return {
@@ -846,6 +905,35 @@ describe("adoptUid", () => {
     test("is a no-op when the uid is already the record's id", () => {
         const records = [record({ id: "abc123", backendUid: "abc123" })];
         expect(adoptUid(records, "abc123", "abc123")).toEqual(records);
+    });
+});
+
+describe("recordFromDiscovered", () => {
+    test("saves a discovered backend provisionally, keyed by source address, not by the announced uid", () => {
+        const record = recordFromDiscovered(
+            {
+                v: 1,
+                protocolVersion: 1,
+                instanceId: "dev-x",
+                hostname: "desktop",
+                displayName: "",
+                port: 54892,
+                appVersion: "0.14.4",
+                os: "darwin",
+                backendUid: "abc123",
+                address: "192.168.1.20",
+                lastSeenAt: 1_000,
+            },
+            "kuindji",
+            "2026-08-24T00:00:00.000Z",
+        );
+        // The beacon's uid is a hint anyone on the LAN can advertise. Identity
+        // is adopted at handshake (adoptUid), never from a datagram.
+        expect(record.id).toBe("192.168.1.20:dev-x");
+        expect(record.backendUid).toBeNull();
+        expect(record.host).toBe("192.168.1.20");
+        expect(record.displayName).toBe("desktop");
+        expect(record.lastKnownPort).toBe(54892);
     });
 });
 
@@ -1012,8 +1100,12 @@ export function recordFromDiscovered(
     addedAt: string,
 ): BackendRecord {
     return {
-        id: entry.backendUid,
-        backendUid: entry.backendUid,
+        // Provisional, exactly like a manual connect. The beacon's uid is a hint
+        // anyone on the LAN can advertise; it is confirmed at handshake and
+        // adopted there (`adoptUid`), never here. `matchesDiscovered` still
+        // finds this record from its address and instance, so `seen` works.
+        id: backendIdFor(entry.address, entry.instanceId),
+        backendUid: null,
         // The datagram's source address, never the announced hostname. A
         // hostname announced by another machine is not necessarily resolvable
         // from here, and it is attacker-chosen text from an unauthenticated
@@ -1141,9 +1233,16 @@ writes the same path:
  */
 export const KNOWN_HOSTS_FILE = join(homedir(), ".taskflow", "known_hosts");
 
-/** What a key is filed under. Independent of any HostKeyAlias in user config. */
+/**
+ * What a key is filed under. Independent of any HostKeyAlias in user config,
+ * and keyed by how the machine is *reached*, not by who it is: a host key
+ * belongs to a host. Keying it by uid would change every record's alias at its
+ * first handshake (provisional key → uid, Task 9), so the line approved moments
+ * earlier would never be looked at again and the trust dialog would come back
+ * on the next launch for every machine.
+ */
 export function hostKeyAlias(record: BackendRecord): string {
-    return `taskflow-${record.backendUid ?? backendIdFor(record.host, record.instanceId)}`;
+    return `taskflow-${record.host}-${record.sshPort}`;
 }
 ```
 
@@ -1164,7 +1263,9 @@ because `HostKeyAlias` replaces both in the lookup. `trustHostKey` writes
 `KNOWN_HOSTS_FILE` (creating `~/.taskflow` with mode `0o700`) and rewrites the
 scanned line's first field to that alias — `ssh-keyscan` emits it keyed by host,
 which is not what ssh will look up. Extend that task's argv tests to assert all
-three options are present and that `hostKeyAlias` changes when the uid does.
+three options are present, that `hostKeyAlias` changes when `host` or `sshPort`
+does, and that it does **not** change when `backendUid` goes from `null` to a
+value — the rekey at handshake must not invalidate a key the user just approved.
 
 The rest of the task — `BatchMode`, `ExitOnForwardFailure`, the keep-alives, `--`
 before the host, `classifyTunnelFailure` — is unchanged.
@@ -1214,8 +1315,14 @@ and at the top of `openTunnel`:
 ```
 
 Wrap the existing body in a promise stored in `pendingOpens` and cleared in a
-`finally`. `closeTunnel` deletes the entry too, so a tunnel closed mid-open does
-not leave a stale promise other callers would adopt.
+`finally` — **by identity**, not by the captured id: delete whichever entry
+holds this promise (`for (const [key, p] of pendingOpens) if (p === promise)
+pendingOpens.delete(key)`), because `rekeyTunnel` below can move the entry to
+another id while the open is in flight, and `pendingOpens.delete(record.id)`
+would then leave the settled promise filed under the new id, where the next
+`openTunnel` adopts it and reports a port for a tunnel that may since have died.
+`closeTunnel` deletes the entry too, so a tunnel closed mid-open does not leave
+a stale promise other callers would adopt.
 
 **Delta — a tunnel can be refiled without being killed.** A record is rekeyed
 onto its `backendUid` at handshake (Task 9), and the ssh child is filed under
@@ -1266,7 +1373,7 @@ Replaces **Task 8** of the superseded plan. That task taught one module-global s
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces from `lib/connection-registry.ts`: `openConnection(backendId: string, origin: string): Promise<void>`, `closeConnection(backendId: string, reason: "detach" | "switch"): void`, `rekeyConnection(fromId: string, toId: string): void`, `sendRequest<T>(backendId: string, type: string, payload?: unknown): Promise<T>`, `sendFireAndForget(backendId: string, type: string, payload?: unknown): void`, `onEvent(type: string, handler: (payload: unknown, backendId: string) => void): () => void`, `onStatusChange(backendId: string, handler: (status: ConnectionStatus) => void): () => void`, `originFor(backendId: string): string | null`, `setPrimary(backendId: string): void`, `getPrimary(): string | null`. `BackendSwitchedError` and `BackendDetachedError` are exported error classes.
+- Produces from `lib/connection-registry.ts`: `openConnection(backendId: string, origin: string): Promise<void>`, `closeConnection(backendId: string, reason: "detach" | "switch"): void`, `rekeyConnection(fromId: string, toId: string): void`, `sendRequest<T>(backendId: string, type: string, payload?: unknown): Promise<T>`, `sendFireAndForget(backendId: string, type: string, payload?: unknown): void`, `onEvent(type: string, handler: (payload: unknown, backendId: string) => void): () => void`, `onStatusChange(backendId: string, handler: (status: ConnectionStatus) => void): () => void`, `originFor(backendId: string): string | null`, `setPrimary(backendId: string): void`, `getPrimary(): string | null`, `onPrimaryChange(handler: (id: string | null) => void): () => void`. `BackendSwitchedError` and `BackendDetachedError` are exported error classes.
 - Produces from `lib/backend-url.ts`: `rawFileUrl(backendId: string, absolutePath: string): string | null`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1278,7 +1385,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
     closeConnection,
     onEvent,
+    onPrimaryChange,
     openConnection,
+    rekeyConnection,
     sendRequest,
     setPrimary,
 } from "./connection-registry";
@@ -1367,6 +1476,21 @@ describe("connection registry", () => {
         closeConnection("a", "detach");
 
         await expect(pending).rejects.toThrow(/detach/i);
+    });
+
+    test("primary changes are observable, including through a rekey", async () => {
+        const a = startServer("A");
+        servers.push(a);
+        await openConnection("a", a.origin);
+
+        const seen: (string | null)[] = [];
+        const off = onPrimaryChange((id) => seen.push(id));
+        setPrimary("a");
+        rekeyConnection("a", "a-uid");
+        off();
+        closeConnection("a-uid", "detach");
+
+        expect(seen).toEqual(["a", "a-uid"]);
     });
 });
 ```
@@ -1462,6 +1586,10 @@ export class Connection {
             this.reconnectTimer = null;
         }
         const epoch = ++this.epoch;
+        // A socket may still be open here: `retryNow` can run while connected.
+        // Its handlers are dead already (their epoch is stale), so closing it
+        // schedules nothing; not closing it leaks a live socket per retry.
+        this.socket?.close();
         return new Promise((resolve, reject) => {
             const socket = new WebSocket(this.wsUrl());
             this.socket = socket;
@@ -1613,9 +1741,24 @@ const connections = new Map<string, Connection>();
 const eventListeners = new Map<string, Set<(payload: unknown, backendId: string) => void>>();
 const statusListeners = new Map<string, Set<(status: ConnectionStatus) => void>>();
 let primaryId: string | null = null;
+const primaryListeners = new Set<(id: string | null) => void>();
+
+function notifyPrimary(): void {
+    for (const listener of primaryListeners) listener(primaryId);
+}
 
 export function setPrimary(backendId: string): void {
+    if (primaryId === backendId) return;
     primaryId = backendId;
+    notifyPrimary();
+}
+
+/** Fires on `setPrimary`, and when a rekey or close moves or clears primary. */
+export function onPrimaryChange(handler: (id: string | null) => void): () => void {
+    primaryListeners.add(handler);
+    return () => {
+        primaryListeners.delete(handler);
+    };
 }
 
 export function getPrimary(): string | null {
@@ -1658,7 +1801,10 @@ export function closeConnection(backendId: string, reason: "detach" | "switch"):
         reason === "switch" ? new BackendSwitchedError(backendId) : new BackendDetachedError(backendId),
     );
     connections.delete(backendId);
-    if (primaryId === backendId) primaryId = null;
+    if (primaryId === backendId) {
+        primaryId = null;
+        notifyPrimary();
+    }
 }
 
 export function retryNow(backendId: string): void {
@@ -1689,7 +1835,10 @@ export function rekeyConnection(fromId: string, toId: string): void {
         statusListeners.delete(fromId);
         statusListeners.set(toId, listeners);
     }
-    if (primaryId === fromId) primaryId = toId;
+    if (primaryId === fromId) {
+        primaryId = toId;
+        notifyPrimary();
+    }
 }
 
 export function sendRequest<T = unknown>(
@@ -1760,11 +1909,13 @@ Replace the body of `packages/ui/src/hooks/useWebSocket.ts` entirely:
 import {
     getPrimary,
     onEvent as onEventRouted,
+    onPrimaryChange,
     onStatusChange as onStatusChangeRouted,
     openConnection,
     originFor,
     sendFireAndForget as sendFireAndForgetRouted,
     sendRequest as sendRequestRouted,
+    setPrimary,
     type ConnectionStatus,
 } from "@/lib/connection-registry";
 
@@ -1792,14 +1943,38 @@ export function onEvent(type: string, handler: (payload: unknown) => void): () =
     return onEventRouted(type, (payload) => handler(payload));
 }
 
+/**
+ * Follows primary rather than binding to whichever backend is primary at
+ * subscription time. Both of today's subscribers register before anything has
+ * connected — `WebSocketProvider.tsx:11` on mount and `useAgentAvailability.ts:16`
+ * at import — so a shim that answered "no primary yet" with a no-op would leave
+ * the provider's `connected` false for the life of the app.
+ */
 export function onStatusChange(handler: (status: ConnectionStatus) => void): () => void {
-    const id = getPrimary();
-    if (!id) return () => {};
-    return onStatusChangeRouted(id, handler);
+    let off: () => void = () => {};
+    const follow = (): void => {
+        off();
+        const id = getPrimary();
+        off = id ? onStatusChangeRouted(id, handler) : () => {};
+        if (!id) handler({ connected: false, reconnecting: false });
+    };
+    follow();
+    const offPrimary = onPrimaryChange(follow);
+    return () => {
+        off();
+        offPrimary();
+    };
 }
 
-export function connectWebSocket(origin: string): Promise<void> {
-    return openConnection(primaryOrThrow(), origin);
+/**
+ * Keeps today's signature. Until Task 10 replaces the provider this is the
+ * app's only connect, and it runs before anything has named a primary — so it
+ * names one. Task 10's provider calls `setPrimaryBackend` itself and does not
+ * come through here.
+ */
+export function connectWebSocket(port: number): Promise<void> {
+    if (!getPrimary()) setPrimary("local");
+    return openConnection(primaryOrThrow(), `http://localhost:${port}`);
 }
 
 export function getBackendOrigin(): string | null {
@@ -1809,6 +1984,9 @@ export function getBackendOrigin(): string | null {
 ```
 
 `getBackendPort()` is gone. Its only consumer is `backend-url.ts`, changed next.
+`WebSocketProvider.tsx` is untouched in this task and keeps working: it still
+calls `connectWebSocket(port)` and `onStatusChange(...)`, and both are honoured
+above. The app must run between this task and Task 10, not merely compile.
 
 - [ ] **Step 7: Resolve file URLs per backend**
 
@@ -1860,18 +2038,19 @@ Replaces **Task 7** of the superseded plan, which owned a single `activeId`. Mai
 - Modify: `electron/src/ipc-handlers.ts`
 - Modify: `electron/src/preload.ts`
 - Modify: `packages/ui/src/env.d.ts`
-- Modify: `electron/src/main.ts:90-140`
+- Modify: `electron/src/main.ts:151-171` (the `whenReady` handler) and `:186-215` (`before-quit`)
 
 **Interfaces:**
 - Consumes: Tasks 4, 5, 6, 7.
 - Produces on `window.taskflow`:
   - `listBackends(): Promise<MenuEntry[]>`
   - `getAttached(): Promise<{ id: string; origin: string; isLocal: boolean; isPrimary: boolean }[]>`
-  - `attachBackend(id): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>`
-  - `detachBackend(id): Promise<void>`
+  - `attachBackend(id): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>` — for `"local"`, answered by the IPC layer with the local origin (Step 5), so the renderer has one attach path
+  - `detachBackend(id): Promise<void>` — a no-op for `"local"`, for the same reason
   - `confirmBackend(id, info: { backendUid: string; protocolVersion: number }): Promise<{ id: string; merged: boolean }>` — rekeys onto the uid and returns the canonical id. `merged: false` is a rename: this record simply had no uid yet, and the caller's connection and tunnel moved with it. `merged: true` is the alias case: another record already held the uid, so the caller's connection is surplus.
   - `probeBackends(): Promise<void>` — send a discovery probe now. The machines menu calls it on open so the list is fresh rather than up to one announce interval stale
-  - `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number }): Promise<BackendRecord>`
+  - `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number; instanceId?: string }): Promise<BackendRecord>`
+  - `addDiscoveredBackend(entryId): Promise<BackendRecord | null>` — saves a seen-but-unsaved menu entry (its id is the announced uid) as a *provisional* record via Task 5's `recordFromDiscovered`; `null` if the entry is no longer live. This is the machines menu's add affordance (Task 17)
   - `updateBackend(id, patch: { displayName?: string; user?: string; sshPort?: number }): Promise<{ ok: boolean; reason?: string }>`
   - `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`
   - `trustBackendHost(id): Promise<{ ok: boolean; reason?: string }>`
@@ -1892,12 +2071,31 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { DiscoveredBackend } from "@taskflow/shared";
 import { createRegistry } from "./backend-registry";
 
 const dirs: string[] = [];
 afterEach(async () => {
     await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
+
+/** A live announcement as the listener would hold it. Every field, so it typechecks. */
+function discovered(patch: Partial<DiscoveredBackend> = {}): DiscoveredBackend {
+    return {
+        v: 1,
+        protocolVersion: 1,
+        instanceId: "main",
+        hostname: "desktop",
+        displayName: "",
+        port: 54892,
+        appVersion: "0.14.4",
+        os: "darwin",
+        backendUid: "abc123",
+        address: "192.168.1.20",
+        lastSeenAt: Date.now(),
+        ...patch,
+    };
+}
 
 async function registry(overrides: Partial<Parameters<typeof createRegistry>[0]> = {}) {
     const dir = await mkdtemp(join(tmpdir(), "reg-"));
@@ -2017,9 +2215,12 @@ describe("backend registry", () => {
         const record = await reg.addBackend({ host: "desktop.local" });
 
         const attaching = reg.attachBackend(record.id);
-        await reg.removeBackend(record.id);
+        // Not awaited before `release()`: the removal is queued behind the
+        // attach on the same id, and the attach is parked on `gate`. Awaiting
+        // it here would wait on itself and hang the test.
+        const removing = reg.removeBackend(record.id);
         release();
-        await attaching;
+        await Promise.all([attaching, removing]);
 
         // Unserialized, attachBackend's pre-await snapshot resurrects the record
         // with attached: true and an origin pointing at a killed ssh child.
@@ -2054,16 +2255,60 @@ describe("backend registry", () => {
                 return { ok: true as const, localPort: 45001 };
             },
         });
-        const record = await reg.addBackend({ host: "desktop.local", port: 54892 });
-        // A LAN peer announces this record's uid with a dead port. Any peer can:
+        const added = await reg.addBackend({ host: "desktop.local", port: 54892 });
+        // The record must hold a confirmed uid, or matchesDiscovered falls back
+        // to host matching and the spoof below never matches anything.
+        const { id } = await reg.confirmBackend(added.id, { backendUid: "abc123", protocolVersion: 1 });
+        // A LAN peer announces that uid with a dead port. Any peer can:
         // backendUid is broadcast in cleartext and matchesDiscovered keys on it.
         reg.__setDiscoveredForTest([
-            { backendUid: record.backendUid ?? "", address: "attacker.local", hostname: "x",
-              instanceId: "main", port: 9, lastSeenAt: Date.now() },
+            discovered({ backendUid: "abc123", address: "attacker.local", port: 9 }),
         ]);
 
-        await reg.attachBackend(record.id);
-        expect(tried[0]).toBe(54892);
+        await reg.attachBackend(id);
+        expect(tried).toEqual([54892]);
+    });
+
+    test("an alias of a saved but detached record adopts the alias's tunnel instead of closing it", async () => {
+        const closed: string[] = [];
+        const rekeyed: [string, string][] = [];
+        const { reg } = await registry({
+            closeTunnel: (id: string) => closed.push(id),
+            rekeyTunnel: (from: string, to: string) => rekeyed.push([from, to]),
+        });
+        const byName = await reg.addBackend({ host: "desktop.local" });
+        await reg.attachBackend(byName.id);
+        await reg.confirmBackend(byName.id, { backendUid: "abc123", protocolVersion: 1 });
+        await reg.detachBackend("abc123");
+
+        // The user connects the same machine by IP. The canonical record exists
+        // but holds no live origin, so the newcomer's tunnel is the only one
+        // there is: a rename onto the canonical, not a merge. Deciding on record
+        // existence alone would close the one connection just proved healthy.
+        const byIp = await reg.addBackend({ host: "192.168.1.20" });
+        await reg.attachBackend(byIp.id);
+        const result = await reg.confirmBackend(byIp.id, { backendUid: "abc123", protocolVersion: 1 });
+
+        expect(result).toEqual({ id: "abc123", merged: false });
+        expect(closed).toEqual(["abc123"]); // only the earlier detach
+        expect(rekeyed).toContainEqual([byIp.id, "abc123"]);
+        expect(reg.originFor("abc123")).not.toBeNull();
+        expect((await reg.listBackends()).map((e) => e.id)).toEqual(["abc123"]);
+    });
+
+    test("saving a discovered machine keeps it provisional until a handshake confirms the uid", async () => {
+        const { reg } = await registry();
+        reg.__setDiscoveredForTest([
+            discovered({ backendUid: "abc123", address: "192.168.1.20", instanceId: "dev-x" }),
+        ]);
+
+        const record = await reg.addDiscoveredBackend("abc123");
+
+        expect(record?.id).toBe("192.168.1.20:dev-x");
+        expect(record?.backendUid).toBeNull();
+        expect(record?.instanceId).toBe("dev-x");
+        expect(record?.lastKnownPort).toBe(54892);
+        expect(await reg.addDiscoveredBackend("nobody")).toBeNull();
     });
 });
 ```
@@ -2082,12 +2327,18 @@ the one real instance.
 ```ts
 import { readFile, writeFile } from "fs/promises";
 import type { BackendRecord, DiscoveredBackend, TunnelFailure } from "@taskflow/shared";
-import { backendIdFor, createListener, type DiscoveryListener } from "@taskflow/shared/discovery";
+import {
+    backendIdFor,
+    createListener,
+    isStale,
+    type DiscoveryListener,
+} from "@taskflow/shared/discovery";
 import {
     adoptUid,
     mergeForMenu,
     matchesDiscovered,
     normalizeRecords,
+    recordFromDiscovered,
     removeRecord,
     upsertRecord,
     type MenuEntry,
@@ -2118,8 +2369,18 @@ export function createRegistry(deps: RegistryDeps) {
         for (const handler of changeHandlers) handler();
     }
 
-    async function persist(): Promise<void> {
-        await writeFile(deps.file, JSON.stringify(records, null, 2));
+    /**
+     * Writes are chained. Mutators on *different* ids are not serialized against
+     * each other and two concurrent `writeFile`s to one path are not atomic.
+     * Each call snapshots `records` when it is queued, so the last one queued
+     * carries the newest state and lands last.
+     */
+    let persistChain: Promise<void> = Promise.resolve();
+    function persist(): Promise<void> {
+        const snapshot = JSON.stringify(records, null, 2);
+        const write = persistChain.then(() => writeFile(deps.file, snapshot));
+        persistChain = write.catch(() => {});
+        return write;
     }
 
     async function load(): Promise<void> {
@@ -2215,9 +2476,10 @@ export function createRegistry(deps: RegistryDeps) {
             user?: string;
             sshPort?: number;
             port?: number;
+            instanceId?: string;
         }): Promise<BackendRecord> {
             // Not serialized: it mints a fresh id nothing else can be holding.
-            const instanceId = "main";
+            const instanceId = input.instanceId ?? "main";
             const record: BackendRecord = {
                 id: backendIdFor(input.host, instanceId),
                 backendUid: null,
@@ -2230,6 +2492,25 @@ export function createRegistry(deps: RegistryDeps) {
                 attached: false,
                 addedAt: new Date().toISOString(),
             };
+            records = upsertRecord(records, record);
+            await persist();
+            notifyChanged();
+            return record;
+        },
+
+        /**
+         * Save a seen-but-unsaved menu entry. Its id is the announced uid, which
+         * is used here only to find the live entry; the record itself is
+         * provisional (`recordFromDiscovered`) until a handshake confirms who
+         * it is. Not serialized, for the same reason as `addBackend`.
+         */
+        async addDiscoveredBackend(entryId: string): Promise<BackendRecord | null> {
+            const now = Date.now();
+            const live = discovered.find(
+                (entry) => entry.backendUid === entryId && !isStale(entry.lastSeenAt, now),
+            );
+            if (!live) return null;
+            const record = recordFromDiscovered(live, deps.defaultUser, new Date(now).toISOString());
             records = upsertRecord(records, record);
             await persist();
             notifyChanged();
@@ -2325,8 +2606,16 @@ export function createRegistry(deps: RegistryDeps) {
                 const uid = info.backendUid;
                 if (id === uid) return { id, merged: false };
 
-                const canonical = records.find((entry) => entry.id === uid);
-                const merged = canonical !== undefined;
+                // Merge only when the canonical record is *live*. A saved but
+                // detached record under this uid has nothing worth keeping; the
+                // newcomer's tunnel and socket are the only ones there are, so
+                // that case is a rename onto the canonical — the records still
+                // merge, `adoptUid` handles both — and the renderer keeps its
+                // connection. Deciding on record existence alone would close
+                // the one connection just proved healthy, and would race a
+                // detach of the canonical (queued under `uid`, not `id`) into a
+                // record persisted `attached: true` with no origin behind it.
+                const merged = origins.has(uid);
 
                 records = adoptUid(records, id, uid);
 
@@ -2422,6 +2711,13 @@ the Interfaces block above, each delegating to the registry instance created in
 backend is not a record: `getAttached` always includes it first, as
 `{ id: "local", origin: backendOrigin(getBackendPort()), isLocal: true, isPrimary: … }`.
 
+For the same reason, `attachBackend("local")` and `detachBackend("local")` are
+answered in this layer rather than by the registry: attach resolves
+`{ ok: true, origin: backendOrigin(getBackendPort()) }` and detach resolves at
+once, touching nothing. The renderer then treats local exactly like any other
+machine — one `attach()` path, one `detach()` path — instead of special-casing
+it in the provider, the hard switch and the retry (Tasks 10, 21).
+
 `onBackendsChanged`, `onBackendDropped` and `onBackendSeen` are `webContents.send`
 pushes, not handles; wire them from `registry.onChanged`, the tunnel manager's
 `onTunnelExit`, and `registry.onSeen` respectively. `probeBackends` delegates to
@@ -2437,8 +2733,8 @@ widen any type to `unknown` to make it compile.
 
 - [ ] **Step 7: Create the registry at startup — and do not dial from here**
 
-In `electron/src/main.ts`, after the local backend is spawned, create the
-registry and call `init()`:
+In `electron/src/main.ts`, inside the `app.whenReady` handler (`:151-171`),
+after `setBackendPort(port)`, create the registry and call `init()`:
 
 ```ts
     const registry = createRegistry({
@@ -2469,7 +2765,10 @@ Startup still does not block: the renderer's dial is per machine and unawaited
 in exactly the same way, and it ends in a handshake and a bootstrap rather than
 half-way.
 
-On `before-quit`, call `registry.stop()` and `closeAllTunnels()`.
+In the `before-quit` handler (`:186-215`), on the path where the quit actually
+proceeds — after the confirmation dialog, where `quitting` is set — call
+`registry.stop()` and `closeAllTunnels()`. Not before the dialog: a cancelled
+quit must leave every tunnel up.
 
 - [ ] **Step 8: Verify and commit**
 
@@ -2660,8 +2959,15 @@ interface BackendStore {
     machines: MachineState[];
     primaryId: string | null;
     attach(id: string): Promise<void>;
-    detach(id: string): Promise<void>;
+    /** `reason` only changes the error pending requests see. */
+    detach(id: string, reason?: "detach" | "switch"): Promise<void>;
     retry(id: string): void;
+    /** Reconcile rows with main. Never sets a row "attached" — see Step 6. */
+    refresh(): Promise<void>;
+    /** Fetch every slice for one machine. Task 11 Step 8 fills the body in. */
+    bootstrapBackend(id: string): Promise<void>;
+    /** `attach`'s tail, run when a socket reconnects on its own. See Step 6a. */
+    rehandshake(id: string): Promise<void>;
 }
 
 function patch(id: string, changes: Partial<MachineState>): void {
@@ -2670,7 +2976,8 @@ function patch(id: string, changes: Partial<MachineState>): void {
     }));
 }
 
-export const useBackendStore = create<BackendStore>(() => ({
+// `get` is the store's own getter: `attach` reaches `bootstrapBackend` through it.
+export const useBackendStore = create<BackendStore>((_set, get) => ({
     machines: [],
     primaryId: null,
 
@@ -2686,6 +2993,9 @@ export const useBackendStore = create<BackendStore>(() => ({
         try {
             await openConnection(id, result.origin);
         } catch {
+            // Drop the connection too, or it keeps reconnecting in the
+            // background with nobody to handshake when it succeeds.
+            closeConnection(id, "detach");
             patch(id, { state: "offline", failure: unknownFailure("Socket refused") });
             return;
         }
@@ -2744,14 +3054,25 @@ export const useBackendStore = create<BackendStore>(() => ({
         }
 
         patch(liveId, { state: "attached" });
+        followSocket(liveId);
         await get().bootstrapBackend(liveId);
     },
 
-    async detach(id) {
-        closeConnection(id, "detach");
+    async detach(id, reason = "detach") {
+        statusUnsubs.get(id)?.();
+        statusUnsubs.delete(id);
+        closeConnection(id, reason);
         resetBackend(id);
         await window.taskflow!.detachBackend(id);
-        patch(id, { state: "offline" });
+        patch(id, { state: "offline", failure: undefined });
+    },
+
+    async bootstrapBackend(_id) {
+        // Task 11 Step 8 fills this in with fetchProjects / fetchTasks.
+    },
+
+    async rehandshake(_id) {
+        // Step 6a.
     },
 
     retry(id) {
@@ -2878,13 +3199,16 @@ function followSocket(backendId: string): void {
 }
 ```
 
-`rehandshake(id)` is `attach`'s tail: `SYSTEM_INFO`, check `protocolVersion`,
-check that `backendUid` still matches the record, then `patch(id, { state:
-"attached" })` and `bootstrapBackend(id)`. A uid that changed means a different
-backend is answering on that port; detach rather than adopt it.
+`rehandshake(id)` is `attach`'s tail, and a store method declared in the
+interface above: `SYSTEM_INFO`, check `protocolVersion`, check that
+`backendUid` still matches the record, then `patch(id, { state: "attached" })`
+and `bootstrapBackend(id)`. A uid that changed means a different backend is
+answering on that port; detach rather than adopt it. Extract the tail out of
+`attach` into it rather than writing it twice.
 
-`detach` calls `statusUnsubs.get(id)?.()` and deletes the entry, so a machine
-that is gone stops driving state.
+`statusUnsubs` and `followSocket` sit at module level below the store; `attach`
+calls `followSocket` after the handshake and `detach` (Step 5) drops the
+subscription first, so a machine that is gone stops driving state.
 
 - [ ] **Step 6b: Follow main's pushes**
 
@@ -2907,13 +3231,15 @@ window.taskflow?.onBackendSeen((id) => {
 });
 ```
 
-Add `refresh(): Promise<void>` to the `BackendStore` interface.
+`refresh` is declared in the `BackendStore` interface (Step 5).
 
 - [ ] **Step 7: Attach local first, then the rest, in the provider**
 
 In `packages/ui/src/providers/WebSocketProvider.tsx`, replace the single connect
-with: open the local connection, `setPrimaryBackend("local")`, bootstrap it,
-`refresh()` so every known machine has a row, and then dial every persisted
+with, in this order: `setPrimaryBackend("local")` first — the shim's status
+subscribers follow primary, and `useAgentAvailability` subscribed at import —
+then `await refresh()` so every known machine has a row, including local's from
+`getAttached()`; then `await attach("local")`; then dial every persisted
 attached record — each independently, none blocking the render:
 
 ```ts
@@ -2921,6 +3247,11 @@ attached record — each independently, none blocking the render:
         void useBackendStore.getState().attach(id);
     }
 ```
+
+Local goes through the same `attach()` as every other machine. Task 9's IPC
+layer answers `attachBackend("local")` with the local origin, so local's row
+reaches `"attached"` by the same code as everyone else's — `refresh` never sets
+that state, and Task 21's `workAs("local")` reads it.
 
 `attachedRecordIds()`, not `getAttached()`. `getAttached()` reports the tunnels
 main happens to hold *right now*, which at startup is none, and main no longer
@@ -3392,8 +3723,10 @@ function filterByProject<T extends { projectId?: string }>(
 }
 ```
 
-Every caller — `useRunMenu.ts:76-82`, `useSessionSync.ts:69-75`,
-`FlowManagementDialog.tsx` — passes a backend id. Register
+Every caller — `hooks/useRunMenu.ts:77,81`,
+`components/workspace/hooks/useSessionSync.ts:70,74`,
+`components/schedules/ScheduleForm.tsx:76` — passes a backend id.
+`FlowManagementDialog.tsx` does not call it; it is Task 19's. Register
 `registerBackendReset("flow-store", …)`.
 
 - [ ] **Step 5: Mirror settings per machine, writable only on primary**
@@ -4364,7 +4697,7 @@ compatibility shim makes any remaining unrouted call a compile error."
 **Files:**
 - Modify: `electron/src/notification-poller.ts:9`, `:27`, `:54-59`
 - Modify: `electron/src/tray-manager.ts:161`, `:186`
-- Modify: `electron/src/ipc-handlers.ts:115`
+- Modify: `electron/src/ipc-handlers.ts:100-101` (the `save-artifact` handle)
 - Modify: `packages/backend/src/api/routes/flow-routes.ts`
 - Create: `electron/src/notification-poller.test.ts`
 
@@ -4398,7 +4731,7 @@ have a laptop's window position overwrite a desktop's.
 
 - [ ] **Step 5: Serve flow artifacts over the owning backend**
 
-`saveArtifact` (`ipc-handlers.ts:115`) `copyFile`s a backend-supplied absolute
+`save-artifact` (`ipc-handlers.ts:100-101`) `copyFile`s a backend-supplied absolute
 path using the **client's** filesystem, which with a remote backend either fails
 or copies an unrelated local file that happens to share the path.
 
@@ -4475,10 +4808,13 @@ states plus the dirty refusal:
   leave exactly one of `b`/`c` attached and primary, the other cleanly detached,
   and the second call returning `{ ok: false, reason: "busy" }`. Without the
   guard both targets end up closed.
-- **Returning to local**: `workAs("local")` succeeds. Local is always attached
-  and always has a row (Task 10's `refresh` seeds it from `getAttached`), so it
-  takes the already-attached path and never calls `attachBackend("local")`,
-  which the registry would reject as "No such backend".
+- **Returning to local**: after `workAs("b")`, local's row is `offline` and its
+  socket closed. `workAs("local")` reopens it through the ordinary
+  `attach("local")` path — Task 9's IPC layer answers `attachBackend("local")`
+  with the local origin — and then detaches `b`. Assert local's connection is
+  open again and `b`'s is closed. Local has a row because Task 10's `refresh`
+  seeds it from `getAttached`; it is ever `attached` only because the provider
+  attached it like any other machine.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -4490,6 +4826,10 @@ Expected: FAIL — `workAs` does not exist.
 `switchInFlight` is a module-level `let` in `backend-store.ts`, beside the store
 rather than in it: it guards a procedure, and putting it in state would invite a
 component to render off it and race the guard it exists to be.
+
+`runSwitch` is a module-level function beside it, not a store method, so
+nothing can call it around the guard. It reads the store through
+`useBackendStore.getState()`; there is no `get` in scope at module level.
 
 ```ts
 let switchInFlight = false;
@@ -4510,40 +4850,47 @@ let switchInFlight = false;
             switchInFlight = false;
         }
     },
-
-    async runSwitch(id) {
-        // 1. Local is about to be detached, so this is the one place unsaved
-        //    work can be lost. In aggregate mode nothing refuses anything,
-        //    because models are keyed per machine.
-        const dirty = dirtyFilePaths();
-        if (dirty.length > 0) return { ok: false, reason: "dirty", files: dirty };
-
-        // 2. Prepare the target first and never tear it down. Reuse it as-is if
-        //    it is already attached, which is the likely case.
-        const already = get().machines.find((m) => m.id === id && m.state === "attached");
-        if (!already) {
-            await get().attach(id);
-            const after = get().machines.find((m) => m.id === id);
-            if (after?.state !== "attached") {
-                return { ok: false, reason: "unreachable", failure: unknownFailure("Target did not attach") };
-            }
-        }
-
-        // 3. Detach everything EXCEPT the target. Snapshot first: the detaches
-        //    below mutate the list, and iterating a live view would skip rows.
-        for (const machine of [...get().machines]) {
-            if (machine.id === id) continue;
-            closeConnection(machine.id, "switch");
-            resetBackend(machine.id);
-            await window.taskflow!.detachBackend(machine.id);
-        }
-
-        // 4. Promote, then 5. remount.
-        setPrimaryBackend(id);
-        bumpShellKey();
-        return { ok: true };
-    },
 ```
+
+```ts
+async function runSwitch(id: string): Promise<SwitchResult> {
+    const store = useBackendStore.getState();
+
+    // 1. Local is about to be detached, so this is the one place unsaved
+    //    work can be lost. In aggregate mode nothing refuses anything,
+    //    because models are keyed per machine.
+    const dirty = dirtyFilePaths();
+    if (dirty.length > 0) return { ok: false, reason: "dirty", files: dirty };
+
+    // 2. Prepare the target first and never tear it down. Reuse it as-is if
+    //    it is already attached, which is the likely case.
+    const already = store.machines.find((m) => m.id === id && m.state === "attached");
+    if (!already) {
+        await store.attach(id);
+        const after = useBackendStore.getState().machines.find((m) => m.id === id);
+        if (after?.state !== "attached") {
+            return { ok: false, reason: "unreachable", failure: unknownFailure("Target did not attach") };
+        }
+    }
+
+    // 3. Detach everything EXCEPT the target, through the same `detach` the
+    //    menu uses, so each row goes offline and its socket subscription is
+    //    dropped — local included; Task 9's IPC layer makes its detach a no-op
+    //    on main's side. Snapshot first: the detaches mutate the list.
+    for (const machine of [...useBackendStore.getState().machines]) {
+        if (machine.id === id) continue;
+        await useBackendStore.getState().detach(machine.id, "switch");
+    }
+
+    // 4. Promote, then 5. remount.
+    setPrimaryBackend(id);
+    bumpShellKey();
+    return { ok: true };
+}
+```
+
+`SwitchResult` is the union named in this task's Interfaces block; declare it
+once in `backend-store.ts` and use it for `workAs` too.
 
 Nothing is destroyed until the target is already usable as primary, which is the
 non-destructive property the superseded design had.
@@ -4664,9 +5011,10 @@ Write the results into the handoff document, including anything deferred.
 
 ## Review log
 
-Three rounds against gpt-5.5 via the `codex-review` skill, each finding
+Four rounds against gpt-5.5 via the `codex-review` skill, each finding
 independently verified and — where the plan's code was concrete enough to run —
-reproduced. The repros live in `plan-review/` and in
+reproduced. Round 4 was reviewed by Claude in full alongside Codex; the two
+lists overlapped on three findings and each found things the other did not. The repros live in `plan-review/` and in
 `packages/ui/src/stores/*.repro.test.ts`, and they embed the code as it stood
 *before* this revision; they are the evidence for the findings, not tests of the
 current text. Delete each when the task that fixes it lands.
@@ -4701,10 +5049,46 @@ the artifact download unroutable (Tasks 12, 20); `registerEditorOpener` was not
 in Task 15's list, so Cmd-clicking an import would open `/`; Task 22 exercised
 none of the four.
 
+**Round 4** — twelve, against the revision. Two of the plan's own tests were
+broken: the Task 9 "remove while connecting" test awaited the removal *before*
+releasing the gate its attach was parked on, which the plan's own per-id
+`serialize` turns into a deadlock (`plan-review/serialize-deadlock.test.ts`);
+the spoof test built a record with no uid, so the spoofed announce matched
+nothing and the test passed for any implementation (Codex). Two tasks were
+written against files that had since moved: Task 2's watcher patch called
+chokidar, gone from `file-watcher.ts` since the recursive watcher landed, and
+Task 1 registered `SYSTEM_INFO` in `index.ts` when the handler lives in
+`handlers/system.ts` and would have shadowed or been shadowed by it (both also
+Codex). Task 8's shim answered "no primary yet" with a no-op, and both of the
+app's status subscribers — the provider on mount and `useAgentAvailability` at
+import — register before any primary exists, so the provider's `connected` would
+never go true and its `connectWebSocket(port)` would throw
+(`plan-review/shim-status-before-primary.test.ts`). Task 10's store used a `get`
+that was not in scope and called three methods its interface did not declare
+(Codex). `confirmBackend` decided merge-vs-rename on record existence, so an
+alias of a saved-but-detached machine closed the only connection there was and,
+racing a detach queued under the other id, persisted `attached: true` with no
+origin (Codex found the race). The uid was minted per `BASE_DIR`, which `main`
+and `dev-*` share, so two instances on one machine would have merged into one
+record — while the spec said "per data directory", which the plan did not do
+either. The host-key alias was keyed by uid, so every record's alias changed at
+its first handshake and the trust dialog would return on the next launch for
+every machine. `recordFromDiscovered` set identity from the beacon, which the
+spec forbids, and nothing called it; `addBackend` could not express an instance
+id, so a discovered `dev-*` instance had no way in. `Connection.open()` never
+closed a socket that was still open, and Task 7's `pendingOpens` was cleared by
+a captured id that `rekeyTunnel` could have moved. Local had no `attach()` path
+— the provider dialled it by hand and `refresh` never sets "attached" — so Task
+21's `workAs("local")` could not take the branch its test assumed; local is now
+a machine like any other and the IPC layer answers for it.
+
 **What the rounds kept catching** is worth more than any single finding: state
 with two possible owners, and identity cached under a bare path. Both now appear
 in the Global Constraints, and the store-reset test scans the tree rather than
-trusting a list.
+trusting a list. Round 4 added a third kind: code written against a file as it
+stood on the day the plan was drafted. Two handlers had moved by the time the
+plan was reviewed. **Line citations in this plan are hints; grep before you
+edit.**
 
 ---
 
@@ -4719,6 +5103,12 @@ behaviour instead.
 other client's file watches. Task 8 before any store task, since they all need
 routed requests. Task 15 before anyone opens the same path on two machines. Task
 7's `rekeyTunnel` before Task 9's `confirmBackend`, which calls it.
+
+**Local is a machine like any other in the renderer.** It has a row, it goes
+through `attach()` and `detach()`, its row is `"attached"` only because `attach`
+said so. The IPC layer (Task 9 Step 5) answers `attachBackend("local")` and
+`detachBackend("local")` without touching the registry. Special-casing local in
+the renderer is how Task 21 came to assume a state nothing set.
 
 **One owner per job.** The launch dial belongs to the renderer (Task 10), not
 main. Host-key trust belongs to the app's own known_hosts (Task 6), not

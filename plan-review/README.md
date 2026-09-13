@@ -4,7 +4,8 @@ Evidence for the review of
 `docs/superpowers/plans/2026-08-24-taskflow-remote-projects.md`.
 
 Each test embeds the plan's own code **verbatim as it stood before the
-2026-08-24 revision**, with the source line noted above the block, and drives it
+revision that fixed it** (rounds 1–3 were fixed in the 2026-08-24 revision,
+round 4 on 2026-09-13), with the source line noted above the block, and drives it
 through the sequence the plan described. Every assertion states the *wrong*
 behaviour that version produced — so these pass, and passing is the point.
 
@@ -17,6 +18,8 @@ all of them; delete each one when the task that fixes it lands.
 | `backend-record-conflict.ts` | `BackendRecord` declared twice — `bunx tsc --noEmit --strict --skipLibCheck plan-review/backend-record-conflict.ts` |
 | `registry-concurrency.test.ts` | registry mutators write back a stale snapshot: remove-during-attach resurrects, rename-during-attach is lost |
 | `hard-switch-concurrency.test.ts` | two concurrent `workAs` calls detach each other's target |
+| `serialize-deadlock.test.ts` | round 4: the plan's own "remove while connecting" test awaits the removal before releasing the gate its attach is parked on, and per-id serialization turns that into a hang |
+| `shim-status-before-primary.test.ts` | round 4: the useWebSocket shim returns a no-op to status subscribers registered before a primary exists (both real subscribers are), and its `connectWebSocket` throws before Task 10 |
 
 Two more live next to the stores they exercise, because they run against the
 real code rather than a transcript — `packages/ui/src/stores/wiki-backend-collision.repro.test.ts`
