@@ -81,6 +81,22 @@ describe("buildTunnelArgs", () => {
         expect(args).toContain(`HostKeyAlias=${hostKeyAlias(record)}`);
     });
 
+    // Runs the real parser: `ssh -G` evaluates options and destination without
+    // connecting.
+    test.skipIf(!Bun.which("ssh"))(
+        "a host with whitespace is reported as an invalid host name",
+        async () => {
+            const args = buildTunnelArgs({ ...record, host: "bad host" }, 7777, 54892);
+            const proc = Bun.spawn(["ssh", "-F", "/dev/null", "-G", ...args], {
+                stdout: "ignore",
+                stderr: "pipe",
+            });
+            const stderr = await new Response(proc.stderr).text();
+            const exitCode = await proc.exited;
+            expect(classifyTunnelFailure(stderr, exitCode).kind).toBe("bad-destination");
+        },
+    );
+
     // `-bad@host` is an option cluster to getopt, not a destination.
     test("a user or host beginning with a dash is not read as options", () => {
         const args = buildTunnelArgs({ ...record, user: "-bad", host: "-worse" }, 7777, 54892);
@@ -108,6 +124,29 @@ describe("known hosts helpers", () => {
     test("the alias does not change when the record learns its uid", () => {
         const confirmed = { ...record, id: "abc123", backendUid: "abc123" };
         expect(hostKeyAlias(confirmed)).toBe(hostKeyAlias(record));
+    });
+
+    // ssh splits `-o` values on whitespace and rejects stray quotes, so a raw
+    // alias made `bad host` fail on the option ("extra arguments at end of
+    // line") before ssh could say the host name is invalid.
+    test("the alias is a single token ssh can parse, whatever the host holds", () => {
+        const hosts = ["bad host", "x\nProxyCommand y", "a\tb", 'a"b', "a'b", "a\\b"];
+        for (const host of hosts) {
+            const unparsable = Array.from(hostKeyAlias({ ...record, host })).filter((char) => {
+                const code = char.charCodeAt(0);
+                return code <= 0x20 || code === 0x7f || `"'\\`.includes(char);
+            });
+            expect(unparsable).toEqual([]);
+        }
+    });
+
+    test("encoding the alias keeps distinct hosts apart", () => {
+        expect(hostKeyAlias({ ...record, host: "a b" })).not.toBe(
+            hostKeyAlias({ ...record, host: "a%20b" }),
+        );
+        expect(hostKeyAlias({ ...record, host: "desktop.local" })).toBe(
+            "taskflow-desktop.local-22",
+        );
     });
 
     test("keyscan queries the host on its ssh port", () => {

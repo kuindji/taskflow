@@ -17,9 +17,23 @@ export const KNOWN_HOSTS_FILE = join(homedir(), ".taskflow", "known_hosts");
  * first handshake (provisional key → uid), so the line approved moments
  * earlier would never be looked at again and the trust dialog would come back
  * on the next launch for every machine.
+ *
+ * The host is percent-encoded where ssh's option parser would choke on it:
+ * whitespace splits a `-o` value ("extra arguments at end of line") and a
+ * stray quote is "invalid quotes", either of which fails the whole command
+ * before ssh can report the host name itself as invalid. `%` is encoded too,
+ * so no two hosts share an alias. Every encoded character is ASCII, so each
+ * becomes exactly two hex digits.
  */
 export function hostKeyAlias(record: BackendRecord): string {
-    return `taskflow-${record.host}-${record.sshPort}`;
+    const host = Array.from(record.host, encodeAliasChar).join("");
+    return `taskflow-${host}-${record.sshPort}`;
+}
+
+function encodeAliasChar(char: string): string {
+    const code = char.charCodeAt(0);
+    const unsafe = code < 0x20 || code === 0x7f || ` "'\\%`.includes(char);
+    return unsafe ? `%${code.toString(16).padStart(2, "0")}` : char;
 }
 
 /**
