@@ -46,7 +46,9 @@ function BackendRow({ entry, isPrimary, onError }: BackendRowProps) {
             onError("Name and SSH user cannot be empty.");
             return;
         }
-        if (parsedSshPort === "invalid") {
+        // A saved record always has a port, so blank is refused too: sent as
+        // "unchanged", it would save nothing and leave the row looking unsaved.
+        if (parsedSshPort === undefined || parsedSshPort === "invalid") {
             onError("The SSH port must be a whole number from 1 to 65535.");
             return;
         }
