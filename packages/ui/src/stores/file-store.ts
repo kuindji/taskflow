@@ -306,7 +306,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
             diffStoreUnsubscribe = null;
         }
         await sendRequestTo(backendId, MSG.FILE_UNWATCH, { path });
-        set({ watched: null });
+        // A watch that landed while this was answered is the newer one: keep it.
+        if (isWatchOf(get().watched, backendId, path)) set({ watched: null });
     },
     clearExplorerState() {
         treeRequestId += 1;

@@ -133,16 +133,23 @@ function AgentDropdownMenu({
             setSystemShellPath(null);
             return;
         }
+        // A list answered after the workspace moved to another machine is that machine's.
+        let cancelled = false;
         sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {}).then(
             (res) => {
+                if (cancelled) return;
                 setShells(res.shells);
                 setSystemShellPath(res.systemShellPath);
             },
             () => {
+                if (cancelled) return;
                 setShells([]);
                 setSystemShellPath(null);
             },
         );
+        return () => {
+            cancelled = true;
+        };
     }, [allowSessionTabs, backendId]);
 
     const defaultShellPath = resolveTerminalShellPath(shells, systemShellPath, configuredShell);

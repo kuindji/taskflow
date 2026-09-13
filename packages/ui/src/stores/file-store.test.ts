@@ -55,7 +55,14 @@ const tree: FileNode = {
 };
 
 // Two machines, each holding the same repository at the same path.
-const desktop = startTestServer("desktop");
+/** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
+let desktopNextUnwatchHold: Promise<void> | null = null;
+const desktop = startTestServer("desktop", (type) => {
+    if (type !== MSG.FILE_UNWATCH || !desktopNextUnwatchHold) return { from: "desktop" };
+    const hold = desktopNextUnwatchHold;
+    desktopNextUnwatchHold = null;
+    return hold.then(() => ({ from: "desktop" }));
+});
 /** While set, laptop's FILE_WATCH answers wait for it. */
 let laptopWatchHold: Promise<void> | null = null;
 const laptop = startTestServer("laptop", (type) =>
@@ -210,6 +217,25 @@ describe("file-store across machines", () => {
 
         expect(watchRequests(laptop, MSG.FILE_UNWATCH)).toEqual([{ path: root }]);
         expect(useFileStore.getState().watched).toBeNull();
+    });
+
+    test("an unwatch answered after the next watch landed does not forget that watch", async () => {
+        desktop.received.length = 0;
+        laptop.received.length = 0;
+        let release = () => {};
+        desktopNextUnwatchHold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        // The pane closes on desktop, and before desktop answers it opens on laptop.
+        const slowUnwatch = useFileStore.getState().unwatchPath("desktop", root);
+        await until(() => watchRequests(desktop, MSG.FILE_UNWATCH).length === 1);
+        await useFileStore.getState().watchPath("laptop", root);
+        expect(useFileStore.getState().watched).toEqual({ backendId: "laptop", path: root });
+        release();
+        await slowUnwatch;
+
+        expect(useFileStore.getState().watched).toEqual({ backendId: "laptop", path: root });
     });
 
     test("detaching the watched machine forgets its watch, and only that machine's", () => {
