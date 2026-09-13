@@ -22,7 +22,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
-| 8 | One connection per backend | in-review round 4 | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex) |
+| 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
@@ -459,6 +459,17 @@ Two findings, both reproduced with failing tests before fixing in `22dbeb9`:
 Also checked, nothing found: the app has no React StrictMode, so `WebSocketProvider` connects once and
 `openConnection` never closes its own first connection with `BackendDetachedError`.
 
+### Task 8, round 4 (Codex gpt-5.5, prompted review of `17aebdd..22dbeb9`, packages/ui)
+
+Clean: no findings. Codex checked the Task 8 contract against Task 10's consumers, `Connection` open/close/reopen,
+epochs, pending rejection and reconnect-timer clearing, registry routing, rekey (primary move, event tagging, status
+subscription move/merge/unsubscribe), the shim's pre-primary sends, status following and primary-only events, the
+`rawFileUrl` signature change and its one caller, `as any` and unused exports. It reran `connection-registry.test.ts`
+(7 pass), `useWebSocket.test.ts` (3 pass), the ui typecheck and build (pass). My own read of `connection.ts`,
+`connection-registry.ts`, the shim, `backend-url.ts` and the `MarkdownPaneImpl` change found nothing either: `fail`
+settles the open once and is a no-op after `onopen`; a rekey that closes a connection filed under the target id tells
+the waiting listeners "disconnected" and then replays the moved socket's status. **Task 8 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -687,8 +698,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 8 review round 4 — Codex gpt-5.5 prompted review of `17aebdd..22dbeb9` (packages/ui only)
-against plan section `### Task 8` (line ~1366). Tell it these are intentional deviations from the plan code: the
-R1 fixes (shim rejects/drops with no primary, `close`/reopen reject an in-flight open), the R2 rekey status replay
-and listener merge, and the R3 fixes (shim `onEvent` primary-only, `StatusSubscription` objects). The R3 fixes
-are small; if round 4 is clean, Task 8 is clear and Task 9 is next.
+Next step: implement Task 9 — "The registry, the attached set, and the IPC surface" (plan line ~2018). Record current
+HEAD as its base commit first. Carry-overs for Task 9 recorded above: Task 5 R1 #4 and R3 (in `confirmBackend`, decide
+refuse-vs-adopt when a confirmed record would be rekeyed onto a different uid, and reject a uid outside `isSafeLabel`
+before moving origins/tunnels; test both); Task 5 R1 (`addDiscoveredBackend` takes `backendIdFor(address, instanceId)`);
+Task 7 (detach closes the tunnel before any re-attach; `rekeyTunnel` closes whatever is filed under the target id).
