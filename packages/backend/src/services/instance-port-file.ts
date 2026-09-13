@@ -1,5 +1,26 @@
 import { randomBytes } from "crypto";
-import { link, readFile, rename, rm } from "fs/promises";
+import { link, readFile, rename, rm, writeFile } from "fs/promises";
+
+/** A path next to `file` that no other process or call will choose. */
+function uniqueSibling(file: string, suffix: string): string {
+    return `${file}.${process.pid}.${randomBytes(4).toString("hex")}.${suffix}`;
+}
+
+/**
+ * Publishes `port` as the stable instance port file. Written whole to a private
+ * temp file and renamed into place, so the path only ever names a complete file.
+ * Writing the path directly could land the port in a file a backend shutting
+ * down has just moved aside to delete, leaving the running backend with none.
+ */
+export async function writeInstancePortFile(file: string, port: number): Promise<void> {
+    const temp = uniqueSibling(file, "tmp");
+    try {
+        await writeFile(temp, String(port));
+        await rename(temp, file);
+    } finally {
+        await rm(temp, { force: true });
+    }
+}
 
 /**
  * Removes the stable instance port file, but only while it still names `port`.
@@ -13,7 +34,7 @@ import { link, readFile, rename, rm } from "fs/promises";
  * written to the path meanwhile, in which case that newer one stands.
  */
 export async function removeInstancePortFile(file: string, port: number): Promise<void> {
-    const aside = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.removing`;
+    const aside = uniqueSibling(file, "removing");
     try {
         await rename(file, aside);
     } catch {

@@ -55,7 +55,7 @@ import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
 import { registerSystemHandlers } from "./handlers/system";
 import { writeFile } from "fs/promises";
-import { removeInstancePortFile } from "./services/instance-port-file";
+import { removeInstancePortFile, writeInstancePortFile } from "./services/instance-port-file";
 import { homedir, hostname } from "os";
 
 async function main() {
@@ -489,7 +489,7 @@ async function main() {
         stop = startedServer.stop;
 
         await writeFile(config.portFile, String(startedServer.port));
-        await writeFile(config.instancePortFile, String(startedServer.port));
+        await writeInstancePortFile(config.instancePortFile, startedServer.port);
         advertisedPort = startedServer.port;
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);

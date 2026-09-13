@@ -3,7 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { removeInstancePortFile } from "../../src/services/instance-port-file";
+import {
+    removeInstancePortFile,
+    writeInstancePortFile,
+} from "../../src/services/instance-port-file";
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
     const dir = await mkdtemp(join(tmpdir(), "instance-port-"));
@@ -46,7 +49,7 @@ describe("removeInstancePortFile", () => {
                     removeInstancePortFile(file, 4321),
                     (async () => {
                         for (let k = 0; k < i % 4; k++) await Promise.resolve();
-                        await writeFile(file, "5555");
+                        await writeInstancePortFile(file, 5555);
                     })(),
                 ]);
                 if (!existsSync(file)) lost++;
