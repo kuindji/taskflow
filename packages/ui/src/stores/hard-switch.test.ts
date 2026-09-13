@@ -183,8 +183,75 @@ describe("hard switch", () => {
         expect(row("local")?.state).toBe("attached");
         expect(store.getState().primaryId).toBe("local");
         expect(await sendRequest<Record<string, never>>("local", "ping")).toEqual({});
-        expect(main.detached).toEqual([]);
+        expect(main.detached).not.toContain("local");
         expect(store.getState().shellKey).toBe(shellKey);
+    });
+
+    test("a refusal after attaching a target nobody wanted detaches it again", async () => {
+        await launch("b");
+        startMachine("b", "b");
+        const answer = main.attachBackend;
+        // The user edits a local file while the target's tunnel comes up.
+        main.attachBackend = (id) => {
+            setEditorDirty("local", "/repo/a.ts", true);
+            return answer(id);
+        };
+        try {
+            expect(await store.getState().workAs("b")).toEqual({
+                ok: false,
+                reason: "dirty",
+                files: ["/repo/a.ts"],
+            });
+        } finally {
+            clearEditorDirty("local", "/repo/a.ts");
+        }
+
+        expect(row("b")).toMatchObject({ state: "offline", keepAttached: false });
+        expect(main.detached).toEqual(["b"]);
+        expect(await outcomeOf(sendRequest("b", "ping"))).toBeInstanceOf(BackendDetachedError);
+        expect(store.getState().primaryId).toBe("local");
+        expect(await sendRequest<Record<string, never>>("local", "ping")).toEqual({});
+    });
+
+    test("a refusal leaves a target the user already wanted attached", async () => {
+        await launch("b");
+        store.setState({
+            machines: store
+                .getState()
+                .machines.map((m) => (m.id === "b" ? { ...m, keepAttached: true } : m)),
+        });
+        startMachine("b", "b");
+        const answer = main.attachBackend;
+        main.attachBackend = (id) => {
+            setEditorDirty("local", "/repo/a.ts", true);
+            return answer(id);
+        };
+        try {
+            expect(await store.getState().workAs("b")).toMatchObject({ reason: "dirty" });
+        } finally {
+            clearEditorDirty("local", "/repo/a.ts");
+        }
+
+        expect(row("b")).toMatchObject({ state: "attached", keepAttached: true });
+        expect(main.detached).toEqual([]);
+    });
+
+    test("a machine main fails to detach still goes offline and the switch completes", async () => {
+        await launch("b", "c");
+        startMachine("b", "b");
+        startMachine("c", "c");
+        expect(await store.getState().attach("b")).toBe("b");
+        expect(await store.getState().attach("c")).toBe("c");
+        const shellKey = store.getState().shellKey;
+        main.detachBackend = (id) =>
+            id === "c" ? Promise.reject(new Error("disk full")) : Promise.resolve();
+
+        expect(await store.getState().workAs("b")).toEqual({ ok: true });
+
+        expect(store.getState().primaryId).toBe("b");
+        expect(row("local")?.state).toBe("offline");
+        expect(row("c")).toMatchObject({ state: "offline", keepAttached: false });
+        expect(store.getState().shellKey).toBe(shellKey + 1);
     });
 
     test("a target that attaches but cannot load its projects leaves the attached set alone", async () => {

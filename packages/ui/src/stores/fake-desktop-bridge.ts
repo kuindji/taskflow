@@ -8,6 +8,7 @@ type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
 interface FakeMain {
     attachBackend: (id: string) => Promise<AttachResult>;
     confirmBackend: Bridge["confirmBackend"];
+    detachBackend: Bridge["detachBackend"];
     detached: string[];
     confirmed: string[];
 }
@@ -19,6 +20,7 @@ export function tunnelFailure(message: string): TunnelFailure {
 export const main: FakeMain = {
     attachBackend: () => Promise.resolve({ ok: false, failure: tunnelFailure("unset") }),
     confirmBackend: () => Promise.reject(new Error("unset")),
+    detachBackend: () => Promise.resolve(),
     detached: [],
     confirmed: [],
 };
@@ -53,7 +55,7 @@ export const bridge: Pick<
     },
     detachBackend: (id) => {
         main.detached.push(id);
-        return Promise.resolve();
+        return main.detachBackend(id);
     },
     listBackends: () => Promise.resolve([]),
     getAttached: () => Promise.resolve([]),
@@ -94,6 +96,7 @@ export function uninstallFakeBridge(): void {
 export function resetFakeMain(): void {
     main.attachBackend = () => Promise.resolve({ ok: false, failure: tunnelFailure("unset") });
     main.confirmBackend = () => Promise.reject(new Error("unset"));
+    main.detachBackend = () => Promise.resolve();
     main.detached = [];
     main.confirmed = [];
 }

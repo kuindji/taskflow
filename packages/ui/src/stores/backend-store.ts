@@ -308,8 +308,13 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         unfollow(id);
         closeConnection(id, reason);
         resetBackend(id);
-        await bridge().detachBackend(id);
-        patch(id, { state: "offline", failure: undefined, keepAttached: false });
+        try {
+            await bridge().detachBackend(id);
+        } finally {
+            // The socket is closed either way; a row left "attached" over it
+            // would lie. Main failing to persist the intent still rejects.
+            patch(id, { state: "offline", failure: undefined, keepAttached: false });
+        }
     },
 
     async refresh() {
@@ -503,21 +508,27 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     let target = id;
     const machines = () => useBackendStore.getState().machines;
     if (!machines().some((m) => m.id === id && m.state === "attached")) {
+        // A refusal must leave the attached set as it found it, so a target
+        // attached only for this switch is detached again. One the user already
+        // wanted keeps the attach: that is what they asked for anyway.
+        const wanted = machines().find((m) => m.id === id)?.keepAttached ?? false;
+        const refuse = async (result: SwitchResult, liveId: string): Promise<SwitchResult> => {
+            if (!wanted) await useBackendStore.getState().detach(liveId);
+            return result;
+        };
+
         const attached = await useBackendStore.getState().attach(id);
         // `attach` answers once the bootstrap ran, and a bootstrap that could
         // not load the machine's projects leaves it offline: not usable as primary.
         const row = machines().find((m) => m.id === (attached ?? id));
         if (attached === null || row?.state !== "attached") {
-            return {
-                ok: false,
-                reason: "unreachable",
-                failure: row?.failure ?? unknownFailure("The machine did not attach"),
-            };
+            const failure = row?.failure ?? unknownFailure("The machine did not attach");
+            return refuse({ ok: false, reason: "unreachable", failure }, attached ?? id);
         }
         target = attached;
         // A buffer may have been edited while the target attached.
         const dirtyNow = refusedAsDirty(target);
-        if (dirtyNow) return dirtyNow;
+        if (dirtyNow) return refuse(dirtyNow, target);
     }
 
     // Promote before detaching anything: closing the old primary's connection
@@ -530,10 +541,15 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     // Detach everything except the target through the same `detach` the menu
     // uses, so each row goes offline and its socket subscription is dropped —
     // local included; main's IPC layer makes local's detach a no-op on its
-    // side. Snapshot first: the detaches mutate the list.
+    // side. Snapshot first: the detaches mutate the list. Primary has already
+    // moved, so a machine main fails to detach must not stop the rest: its
+    // socket is closed and its row offline regardless.
     for (const machine of [...machines()]) {
         if (machine.id === target) continue;
-        await useBackendStore.getState().detach(machine.id, "switch");
+        await useBackendStore
+            .getState()
+            .detach(machine.id, "switch")
+            .catch(() => {});
     }
 
     // Primary changing re-roots theme, master workspace, settings and connectivity.
