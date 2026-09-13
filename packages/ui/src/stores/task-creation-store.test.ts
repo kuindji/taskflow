@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { Project, Task } from "@taskflow/shared";
+import type { FlowDefinition, Project, Task } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import { useProjectStore } from "./project-store";
-import { taskCreationBackend, useTaskCreationStore } from "./task-creation-store";
+import {
+    taskCreationBackend,
+    taskCreationFlows,
+    useTaskCreationStore,
+} from "./task-creation-store";
 
 function project(id: string): Scoped<Project> {
     return {
@@ -119,5 +123,45 @@ describe("the machine a new task is created on", () => {
     // another machine's project; the machine that holds the parent must get it.
     it("is the parent task's machine for a subtask, whatever project is selected", () => {
         expect(taskCreationBackend({ projectId: "pa", parentId: "tb" }, projects, tasks)).toBe("b");
+    });
+
+    function scopedFlow(id: string, backendId: string, projectId?: string): Scoped<FlowDefinition> {
+        return {
+            backendId,
+            id,
+            projectId,
+            name: id,
+            description: "",
+            actions: [],
+            createdAt: "2026-09-13T00:00:00.000Z",
+            updatedAt: "2026-09-13T00:00:00.000Z",
+        };
+    }
+
+    const flows = [
+        scopedFlow("global-a", "a"),
+        scopedFlow("global-b", "b"),
+        scopedFlow("pb-flow", "b", "pb"),
+        scopedFlow("pb2-flow", "b", "pb2"),
+    ];
+
+    // The flow starts on the task's machine, which resolves the id locally.
+    it("offers a task only its machine's flows for its project", () => {
+        const offered = taskCreationFlows({ projectId: "pb" }, projects, tasks, flows);
+        expect(offered.map((f) => f.id)).toEqual(["global-b", "pb-flow"]);
+    });
+
+    it("offers a subtask its parent's machine and project flows, whatever project is selected", () => {
+        const offered = taskCreationFlows(
+            { projectId: "pa", parentId: "tb" },
+            projects,
+            tasks,
+            flows,
+        );
+        expect(offered.map((f) => f.id)).toEqual(["global-b", "pb-flow"]);
+    });
+
+    it("offers no flows before a project is chosen", () => {
+        expect(taskCreationFlows({ projectId: "" }, projects, tasks, flows)).toEqual([]);
     });
 });

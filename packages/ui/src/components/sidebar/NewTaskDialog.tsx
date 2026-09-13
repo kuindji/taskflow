@@ -34,7 +34,8 @@ interface NewTaskDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     projects: Scoped<Project>[];
-    flows: FlowDefinition[];
+    /** The flows a task in this project can start with; a subtask's are its parent's. */
+    flowsFor: (projectId: string) => FlowDefinition[];
     defaultProjectId?: string;
     parentId?: string | null;
     /** Fields to open with, when the dialog was opened by a drop. */
@@ -56,7 +57,7 @@ export function NewTaskDialog({
     open,
     onOpenChange,
     projects,
-    flows,
+    flowsFor,
     defaultProjectId,
     parentId,
     prefill,
@@ -156,7 +157,11 @@ export function NewTaskDialog({
         [defaultSelection, onOpenChange, resetForm],
     );
 
-    const hasFlowSelection = startWith !== "flow" || startWithFlowId !== "";
+    const flows = useMemo(() => flowsFor(projectId), [flowsFor, projectId]);
+    // Changing the project can take the chosen flow, or every flow, out of reach.
+    const flowId = flows.some((f) => f.id === startWithFlowId) ? startWithFlowId : "";
+    const startWithChoice = startWith === "flow" && flows.length === 0 ? "none" : startWith;
+    const hasFlowSelection = startWithChoice !== "flow" || flowId !== "";
     const canSubmit =
         (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
     const defaultInitCommandPlaceholder = getProjectDefaultInitCommand(projectId) || "bun install";
@@ -171,7 +176,7 @@ export function NewTaskDialog({
             parentId: parentId ?? undefined,
             startWith: isAgentType(startWith) ? startWith : undefined,
             agentOptions,
-            startWithFlowId: startWith === "flow" && startWithFlowId ? startWithFlowId : undefined,
+            startWithFlowId: startWithChoice === "flow" && flowId ? flowId : undefined,
             initCommand: worktree ? initCommand.trim() : undefined,
         });
         resetForm();
@@ -186,7 +191,8 @@ export function NewTaskDialog({
         parentId,
         startWith,
         agentOptions,
-        startWithFlowId,
+        startWithChoice,
+        flowId,
         initCommand,
         onSubmit,
         resetForm,
@@ -311,7 +317,7 @@ export function NewTaskDialog({
 
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="new-task-start-with">Start immediately with</Label>
-                        <Select value={startWith} onValueChange={handleStartWithChange}>
+                        <Select value={startWithChoice} onValueChange={handleStartWithChange}>
                             <SelectTrigger id="new-task-start-with" size="sm" className="w-full">
                                 <SelectValue placeholder="Don't start" />
                             </SelectTrigger>
@@ -350,7 +356,7 @@ export function NewTaskDialog({
                                     </TooltipContent>
                                 </Tooltip>
                             </div>
-                            <Select value={startWithFlowId} onValueChange={setStartWithFlowId}>
+                            <Select value={flowId} onValueChange={setStartWithFlowId}>
                                 <SelectTrigger id="new-task-flow" size="sm" className="w-full">
                                     <SelectValue placeholder="Select a flow" />
                                 </SelectTrigger>

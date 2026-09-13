@@ -5,7 +5,11 @@ import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
-import { taskCreationBackend, useTaskCreationStore } from "@/stores/task-creation-store";
+import {
+    taskCreationBackend,
+    taskCreationFlows,
+    useTaskCreationStore,
+} from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
@@ -45,6 +49,17 @@ export function TaskCreationDialogHost() {
     const pendingSessionRef = useRef<PendingSession | null>(null);
     const pendingFlowRef = useRef<PendingFlow | null>(null);
     const firstActiveProjectId = projects.find((project) => !project.hidden)?.id;
+
+    const flowsFor = useCallback(
+        (projectId: string) =>
+            taskCreationFlows(
+                { projectId, parentId: parentTaskId ?? undefined },
+                projects,
+                tasks,
+                flowDefinitions,
+            ),
+        [parentTaskId, projects, tasks, flowDefinitions],
+    );
 
     const defaultProjectId =
         preferredProjectId ??
@@ -167,7 +182,7 @@ export function TaskCreationDialogHost() {
                 open={newTaskOpen}
                 onOpenChange={setNewTaskOpen}
                 projects={projects}
-                flows={flowDefinitions}
+                flowsFor={flowsFor}
                 defaultProjectId={defaultProjectId}
                 parentId={parentTaskId}
                 prefill={prefill}

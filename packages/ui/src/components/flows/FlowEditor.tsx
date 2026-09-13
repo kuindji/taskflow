@@ -19,6 +19,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import type { Scoped } from "@/lib/backend-scope";
+import { filterByProject } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 import { FlowActionList } from "./FlowActionList";
@@ -27,7 +29,9 @@ import { selectableProjectId, selectableProjects } from "@/lib/project-visibilit
 
 interface FlowEditorProps {
     flow: FlowDefinition | null;
-    globalActions: ActionDefinition[];
+    /** The machine the flow is saved to; its library offers only that machine's actions. */
+    backendId: string | null;
+    globalActions: Scoped<ActionDefinition>[];
     defaultProjectId?: string;
     onSave: (flow: FlowDefinition) => void;
     onCancel: () => void;
@@ -53,6 +57,7 @@ function normalizeActions(actions: FlowActionEntry[]) {
 
 function FlowEditor({
     flow,
+    backendId,
     globalActions,
     defaultProjectId,
     onSave,
@@ -74,8 +79,8 @@ function FlowEditor({
     const [confirmDelete, setConfirmDelete] = useState(false);
 
     const libraryActions = useMemo(
-        () => globalActions.filter((a) => !a.projectId || a.projectId === projectId),
-        [globalActions, projectId],
+        () => (backendId ? filterByProject(globalActions, projectId, backendId) : []),
+        [globalActions, projectId, backendId],
     );
 
     const moveAction = useCallback(

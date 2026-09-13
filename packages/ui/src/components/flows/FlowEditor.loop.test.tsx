@@ -62,6 +62,7 @@ function mount(flow: FlowDefinition | null) {
         root?.render(
             <FlowEditor
                 flow={flow}
+                backendId="local"
                 globalActions={[]}
                 onSave={(f) => saved.push(f)}
                 onCancel={() => {}}

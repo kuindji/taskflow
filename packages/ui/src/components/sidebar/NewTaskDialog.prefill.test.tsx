@@ -40,7 +40,7 @@ function render(open: boolean, prefill?: DroppedTask | null) {
                 open={open}
                 onOpenChange={() => {}}
                 projects={[{ ...project("web"), backendId: "local" }]}
-                flows={[]}
+                flowsFor={() => []}
                 defaultProjectId="web"
                 prefill={prefill}
                 onSubmit={() => {}}

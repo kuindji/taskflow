@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import type { Project, Task } from "@taskflow/shared";
+import type { FlowDefinition, Project, Task } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import type { DroppedTask } from "@/lib/dropped-task";
+import { filterByProject } from "./flow-store";
 import { useProjectStore } from "./project-store";
 
 /**
@@ -22,6 +23,25 @@ export function taskCreationBackend(
     const project = projects.find((p) => p.id === request.projectId);
     if (!project) throw new Error(`Unknown project ${request.projectId}`);
     return project.backendId;
+}
+
+/**
+ * The flows a new task can start with. The flow starts on the task's machine,
+ * which resolves the id locally, so only that machine's flows for the task's
+ * project are offered — a subtask's parent's, like its machine.
+ */
+export function taskCreationFlows(
+    request: { projectId: string; parentId?: string },
+    projects: Scoped<Project>[],
+    tasks: Scoped<Task>[],
+    flows: Scoped<FlowDefinition>[],
+): Scoped<FlowDefinition>[] {
+    if (request.parentId) {
+        const parent = tasks.find((t) => t.id === request.parentId);
+        return parent ? filterByProject(flows, parent.projectId, parent.backendId) : [];
+    }
+    const project = projects.find((p) => p.id === request.projectId);
+    return project ? filterByProject(flows, project.id, project.backendId) : [];
 }
 
 interface TaskCreationStore {
