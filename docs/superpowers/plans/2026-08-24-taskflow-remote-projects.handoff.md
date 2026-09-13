@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 6 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex) |
+| 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -708,6 +708,18 @@ Codex otherwise checked `backend-scope.ts`, both stores, `backend-store.ts`, the
 exclusions; it reran scope, aggregation and backend-store tests (32 pass) and typecheck (clean). My own reread of
 `backend-scope.ts`, `task-store.ts` and `project-store.ts` found nothing new.
 
+### Task 11, round 6 (Codex gpt-5.5, prompted review of `d4b6004..993805f`, packages/ui + `task-order.ts`)
+
+Clean: no findings. Codex swept the changed component call sites and unchanged callers of the changed store methods for
+the R5 pattern (routing by a dialog/UI-selected id instead of the acted-on record's `backendId`) and found every
+project/task mutation routed by the `Scoped` record, task creation via `taskCreationBackend`. It reran scope,
+aggregation, task-creation-store and backend-store tests (40 pass) and typecheck (pass). My own read agreed:
+`project-store.ts`, `task-store.ts`, `TaskCreationDialogHost`, `TaskSidebar`'s reorder and the `TaskCard`/`TaskHeader`/
+`Workspace`/`MissingLocationDialog`/`useSidebarData` hunks. Checked and rejected: `taskCreationBackend` looks a subtask's
+parent up only in live tasks, but "Add subtask" is offered only for non-archived tasks (`TaskCard.tsx:198`,
+`TaskHeader.tsx:142`). The remaining primary-routed shim calls in those components (`GIT_PULL` in `TaskHeader`,
+`FILE_STAT` in `Workspace`) are unchanged lines, owned by Tasks 14/18. **Task 11 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1097,11 +1109,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 6 — one gpt-5.5 review via the codex-review skill over `d4b6004..993805f` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R5
-fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected), the `loading` single flag, that `activeProjectId` on
-detach is Task 14's (R3 decision), that archive/unarchive broadcasts not moving tasks between lists is pre-existing
-(R4 #2), and that a stale list is rebased rather than discarded, so it does not re-raise them. Ask it to sweep the other
-changed call sites for the R5 pattern (routing by a dialog/UI-selected id rather than the acted-on record's
-`backendId`). Past round 5: if round 6 finds only marginal issues, mark Task 11 clear.
-`store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
+Next step: implement Task 12 (The remaining aggregating stores), plan lines 3632-3845. Record HEAD as its base commit
+first. Follow Task 11's R1 decision: every store write goes through `apply` with a function safe to replay over a list
+response, and fetches go through `slices.load` (not the plan's begin/replace). Read `packages/ui/src/lib/backend-scope.ts`
+before starting. `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
