@@ -22,7 +22,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
-| 8 | One connection per backend | in-review round 3 | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own) |
+| 8 | One connection per backend | in-review round 4 | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex) |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
@@ -438,6 +438,27 @@ no-op; onclose after open rejects an already-resolved promise); reconnect-timer 
 `Set` (no duplicate); a first connect that closes before opening now rejects, which the provider already handles
 like the old onerror path. Codex reran the registry and shim tests and typecheck (pass).
 
+### Task 8, round 3 (Codex gpt-5.5, prompted review of `17aebdd..b34625a`, packages/ui)
+
+Two findings, both reproduced with failing tests before fixing in `22dbeb9`:
+
+1. **The shim's `onEvent` delivers every attached backend's events — confirmed, fixed.** Plan-faithful (the
+   plan's shim forwards all). Not reachable at Task 8 (one backend), but from Task 10 on, a store still on the
+   shim (they migrate across Tasks 11–14) would apply another machine's `TASK_UPDATED` as if primary sent it.
+   Now the shim passes an event on only when `backendId === getPrimary()`. Test in `useWebSocket.test.ts`
+   (child `bun -e`, same mock.module leak reason): "an event subscribed through the shim comes only from
+   primary" (red: received `["B","A"]`, expected `["A"]`). No behaviour change today: every event comes from
+   `local`, which `connectWebSocket` names primary before opening.
+2. **A status unsubscribe stops working after a rekey — confirmed, fixed.** This was the R1 "suspicion, not
+   filed". `onStatusChange("a", h)` → `rekeyConnection("a","a-uid")` → `off()` → `closeConnection("a-uid")` still
+   called `h` with the close status. Status listeners are now `StatusSubscription` objects (`{ handler }`), and
+   the unsubscribe deletes that object from whichever set holds it, so one handler subscribed under two ids keeps
+   its other subscription. Test: "unsubscribing after a rekey stops the status updates" (red: `[true, false]`,
+   expected `[true]`).
+
+Also checked, nothing found: the app has no React StrictMode, so `WebSocketProvider` connects once and
+`openConnection` never closes its own first connection with `BackendDetachedError`.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -554,6 +575,10 @@ like the old onerror path. Codex reran the registry and shim tests and typecheck
 
 ## Validation baseline
 
+After Task 8 R3 fix (`22dbeb9`): registry + shim tests 10 pass (3 runs; both new tests red first);
+`bun test packages/ui` 184 pass, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean
+on the four changed files.
+
 After Task 8 R2 fix (`b34625a`): `bun test packages/ui/src/lib/connection-registry.test.ts` 6 pass (3 runs);
 `useWebSocket.test.ts` 2 pass; `bun test packages/ui` 182 pass, 10 fail (the known ten); `bun run typecheck`
 clean; eslint and prettier clean on the two changed files.
@@ -662,7 +687,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 8 review round 3 — Codex gpt-5.5 prompted review of `17aebdd..b34625a` (packages/ui only)
-against plan section `### Task 8` (line ~1366), telling it the R1 fixes and the R2 rekey status replay are
-intentional deviations from the plan code. The R2 fix is small; if round 3 is clean, Task 8 is clear and
-Task 9 is next.
+Next step: Task 8 review round 4 — Codex gpt-5.5 prompted review of `17aebdd..22dbeb9` (packages/ui only)
+against plan section `### Task 8` (line ~1366). Tell it these are intentional deviations from the plan code: the
+R1 fixes (shim rejects/drops with no primary, `close`/reopen reject an in-flight open), the R2 rekey status replay
+and listener merge, and the R3 fixes (shim `onEvent` primary-only, `StatusSubscription` objects). The R3 fixes
+are small; if round 4 is clean, Task 8 is clear and Task 9 is next.
