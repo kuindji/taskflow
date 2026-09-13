@@ -54,13 +54,17 @@ import { registerSearchHandlers } from "./handlers/search";
 import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
 import { registerSystemHandlers } from "./handlers/system";
-import { rm, writeFile } from "fs/promises";
+import { writeFile } from "fs/promises";
+import { removeInstancePortFile } from "./services/instance-port-file";
 import { homedir, hostname } from "os";
 
 async function main() {
     await ensureDirectories();
     await ensureCliScript(config.binDir);
     let stop: (() => void) | undefined;
+    // Set once the stable port file names this backend, so a startup failure
+    // after that point does not leave it pointing at a dead port.
+    let advertisedPort: number | undefined;
 
     try {
         const store = new TaskStore({
@@ -486,6 +490,7 @@ async function main() {
 
         await writeFile(config.portFile, String(startedServer.port));
         await writeFile(config.instancePortFile, String(startedServer.port));
+        advertisedPort = startedServer.port;
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);
 
@@ -528,7 +533,7 @@ async function main() {
             ptyManager.closeAll();
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
             stop?.();
-            await rm(config.instancePortFile, { force: true });
+            await removeInstancePortFile(config.instancePortFile, startedServer.port);
             process.exit(0);
         };
         process.on("SIGINT", () => void shutdown());
@@ -537,6 +542,9 @@ async function main() {
         }
     } catch (error) {
         stop?.();
+        if (advertisedPort !== undefined) {
+            await removeInstancePortFile(config.instancePortFile, advertisedPort);
+        }
         throw error;
     }
 }

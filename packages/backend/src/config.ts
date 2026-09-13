@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -77,6 +77,21 @@ function toSafeLabel(value: string): string {
 
 const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
 
+function hasErrorCode(error: unknown, code: string): boolean {
+    return error instanceof Error && "code" in error && error.code === code;
+}
+
+/** The uid stored in `file`, or null when there is none or it is not a valid uid. */
+function readBackendUid(file: string): string | null {
+    try {
+        const value = readFileSync(file, "utf-8").trim();
+        return /^[0-9a-f]{32}$/.test(value) ? value : null;
+    } catch (error) {
+        if (hasErrorCode(error, "ENOENT")) return null;
+        throw error;
+    }
+}
+
 /**
  * A backend's stable identity, minted once per install and per instance. Host
  * names and IP addresses are how you *reach* a backend; this is what one *is*,
@@ -85,20 +100,37 @@ const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
  * Keyed by instance because `main` and `dev-*` share BASE_DIR and the data
  * directory; one uid between them would merge them into one record.
  *
- * Synchronous on purpose: `config` is built at module load and everything
- * downstream expects a plain string, not a promise.
+ * Synchronous on purpose: everything downstream expects a plain string, not a
+ * promise.
  */
 export function readOrCreateBackendUid(baseDir: string, instanceId: string): string {
     const file = join(baseDir, `backend-uid-${instanceId}`);
-    if (existsSync(file)) {
-        const existing = readFileSync(file, "utf-8").trim();
-        if (/^[0-9a-f]{32}$/.test(existing)) return existing;
-    }
+    const existing = readBackendUid(file);
+    if (existing) return existing;
+
     mkdirSync(baseDir, { recursive: true });
     const minted = randomBytes(16).toString("hex");
-    writeFileSync(file, minted, { mode: 0o600 });
-    return minted;
+    // Written whole to a private temp file, then published with link(), which
+    // fails if the uid file already exists. Of several backends starting at once
+    // exactly one mints and the rest adopt its uid, and none reads a torn file.
+    const temp = `${file}.${process.pid}.${minted.slice(0, 8)}.tmp`;
+    writeFileSync(temp, minted, { mode: 0o600 });
+    try {
+        linkSync(temp, file);
+        return minted;
+    } catch (error) {
+        if (!hasErrorCode(error, "EEXIST")) throw error;
+        const winner = readBackendUid(file);
+        if (winner) return winner;
+        // The file exists but holds no valid uid (corrupt or hand-edited).
+        renameSync(temp, file);
+        return minted;
+    } finally {
+        rmSync(temp, { force: true });
+    }
 }
+
+let backendUid: string | undefined;
 
 export const config = {
     baseDir: BASE_DIR,
@@ -108,8 +140,15 @@ export const config = {
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
     /** Stable, spawner-independent port file. Read over ssh when multicast is unavailable. */
     instancePortFile: join(BASE_DIR, `${instanceId}.port`),
-    /** Stable backend identity. See readOrCreateBackendUid. */
-    backendUid: readOrCreateBackendUid(BASE_DIR, instanceId),
+    /**
+     * Stable backend identity. See readOrCreateBackendUid. Minted on first read,
+     * not at import, so the many modules and tests that import config write
+     * nothing into the config directory.
+     */
+    get backendUid(): string {
+        backendUid ??= readOrCreateBackendUid(BASE_DIR, instanceId);
+        return backendUid;
+    },
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
     instanceId,
     bootId: randomUUID(),
