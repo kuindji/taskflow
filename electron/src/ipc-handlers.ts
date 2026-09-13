@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import { writeFile } from "fs/promises";
 import { join } from "path";
 import type { TunnelFailure } from "@taskflow/shared";
-import { fetchArtifactBytes, isArtifactUrl } from "./artifact-download";
+import { downloadArtifact, isArtifactUrl } from "./artifact-download";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import type { BackendRegistry } from "./backend-registry";
 import { backendOrigin } from "./backend-url";
@@ -128,7 +128,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             if (result.canceled || !result.filePath) return { success: false };
             try {
                 if (typeof opts.url === "string") {
-                    await writeFile(result.filePath, await fetchArtifactBytes(opts.url, attached));
+                    await downloadArtifact(opts.url, attached, result.filePath);
                 } else if (typeof opts.text === "string") {
                     await writeFile(result.filePath, opts.text, "utf-8");
                 } else {
