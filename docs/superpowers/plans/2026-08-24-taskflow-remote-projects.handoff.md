@@ -22,7 +22,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
-| 8 | One connection per backend | implemented | `17aebdd` | `dff8dc2` | |
+| 8 | One connection per backend | in-review round 2 | `17aebdd` | `dff8dc2`, `4f32c14` | R1: 3 fixed (1 own, 2 Codex) |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
@@ -385,6 +385,39 @@ Suspicions, not filed:
   the remote backend changes port. Task 9's `detachBackend` closes the tunnel first; whoever implements Task 9/10
   retry should keep it that way (detach, then attach). **Task 7 is clear.**
 
+### Task 8, round 1 (Codex gpt-5.5, prompted review of `17aebdd..dff8dc2`)
+
+Three findings, all plan-faithful (the plan's own code has each), each reproduced with a failing test
+before fixing in `4f32c14`:
+
+1. **The renderer crashes at every launch — own finding, confirmed, fixed.** The shim's `sendRequest`
+   and `sendFireAndForget` threw `No primary backend` synchronously. React runs child effects before
+   `WebSocketProvider`'s, and the provider only names primary after an IPC await, so any non-async
+   `sendRequest(...).then(...)` in a mount effect threw inside the effect. `CommandPaletteDialog` (always
+   mounted) → `useActiveWorkspace` → `useHomedir`'s effect does exactly that, and `App` has no error
+   boundary. The old module returned a rejected promise / dropped the message. Now: reject / drop when no
+   primary. Tests in new `packages/ui/src/hooks/useWebSocket.test.ts`: "a request before any backend is
+   primary rejects instead of throwing" (runs the real shim in a child `bun -e`, because other files'
+   `mock.module("@/hooks/useWebSocket")` leak into later files) and "a component fetching the home
+   directory on mount does not crash before connect" (render of a `useHomedir` probe; meaningful when run
+   alone, passes vacuously under the leak). Both red with the `dff8dc2` shim, green after.
+2. **An in-flight `openConnection` hangs forever when closed — Codex, confirmed, fixed.** `close()` bumped
+   the epoch, so the connecting socket's handlers returned early and the `open()` promise never settled;
+   Task 10's `attach` awaits it, so a detach during connect would hang the attach. `Connection` now holds
+   `rejectOpen`: `close(reason)` rejects the open with the reason, a current-epoch `onclose` before open
+   rejects too, and a reopen rejects the superseded one. Test: "closing a connection that is still opening
+   rejects the open" (red: `still pending` after 1 s).
+3. **`rekeyConnection` dropped status listeners already under the new id — Codex, confirmed, fixed.** It
+   `set(toId, fromListeners)` over an existing set, so a `toId` subscriber never saw the rekeyed connection's
+   status. Now merged. Test: "a rekey keeps the status subscribers already waiting under the new id" (red
+   only with listeners under both ids; my first version subscribed under `toId` alone and passed on the old
+   code). Reachability today is low: Task 10's merged path closes rather than rekeys.
+
+Suspicion, not filed: an `onStatusChange` unsubscribe registered under the provisional id looks the handler
+up under that id, so after a rekey it no longer finds it (the moved/merged handler stays). The plan's
+move-only code has the same gap; the shim re-subscribes on primary change and Task 10's `statusUnsubs` are
+dropped before open, so no current caller leaks. Revisit if Task 10 subscribes before rekeying.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -501,6 +534,10 @@ Suspicions, not filed:
 
 ## Validation baseline
 
+After Task 8 R1 fix (`4f32c14`): `bun test packages/ui/src/lib/connection-registry.test.ts` 6 pass (3 runs);
+`bun test packages/ui/src/hooks/useWebSocket.test.ts` 2 pass; `bun test packages/ui` 182 pass, 10 fail (the
+known ten); `bun run typecheck` clean; eslint and prettier clean on the five changed files.
+
 After Task 8 (`dff8dc2`): `bun test packages/ui/src/lib/connection-registry.test.ts` 4 pass (3 runs; red
 first: module missing). `bun test packages/ui` 178 pass, 10 fail — the known ten (wiki-backend-collision 1,
 MarkdownPaneImpl anchors 3 / checkbox 5 / rerender 1); each of those files, plus `file-store`, `wiki-store`
@@ -601,7 +638,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 8 review round 1 — Codex gpt-5.5 prompted review of `17aebdd..dff8dc2` against plan
-section `### Task 8` (line ~1366). Check especially the shim's status following across primary changes,
-reconnect epochs, `rekeyConnection` moving status listeners and primary, and that the app still connects
-through `WebSocketProvider` before Task 10.
+Next step: Task 8 review round 2 — Codex gpt-5.5 prompted review of `17aebdd..4f32c14` (packages/ui only)
+against plan section `### Task 8` (line ~1366), telling it the three R1 fixes are intentional deviations
+from the plan code. Check especially the new `rejectOpen` lifecycle (reconnect timer opens, reopen, close
+after open resolves), the shim's reject-before-primary contract, and the rekey listener merge.
