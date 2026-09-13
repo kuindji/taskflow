@@ -174,14 +174,75 @@ describe("backend store attach", () => {
         }));
         cleanups.push(backend.stop);
         seedRow("desktop.local:main");
-        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        store.setState((state) => ({
+            machines: [
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    state: "attached",
+                    isLocal: false,
+                },
+                ...state.machines,
+            ],
+        }));
+        let attachCalls = 0;
+        main.attachBackend = () => {
+            attachCalls++;
+            return Promise.resolve({ ok: true, origin: backend.origin });
+        };
         main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: true });
 
         expect(await store.getState().attach("desktop.local:main")).toBe("abc123");
         expect(row("desktop.local:main")).toBeUndefined();
+        // Already attached here: no second dial of the canonical id.
+        expect(attachCalls).toBe(1);
+        expect(row("abc123")?.state).toBe("attached");
         expect(await outcomeOf(sendRequest("desktop.local:main", "ping"))).toBeInstanceOf(
             BackendDetachedError,
         );
+    });
+
+    test("an alias of a machine this renderer holds no socket for dials the canonical id", async () => {
+        const backend = startBackend(() => ({
+            protocolVersion: PROTOCOL_VERSION,
+            backendUid: "abc123",
+        }));
+        cleanups.push(backend.stop);
+        // Main still has abc123's tunnel, but its earlier attach failed here: the
+        // row is offline and there is no connection under it.
+        store.setState({
+            machines: [
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    state: "offline",
+                    isLocal: false,
+                },
+                {
+                    id: "desktop.local:main",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    state: "offline",
+                    isLocal: false,
+                },
+            ],
+        });
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = (id) =>
+            Promise.resolve(
+                id === "abc123" ? { id, merged: false } : { id: "abc123", merged: true },
+            );
+
+        expect(await store.getState().attach("desktop.local:main")).toBe("abc123");
+        expect(store.getState().machines.map((m) => [m.id, m.state])).toEqual([
+            ["abc123", "attached"],
+        ]);
+        expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
     });
 
     test("a detach while the tunnel is opening wins over the attach", async () => {

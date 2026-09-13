@@ -197,16 +197,25 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             }
             if (!current()) return null;
 
-            if (confirmed.merged) {
+            if (confirmed.merged && confirmed.id !== id) {
                 // The genuine alias case: another record already held this uid,
-                // so there are two connections to one machine. Drop this one and
-                // let the canonical stand — it is attached, so it is the answer.
+                // so there are two connections to one machine. Main closed this
+                // alias's tunnel, so this socket goes either way.
                 drop(id);
                 attempts.delete(id);
-                useBackendStore.setState((state) => ({
-                    machines: state.machines.filter((m) => m.id !== id),
-                }));
-                return confirmed.id;
+                const canonical = get().machines.find((m) => m.id === confirmed.id);
+                if (canonical) {
+                    useBackendStore.setState((state) => ({
+                        machines: state.machines.filter((m) => m.id !== id),
+                    }));
+                } else {
+                    renameRow(id, confirmed.id);
+                }
+                // Main's "merged" means it holds the canonical's tunnel, not that
+                // this renderer holds a socket there: that attach may have failed
+                // or still be running. Only an attached row is the answer as is.
+                if (canonical?.state === "attached") return confirmed.id;
+                return get().attach(confirmed.id);
             }
 
             if (confirmed.id !== id) {
