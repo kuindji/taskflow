@@ -550,16 +550,17 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     // Detach everything except the target through the same `detach` the menu
     // uses, so each row goes offline and its socket subscription is dropped —
     // local included; main's IPC layer makes local's detach a no-op on its
-    // side. Snapshot first: the detaches mutate the list. Primary has already
+    // side. All are started before any is awaited: each closes its socket and
+    // disposes its buffers synchronously, so no machine stays editable after
+    // the dirty check while main persists another's detach. Primary has already
     // moved, so a machine main fails to detach must not stop the rest: its
     // socket is closed and its row offline regardless.
-    for (const machine of [...machines()]) {
-        if (machine.id === target) continue;
-        await useBackendStore
-            .getState()
-            .detach(machine.id, "switch")
-            .catch(() => {});
-    }
+    const { detach } = useBackendStore.getState();
+    await Promise.allSettled(
+        machines()
+            .filter((machine) => machine.id !== target)
+            .map((machine) => detach(machine.id, "switch")),
+    );
 
     // Primary changing re-roots theme, master workspace, settings and connectivity.
     useBackendStore.setState((state) => ({ shellKey: state.shellKey + 1 }));

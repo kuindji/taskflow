@@ -282,6 +282,28 @@ describe("hard switch", () => {
         expect(store.getState().shellKey).toBe(shellKey + 1);
     });
 
+    test("every machine being detached is closed before main answers any detach", async () => {
+        await launch("b", "c");
+        startMachine("b", "b");
+        startMachine("c", "c");
+        expect(await store.getState().attach("b")).toBe("b");
+        expect(await store.getState().attach("c")).toBe("c");
+        // Main is slow to persist local's detach. Were `c` still open meanwhile,
+        // a buffer edited on it would pass no dirty check and be disposed.
+        let release = (): void => {};
+        const localDetached = new Promise<void>((resolve) => (release = resolve));
+        main.detachBackend = (id) => (id === "local" ? localDetached : Promise.resolve());
+
+        const switching = store.getState().workAs("b");
+        await Promise.resolve();
+        expect(main.detached).toContain("local");
+        expect(await outcomeOf(sendRequest("c", "ping"))).toBeInstanceOf(BackendDetachedError);
+        release();
+
+        expect(await switching).toEqual({ ok: true });
+        expect(row("c")?.state).toBe("offline");
+    });
+
     test("a target that attaches but cannot load its projects leaves the attached set alone", async () => {
         await launch("b");
         startMachine("b", "b", { brokenLists: true });
