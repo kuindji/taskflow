@@ -27,7 +27,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
-| 13 | Session state per backend | implemented | `92b43e2` | `2995b40` | |
+| 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
@@ -778,6 +778,32 @@ and it judged the slice detach and late-response guards through `createSlices` c
 reply cannot land after its machine's reset: `Connection.close` rejects pending requests (`connection.ts` ~197-207),
 so the unguarded `fetchSettings` write is safe. **Task 12 is clear.**
 
+### Task 13, round 1 (Codex gpt-5.5, prompted review of `92b43e2..2995b40`, packages/ui)
+
+Two findings, each shown by Codex with a store-level call sequence, both rejected as unreachable; round is clean.
+
+1. **A task moving to another machine loses its tabs — rejected.** `syncWithTasks("b", [t])` then
+   `syncWithTasks("a", [])` drops `task:t`, because a's held keys still claim it. True of the functions, but
+   no feature moves a task or project between machines (no move message in `packages/shared`, `ui` or
+   `backend`). The only way one UUID appears under two `backendId`s is one machine attached twice, which
+   `backendUid` dedup prevents. That is the same identity premise as Task 11 R1 #2 and Task 12 R3. The
+   renderer loads records only after a rename (`attach` calls `bootstrapBackend(liveId)` after
+   `rekeyConnection`/`renameRow`, `backend-store.ts:238-248`), so a provisional id never owns keys the uid
+   later needs.
+2. **Master tabs survive a detach after primary's id is rekeyed — rejected.** `syncWithMasterSessions("local", …)`
+   then `resetBackend("abc123")` leaves `master`. That needs primary to be a provisional id that is later renamed.
+   Primary is only ever `"local"`: `setPrimaryBackend` has two callers, both
+   `WebSocketProvider.tsx` passing `LOCAL_BACKEND_ID` (lines 20, 28). Main's `confirm-backend` answers
+   `{ id: "local", merged: false }` for local (`electron/src/ipc-handlers.ts:341`), so the local row and
+   connection are never rekeyed. Resetting `local` does match `masterBackendId`. Revisit if a later task lets
+   primary be a remote machine.
+
+Codex reran both session-sync test files and typecheck (pass). My own read of the diff found nothing either.
+Tabs are not restored from saved state (no persistence or hydration of `tabsByWorkspace`), so keys no sync
+ever claimed only come from live `addTab` calls. The session-activity reset runs before the session-store reset
+(import order) and leaves owner entries for it to read. `resetBackend`'s only caller, `detach`, closes the
+connection first, so no late event can re-note a session. **Task 13 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1068,6 +1094,9 @@ so the unguarded `fetchSettings` write is safe. **Task 12 is clear.**
 
 ## Validation baseline
 
+After Task 13 R1 (clean, no code change): `session-sync.backend.test.ts` 6 pass, `session-sync.test.ts` 9 pass;
+`bun run typecheck` clean.
+
 After Task 13 (`2995b40`): `session-sync.backend.test.ts` 6 pass (the plan's test red first: desktop's entry
 `undefined`); `session-sync.test.ts` 9 pass. Mutation checks, each restored by checksum: owned set = current keys only
 (prune test red); no `session-store` reset (detach + debounce tests red); no timer clearing in either reset (debounce test
@@ -1264,5 +1293,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 13 review round 1 — one Codex gpt-5.5 prompted review of `92b43e2..2995b40` (packages/ui), against plan
-lines 3846-3993 and the Task 13 decisions above.
+Next step: implement Task 14 (Per-machine caches and path-keyed stores). Record HEAD as its base commit first.
+Carry-overs owned by Task 14: `ui-store` reset for `activeProjectId`, `sidebarFocusedItem`, `collapsedProjectIds` and
+`splitByWorkspace` (Task 11 R3), `useWorkspaceBackend` for the unconverted launch defaults (Task 12 decisions), and
+the primary-routed `FILE_STAT` in `Workspace` (Task 11 R6).
