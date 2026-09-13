@@ -33,7 +33,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
-| 19 | Primary-only managers, gating, and removing the shim | implemented | `015186c` | `3ce63bc` | |
+| 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | pending | | | |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
@@ -1036,6 +1036,21 @@ Own read before the report: exited sessions are forgotten from `sessionBackends`
 tab; `TerminalPane` catches the new resume throw into its error line; `Workspace` run actions bail without a machine.
 Reran `useRunMenu.routing` (2 pass), `AttributesSection` (19 pass), `bun run typecheck` (clean). **Task 18 is clear.**
 
+### Task 19, round 1 (Codex gpt-5.5, prompted review of `015186c..3ce63bc`, packages/ui + shared comments)
+
+Codex: clean. It checked the primary-only managers, `useIsLocalBackend` gating (incl. the no-rows dev case), the
+data-folder gate, file dialogs, reveal/open-external, terminal drop and link paths, `file-store` machine state and stale
+responses, the shim deletion via import scan, model-select threading and refetch, and markdown `FILE_CHANGED`
+filtering. It ran the `ui` typecheck and the `useIsLocalBackend`, `file-store`, `store-reset`, `connection-registry`
+tests (pass).
+
+One own finding, fixed in `63c4b71`: the Radix "Reveal in Finder" items in `FileContextMenu` (`:290`) and `WikiPanel`
+(`:137`) were disabled for a remote workspace with only a `title`, which a disabled Radix item never shows
+(`pointer-events-none`), so the user saw a greyed item with no reason. The recorded decision says Radix items carry the
+visible " (not on this machine)" suffix; `Open in External Editor` and the native items did, these two did not. Both now
+use a shared `LOCAL_ONLY_SUFFIX` from `hooks/useIsLocalBackend.ts`. Label text only, so no further review round (see
+Decisions). **Task 19 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1556,7 +1571,13 @@ Reran `useRunMenu.routing` (2 pass), `AttributesSection` (19 pass), `bun run typ
   Cmd-click gating, model-select routing. `backend-host.ts`/`.test.ts` comments named the deleted file; updated
   (`backend-host.test.ts` already failed `prettier --check` at HEAD).
 
+- Task 19 R1: the own fix (`63c4b71`) only changes two menu labels and adds a string constant, so it skips review per
+  the flow's trivial-change rule; Task 19 is marked clear after R1.
+
 ## Validation baseline
+
+After Task 19 R1 fix (`63c4b71`): `bun run typecheck` clean; eslint and prettier clean on the three changed files;
+`useIsLocalBackend` 4 pass.
 
 After Task 19 (`3ce63bc`): `bun run typecheck` clean; eslint clean on the 64 changed files; prettier clean on them except
 the pre-existing `backend-host.test.ts`. Each alone: `file-store` 12, `useIsLocalBackend` 4, `store-reset` 4,
@@ -1826,4 +1847,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 19 review round 1 — Codex gpt-5.5 prompted review of `015186c..3ce63bc` (packages/ui + the two shared comment files).
+Next step: implement Task 20 (Electron main across several backends) — record HEAD as its base commit first.
