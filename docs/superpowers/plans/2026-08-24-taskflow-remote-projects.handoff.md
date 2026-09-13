@@ -31,7 +31,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
-| 17 | The machines menu and its dialogs | implemented | `111a004` | `30a434e` | |
+| 17 | The machines menu and its dialogs | in-review round 1 done | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex) |
 | 18 | Routing for sidebar rows and background work | pending | | | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
 | 20 | Electron main across several backends | pending | | | |
@@ -980,6 +980,24 @@ Both settle on the next refresh. Not reachable today: only Task 17's menu attach
 and the beacon handler only dial persisted-attached ones). Task 17 should decide whether the menu shows its own
 attaching/failed state or `refresh` keeps a local `keepAttached: true` while an attach is in flight.
 
+### Task 17, round 1 (Codex gpt-5.5, prompted review of `111a004..30a434e`, packages/ui + shared type + records)
+
+Two findings, both reproduced with failing tests and fixed in `3884b1f`:
+
+1. **Port fields accept non-decimal text — confirmed, fixed.** `parsePort` used `Number(trimmed)`, so `0x16`,
+   `0b10110` → 22 and `1e2` → 100 passed validation and reached `addBackend`/`updateBackend` as ports the user never
+   typed (`bun -e` over `parsePort` printed exactly that). Now digits only (`/^\d+$/`), then the 1–65535 range. Test:
+   new `backend-fields.test.ts` (red on `30a434e`).
+2. **Manage: a cleared SSH port "saves" and leaves the row dirty — confirmed, fixed.** Blank was sent as `undefined`
+   ("unchanged"); main kept the port, `backends-changed` brought back `sshPort: 22` while the field stayed `""`, so
+   Save stayed enabled and the row looked unsaved. Records always carry a port (`backend-records.ts:51`, registry
+   default 22), so blank is now refused like a blank name/user. Test: new `ManageBackendsDialog.test.tsx` (red:
+   `updateBackend` was called).
+
+Own read before the report: a record saved without a user cannot exist (main falls back to `defaultUser`), so Manage's
+"SSH user cannot be empty" never blocks a rename of a real record. Codex reran the three Task 17 test files (36 pass)
+and `bun run typecheck` (pass).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1418,7 +1436,7 @@ attaching/failed state or `refresh` keeps a local `keepAttached: true` while an 
   keys shown, then `trustBackendHost` → `attach`; a refusal clears the keys and offers "Check again". The changed-key
   dialog shows `failure.message` and the stderr lines starting `Offending`, with only Close.
 - Task 17: `MenuEntry` gained optional `user` and `sshPort` (set by `mergeForMenu` for saved rows) so Manage can prefill
-  the fields. Manage: blank name/user refused; blank ssh port = unchanged; Save disabled until a field changes;
+  the fields. Manage: blank name/user/ssh port refused (R1: blank port no longer means unchanged); Save disabled until a field changes;
   Remove disabled on primary's row and runs the store's `detach` first (closes the socket, resets the machine's
   slices) when the machine has a row, then `removeBackend`. Refreshes come from `backends-changed`.
 - Task 17: Connect: host, ssh user, ssh port, backend port (blank = resolved over ssh); `addBackend` → `refresh()` →
@@ -1434,6 +1452,10 @@ attaching/failed state or `refresh` keeps a local `keepAttached: true` while an 
   use `type: "label"` and `type: "submenu"` from `NativeMenuItem`; not exercised in a test.
 
 ## Validation baseline
+
+After Task 17 R1 fix (`3884b1f`): `backend-fields.test.ts` 1 + `ManageBackendsDialog.test.tsx` 1 (both red on
+`30a434e` first) + `MachinesMenu.test.tsx` 6 = 8 pass; `bun test packages/ui` 291 pass, 9 fail (the known nine);
+`bun run typecheck` clean; eslint and prettier clean on the four changed files.
 
 After Task 17 (`30a434e`): `MachinesMenu.test.tsx` 6 pass (checkbox state + primary disabled, attach/detach toggles,
 discovered "Add" without a checkbox, "Work as…" a submenu trigger, fingerprint → trust → attach, changed key never
@@ -1684,5 +1706,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 17 review round 1 — one Codex gpt-5.5 prompted review of `111a004..30a434e` (packages/ui, plus
-`packages/shared/src/types/backend.ts` and `electron/src/backend-records.ts`); read the Task 17 decisions first.
+Next step: Task 17 review round 2 — one Codex gpt-5.5 prompted review of `111a004..3884b1f` (packages/ui, plus
+`packages/shared/src/types/backend.ts` and `electron/src/backend-records.ts`); read the Task 17 decisions and R1 first.
