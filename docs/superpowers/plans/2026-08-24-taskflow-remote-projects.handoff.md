@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 3 | `d4b6004` | `2856082`, `702378f`, `92c91a9` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed |
+| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 4 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14) |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -645,6 +645,32 @@ test before fixing in `92c91a9`:
 Not filed: `loading` in both stores is one flag across machines, so the first of two concurrent fetches to settle clears it.
 Same as before Task 11 in effect (single flag); no visible symptom found.
 
+### Task 11, round 3 (Codex gpt-5.5, prompted review of `d4b6004..92c91a9`, packages/ui + `task-order.ts`)
+
+Two findings, both reproduced with failing tests before fixing in `cfc5960`:
+
+1. **A detach leaves the active task pointing at the dropped machine's task — confirmed for the task, deferred for the
+   project.** Select task `ta` on machine a, detach a: `activeTaskId` stayed `"ta"` (red: Received `"ta"`, expected null).
+   `fetchTasks` already clears the active task when it vanishes from its machine's list; a detach is the same vanishing,
+   and the task-store reset is Task 11's. The reset now clears `activeTaskId` only when it was among the dropped machine's
+   task ids. Test in `aggregation.test.ts`: "detaching a machine clears the active task only when it was that machine's"
+   (also checks a detach of b leaves a's active task, and a's own detach does not clear b's). The project half
+   (`useUIStore.activeProjectId`) is **not** fixed here: plan Task 14 (plan line ~4197) explicitly gives `ui-store` its own
+   reset for `activeProjectId`, `sidebarFocusedItem`, `collapsedProjectIds`, `splitByWorkspace`.
+2. **A request begun before a drop can land on the slice recreated after it — confirmed at function level, fixed as
+   hardening.** `begin("a")` → `drop("a")` → `begin("a")` gave both tokens generation 1, so the old response replaced the
+   fresh one (and a failed old `load`'s `finally` would null the fresh load's pending log). Not reachable in the app today:
+   `detach` calls `closeConnection` (rejecting pending requests synchronously in `Connection.close`) before `resetBackend`,
+   and the old load's `finally` runs in a microtask before any re-attach can `begin`. Generations now come from one
+   scope-wide counter that is never reset. Test in `backend-scope.test.ts`: "a request begun before its machine was
+   dropped cannot land on the slice that replaced it" (red: Received true).
+
+Codex otherwise ran the scope and aggregation tests and typecheck (pass). My own read before the report checked the replay
+of `orderProjectsByIds` (keeps ids missing from `orderedIds`, so a replayed reorder over a response with a new project keeps
+it), `PROJECT_CREATED`'s outside-the-write check (harmless: `upsert` replaces by id), the optimistic reorder (applied before
+its own `begin`, so never replayed) and ordering on one socket (an event and a list answer from one machine arrive in send
+order, so a replayed update is never older than the snapshot it lands on).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -858,8 +884,15 @@ Same as before Task 11 in effect (single flag); no visible symptom found.
   instead"). Relies on every store write being a function of the items it is given; Tasks 12-13 must write through
   `apply` with such functions and fetch through `slices.load`. The plan's "a stale list response is discarded rather than
   overwriting newer state" test still passes unchanged (the replayed write keeps `created`).
+- Task 11 R3: clearing `activeProjectId` on detach is left to Task 14's `ui-store` reset (plan-assigned); Task 11's task-store
+  reset clears only `activeTaskId`. Until Task 14, detaching the machine of the open project leaves the workspace blank
+  (`useActiveWorkspace` scope null) with the stale id, restored if that machine is re-attached.
 
 ## Validation baseline
+
+After Task 11 R3 fixes (`cfc5960`): scope + aggregation + backend-store + store-reset + task-creation-store tests 40 pass,
+1 todo (3 runs; both new tests red first); `bun test packages/ui` 218 pass, 1 todo, 10 fail (the known ten); `bun run
+typecheck` clean; eslint and prettier clean on the four changed files.
 
 After Task 11 R2 fix (`92c91a9`): `aggregation.test.ts` + `backend-scope.test.ts` 15 pass (new test red first);
 `bun test packages/ui` 216 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on
@@ -1019,8 +1052,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 3 — one gpt-5.5 review via the codex-review skill over `d4b6004..92c91a9` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1/R2
-fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected) so it does not re-raise id collisions, and ask it to check
-every `apply` write is safe to replay over a response that already holds its effect.
+Next step: Task 11 review round 4 — one gpt-5.5 review via the codex-review skill over `d4b6004..cfc5960` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R3
+fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected), the `loading` single flag, and that `activeProjectId` on
+detach is Task 14's (R3 decision), so it does not re-raise them.
 `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
