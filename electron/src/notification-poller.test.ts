@@ -100,6 +100,32 @@ test("a notification raised while a machine's first poll was failing still arriv
     expect(delivered.map((d) => d.id)).toEqual(["b-1"]);
 });
 
+test("a notification raised while a machine's first poll is under way still arrives", async () => {
+    const at = (time: string) => Date.parse(`2026-09-13T${time}.000Z`);
+    emit(B, notification("old", "09:00:00"));
+    let clientNow = at("10:00:00");
+    const poller = createNotificationPoller({
+        getAttachedBackends: () => backends,
+        fetchNotifications: (origin) => {
+            // Raised on B after the request left, before B answered.
+            if (origin === B) {
+                emit(B, notification("in-flight", "10:00:01"));
+                clientNow = at("10:00:01");
+            }
+            return Promise.resolve({
+                notifications: lists.get(origin) ?? [],
+                serverTime: clientNow,
+            });
+        },
+        notify: (n, backendId) => delivered.push({ id: n.id, backendId }),
+        now: () => clientNow,
+    });
+    await poller.poll();
+    await poller.poll();
+
+    expect(delivered.map((d) => d.id)).toEqual(["in-flight"]);
+});
+
 test("a record renamed at its handshake keeps its watermark and clicks name the new id", async () => {
     const poller = makePoller();
     await poller.poll();

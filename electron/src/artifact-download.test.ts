@@ -131,6 +131,17 @@ test("the bytes are saved, and a refusal's body becomes the error without a file
     expect(existsSync(refused)).toBe(false);
 });
 
+test("a destination name as long as the filesystem allows can be saved", async () => {
+    const backend = serve(() => new Response("REPORT"));
+    const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
+    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const target = join(dirname(destination()), "a".repeat(250));
+
+    await downloadArtifact(url, () => attachedNow, target);
+
+    expect(readFileSync(target, "utf-8")).toBe("REPORT");
+});
+
 test("a large artifact is written as it arrives, not held whole in memory first", async () => {
     let release = () => {};
     const released = new Promise<void>((resolve) => {

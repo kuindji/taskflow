@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { createWriteStream } from "fs";
 import { rename, rm } from "fs/promises";
-import { basename, dirname, join } from "path";
+import { dirname, join } from "path";
 import { pipeline } from "stream/promises";
 import type { AttachedBackend } from "./attached-backends";
 
@@ -57,7 +57,8 @@ async function downloadArtifact(
         throw new Error((await response.text()) || `HTTP ${response.status}`);
     }
     if (!response.body) throw new Error("Artifact response has no body");
-    const partial = join(dirname(destination), `.${basename(destination)}.${randomUUID()}.part`);
+    // Not named after `destination`: a name the filesystem just accepts would not fit.
+    const partial = join(dirname(destination), `.taskflow-${randomUUID()}.part`);
     try {
         await pipeline(chunksOf(response.body), createWriteStream(partial));
         await rename(partial, destination);

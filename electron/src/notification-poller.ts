@@ -90,16 +90,17 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
             );
 
         if (!watermarks.has(origin)) {
-            const failedAt = failedSince.get(origin);
-            if (failedAt === undefined) {
-                // First answer from this origin: what it already holds is not new.
+            // Anything raised since the first failed poll, or since this one left, is new.
+            const since = failedSince.get(origin) ?? (serverTime === null ? undefined : startedAt);
+            if (since === undefined) {
+                // No clock to compare with: what it holds at its first answer is not new.
                 watermarks.set(origin, newest(notifications, null));
                 return;
             }
-            // The failure time, moved onto the origin's clock. `Date` has whole-second
+            // That time, moved onto the origin's clock. `Date` has whole-second
             // resolution, so the cutoff errs early and shows rather than drops.
             const skew = serverTime === null ? 0 : serverTime - now();
-            watermarks.set(origin, new Date(failedAt + skew).toISOString());
+            watermarks.set(origin, new Date(since + skew).toISOString());
             failedSince.delete(origin);
         }
 
