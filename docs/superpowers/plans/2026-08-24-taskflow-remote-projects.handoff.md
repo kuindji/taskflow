@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 3 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex) |
+| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 4 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -575,6 +575,22 @@ Own checks that found nothing: a deliberate `closeTunnel` (retry, detach) never 
 child's `close` listener before killing it (`electron/src/tunnel-manager.ts:449`) — so a retry's own close cannot cut off
 its new attach; `WebSocketProvider` startup order (primary, refresh, local attach, then persisted records) matches the plan.
 
+### Task 10, round 4 (Codex gpt-5.5, prompted review of `76a0746..4c6b03b`, packages/ui)
+
+One finding, reproduced with a failing test before fixing in `c1ea517`:
+
+1. **A detach while the beacon handler awaits `listBackends()` is undone — confirmed, fixed.** The R2 gate read the
+   persisted intent, but a detach landing between the request and its answer left that answer stale
+   (`attached: true`); the row was still `offline`, so the handler called `retry` and main re-persisted `attached`.
+   Fix: the handler captures the attempt counter before `listBackends()` and returns if it moved (detach, retry and
+   drop all bump it). Test: "a detach while the beacon checks the persisted intent does not dial" (red on `4c6b03b`:
+   Expected 0 dials, Received 1; green after).
+
+Own checks that found nothing: every exported symbol in `store-reset.ts` and `backend-store.ts` has a consumer;
+`rekeyConnection`'s close of an existing uid connection cannot orphan a `followSocket` subscription on the rename branch
+(main answers `merged: false` only when no other record holds the uid); a `detach` racing a fresh `attach` of the same id
+only flickers the row (IPC answers arrive in order, so the attach's later awaits patch it last).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -756,6 +772,9 @@ its new attach; `WebSocketProvider` startup order (primary, refresh, local attac
 
 ## Validation baseline
 
+After Task 10 R4 fix (`c1ea517`): `backend-store.test.ts` 13 pass (3 runs; new test red first); `bun test packages/ui`
+200 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
+
 After Task 10 R3 fix (`4c6b03b`): `backend-store.test.ts` 12 pass (3 runs; new test red first); `bun test packages/ui`
 199 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
@@ -893,8 +912,10 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 10 review round 4 — standard gpt-5.5 review via codex-review over `76a0746..4c6b03b`
+Next step: Task 10 review round 5 — standard gpt-5.5 review via codex-review over `76a0746..c1ea517`
 (packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
 `hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above, the R1 merged-branch fix, the R2 fixes
 (`handshake(id, current)` staleness guard; `onBackendSeen` gated on the persisted `attached` intent), the R3 fix
-(`backend-dropped` bumps the attempt counter) and plan Task 10 (plan lines 2810-3330).
+(`backend-dropped` bumps the attempt counter), the R4 fix (`onBackendSeen` bails when the attempt counter moved while
+`listBackends()` was pending) and plan Task 10 (plan lines 2810-3330). Round 5 of 10: each of R3 and R4 found one
+narrow async race; if R5 finds only similar edge races, weigh accepting them as residuals.
