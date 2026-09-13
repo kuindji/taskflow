@@ -31,7 +31,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
-| 17 | The machines menu and its dialogs | in-review round 1 done | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex) |
+| 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | pending | | | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
 | 20 | Electron main across several backends | pending | | | |
@@ -998,6 +998,25 @@ Own read before the report: a record saved without a user cannot exist (main fal
 "SSH user cannot be empty" never blocks a rename of a real record. Codex reran the three Task 17 test files (36 pass)
 and `bun run typecheck` (pass).
 
+### Task 17, round 2 (Codex gpt-5.5, prompted review of `111a004..3884b1f`, packages/ui + shared type + records)
+
+One finding, rejected after tracing it:
+
+1. **A second host-key failure for the same machine while the trust dialog is open is not rescanned, and Cancel
+   dismisses the new failure — rejected (unreachable).** The dialog is keyed by machine id and scans on
+   `[changed, machine.id, scan]`, so a new failure *object* replacing the old one with no render in between would reuse
+   the instance. Nothing produces that: `backend-dropped` fires only for an **established** tunnel
+   (`tunnel-manager.ts:314`), which already passed host-key checks, while a row showing a host-key failure has no
+   established tunnel. Every other path that sets a failure is `attach` (via retry, beacon seen, trust, menu). `attach`
+   patches `failure: undefined` at once (`backend-store.ts:163`) before awaiting IPC, so the dialog unmounts and a later
+   failure remounts it with a fresh scan. Even if it did happen, `trustBackendHost` pins main's own last scan
+   (`tunnel-manager.ts:564`), and the dialog has not rescanned, so the pinned key is the one on screen. Cancel dismissing
+   the failure shown at that moment is the intended behaviour.
+
+Codex otherwise checked attach/detach/add/remove against store, preload, IPC and registry, changed-key handling,
+native vs Radix menu construction, row status and icon derivation, port validation, zustand selectors and type hygiene;
+it reran six test files (60 pass) and `bun run typecheck` (pass). **Task 17 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1453,6 +1472,9 @@ and `bun run typecheck` (pass).
 
 ## Validation baseline
 
+After Task 17 R2 (clean, no code change): `MachinesMenu.test.tsx` + `ManageBackendsDialog.test.tsx` +
+`backend-fields.test.ts` 8 pass.
+
 After Task 17 R1 fix (`3884b1f`): `backend-fields.test.ts` 1 + `ManageBackendsDialog.test.tsx` 1 (both red on
 `30a434e` first) + `MachinesMenu.test.tsx` 6 = 8 pass; `bun test packages/ui` 291 pass, 9 fail (the known nine);
 `bun run typecheck` clean; eslint and prettier clean on the four changed files.
@@ -1706,5 +1728,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 17 review round 2 — one Codex gpt-5.5 prompted review of `111a004..3884b1f` (packages/ui, plus
-`packages/shared/src/types/backend.ts` and `electron/src/backend-records.ts`); read the Task 17 decisions and R1 first.
+Next step: implement Task 18 (Routing for sidebar rows and background work) — record HEAD as its base commit first.
