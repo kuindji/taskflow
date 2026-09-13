@@ -23,7 +23,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
-| 9 | The registry, the attached set, and the IPC surface | implemented | `6baa200` | `a0ad09d` | |
+| 9 | The registry, the attached set, and the IPC surface | in-review round 1 | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
@@ -470,6 +470,33 @@ subscription move/merge/unsubscribe), the shim's pre-primary sends, status follo
 settles the open once and is a no-op after `onopen`; a rekey that closes a connection filed under the target id tells
 the waiting listeners "disconnected" and then replays the moved socket's status. **Task 8 is clear.**
 
+### Task 9, round 1 (Codex gpt-5.5, prompted review of `6baa200..a0ad09d`)
+
+One finding, reproduced with failing tests before fixing in `3591f54`:
+
+1. **A detach or removal sent under a provisional id while its confirm runs does nothing — confirmed, fixed.** Plan
+   Task 10's `attach` keeps the row under its old id until `confirmBackend` resolves, and `detach` sends
+   `detachBackend(id)` with whatever id the row has. That call queued behind the confirm on the old id, and by the time
+   it ran the record, origin and tunnel were under the uid: it returned success while `attached()` still listed
+   `abc123`, `attachedRecordIds()` still `["abc123"]` (redialled next launch); `removeBackend` left the record saved.
+   Fix: `confirmBackend` records `aliases.set(id, uid)`; `canonicalId(id)` follows aliases only while no record exists
+   under the id (so a host re-added under the same provisional id names the new record); `serializeCanonical` runs work
+   under the requested id's queue and re-queues it under the canonical id when a confirm moved it. Used by attach,
+   detach, confirm, update, remove; `getHostFingerprint`/`trustBackendHost` resolve with `canonicalId`. Aliases always
+   run provisional (`host:instance`) → uid (no `:`), so no cycles; the loop guards anyway. Tests: "a detach sent under
+   the id a confirm is moving detaches the confirmed record" and "a removal sent under …" (both red against
+   `a0ad09d`'s registry, 2 fail / 20 pass; green after), plus "an id saved again after its record was confirmed away
+   names the new record" (guard against over-redirecting).
+
+Codex otherwise found nothing; it reran the registry tests (19 pass) and typecheck.
+
+Suspicion, not filed (own read): `confirmBackend` runs on the old id's queue but mutates the uid's tunnel. If an
+`attachBackend(uid)` for a *saved, detached* record of the same machine is probing when a rename lands on that uid,
+`rekeyTunnel` closes the probing child and that attach answers "The tunnel was closed." while the renamed connection is
+live under the uid. Needs both a provisional and a canonical record of one machine dialled at once (both persisted
+`attached`, i.e. a quit between an attach's persist and its confirm). Serializing on both ids was not tried; revisit if
+Task 10's launch redial shows it.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -620,6 +647,9 @@ the waiting listeners "disconnected" and then replays the moved socket's status.
 
 ## Validation baseline
 
+After Task 9 R1 fix (`3591f54`): `bun test electron/src/backend-registry.test.ts` 22 pass (the two race tests red
+against `a0ad09d`'s registry); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
+
 After Task 9 (`a0ad09d`): `bun test electron/src/backend-registry.test.ts` 19 pass (3 runs; red first: module
 missing); `bun test electron/src packages/shared` 198 pass, 0 fail; `bun run typecheck` clean (all packages, incl.
 electron's Bun-less `tsconfig.src.json`); eslint and prettier clean on the eight changed files; `electron`
@@ -738,7 +768,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 9 review round 1 — one standard gpt-5.5 review (codex-review skill) of `6baa200..a0ad09d`, the
-Task 9 implementation (electron registry, IPC, preload, main wiring, `env.d.ts`, the `MenuEntry` move). Point the
-reviewer at the "Task 9" entries under Decisions taken, since several deliberately go beyond the plan's code.
+Next step: Task 9 review round 2 — one standard gpt-5.5 review (codex-review skill) of `6baa200..3591f54`, the
+Task 9 implementation including the R1 alias fix (electron registry, IPC, preload, main wiring, `env.d.ts`, the
+`MenuEntry` move). Point the reviewer at the "Task 9" entries under Decisions taken and the Task 9 R1 section.
 Verify findings yourself before fixing.
