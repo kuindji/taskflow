@@ -33,7 +33,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
-| 19 | Primary-only managers, gating, and removing the shim | pending | | | |
+| 19 | Primary-only managers, gating, and removing the shim | implemented | `015186c` | `3ce63bc` | |
 | 20 | Electron main across several backends | pending | | | |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
@@ -1513,7 +1513,56 @@ Reran `useRunMenu.routing` (2 pass), `AttributesSection` (19 pass), `bun run typ
 - Task 18 **still primary (Task 19 Step 5)**: `terminal-lifecycle`'s `SESSION_SNAPSHOT`/`SESSION_HISTORY`, and the other
   shim callers listed above. Not component-tested: `AttributesSection` routing, notification navigation.
 
+- Task 19: Step 6 was already done in Task 14. `STATELESS` lost the shim and gained `hooks/useWorkspaceRequest.ts`.
+- Task 19 `useIsLocalBackend`: with **no machine rows at all** (the dev renderer) the backend is local; with rows, an id
+  with no row is not local. Pure `isLocalBackend(machines, id)` is exported for non-React code
+  (`terminal-link-provider`); `useLocalOnlyHint(id)` returns the tooltip naming the machine, or null.
+- Task 19 "disabled, visible, tooltip" mechanics: a disabled button takes no pointer events, so the `title` sits on a
+  wrapper `span`/`div`. Radix menu items (also `pointer-events-none` when disabled) get the `title` plus a visible
+  " (not on this machine)" label suffix; native menu items `enabled: false` plus the suffix. The data-folder section
+  also shows its reason as text.
+- Task 19 gating predicates: **workspace machine** — `FileContextMenu` open-external/reveal (backend-side
+  `FILE_OPEN_EXTERNAL`/`FILE_REVEAL`), `WikiPanel` reveal, `TerminalPane` native file drops (the drag is refused; no
+  tooltip is possible on a drop), terminal Cmd-click (a remote path opens in the app instead of Finder/external editor).
+  **Record's machine** — `MissingLocationDialog` (project), `FlowInputDialog` (new required `backendId` prop: `TaskCard`
+  task's, `ProjectGroup` project's, `Workspace` `flowInputState.backendId`). **Primary** — `NewProjectDialog` (Add Project
+  goes to primary via `requirePrimary`), `ImportTab` "From File…" (themes import into primary), `SettingsModal` data
+  folder (Change and Reset both disabled). Plan's `Workspace.tsx:251,391` (`runInShell`) **not gated**: Task 18 routes it to
+  the workspace's machine, so it is not a local-path affordance. `openExternalUrl` untouched.
+- Task 19 beyond the plan: Obsidian opens on this machine, so for a remote workspace `WikiPanel`/`MarkdownPane` do not
+  fetch Obsidian state and show no Obsidian item (as if not installed). `fetchObsidianState(backendId, root)`.
+- Task 19 managers: `FlowManagementDialog` and `ScheduleManagementDialog` filter flows, actions, projects and schedules to
+  `backendId === primary` (new `hooks/usePrimaryBackend.ts`, also used by `useWorkspaceBackend`); flow/action saves go to
+  primary (`definitionBackend` is now only used by `.backup.tsx`). `FlowEditor` filters its project picker by its
+  `backendId`; `ActionEditor` gained a required `backendId` and does the same — closes the Task 12 R1 note.
+- Task 19 shim callers: `file-store` ops all take `backendId` first; new `treeBackendId` state (set by `fetchTree`, used
+  by `fetchDir`, a listing answered after the tree moved machines is dropped); git status remembers its machine;
+  `writeFile` refreshes git status only for the watched machine. The four file dialogs and `FileExplorer` use the
+  workspace machine; `EditorPaneImpl`/`MarkdownPaneImpl` the pane's (markdown `FILE_CHANGED` filtered by machine; no
+  machine → keeps loading). `terminal-lifecycle` `SESSION_SNAPSHOT`/`SESSION_HISTORY` go to `sessionBackend(sessionId)`
+  (now exported from `session-store`). `theme-store` via local `sendToPrimary`. Kimi/Pi/OpenCode model selects take
+  `backendId` threaded like Codex (settings sections: primary; `AgentOptionsPanel`: `agentBackendId`) and refetch on a
+  machine change. `SettingsModal` shells/runtimes/system info → primary; `useRemoteAgentStatus(backendId)` filters its
+  event by machine. `TaskHeader` pull → record's machine. `CommitDialog`, `ChangesPane`, `HistoryPane` via new
+  `useWorkspaceRequest()` (rejects with no machine). `useWorkspaceTabOps` shells → workspace. `WebSocketProvider` uses new
+  registry `onPrimaryStatusChange` (the shim's follow-primary logic, moved; tested).
+- Task 19 tests: `useWebSocket.test.ts` deleted with the shim; its mount-crash test moved to
+  `hooks/useActiveWorkspace.mount.test.ts` (the other two tested shim-only behaviour). `file-store.test.ts` no longer mocks
+  anything: listings are asserted per test server; new "expanding a directory lists it on the machine that listed the
+  tree" (mutation: `fetchDir` using the watched machine turns exactly it red). `CommitDialog.test.tsx` mocks
+  `useWorkspaceRequest` (pre-existing, unchanged: a failed git status leaves `ahead` null and the Commit button loading).
+  The three `MarkdownPaneImpl` tests' mocked project gained `backendId`. New `useIsLocalBackend.test.ts` (pure helper).
+- Task 19 not component-tested: every gating UI (disabled + tooltip), the managers' primary filter, terminal drop and
+  Cmd-click gating, model-select routing. `backend-host.ts`/`.test.ts` comments named the deleted file; updated
+  (`backend-host.test.ts` already failed `prettier --check` at HEAD).
+
 ## Validation baseline
+
+After Task 19 (`3ce63bc`): `bun run typecheck` clean; eslint clean on the 64 changed files; prettier clean on them except
+the pre-existing `backend-host.test.ts`. Each alone: `file-store` 12, `useIsLocalBackend` 4, `store-reset` 4,
+`CommitDialog` 2, `MarkdownPaneImpl` anchors 3 / checkbox 5 / rerender 1, `EditorPaneImpl.machine` 2,
+`useActiveWorkspace.mount` 1, `useRunMenu.routing` 2, `backend-store` 15, `connection-registry` 8, `backend-host` 18 pass.
+`bun test packages/ui` 297 pass, 9 fail (the known nine). Not run: the Electron app (Task 22).
 
 After Task 18 (`ae16a8a`): `useRunMenu.routing.test.tsx` 2 pass (3 runs; on `c586fef` the list test passed and the
 script-run test timed out: nothing reached `b`); `AttributesSection` 19, `session-sync.backend` 6, `session-sync` 9,
@@ -1777,4 +1826,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 19 (Primary-only managers, gating, and removing the shim) — record HEAD as its base commit first.
+Next step: Task 19 review round 1 — Codex gpt-5.5 prompted review of `015186c..3ce63bc` (packages/ui + the two shared comment files).
