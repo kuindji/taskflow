@@ -209,8 +209,8 @@ and deliver the same UUID records twice under two different `backendId`s.
 Duplicate projects, duplicate tasks, doubled events.
 
 Host strings therefore cannot be identity. The backend mints a persistent
-`backendUid` once per data directory and reports it in both the beacon payload
-and `SYSTEM_INFO`. The registry learns it at handshake and deduplicates on it: an
+`backendUid` once per install and per instance (see below) and reports it in
+both the beacon payload and `SYSTEM_INFO`. The registry learns it at handshake and deduplicates on it: an
 attach that resolves to an already-attached `backendUid` merges into the existing
 record — updating its host if the new one is more reachable — rather than
 becoming a second member. Host and `instanceId` stay on the record as the way to

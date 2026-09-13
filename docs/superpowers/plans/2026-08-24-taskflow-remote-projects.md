@@ -121,7 +121,7 @@ do not add a second bind test.
 **Files:**
 - Modify: `packages/backend/src/config.ts:64-79`
 - Modify: `packages/backend/src/handlers/system.ts` and `packages/backend/src/handlers/system.test.ts`
-- Modify: `packages/backend/src/index.ts:419-424` (the `registerSystemHandlers` call), `:484` (port file), and the `shutdown` handler at `:513`
+- Modify: `packages/backend/src/index.ts:419-424` (the `registerSystemHandlers` call), `:484` (port file), and the `shutdown` handler at `:514`
 - Modify: `packages/shared/src/constants.ts`
 - Modify: `packages/shared/src/types/system.ts:15-19`
 - Test: `packages/backend/tests/config/backend-uid.test.ts`
@@ -368,7 +368,7 @@ In `packages/backend/src/index.ts`, immediately after the existing `writeFile(co
         await writeFile(config.instancePortFile, String(startedServer.port));
 ```
 
-In the `shutdown` handler (line 513), before the process exits:
+In the `shutdown` handler (line 514), before the process exits:
 
 ```ts
             await rm(config.instancePortFile, { force: true });
@@ -387,8 +387,9 @@ Expected: PASS, no type errors.
 git add packages/backend/src/config.ts packages/backend/src/index.ts packages/backend/src/handlers/system.ts packages/backend/src/handlers/system.test.ts packages/shared/src/constants.ts packages/shared/src/types/system.ts packages/backend/tests/config/backend-uid.test.ts
 git commit -m "feat(backend): report a protocol version and a stable backend uid
 
-The backend now has an identity of its own, minted once per data directory,
-so a client cannot attach the same backend twice under two host aliases.
+The backend now has an identity of its own, minted once per install and per
+instance, so a client cannot attach the same backend twice under two host
+aliases and a main and a dev instance on one machine stay two backends.
 
 The instance id is reduced to [A-Za-z0-9._-] and capped at 64 characters so it
 is safe as a filename, as a beacon field and inside a command run over ssh.
@@ -724,16 +725,18 @@ In `packages/backend/src/handlers/file.ts`, change the two registrations:
 
 - [ ] **Step 9: Release a client's watches when it disconnects**
 
-In `packages/backend/src/index.ts`, where the server is created and `onConnect`
-is already wired, add:
+In `packages/backend/src/index.ts`, beside the existing
+`server.onConnect(...)` registration (`index.ts:102`), add:
 
 ```ts
-        startedServer.onDisconnect((clientId) => {
+        server.onDisconnect((clientId) => {
             void fileWatcher.releaseClient(clientId);
         });
 ```
 
-Place it beside the existing `onConnect` registration. A client that vanishes
+`server` is the object `createServer` returned, which is where `onConnect`
+lives; `startedServer` (`:480`) is the result of `server.start()` and carries
+only `port` and `stop`. A client that vanishes
 without sending `FILE_UNWATCH` — a crash, a killed tunnel — must not leave a
 recursive watcher running for the life of the backend.
 
@@ -1362,7 +1365,7 @@ than a transitional one.
 
 Replaces **Task 8** of the superseded plan. That task taught one module-global socket to hold a second socket to the *same* logical backend during a swap, which needed a generation counter to tell them apart. Two sockets to *different* machines are separate objects and need no such thing — but a reconnect still replaces the socket inside one connection, so each connection keeps a socket **epoch** of its own.
 
-**Migration note, and it matters for every later task:** `sendRequest` gains a required first argument, which would break all 66 call sites at once. So this task adds the registry and leaves the old zero-backend functions in `useWebSocket.ts` as a shim that routes to primary. The build stays green; later tasks migrate call sites store by store; Task 19 removes the shim. Do not migrate call sites here.
+**Migration note, and it matters for every later task:** `sendRequest` gains a required first argument, which would break every call site at once — 40 `sendRequest` calls today, across the 51 files that import `useWebSocket`. So this task adds the registry and leaves the old zero-backend functions in `useWebSocket.ts` as a shim that routes to primary. The build stays green; later tasks migrate call sites store by store; Task 19 removes the shim. Do not migrate call sites here.
 
 **Files:**
 - Create: `packages/ui/src/lib/connection.ts`
@@ -1586,9 +1589,10 @@ export class Connection {
             this.reconnectTimer = null;
         }
         const epoch = ++this.epoch;
-        // A socket may still be open here: `retryNow` can run while connected.
-        // Its handlers are dead already (their epoch is stale), so closing it
-        // schedules nothing; not closing it leaks a live socket per retry.
+        // Defensive. A reconnect only runs after `onclose`, so the previous
+        // socket is closed already and this is a no-op — but if a caller ever
+        // reopens while connected, the old socket's handlers are dead (their
+        // epoch is stale) and not closing it would leak a live socket.
         this.socket?.close();
         return new Promise((resolve, reject) => {
             const socket = new WebSocket(this.wsUrl());
@@ -1655,17 +1659,6 @@ export class Connection {
             this.reconnectTimer = null;
             void this.open().catch(() => {});
         }, delay);
-    }
-
-    /** Cancel the backoff and retry now. The beacon reappearing is the caller. */
-    retryNow(): void {
-        if (this.closed) return;
-        this.reconnectAttempt = 0;
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-        void this.open().catch(() => {});
     }
 
     sendRequest<T>(type: string, payload: unknown): Promise<T> {
@@ -1769,10 +1762,6 @@ export function originFor(backendId: string): string | null {
     return connections.get(backendId)?.origin ?? null;
 }
 
-export function attachedIds(): string[] {
-    return [...connections.keys()];
-}
-
 export function openConnection(backendId: string, origin: string): Promise<void> {
     connections.get(backendId)?.close(new BackendDetachedError(backendId));
     const connection: Connection = new Connection(backendId, origin, {
@@ -1805,10 +1794,6 @@ export function closeConnection(backendId: string, reason: "detach" | "switch"):
         primaryId = null;
         notifyPrimary();
     }
-}
-
-export function retryNow(backendId: string): void {
-    connections.get(backendId)?.retryNow();
 }
 
 /**
@@ -1921,8 +1906,8 @@ import {
 
 /**
  * TEMPORARY. These wrappers route to whichever backend is primary so that call
- * sites can migrate to explicit ids one store at a time instead of all 66 at
- * once. Every use is a site that has not been routed yet. Task 19 deletes this
+ * sites can migrate to explicit ids one store at a time instead of all of
+ * them at once. Every use is a site that has not been routed yet. Task 19 deletes this
  * file once none are left; do not add new callers.
  */
 function primaryOrThrow(): string {
@@ -2024,7 +2009,7 @@ its own socket epoch so a replaced socket cannot resolve a request the new one
 owns. Event handlers now receive the backend that delivered the event.
 
 useWebSocket becomes a temporary shim routing to primary, so call sites migrate
-one store at a time rather than all 66 in a single change."
+one store at a time rather than all of them in a single change."
 ```
 
 ---
@@ -2044,10 +2029,10 @@ Replaces **Task 7** of the superseded plan, which owned a single `activeId`. Mai
 - Consumes: Tasks 4, 5, 6, 7.
 - Produces on `window.taskflow`:
   - `listBackends(): Promise<MenuEntry[]>`
-  - `getAttached(): Promise<{ id: string; origin: string; isLocal: boolean; isPrimary: boolean }[]>`
+  - `getAttached(): Promise<{ id: string; origin: string; isLocal: boolean }[]>` — no `isPrimary`: primary is the renderer's, and main reporting one would be a second owner of it
   - `attachBackend(id): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>` — for `"local"`, answered by the IPC layer with the local origin (Step 5), so the renderer has one attach path
   - `detachBackend(id): Promise<void>` — a no-op for `"local"`, for the same reason
-  - `confirmBackend(id, info: { backendUid: string; protocolVersion: number }): Promise<{ id: string; merged: boolean }>` — rekeys onto the uid and returns the canonical id. `merged: false` is a rename: this record simply had no uid yet, and the caller's connection and tunnel moved with it. `merged: true` is the alias case: another record already held the uid, so the caller's connection is surplus.
+  - `confirmBackend(id, info: { backendUid: string; protocolVersion: number }): Promise<{ id: string; merged: boolean }>` — rekeys onto the uid and returns the canonical id. `merged: false` is a rename: this record simply had no uid yet, and the caller's connection and tunnel moved with it. `merged: true` is the alias case: another record already held the uid, so the caller's connection is surplus. For `"local"` the IPC layer answers `{ id: "local", merged: false }` without touching the registry (Step 5): local is not a record, and letting the registry answer would rename the renderer's local row onto its uid.
   - `probeBackends(): Promise<void>` — send a discovery probe now. The machines menu calls it on open so the list is fresh rather than up to one announce interval stale
   - `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number; instanceId?: string }): Promise<BackendRecord>`
   - `addDiscoveredBackend(entryId): Promise<BackendRecord | null>` — saves a seen-but-unsaved menu entry (its id is the announced uid) as a *provisional* record via Task 5's `recordFromDiscovered`; `null` if the entry is no longer live. This is the machines menu's add affordance (Task 17)
@@ -2709,14 +2694,26 @@ In `electron/src/ipc-handlers.ts`, register one `ipcMain.handle` per method in
 the Interfaces block above, each delegating to the registry instance created in
 `main.ts`. Follow the file's existing registration style exactly. The local
 backend is not a record: `getAttached` always includes it first, as
-`{ id: "local", origin: backendOrigin(getBackendPort()), isLocal: true, isPrimary: … }`.
+`{ id: "local", origin: backendOrigin(getBackendPort()), isLocal: true }`.
 
-For the same reason, `attachBackend("local")` and `detachBackend("local")` are
-answered in this layer rather than by the registry: attach resolves
-`{ ok: true, origin: backendOrigin(getBackendPort()) }` and detach resolves at
-once, touching nothing. The renderer then treats local exactly like any other
-machine — one `attach()` path, one `detach()` path — instead of special-casing
-it in the provider, the hard switch and the retry (Tasks 10, 21).
+For the same reason, `attachBackend("local")`, `detachBackend("local")` and
+`confirmBackend("local", …)` are answered in this layer rather than by the
+registry: attach resolves `{ ok: true, origin: backendOrigin(getBackendPort()) }`,
+detach resolves at once, touching nothing, and confirm resolves
+`{ id: "local", merged: false }`. The renderer then treats local exactly like
+any other machine — one `attach()` path, one `detach()` path, one handshake —
+instead of special-casing it in the provider, the hard switch and the retry
+(Tasks 10, 21).
+
+The confirm case is the one that bites if forgotten. Local's handshake reports
+a real `backendUid`, and the registry's `confirmBackend` does not know "local"
+is not a record: `adoptUid` finds no source and returns the list unchanged,
+`rekeyTunnel` finds no child and does nothing, and the call still answers
+`{ id: <uid>, merged: false }`. The renderer then takes its rename branch and
+refiles local's connection and row under the uid — after which
+`useIsLocalBackend("local")` is false, `workAs("local")` has no row to find,
+and the next `refresh()` seeds a second, offline "local" row from
+`getAttached()`.
 
 `onBackendsChanged`, `onBackendDropped` and `onBackendSeen` are `webContents.send`
 pushes, not handles; wire them from `registry.onChanged`, the tunnel manager's
@@ -2765,10 +2762,14 @@ Startup still does not block: the renderer's dial is per machine and unawaited
 in exactly the same way, and it ends in a handshake and a bootstrap rather than
 half-way.
 
-In the `before-quit` handler (`:186-215`), on the path where the quit actually
-proceeds — after the confirmation dialog, where `quitting` is set — call
-`registry.stop()` and `closeAllTunnels()`. Not before the dialog: a cancelled
-quit must leave every tunnel up.
+In the `before-quit` handler (`:186-235`), call `registry.stop()` and
+`closeAllTunnels()` on the paths where the quit actually proceeds — and there
+are two, not one. After the confirmation dialog the handler either defers the
+quit behind the window-geometry save and finishes in a `.finally` (`:226-230`),
+or falls through and kills the backend directly (`:233-234`). Both call
+`killBackendProcess()`; put the two calls immediately before each of those, so
+a tunnel is never left up past the backend it was opened for. Not before the
+dialog: a cancelled quit (`:210-213`) must leave every tunnel up.
 
 - [ ] **Step 8: Verify and commit**
 
@@ -2800,7 +2801,7 @@ Replaces **Task 9** of the superseded plan, whose `resetAllState()` cleared ever
 
 **Interfaces:**
 - Consumes: Task 8's registry; Task 9's IPC.
-- Produces: `registerBackendReset(name: string, reset: (backendId: string) => void): void` and `resetBackend(backendId: string): void` from `store-reset.ts`; `registeredResetNames(): string[]` for the enumeration test. From `backend-store.ts`: `useBackendStore` with `machines: MachineState[]`, `primaryId: string | null`, `attach(id)`, `detach(id)`, `retry(id)`, `bootstrapBackend(id)`, where `MachineState = { id, displayName, host, instanceId, state: "attaching" | "attached" | "offline" | "incompatible", failure?: TunnelFailure, isLocal: boolean }`.
+- Produces: `registerBackendReset(name: string, reset: (backendId: string) => void): void` and `resetBackend(backendId: string): void` from `store-reset.ts`; `registeredResetNames(): string[]` for the enumeration test. From `backend-store.ts`: `useBackendStore` with `machines: MachineState[]`, `primaryId: string | null`, `attach(id): Promise<string | null>` — resolves to the id the machine is attached under, which after a first handshake is its uid, or `null` when it did not attach — `detach(id)`, `retry(id)`, `bootstrapBackend(id)`, where `MachineState = { id, displayName, host, instanceId, state: "attaching" | "attached" | "offline" | "incompatible", failure?: TunnelFailure, isLocal: boolean, backendUid?: string }`.
 
 - [ ] **Step 1: Write the failing reset test**
 
@@ -2928,7 +2929,6 @@ import {
     onStatusChange,
     openConnection,
     rekeyConnection,
-    retryNow,
     sendRequest,
     setPrimary,
 } from "@/lib/connection-registry";
@@ -2953,14 +2953,24 @@ export type MachineState = {
     state: "attaching" | "attached" | "offline" | "incompatible";
     failure?: TunnelFailure;
     isLocal: boolean;
+    /** What the handshake reported. `rehandshake` refuses a socket that
+     *  answers with a different one: that is a different backend on the port. */
+    backendUid?: string;
 };
 
 interface BackendStore {
     machines: MachineState[];
     primaryId: string | null;
-    attach(id: string): Promise<void>;
+    /**
+     * Resolves to the id the machine ended up attached under — its uid after a
+     * first handshake renames it — or null when it did not attach. Callers
+     * that go on to address the machine (the hard switch) must use the
+     * returned id, not the one they passed.
+     */
+    attach(id: string): Promise<string | null>;
     /** `reason` only changes the error pending requests see. */
     detach(id: string, reason?: "detach" | "switch"): Promise<void>;
+    /** Tear the connection down and run `attach` again. */
     retry(id: string): void;
     /** Reconcile rows with main. Never sets a row "attached" — see Step 6. */
     refresh(): Promise<void>;
@@ -2987,8 +2997,16 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         const result = await window.taskflow!.attachBackend(id);
         if (!result.ok) {
             patch(id, { state: "offline", failure: result.failure });
-            return;
+            return null;
         }
+
+        // `openConnection` replaces any connection under this id, so a retry
+        // of an offline machine goes through here too. Drop the previous
+        // socket's status subscription first: it is keyed by id, so the new
+        // socket's "connected" would otherwise reach it as a reconnect and
+        // start a second handshake beside this one.
+        statusUnsubs.get(id)?.();
+        statusUnsubs.delete(id);
 
         try {
             await openConnection(id, result.origin);
@@ -2997,7 +3015,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             // background with nobody to handshake when it succeeds.
             closeConnection(id, "detach");
             patch(id, { state: "offline", failure: unknownFailure("Socket refused") });
-            return;
+            return null;
         }
 
         // The handshake. A socket opening proves a server is listening, not that
@@ -3009,13 +3027,13 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         } catch {
             closeConnection(id, "detach");
             patch(id, { state: "offline", failure: unknownFailure("No handshake") });
-            return;
+            return null;
         }
 
         if (info.protocolVersion !== PROTOCOL_VERSION) {
             closeConnection(id, "detach");
             patch(id, { state: "incompatible" });
-            return;
+            return null;
         }
 
         let liveId = id;
@@ -3028,12 +3046,12 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             if (merged) {
                 // The genuine alias case: another record already held this uid,
                 // so there are two connections to one machine. Drop this one and
-                // let the canonical stand.
+                // let the canonical stand — it is attached, so it is the answer.
                 closeConnection(id, "detach");
                 useBackendStore.setState((state) => ({
                     machines: state.machines.filter((m) => m.id !== id),
                 }));
-                return;
+                return canonical;
             }
 
             if (canonical !== id) {
@@ -3053,9 +3071,10 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             }
         }
 
-        patch(liveId, { state: "attached" });
+        patch(liveId, { state: "attached", backendUid: info.backendUid });
         followSocket(liveId);
         await get().bootstrapBackend(liveId);
+        return liveId;
     },
 
     async detach(id, reason = "detach") {
@@ -3076,7 +3095,10 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
     },
 
     retry(id) {
-        retryNow(id);
+        // `attach` replaces the connection outright — `openConnection` closes
+        // the old one, which cancels its backoff — so there is nothing to
+        // nudge on the old socket first. Doing both opened two sockets and
+        // ran two handshakes for one machine.
         void useBackendStore.getState().attach(id);
     },
 }));
@@ -3201,8 +3223,10 @@ function followSocket(backendId: string): void {
 
 `rehandshake(id)` is `attach`'s tail, and a store method declared in the
 interface above: `SYSTEM_INFO`, check `protocolVersion`, check that
-`backendUid` still matches the record, then `patch(id, { state: "attached" })`
-and `bootstrapBackend(id)`. A uid that changed means a different backend is
+`backendUid` still equals the row's `backendUid` — the value `attach` recorded
+at the first handshake, which is the only copy the renderer holds; main's
+record has none for local — then `patch(id, { state: "attached" })` and
+`bootstrapBackend(id)`. A uid that changed means a different backend is
 answering on that port; detach rather than adopt it. Extract the tail out of
 `attach` into it rather than writing it twice.
 
@@ -3225,7 +3249,7 @@ window.taskflow?.onBackendDropped((id, failure) => {
 
 window.taskflow?.onBackendSeen((id) => {
     // The beacon reappeared, which is positive evidence the machine woke up.
-    // Cancel the backoff rather than waiting out a 60-second ceiling.
+    // Re-attach now rather than waiting out a 60-second backoff ceiling.
     const machine = useBackendStore.getState().machines.find((m) => m.id === id);
     if (machine && machine.state === "offline") useBackendStore.getState().retry(id);
 });
@@ -3399,7 +3423,7 @@ export interface FetchToken {
  * erases other backends' records when one backend's fetch resolves. And a list
  * response is a snapshot: if an event — or a local optimistic write — lands
  * while the request is in flight, the response is older than the state it would
- * overwrite. `token()` before the request and `replace(..., token)` after is how
+ * overwrite. `begin()` before the request and `replace(..., token)` after is how
  * both are avoided.
  */
 export function createSlices<T>() {
@@ -3633,9 +3657,9 @@ This one is populated only by a broadcast and has no fetch, so it needs slices
 for teardown rather than for stale responses.
 
 `diff-store.ts:31`'s `GIT_CHANGE_STATS` listener is the sole writer and its
-`targetId` is a project or task id. `TaskSidebar.tsx:358-361` reads the maps for
-every project and task row, so left single-backend, remote rows silently show no
-diff badge and no behind count — no error, just missing numbers.
+`targetId` is a project or task id. `ProjectGroup.tsx:188` reads the maps for
+every project row it renders, remote or not, so left single-backend, remote rows
+silently show no diff badge and no behind count — no error, just missing numbers.
 
 Keep the seven flat `Record<string, …>` maps, since `targetId`s are UUIDs and
 cannot collide, but track which backend contributed each key:
@@ -3753,6 +3777,16 @@ export function settingsFor(backendId: string): AppSettings | null {
 `updateSettings` reads `getPrimary()` itself rather than taking an id, so there
 is no call site that can route a write to a non-primary machine. Register
 `registerBackendReset("settings-mirror", …)`.
+
+- [ ] **Step 5a: Fan the new stores into the bootstrap**
+
+`bootstrapBackend(id)` (Task 11, Step 8) gains `fetchNotifications(id)`,
+`fetchSchedules(id)`, `fetchFlows(id)`, `fetchActions(id)` and
+`fetchSettings(id)`, each for that one machine. Themes are primary's alone and
+stay where Task 13 Step 5 puts the primary-only fetches. This is what replaces
+the `connected`-gated effect in `useSidebarData.ts:33-53` store by store; a
+store converted here but not added to the bootstrap is fetched for no machine
+at all once Task 13 removes that effect.
 
 - [ ] **Step 6: Extend the aggregation test**
 
@@ -4093,9 +4127,10 @@ the Task 10 enumeration test requires: `agent-cache`, `homedir-cache`,
 `editor-cache`, `codex-model-cache`, `tsconfig-cache`, `run-menu-cache`.
 `useAgentAvailability()` becomes `useAgentAvailability(backendId)`;
 `useHomedir()` becomes `useHomedir(backendId)`. Delete
-`useAgentAvailability.ts`'s `onStatusChange` cache-clearing block — a successful
-attach never goes disconnected, so it never fired usefully, and detach now owns
-this.
+`useAgentAvailability.ts`'s `onStatusChange` cache-clearing block: it watched
+one global connection, and per-backend teardown is `detach`'s job now — the
+cache's own reset drops that machine's entry, and a socket that reconnects on
+its own goes through `rehandshake` (Task 10, Step 6a).
 
 `useConnectivity`'s `initialized` guard becomes a per-backend set, and
 connectivity is fetched for primary; register `connectivity`.
@@ -4119,11 +4154,11 @@ None is mentioned anywhere else in this plan, so read them fresh.
   `${backendId}:${root}`; the `WIKI_INDEX_CHANGED` handler writes through the
   backend that delivered it. Register `wiki-store`.
 - `file-store.ts` — `watchedPath` is one string, and `watchPath` returns early
-  on `previousPath === path` (`:181-183`), so opening the same path on a second
+  on `previousPath === path` (`:200-201`), so opening the same path on a second
   machine never sends it a `FILE_WATCH` and that machine's file changes never
-  arrive at all. The `FILE_CHANGED` listener (`:185-190`) filters on
-  `event.path.startsWith(watchedPath)` and ignores which backend delivered the
-  event, so the other machine's writes refresh this tree. Track the watched
+  arrive at all. The `FILE_CHANGED` listener (`:204-207`) filters on
+  `isSameOrChild(event.path, watchedPath)` and ignores which backend delivered
+  the event, so the other machine's writes refresh this tree. Track the watched
   path as `{ backendId, path }`, compare both, and send `FILE_UNWATCH` to the
   old backend before watching the new. Register `file-store`.
 - `search-store.ts` — one `searchId` and one `results` array. A cancel issued
@@ -4146,6 +4181,12 @@ Turn on the scan in `store-reset.test.ts` written in Task 10 and make it pass
 for `src/stores`, `src/hooks` and `src/lib`. Anything it flags is either given a
 reset or added to `STATELESS` with a one-line reason in the diff. Do not shorten
 the roots to make it pass.
+
+Three files will be flagged that are the machinery itself, not stores:
+`src/lib/connection.ts` and `src/lib/connection-registry.ts` define
+`sendRequest` and `onEvent`, and `src/stores/backend-store.ts` is what calls
+`resetBackend`. Those three belong in `STATELESS` with exactly that reason.
+Anything else the scan names is a real gap.
 
 - [ ] **Step 7: Verify and commit**
 
@@ -4192,7 +4233,8 @@ Create `packages/ui/src/components/panes/editor-uri.test.ts`:
 
 ```ts
 import { describe, expect, test } from "bun:test";
-import { backendFromModelUri, modelUriFor, pathFromModelUri } from "./editor-uri";
+import * as monaco from "monaco-editor";
+import { backendFromModelUri, modelKey, modelUriFor, pathFromModelUri } from "./editor-uri";
 
 describe("editor model URIs", () => {
     test("the same path on two machines produces two distinct URIs", () => {
@@ -4211,6 +4253,16 @@ describe("editor model URIs", () => {
     test("round-trips a Windows-style absolute path", () => {
         const path = "C:\\Users\\me\\repo\\src\\a.ts";
         expect(pathFromModelUri(modelUriFor("desktop", path))).toBe(path);
+    });
+
+    test("survives a trip through the string key", () => {
+        // The reset in editor-dirty-state parses map keys back into URIs, so
+        // `toString` and `parse` must round-trip the fragment exactly —
+        // including the characters `toString` percent-encodes.
+        const path = "/Users/me/my repo/src/café #1 ☕.ts";
+        const parsed = monaco.Uri.parse(modelKey("desktop", path));
+        expect(pathFromModelUri(parsed)).toBe(path);
+        expect(backendFromModelUri(parsed)).toBe("desktop");
     });
 
     test("the URI's own path is not the file path, so nothing may read it", () => {
@@ -4369,7 +4421,7 @@ Local projects render exactly as they do today with no header; each attached mac
 
 **Files:**
 - Create: `packages/ui/src/components/sidebar/MachineSection.tsx`
-- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:316-378`
+- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:331-397` (the `DndContext` and the `visibleProjects` map inside it)
 - Modify: `packages/ui/src/components/sidebar/OfflineIndicator.tsx`
 - Create: `packages/ui/src/components/sidebar/MachineSection.test.tsx`
 
@@ -4441,14 +4493,14 @@ section, not the app."
 
 ### Task 17: The machines menu and its dialogs
 
-Replaces **Task 11** of the superseded plan. The `Monitor` button (`TaskSidebar.tsx:383-394`) opens it. Attaching and hard-switching must not look alike, or they will be confused for each other.
+Replaces **Task 11** of the superseded plan. The `Monitor` button (`TaskSidebar.tsx:404-414`, the Master Workspace toggle) opens it. Attaching and hard-switching must not look alike, or they will be confused for each other.
 
 **Files:**
 - Create: `packages/ui/src/components/sidebar/MachinesMenu.tsx`
 - Create: `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`
 - Create: `packages/ui/src/components/sidebar/TrustHostKeyDialog.tsx`
-- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:383-394`
+- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx:404-414`
 
 **Interfaces:**
 - Consumes: Tasks 9, 10.
@@ -4516,11 +4568,11 @@ look alike will have them confused for each other."
 
 The most dangerous gap in the design if left implicit. "Route from the active workspace" covers panes; it does not cover work started from a sidebar row for a project that is not open.
 
-`ProjectGroup` builds a run menu for **any** project row (`ProjectGroup.tsx:94`), passing only `projectId` and `projectPath`. `useRunMenu` fetches scripts and agent commands with unrouted requests carrying that path (`useRunMenu.ts:92,100`) and can start a shell session or a flow from the result. Unrouted, right-clicking a desktop project lists **this** machine's scripts for the desktop's path and runs one here. If the path does not exist locally it errors, which is survivable. If the same repository is checked out at the same path on both machines — the case this whole feature exists for — it succeeds against the wrong checkout on the wrong machine, with no visible difference.
+`ProjectGroup` builds a run menu for **any** project row (`ProjectGroup.tsx:104`), passing only `projectId` and `projectPath`. `useRunMenu` fetches scripts and agent commands with unrouted requests carrying that path (`useRunMenu.ts:92,100`) and can start a shell session or a flow from the result. Unrouted, right-clicking a desktop project lists **this** machine's scripts for the desktop's path and runs one here. If the path does not exist locally it errors, which is survivable. If the same repository is checked out at the same path on both machines — the case this whole feature exists for — it succeeds against the wrong checkout on the wrong machine, with no visible difference.
 
 **Files:**
 - Modify: `packages/ui/src/hooks/useRunMenu.ts`
-- Modify: `packages/ui/src/components/sidebar/ProjectGroup.tsx:94`
+- Modify: `packages/ui/src/components/sidebar/ProjectGroup.tsx:104`
 - Modify: `packages/ui/src/components/sidebar/TaskCard.tsx`
 - Modify: `packages/ui/src/components/sidebar/hooks/useSidebarData.ts`
 - Modify: `packages/ui/src/lib/attribute-api.ts`
@@ -4590,7 +4642,7 @@ Settles which surfaces address primary, gates the local-path affordances per tar
 **Files:**
 - Create: `packages/ui/src/hooks/useIsLocalBackend.ts`
 - Modify: `packages/ui/src/components/settings/SettingsModal.tsx:149-160`
-- Modify: `packages/ui/src/components/flows/FlowManagementDialog.tsx:31,43,49,85-105`
+- Modify: `packages/ui/src/components/flows/FlowManagementDialog.tsx:24-25` (the store reads), `:37` (the fetches), `:104-122` (save and delete)
 - Modify: `packages/ui/src/components/schedules/ScheduleManagementDialog.tsx`
 - Modify: `packages/ui/src/components/appearance/ImportTab.tsx:28`
 - Modify: `packages/ui/src/components/sidebar/NewProjectDialog.tsx:46`, `MissingLocationDialog.tsx:40`
@@ -4717,10 +4769,14 @@ string shared by every origin.
 
 - [ ] **Step 3: Give each backend its own watermark**
 
-Replace the singleton with `Map<string, string>`, advanced only by that backend's
-own responses, and poll every attached origin rather than one. Add `backendId` to
-the `notification-clicked` payload (`:54-59`) — `projectId`, `sessionId` and
-`taskId` no longer say which machine to navigate on.
+Replace the singleton with a `Map` keyed by **origin**, advanced only by that
+origin's own responses, and poll every attached origin rather than one. Origin
+rather than record id because `confirmBackend` renames a record at its first
+handshake while its tunnel — and so its origin — stays put; a map keyed by id
+would start that machine over from an empty watermark and re-deliver whatever
+the first poll returns. Add `backendId` to the `notification-clicked` payload
+(`:54-59`), resolved from the origin at send time — `projectId`, `sessionId`
+and `taskId` no longer say which machine to navigate on.
 
 - [ ] **Step 4: Aggregate the tray**
 
@@ -4800,6 +4856,13 @@ states plus the dirty refusal:
   object it was before — it must not have been torn down and rebuilt — and `a` is
   detached.
 - Target **not attached**: `workAs("b")` attaches it, then detaches `a`.
+- Target **provisional**: `b` is a saved record that has never completed a
+  handshake, so its row is `"desktop.local:main"` and its first attach renames
+  it onto its uid. After `workAs("desktop.local:main")`, the row under the uid
+  is `attached` and primary, `a` is detached, and nothing detached the target.
+  Looking the target up by the id passed in finds no row after the rename, and
+  a switch that does that reports `unreachable` — or, worse, detaches the
+  renamed target in step 3 because its id no longer matches.
 - Target **dies after validation**: the attach succeeds and the handshake then
   fails; the attached set is unchanged and `a` is still connected.
 - A **dirty editor** refuses the switch, returns the file list, and leaves every
@@ -4863,14 +4926,18 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     if (dirty.length > 0) return { ok: false, reason: "dirty", files: dirty };
 
     // 2. Prepare the target first and never tear it down. Reuse it as-is if
-    //    it is already attached, which is the likely case.
+    //    it is already attached, which is the likely case. Otherwise address
+    //    it by the id `attach` hands back, not the one we were given: a first
+    //    handshake renames a provisional record onto its uid, and by the id
+    //    we were given the target no longer exists.
+    let target = id;
     const already = store.machines.find((m) => m.id === id && m.state === "attached");
     if (!already) {
-        await store.attach(id);
-        const after = useBackendStore.getState().machines.find((m) => m.id === id);
-        if (after?.state !== "attached") {
+        const attached = await store.attach(id);
+        if (attached === null) {
             return { ok: false, reason: "unreachable", failure: unknownFailure("Target did not attach") };
         }
+        target = attached;
     }
 
     // 3. Detach everything EXCEPT the target, through the same `detach` the
@@ -4878,12 +4945,12 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     //    dropped — local included; Task 9's IPC layer makes its detach a no-op
     //    on main's side. Snapshot first: the detaches mutate the list.
     for (const machine of [...useBackendStore.getState().machines]) {
-        if (machine.id === id) continue;
+        if (machine.id === target) continue;
         await useBackendStore.getState().detach(machine.id, "switch");
     }
 
     // 4. Promote, then 5. remount.
-    setPrimaryBackend(id);
+    setPrimaryBackend(target);
     bumpShellKey();
     return { ok: true };
 }
@@ -5011,13 +5078,17 @@ Write the results into the handoff document, including anything deferred.
 
 ## Review log
 
-Four rounds against gpt-5.5 via the `codex-review` skill, each finding
-independently verified and — where the plan's code was concrete enough to run —
-reproduced. Round 4 was reviewed by Claude in full alongside Codex; the two
-lists overlapped on three findings and each found things the other did not. The repros live in `plan-review/` and in
-`packages/ui/src/stores/*.repro.test.ts`, and they embed the code as it stood
-*before* this revision; they are the evidence for the findings, not tests of the
-current text. Delete each when the task that fixes it lands.
+Five rounds. The first four ran against gpt-5.5 via the `codex-review` skill,
+each finding independently verified and — where the plan's code was concrete
+enough to run — reproduced; round 4 was reviewed by Claude in full alongside
+Codex, and the two lists overlapped on three findings while each found things
+the other did not. Round 5 was Claude alone, reading every task against the
+tree at `f9e6953`. The repros live in `plan-review/` and beside the stores they
+exercise (`packages/ui/src/stores/*.repro.test.ts`,
+`packages/ui/src/lib/editor-uri-opener.repro.test.ts`), and they embed the code
+as it stood *before* the revision that fixed it; they are the evidence for the
+findings, not tests of the current text. Delete each when the task that fixes
+it lands.
 
 **Round 1** — eight. `confirmBackend` closed the only socket of every manually
 added backend and stranded its ssh child (Tasks 7, 9, 10); the local backend
@@ -5082,6 +5153,36 @@ a captured id that `rekeyTunnel` could have moved. Local had no `attach()` path
 21's `workAs("local")` could not take the branch its test assumed; local is now
 a machine like any other and the IPC layer answers for it.
 
+**Round 5** — eight, all by trace against the code rather than by repro, since
+each is either a contradiction between two parts of the plan or a citation
+that no longer points where it says. Local's handshake reached the registry's
+`confirmBackend`, which does not know "local" is not a record and answers
+`{ id: <uid>, merged: false }` — so the renderer's rename branch refiled local's
+row and connection under its uid, `useIsLocalBackend("local")` went false,
+`workAs("local")` had no row, and `refresh` seeded a second offline "local"
+(Task 9; the IPC layer now answers confirm for local as it does attach and
+detach). `retry` nudged the old socket with `retryNow` *and* ran `attach`,
+which replaces the connection — two sockets, two handshakes, and the old
+socket's status subscription, keyed by id, treating the new socket's open as a
+reconnect and handshaking a third time (Tasks 8, 10; `retryNow` and
+`attachedIds` are gone, and `attach` drops the subscription first). The hard
+switch looked its target up by the id it was given after `attach`, but a
+provisional target is renamed onto its uid by that very attach, so the switch
+reported `unreachable` — or, had the lookup been skipped, detached its own
+target in step 3 (Task 21; `attach` now returns the live id and `runSwitch`
+uses it). `rehandshake` compared the uid against "the record", which the
+renderer does not hold and main does not have for local (Task 10; the row
+records it). `before-quit` was told to stop tunnels "where `quitting` is set",
+which is only the deferred-save path; the direct path never set it (Task 9).
+`getAttached` carried an `isPrimary` main cannot know (Task 9). Task 1's commit
+message and the spec's own opening sentence still said "per data directory".
+Six citations had drifted: `startedServer.onDisconnect` for what is
+`server.onConnect`'s object, the diff badge reader (`ProjectGroup.tsx:188`, not
+`TaskSidebar`), `file-store`'s watch (`:200-207`), the `DndContext` block and
+the `Monitor` button in `TaskSidebar`, `useRunMenu` in `ProjectGroup` (`:104`),
+and `FlowManagementDialog`'s store calls; and "66 call sites" was 40 calls in
+51 files.
+
 **What the rounds kept catching** is worth more than any single finding: state
 with two possible owners, and identity cached under a bare path. Both now appear
 in the Global Constraints, and the store-reset test scans the tree rather than
@@ -5094,10 +5195,17 @@ edit.**
 
 ## Notes for the executor
 
-**The uncommitted repro.** `packages/ui/src/stores/aggregate-prune.repro.test.ts`
-demonstrates the Task 13 pruning hazard on pre-change code. Delete it when Task
-13 lands; `session-sync.backend.test.ts` replaces it and asserts the fixed
-behaviour instead.
+**The in-tree repros.** Four review repros sit beside real code rather than in
+`plan-review/`, because they run against the current stores rather than a
+transcript. Each passes today by demonstrating the hazard; delete it when the
+task that fixes it lands, since the task's own test asserts the fixed behaviour:
+
+| Repro | Deleted by |
+|---|---|
+| `packages/ui/src/stores/aggregate-prune.repro.test.ts` | Task 13 (`session-sync.backend.test.ts` replaces it) |
+| `packages/ui/src/stores/file-backend-collision.repro.test.ts` | Task 14 |
+| `packages/ui/src/stores/wiki-backend-collision.repro.test.ts` | Task 14 (run it alone: bun's `mock.module` is global) |
+| `packages/ui/src/lib/editor-uri-opener.repro.test.ts` | Task 15 |
 
 **Order matters in four places.** Task 2 before Task 10, or detach breaks the
 other client's file watches. Task 8 before any store task, since they all need
