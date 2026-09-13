@@ -238,6 +238,26 @@ describe("file-store across machines", () => {
         expect(useFileStore.getState().watched).toEqual({ backendId: "laptop", path: root });
     });
 
+    test("a move to another machine cancelled while the old watch is released forgets the old watch", async () => {
+        desktop.received.length = 0;
+        let release = () => {};
+        desktopNextUnwatchHold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        // The pane moves to laptop, and closes before desktop has released its watch.
+        const move = useFileStore.getState().watchPath("laptop", root);
+        await until(() => watchRequests(desktop, MSG.FILE_UNWATCH).length === 1);
+        await useFileStore.getState().unwatchPath("laptop", root);
+        release();
+        await move;
+
+        expect(useFileStore.getState().watched).toBeNull();
+        // Reopening it on desktop watches again: desktop holds no watch any more.
+        await useFileStore.getState().watchPath("desktop", root);
+        expect(watchRequests(desktop, MSG.FILE_WATCH)).toEqual([{ path: root }]);
+    });
+
     test("detaching the watched machine forgets its watch, and only that machine's", () => {
         resetBackend("laptop");
         expect(useFileStore.getState().watched).toEqual({ backendId: "desktop", path: root });

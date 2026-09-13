@@ -258,13 +258,15 @@ export const useFileStore = create<FileStore>((set, get) => ({
             });
         }
         if (previous) {
+            // Forgotten before it is released, so a move cancelled meanwhile
+            // does not leave a watch recorded that the backend no longer holds.
+            set({ watched: null });
             // Released on the machine that holds it, which may not be the new one.
             // A machine that cannot be reached has no watch left to release.
             await sendRequestTo(previous.backendId, MSG.FILE_UNWATCH, {
                 path: previous.path,
             }).catch(() => {});
             if (generation !== watchGeneration) return;
-            set({ watched: null });
         }
         if (diffStoreUnsubscribe) {
             diffStoreUnsubscribe();
