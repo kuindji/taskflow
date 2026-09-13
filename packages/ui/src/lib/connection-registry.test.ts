@@ -150,7 +150,8 @@ describe("connection registry", () => {
         off();
         offProvisional();
 
-        // The initial "not connected", then the close of the rekeyed connection.
-        expect(seen).toEqual([false, false]);
+        // The initial "not connected", the rekeyed connection's live status,
+        // then its close.
+        expect(seen).toEqual([false, true, false]);
     });
 });

@@ -104,13 +104,18 @@ export function rekeyConnection(fromId: string, toId: string): void {
     connection.rename(toId);
     connections.set(toId, connection);
 
+    // Someone may already be waiting on the uid: they last heard "not
+    // connected" (or the close above), so they learn this socket's status.
+    const waiting = statusListeners.get(toId);
     const listeners = statusListeners.get(fromId);
     if (listeners) {
         statusListeners.delete(fromId);
-        // Merge: someone may already be waiting on the uid.
-        const existing = statusListeners.get(toId);
-        if (existing) for (const listener of listeners) existing.add(listener);
-        else statusListeners.set(toId, listeners);
+        if (!waiting) statusListeners.set(toId, listeners);
+    }
+    if (waiting) {
+        const status = connection.getStatus();
+        for (const listener of [...waiting]) listener(status);
+        if (listeners) for (const listener of listeners) waiting.add(listener);
     }
     if (primaryId === fromId) {
         primaryId = toId;
