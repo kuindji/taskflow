@@ -1,6 +1,28 @@
 import { create } from "zustand";
+import type { Project, Task } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import type { DroppedTask } from "@/lib/dropped-task";
 import { useProjectStore } from "./project-store";
+
+/**
+ * The machine a new task is created on. A subtask's parent decides it: the
+ * backend takes a subtask's project from the parent and ignores the dialog's,
+ * which can be a project on another machine.
+ */
+export function taskCreationBackend(
+    request: { projectId: string; parentId?: string },
+    projects: Scoped<Project>[],
+    tasks: Scoped<Task>[],
+): string {
+    if (request.parentId) {
+        const parent = tasks.find((t) => t.id === request.parentId);
+        if (!parent) throw new Error(`Unknown parent task ${request.parentId}`);
+        return parent.backendId;
+    }
+    const project = projects.find((p) => p.id === request.projectId);
+    if (!project) throw new Error(`Unknown project ${request.projectId}`);
+    return project.backendId;
+}
 
 interface TaskCreationStore {
     newTaskOpen: boolean;

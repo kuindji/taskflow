@@ -5,7 +5,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
-import { useTaskCreationStore } from "@/stores/task-creation-store";
+import { taskCreationBackend, useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
@@ -113,10 +113,7 @@ export function TaskCreationDialogHost() {
             initCommand?: string;
         }) => {
             try {
-                // A task lives on its project's machine.
-                const project = projects.find((p) => p.id === data.projectId);
-                if (!project) throw new Error(`Unknown project ${data.projectId}`);
-                const task = await createTask(project.backendId, data);
+                const task = await createTask(taskCreationBackend(data, projects, tasks), data);
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
@@ -154,7 +151,7 @@ export function TaskCreationDialogHost() {
                 console.error("Failed to create task:", err);
             }
         },
-        [createSession, createTask, projects, setActiveProject, setActiveTask],
+        [createSession, createTask, projects, tasks, setActiveProject, setActiveTask],
     );
 
     return (

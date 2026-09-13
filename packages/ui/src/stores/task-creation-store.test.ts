@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { Project } from "@taskflow/shared";
+import type { Project, Task } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import { useProjectStore } from "./project-store";
-import { useTaskCreationStore } from "./task-creation-store";
+import { taskCreationBackend, useTaskCreationStore } from "./task-creation-store";
 
 function project(id: string): Scoped<Project> {
     return {
@@ -82,5 +82,42 @@ describe("task creation prefill", () => {
         useTaskCreationStore.getState().requestNewSubtask("web-1");
 
         expect(useTaskCreationStore.getState().prefill).toBeNull();
+    });
+});
+
+describe("the machine a new task is created on", () => {
+    function scopedProject(id: string, backendId: string): Scoped<Project> {
+        return { ...project(id), backendId };
+    }
+
+    function scopedTask(id: string, projectId: string, backendId: string): Scoped<Task> {
+        return {
+            backendId,
+            id,
+            projectId,
+            title: id,
+            description: "",
+            notes: "",
+            worktree: { enabled: false, path: null, branch: null, pr: null },
+            sessions: [],
+            attributes: [],
+            createdAt: "2026-09-13T00:00:00.000Z",
+            status: "active",
+            archivedAt: null,
+            pinned: false,
+        };
+    }
+
+    const projects = [scopedProject("pa", "a"), scopedProject("pb", "b")];
+    const tasks = [scopedTask("tb", "pb", "b")];
+
+    it("is the project's machine for a task", () => {
+        expect(taskCreationBackend({ projectId: "pb" }, projects, tasks)).toBe("b");
+    });
+
+    // The dialog's project for a subtask is whatever was selected, which can be
+    // another machine's project; the machine that holds the parent must get it.
+    it("is the parent task's machine for a subtask, whatever project is selected", () => {
+        expect(taskCreationBackend({ projectId: "pa", parentId: "tb" }, projects, tasks)).toBe("b");
     });
 });
