@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { readOrCreateBackendUid } from "../../src/config";
@@ -25,6 +25,22 @@ async function runWithConfigDir(baseDir: string, script: string): Promise<string
     ]);
     if (exitCode !== 0) throw new Error(`child exited ${exitCode}: ${stderr}`);
     return stdout.trim();
+}
+
+/**
+ * Six children busy-wait until a shared instant, then each mints into `uidDir`.
+ * Returns how many distinct uids they reported.
+ */
+async function mintConcurrently(baseDir: string, uidDir: string): Promise<number> {
+    const startAt = Date.now() + 1500;
+    const script =
+        `const { readOrCreateBackendUid } = await import(${JSON.stringify(CONFIG_MODULE)});` +
+        `while (Date.now() < ${startAt}) {}` +
+        `console.log(readOrCreateBackendUid(${JSON.stringify(uidDir)}, "main"));`;
+    const uids = await Promise.all(
+        Array.from({ length: 6 }, () => runWithConfigDir(baseDir, script)),
+    );
+    return new Set(uids).size;
 }
 
 describe("readOrCreateBackendUid", () => {
@@ -78,25 +94,32 @@ describe("readOrCreateBackendUid", () => {
     });
 
     test("backends starting at the same moment agree on one uid", async () => {
-        // Each child busy-waits until a shared instant, then mints. Without an
-        // exclusive create every child sees no file, mints its own uid and
-        // reports it, so one backend would be announced under several identities.
+        // Without an exclusive create every child sees no file, mints its own uid
+        // and reports it, so one backend would be announced under several identities.
         const dir = await mkdtemp(join(tmpdir(), "uid-"));
-        const uidDir = join(dir, "uids");
         try {
-            const startAt = Date.now() + 1500;
-            const script =
-                `const { readOrCreateBackendUid } = await import(${JSON.stringify(CONFIG_MODULE)});` +
-                `while (Date.now() < ${startAt}) {}` +
-                `console.log(readOrCreateBackendUid(${JSON.stringify(uidDir)}, "main"));`;
-            const uids = await Promise.all(
-                Array.from({ length: 6 }, () => runWithConfigDir(dir, script)),
-            );
-            expect(new Set(uids).size).toBe(1);
+            expect(await mintConcurrently(dir, join(dir, "uids"))).toBe(1);
         } finally {
             await rm(dir, { recursive: true, force: true });
         }
     }, 30_000);
+
+    test("backends repairing a corrupt uid file at the same moment agree on one uid", async () => {
+        // Every child finds the invalid file, and each one that replaces it after
+        // another already has would report a uid the file no longer holds.
+        for (let trial = 0; trial < 3; trial++) {
+            const dir = await mkdtemp(join(tmpdir(), "uid-"));
+            const uidDir = join(dir, "uids");
+            try {
+                await mkdir(uidDir);
+                await writeFile(join(uidDir, "backend-uid-main"), "not a uid");
+                expect(await mintConcurrently(dir, uidDir)).toBe(1);
+                expect(await readdir(uidDir)).toEqual(["backend-uid-main"]);
+            } finally {
+                await rm(dir, { recursive: true, force: true });
+            }
+        }
+    }, 60_000);
 });
 
 describe("config.backendUid", () => {

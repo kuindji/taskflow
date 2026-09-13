@@ -33,6 +33,28 @@ describe("removeInstancePortFile", () => {
         });
     });
 
+    test("never deletes a port file written while the removal is under way", async () => {
+        // A backend shutting down reads its own port, then another backend of the
+        // same instance writes its port, then the first one deletes the file. The
+        // backend still running would be left with no port file.
+        await withDir(async (dir) => {
+            const file = join(dir, "main.port");
+            let lost = 0;
+            for (let i = 0; i < 300; i++) {
+                await writeFile(file, "4321");
+                await Promise.all([
+                    removeInstancePortFile(file, 4321),
+                    (async () => {
+                        for (let k = 0; k < i % 4; k++) await Promise.resolve();
+                        await writeFile(file, "5555");
+                    })(),
+                ]);
+                if (!existsSync(file)) lost++;
+            }
+            expect(lost).toBe(0);
+        });
+    });
+
     test("does nothing when the file is already gone", async () => {
         await withDir(async (dir) => {
             await removeInstancePortFile(join(dir, "main.port"), 4321);

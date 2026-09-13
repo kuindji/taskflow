@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -122,11 +122,49 @@ export function readOrCreateBackendUid(baseDir: string, instanceId: string): str
         if (!hasErrorCode(error, "EEXIST")) throw error;
         const winner = readBackendUid(file);
         if (winner) return winner;
-        // The file exists but holds no valid uid (corrupt or hand-edited).
-        renameSync(temp, file);
-        return minted;
+        // The file exists but holds no valid uid (corrupt or hand-edited). Every
+        // backend starting now sees that, so the repair is serialized and re-checked:
+        // the first replaces the file and the rest adopt what it wrote.
+        return withFileLock(file, () => {
+            const repaired = readBackendUid(file);
+            if (repaired) return repaired;
+            renameSync(temp, file);
+            return minted;
+        });
     } finally {
         rmSync(temp, { force: true });
+    }
+}
+
+/** A lock older than this belongs to a process that died holding it. */
+const STALE_LOCK_MS = 10_000;
+
+/** Runs `run` while holding an exclusive lock directory next to `file`. */
+function withFileLock<T>(file: string, run: () => T): T {
+    const lock = `${file}.lock`;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (;;) {
+        try {
+            mkdirSync(lock);
+            break;
+        } catch (error) {
+            if (!hasErrorCode(error, "EEXIST")) throw error;
+        }
+        try {
+            if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) {
+                rmSync(lock, { recursive: true, force: true });
+                continue;
+            }
+        } catch (error) {
+            if (!hasErrorCode(error, "ENOENT")) throw error;
+            continue;
+        }
+        Atomics.wait(pause, 0, 0, 10);
+    }
+    try {
+        return run();
+    } finally {
+        rmSync(lock, { recursive: true, force: true });
     }
 }
 
