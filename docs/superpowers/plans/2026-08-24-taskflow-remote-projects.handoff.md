@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | in-review round 1 done | `cfe462d` | `be34c1b`, `d9c59ab` | R1: 3 fixed, 1 deferred to Task 9 |
+| 5 | The backend record list, keyed by uid | in-review round 2 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -237,6 +237,25 @@ fixed in `d9c59ab`, one deferred:
    caller inconsistent. A note was added to the plan's `confirmBackend` code telling the Task 9
    implementer to decide refuse-vs-adopt there and test it.
 
+### Task 5, round 2 (Codex gpt-5.5, prompted review of `cfe462d..d9c59ab`)
+
+One finding, reproduced with a failing test before fixing:
+
+1. **A stale-id duplicate listed first erases the canonical record — confirmed, fixed in
+   `4ec0bcd`.** Introduced by R1's uid re-keying: `[{id:"desktop.local:main",backendUid:"abc123",…},
+   {id:"abc123",backendUid:"abc123",host:"192.168.1.20",sshPort:2222,attached:true}]` both
+   normalize to id `abc123` and the first won, losing host, ssh port and `attached`. Only a
+   hand-edited file can hold this (the registry always writes id = uid). Now the row whose saved
+   id already equals its canonical id wins, in the first row's position; otherwise the first
+   row still wins. No field merging. Test: "a record already saved under its uid wins over a
+   stale-id duplicate listed before it" (red on `d9c59ab`, green after).
+
+Codex otherwise checked Task 9/17 consumer names and semantics and found no `as any`. My own
+suspicion, not filed: the listener keys by announced hostname, so one source address announcing
+two hostnames (e.g. a machine renamed while running, for up to 15 s) yields two unsaved menu rows
+with the same id. `addDiscoveredBackend` would save the same record from either row; the only
+effect is a duplicate row/React key for Task 17 to tolerate.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -304,6 +323,10 @@ fixed in `d9c59ab`, one deferred:
 
 ## Validation baseline
 
+After Task 5 R2 fix (`4ec0bcd`): `bun test electron/src/backend-records.test.ts
+packages/shared/src/discovery/beacon.test.ts` 26 pass (records 11); `bun run typecheck` clean;
+eslint and prettier clean on the two changed files.
+
 After Task 5 R1 fix (`d9c59ab`): `bun test electron/src/backend-records.test.ts
 packages/shared/src/discovery/beacon.test.ts` 25 pass (records 10); `bun run typecheck` clean;
 eslint and prettier clean on the three changed source files.
@@ -368,7 +391,9 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 5 review round 2 — Codex gpt-5.5 prompted review of `cfe462d..d9c59ab`
+Next step: Task 5 review round 3 — Codex gpt-5.5 prompted review of `cfe462d..4ec0bcd`
 (plan Task 5, line ~834; code files only: `electron/src/backend-records*.ts`,
 `packages/shared/src/types/backend.ts`, `packages/shared/src/discovery/beacon.ts`,
-`electron/package.json`). Tell the reviewer finding 4 of R1 is deliberately deferred to Task 9.
+`electron/package.json`). Tell the reviewer R1 finding 4 is deliberately deferred to Task 9, and
+that duplicate rows in a hand-edited `backends.json` are resolved by "saved-under-canonical-id wins,
+else first" with no field merging (R2), so it doesn't re-raise merge policy.
