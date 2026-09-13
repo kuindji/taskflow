@@ -30,7 +30,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
-| 16 | Machine sections in the sidebar | implemented | `39abd35` | `c17d813` | |
+| 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
@@ -957,6 +957,29 @@ agreed: every caller of the dirty-state accessors (`EditorPaneImpl`, `WorkspaceP
 and no `Uri.file(` / `uri.path` / `resource.path` readers remain outside the diff viewer's in-memory models.
 **Task 15 is clear.**
 
+### Task 16, round 1 (Codex gpt-5.5, prompted review of `39abd35..c17d813`, packages/ui)
+
+One finding, rejected:
+
+1. **Badge index keyed by bare project id collapses same-id projects on two machines — rejected.** Codex:
+   `badgeIndexById` (`TaskSidebar.tsx:99`) is `new Map(shown.map((p, i) => [p.id, i]))`, so a local and a remote
+   project both with id `"same"` would show one badge number. Same premise as Task 11 R1 #2: project ids are
+   `randomUUID()` and the plan relies on them not colliding. The rest of the sidebar is id-only as well
+   (`tasksByProject`, `collapsedProjectIds`, `activeProjectId`, and Cmd+N's `setActiveProject(target.id)`), so a
+   machine-qualified badge key would still select by bare id.
+
+Codex otherwise checked grouping (local, attached, detached, offline, collapsed), the per-section drag path and
+`reorderProjects(backendId, …)`, `keepAttached` across attach/detach/refresh/drop/rehandshake, selector stability and
+`as any`; it reran the three Task 16 test files (25 pass) and `bun run typecheck` (pass). **Task 16 is clear.**
+
+Suspicion, not filed (own read), for **Task 17**: `attach` sets `keepAttached: true` at once, but main persists
+`attached: true` only after the tunnel opens (`backend-registry.ts:311-317`). A `backends-changed` refresh landing in
+between (e.g. a beacon at line 193) copies `attached: false`, so a detached machine being re-attached loses its
+section while connecting; a failed attach leaves `keepAttached: true` (section with Retry) until the next refresh.
+Both settle on the next refresh. Not reachable today: only Task 17's menu attaches a detached record (startup, retry
+and the beacon handler only dial persisted-attached ones). Task 17 should decide whether the menu shows its own
+attaching/failed state or `refresh` keeps a local `keepAttached: true` while an attach is in flight.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1371,6 +1394,9 @@ and no `Uri.file(` / `uri.path` / `resource.path` readers remain outside the dif
 
 ## Validation baseline
 
+After Task 16 R1 (clean, no code change): `MachineSection.test.tsx` + `machine-groups.test.ts` + `backend-store.test.ts`
+25 pass.
+
 After Task 16 (`c17d813`): `MachineSection.test.tsx` 6 pass (red first: module missing) + `machine-groups.test.ts`
 5 pass; `backend-store.test.ts` 14 pass; mutation checks, each restored: offline/incompatible/attaching
 sections rendering projects (3 tests red), grouping ignoring `keepAttached` (detached test red); `bun test
@@ -1611,4 +1637,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: review Task 16, round 1 — Codex gpt-5.5 prompted review of `39abd35..c17d813` (packages/ui).
+Next step: implement Task 17 (The machines menu and its dialogs) — record HEAD as its base commit first; read the
+Task 16 decisions (`keepAttached` for checkboxes) and the Task 16 R1 suspicion about attach/refresh.
