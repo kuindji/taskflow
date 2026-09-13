@@ -32,7 +32,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
-| 18 | Routing for sidebar rows and background work | pending | | | |
+| 18 | Routing for sidebar rows and background work | implemented | `c586fef` | `ae16a8a` | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
 | 20 | Electron main across several backends | pending | | | |
 | 21 | The hard switch | pending | | | |
@@ -1470,7 +1470,37 @@ it reran six test files (60 pass) and `bun run typecheck` (pass). **Task 17 is c
 - Task 17 not run: the Electron app (native menu branch, dialogs against a real ssh host; Task 22). Native menu items
   use `type: "label"` and `type: "submenu"` from `NativeMenuItem`; not exercised in a test.
 
+- Task 18: `useRunMenu`'s `SCRIPTS_LIST`/`AGENT_COMMANDS_LIST`, `ProjectGroup`/`TaskCard` passing the record's
+  `backendId`, the per-task PR poll and primary-only `MASTER_SESSIONS_LIST` were **already done** (Tasks 11-14), so
+  `useSidebarData.ts`, `ProjectGroup.tsx` and `TaskCard.tsx` are unchanged. The plan's first routing assertion is
+  green on the base commit; the file's second test (a script run from the menu) is the red one.
+- Task 18 test is `useRunMenu.routing.test.tsx` (not `.ts`: it renders a probe component). `test-ws-server` now
+  records fire-and-forget messages in `received` too (needed to see `SESSION_INPUT`); no existing test counted them.
+- Task 18 **beyond the plan, the Task 13 carry-over**: session requests are routed. `createSession`'s owner takes an
+  optional `backendId` (stripped from the payload); without it the machine comes from `workspaceBackendId` of the
+  owner's workspace key (master → primary), and no machine throws instead of falling back to primary. The new id is
+  noted with `noteSessionBackend`. Close/resume/input/resize/rename use `sessionBackend(id)`: the noted machine, else
+  the machine of the workspace whose tab holds it; input/resize/rename with no machine are dropped, close/resume throw.
+  `refetchPrimaryRecords` → `refetchRecords(backendId, …)`. `session-activity` exports `sessionBackendOf`.
+- Task 18: `runInShell` takes a required `backendId` (its `SHELLS_LIST` and the session go there); `useRunMenu` passes
+  the row's, `Workspace` its `useSessionSync` machine (does nothing without one).
+- Task 18: Task 14 R2 deferral done — `useSessionSync`'s scripts, agent commands and shells go to the workspace's
+  machine with `backendId` in deps; the shell effect drops late answers.
+- Task 18: `attribute-api` functions take `backendId` first; `AttributesSection` has a required `backendId` prop
+  (captured in each debounced save, part of `ownerKey`); `TaskInfoPanel` passes the record's.
+- Task 18 notifications: `handleNotificationNavigate` and `NotificationPopover`'s project name match
+  `backendId` + id. The native click (`onNotificationClicked`) still finds the record by UUID; its payload
+  `backendId` is Task 20.
+- Task 18 **still primary (Task 19 Step 5)**: `terminal-lifecycle`'s `SESSION_SNAPSHOT`/`SESSION_HISTORY`, and the other
+  shim callers listed above. Not component-tested: `AttributesSection` routing, notification navigation.
+
 ## Validation baseline
+
+After Task 18 (`ae16a8a`): `useRunMenu.routing.test.tsx` 2 pass (3 runs; on `c586fef` the list test passed and the
+script-run test timed out: nothing reached `b`); `AttributesSection` 19, `session-sync.backend` 6, `session-sync` 9,
+`store-reset` 4, `AgentDropdownMenu.shells` 1, `aggregation` 16, `file-store` 11 pass (each alone); `bun test
+packages/ui` 293 pass, 9 fail (the known nine); `bun run typecheck` clean; eslint and prettier clean on the fifteen
+changed files. Not run: the Electron app (Task 22).
 
 After Task 17 R2 (clean, no code change): `MachinesMenu.test.tsx` + `ManageBackendsDialog.test.tsx` +
 `backend-fields.test.ts` 8 pass.
@@ -1728,4 +1758,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 18 (Routing for sidebar rows and background work) — record HEAD as its base commit first.
+Next step: Task 18 review round 1 — one prompted gpt-5.5 review of `c586fef..ae16a8a` (packages only).
