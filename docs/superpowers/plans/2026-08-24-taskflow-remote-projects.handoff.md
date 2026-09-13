@@ -2204,7 +2204,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: AWAITING USER — Task 22 (end-to-end verification on two machines) is manual by the plan: "Nothing here is
-automated; it needs two machines on one network and a person." Tasks 1–21 are clear. Will you run Task 22's steps
-(plan Steps 1–9a) yourself and report results for recording in Step 10, or should the loop treat Task 22 as deferred
-and mark the plan's automated work complete?
+Next step: Task 22 (end-to-end verification on two machines) — manual by the plan, needs two machines and a person.
+Tasks 1–21 are clear. On 2026-09-13 the user asked to push the branch and end the loop flow, continuing in a later
+session. Resume by walking Task 22's Steps 1–9a with the user and recording results (Step 10) here.
