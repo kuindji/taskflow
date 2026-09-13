@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | implemented | `76a0746` | `4abc696` | |
+| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 1 | `76a0746` | `4abc696`, `f1b70e0` | R1: 1 fixed (Codex + own) |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -516,6 +516,28 @@ origin. That would need a live child while an attach awaits before `openTunnel`,
 `lastKnownPort` is set, so the candidates come back without an await and `openTunnel` hands back the established
 tunnel. **Task 9 is clear.**
 
+### Task 10, round 1 (Codex gpt-5.5, prompted review of `76a0746..4abc696`, packages/ui)
+
+One finding, raised by Codex and suspected independently in my own read, reproduced with a failing test before fixing
+in `f1b70e0`:
+
+1. **An alias that merges into a machine this renderer holds no socket for reports success — confirmed, fixed.**
+   Main's `confirmBackend` answers `merged: true` whenever `origins.has(uid)`, i.e. main holds the canonical tunnel. The
+   renderer's attach of that record may have failed after the tunnel opened (socket refused, handshake failed — the row
+   goes offline but main's tunnel stays) or still be running. The merged branch dropped the alias socket and returned the
+   uid anyway, so `attach("desktop.local:main")` resolved `"abc123"` while `sendRequest("abc123", …)` rejected and the row
+   stayed offline. Fix: the merged branch (now also requiring `confirmed.id !== id`) returns the canonical id as is only
+   when that row is `attached`; otherwise it removes the alias row (or renames it onto the uid when no canonical row exists
+   yet) and returns `attach(confirmed.id)`, which gets the existing tunnel back from main. Test: "an alias of a machine this
+   renderer holds no socket for dials the canonical id" (red on `4abc696`: 1 fail / 7 pass; green after). The existing
+   merge test now seeds the canonical row attached and asserts no second dial.
+
+Codex otherwise checked the rename, refresh races, confirm rejection, changed-uid rehandshake, push drops and provider
+startup, and reran the store tests and typecheck (pass). Own checks that found nothing: `attach("local")` never reaches the
+registry (the IPC handler answers `{ id: "local", merged: false }`); the attempt counter's `delete` after a rename or merge
+could in principle let a stale attach match a restarted count, but only via a third attach under the provisional id, whose
+row is gone by then.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -694,6 +716,9 @@ tunnel. **Task 9 is clear.**
 
 ## Validation baseline
 
+After Task 10 R1 fix (`f1b70e0`): `backend-store.test.ts` 8 pass (3 runs; new test red first); `bun test packages/ui`
+195 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
+
 After Task 10 (`4abc696`): `store-reset.test.ts` + `backend-store.test.ts` 10 pass, 1 todo (red first: modules
 missing); mutation check — removing the post-tunnel attempt check turns "a detach while the tunnel is opening" red,
 rethrowing in the confirm catch turns "a refused confirm" red; `bun test packages/ui` 194 pass, 1 todo, 10 fail (the
@@ -821,7 +846,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 10 review round 1 — standard gpt-5.5 review via codex-review over `76a0746..4abc696`
+Next step: Task 10 review round 2 — standard gpt-5.5 review via codex-review over `76a0746..f1b70e0`
 (packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
 `hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above (attempt counter, conditional detach in
-`retry`, rename-row dedupe) and plan Task 10 (plan lines 2810-3330).
+`retry`, rename-row dedupe), the R1 merged-branch fix (re-attach the canonical id unless its row is attached) and plan
+Task 10 (plan lines 2810-3330).
