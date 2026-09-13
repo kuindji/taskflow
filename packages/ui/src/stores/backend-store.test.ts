@@ -62,6 +62,7 @@ function failure(message: string): TunnelFailure {
 }
 
 let backendSeen: (id: string) => void = () => {};
+let backendDropped: (id: string, failure: TunnelFailure) => void = () => {};
 
 const bridge: Pick<
     Bridge,
@@ -86,7 +87,10 @@ const bridge: Pick<
     listBackends: () => Promise.resolve([]),
     getAttached: () => Promise.resolve([]),
     onBackendsChanged: () => () => {},
-    onBackendDropped: () => () => {},
+    onBackendDropped: (handler) => {
+        backendDropped = handler;
+        return () => {};
+    },
     onBackendSeen: (handler) => {
         backendSeen = handler;
         return () => {};
@@ -280,6 +284,28 @@ describe("backend store attach", () => {
         expect(await attaching).toBeNull();
         expect(row("abc123")?.state).toBe("offline");
         expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+    });
+
+    test("a tunnel that drops while main confirms fails the attach and keeps the drop's reason", async () => {
+        const backend = startBackend(() => ({
+            protocolVersion: PROTOCOL_VERSION,
+            backendUid: "abc123",
+        }));
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        let answerConfirm: () => void = () => {};
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = (id) =>
+            new Promise((resolve) => (answerConfirm = () => resolve({ id, merged: false })));
+
+        const attaching = store.getState().attach("abc123");
+        while (main.confirmed.length < 1) await Bun.sleep(5);
+        backendDropped("abc123", failure("ssh exited"));
+        answerConfirm();
+
+        expect(await attaching).toBeNull();
+        expect(row("abc123")?.state).toBe("offline");
+        expect(row("abc123")?.failure?.message).toBe("ssh exited");
     });
 
     test("an attach whose handshake a newer attach cut off leaves the newer one alone", async () => {

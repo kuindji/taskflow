@@ -388,6 +388,9 @@ window.taskflow?.onBackendsChanged(() => void useBackendStore.getState().refresh
 window.taskflow?.onBackendDropped((id, failure) => {
     // The ssh child died. Its forwarded port points at nothing, so stop the
     // socket retrying it; the records stay and only this machine goes offline.
+    // An attach or rehandshake still awaiting over that tunnel is now stale: it
+    // must not report success, or overwrite the drop's reason.
+    nextAttempt(id);
     drop(id);
     patch(id, { state: "offline", failure });
 });
