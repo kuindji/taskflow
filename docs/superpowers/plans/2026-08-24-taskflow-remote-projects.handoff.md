@@ -26,7 +26,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
-| 12 | The remaining aggregating stores | pending | | | |
+| 12 | The remaining aggregating stores | implemented | `c4d1729` | `fb0f041` | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
@@ -936,8 +936,50 @@ parent up only in live tasks, but "Add subtask" is offered only for non-archived
 - Task 11 R3: clearing `activeProjectId` on detach is left to Task 14's `ui-store` reset (plan-assigned); Task 11's task-store
   reset clears only `activeTaskId`. Until Task 14, detaching the machine of the open project leaves the workspace blank
   (`useActiveWorkspace` scope null) with the stale id, restored if that machine is re-attached.
+- Task 12: the settings store keeps `settings` as **primary's** settings, derived from `byBackend` on every write,
+  instead of the plan's `primarySettings()`. About 30 app-level consumers (fonts, layout, editor, terminal) read it
+  and follow this app's primary, so it stays; nothing in later tasks names `primarySettings`. `settingsFor(backendId)` is
+  exported. Only primary's fetch hydrates layout and sends window state. `fetchDataDir`/`updateDataDir` go to primary.
+- Task 12: bootstrap fans out notifications, schedules, flows, actions and settings for the machine **without awaiting
+  them**; only the project and task legs can mark it offline (the machine's projects and tasks still work without them).
+- Task 12 beyond the plan: a notification clear-all (`{ all: true }` event) removes the ids that machine held when the
+  event landed, not `() => []`. Replayed over a list answered after the clear, `() => []` would also erase notifications
+  created since. Test: "a clear replayed over a list answered after it keeps the notifications created since".
+- Task 12 schedule store: `fetchSchedules(backendId)` lost its optional `projectId` (no caller passed one, and a filtered
+  list would replace the machine's whole slice); `updateSchedule(schedule, changes)`, `deleteSchedule(schedule)`,
+  `triggerSchedule(schedule)`, `createSchedule(backendId, payload)`. The Schedules dialog routes creation by the chosen
+  project's machine and fetches primary's schedules and actions on open (other machines' come from their bootstrap and
+  `SCHEDULE_UPDATED`). `ScheduleForm` offers only the selected project's machine's actions (none with no project).
+- Task 12 flow store: `saveFlow`/`saveAction(backendId, definition)` with new exported `definitionBackend(items, id)`
+  (the machine already holding the id, else primary), used by `FlowManagementDialog` and its `.backup.tsx` (which is in
+  the ui tsconfig `include`, so it had to compile); `deleteFlow`/`deleteAction` take the record. `applyRunUpdate` left the
+  public interface (only the listener used it). `fetchFlowRuns(backendId, ownerId)` clears an owner's run only when the
+  held run is on the answering machine. The flow manager fetches primary's definitions on open.
+- Task 12 launch defaults, beyond the plan's `AgentOptionsPanel` mention: `AgentOptionsPanel` takes an optional
+  `backendId` (omitted = primary's `settings`, for save-side editors), passed by `NewTaskDialog` (selected project's
+  machine; its `projects` prop is now `Scoped<Project>[]`), `ScheduleForm` (project's machine) and `TaskCard`'s options
+  dialog (task's machine, via new `AgentOptionsDialog.backendId`). Shell and runtime defaults read the target machine in
+  `Workspace`, `useSessionSync` and `useRunMenu`. `useRunMenu` takes a required `backendId` (rows pass their record's;
+  the command palette passes the active project's, `""` without one, which offers no flows). `useSessionSync` returns the
+  workspace's `backendId` (master → primary), used by `Workspace` for `startFlow`, whose flow-input state keeps the
+  machine it was opened for. **Not converted** (Task 14's `useWorkspaceBackend` / Task 18): `AgentDropdownMenu` shell and
+  its options dialog, `FileContextMenu` shell, `CommitDialog` and `useWorkspaceTabOps` `defaultAgent` plus CommitDialog's
+  options panel; a subtask in `NewTaskDialog` with no project selected still gets primary's defaults.
+- Task 12: `diff-store` now listens on the registry (it was on the primary-only shim), so every machine's change stats land.
+  `TaskSidebar`'s native notification click finds the record by id (UUID) before `markAsRead`; Task 20 reworks the poller.
+- Task 12: `backend-store.test.ts`'s fake bridge gained a no-op `sendTrayState`: the bootstrap now imports the flow store,
+  which pulls in `session-store`, whose subscriptions report the tray at import.
+- Task 12 suspicion, not verified: `activeRuns` is keyed by owner id, and the master owner id is the same constant on every
+  machine, so master-workspace flow runs on two machines would share one key. The master workspace addresses primary.
 
 ## Validation baseline
+
+After Task 12 (`fb0f041`): `aggregation.test.ts` 14 pass (6 new). Mutation checks, each turning exactly its test red and
+restored by checksum: the notification clear written as `() => []`; the diff-store reset unregistered; `filterByProject`
+ignoring the machine; `startFlow` filing the run under a fixed machine. `backend-store.test.ts` 14 pass (3 runs, alone);
+`FlowPanel.artifacts` 2, `FlowPanel.loop` 6, `NewTaskDialog.prefill` 4, `store-reset` 3 pass; `bun test packages/ui`
+227 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean (all packages); eslint and prettier clean on every
+changed file. Not run: the Electron app.
 
 After Task 11 R5 fix (`993805f`): `task-creation-store.test.ts` 8 pass (3 runs; new test red first); `bun test
 packages/ui` 221 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the three
@@ -1109,7 +1151,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 12 (The remaining aggregating stores), plan lines 3632-3845. Record HEAD as its base commit
-first. Follow Task 11's R1 decision: every store write goes through `apply` with a function safe to replay over a list
-response, and fetches go through `slices.load` (not the plan's begin/replace). Read `packages/ui/src/lib/backend-scope.ts`
-before starting. `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
+Next step: Task 12 review round 1 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..fb0f041`, packages/ui
+only, against plan lines 3632-3845 and the Task 12 decisions above (settings `settings` kept as primary's mirror, the
+non-blocking bootstrap legs, the notification clear write, the launch-default call sites converted and those left for
+Tasks 14/18). Verify each finding with a failing test before fixing.
