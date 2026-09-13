@@ -4,6 +4,7 @@ import { execFile } from "child_process";
 import { writeFile } from "fs/promises";
 import { join } from "path";
 import type { TunnelFailure } from "@taskflow/shared";
+import { fetchArtifactBytes, isArtifactUrl } from "./artifact-download";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import type { BackendRegistry } from "./backend-registry";
 import { backendOrigin } from "./backend-url";
@@ -75,21 +76,6 @@ function buildNativeMenuTemplate(
 }
 
 function registerIpcHandlers(deps: IpcHandlersDeps): void {
-    function isArtifactUrl(value: string): boolean {
-        let url: URL;
-        try {
-            url = new URL(value);
-        } catch {
-            return false;
-        }
-        return (
-            url.pathname.startsWith("/api/flow/artifact/") &&
-            listAttachedBackends(deps.getBackendPort(), deps.registry.attached()).some(
-                (entry) => new URL(entry.origin).origin === url.origin,
-            )
-        );
-    }
-
     ipcMain.handle("get-backend-port", () => deps.getBackendPort());
 
     ipcMain.handle("open-external-url", (_event, url: string) => {
@@ -126,7 +112,13 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         ): Promise<{ success: boolean; error?: string }> => {
             // A file artifact lives on the machine that ran the flow, so its bytes come
             // from that backend's raw-artifact route; only attached origins are fetched.
-            if (typeof opts.url === "string" && !isArtifactUrl(opts.url)) {
+            if (
+                typeof opts.url === "string" &&
+                !isArtifactUrl(
+                    opts.url,
+                    listAttachedBackends(deps.getBackendPort(), deps.registry.attached()),
+                )
+            ) {
                 return { success: false, error: "Invalid artifact URL" };
             }
             const defaultPath = opts.defaultName
@@ -140,11 +132,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             if (result.canceled || !result.filePath) return { success: false };
             try {
                 if (typeof opts.url === "string") {
-                    const response = await fetch(opts.url);
-                    if (!response.ok) {
-                        throw new Error((await response.text()) || `HTTP ${response.status}`);
-                    }
-                    await writeFile(result.filePath, Buffer.from(await response.arrayBuffer()));
+                    await writeFile(result.filePath, await fetchArtifactBytes(opts.url));
                 } else if (typeof opts.text === "string") {
                     await writeFile(result.filePath, opts.text, "utf-8");
                 } else {
