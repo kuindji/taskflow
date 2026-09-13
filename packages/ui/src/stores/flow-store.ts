@@ -117,6 +117,9 @@ async function trackDefinitionLoad(load: () => Promise<boolean>): Promise<void> 
 }
 
 function applyRunUpdate(backendId: string, run: FlowRun): void {
+    // Every machine's master owner id is the same constant, and the master
+    // workspace is primary's: another machine's master run has no place here.
+    if (run.master && backendId !== getPrimary()) return;
     useFlowStore.setState((s) => {
         const ownerId = getFlowRunOwnerId(run);
         // Only update if we're already tracking this owner's run

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { MSG } from "@taskflow/shared";
+import { MASTER_OWNER_ID, MSG } from "@taskflow/shared";
 import type {
     ActionDefinition,
     FlowDefinition,
@@ -406,5 +406,29 @@ describe("the stores the sidebar reads, across backends", () => {
         expect(run.backendId).toBe("b");
         expect(serverB.received.map((r) => r.type)).toContain(MSG.FLOW_PAUSE);
         expect(serverA.received.map((r) => r.type)).not.toContain(MSG.FLOW_PAUSE);
+    });
+
+    test("another machine's master run does not show in primary's master workspace", async () => {
+        const run = (owner: { taskId?: string; master?: true }) => ({
+            ...owner,
+            flowId: "flow-b",
+            status: "running",
+            currentActionIndex: 0,
+            actions: [],
+            artifacts: [],
+            startedAt: "2026-09-13T00:00:00.000Z",
+        });
+        const [, serverB] = await openTwo(
+            () => ({}),
+            () => ({}),
+        );
+        setPrimary("a");
+
+        serverB.broadcast(MSG.FLOW_RUN_UPDATED, run({ master: true }));
+        // Same socket, so this lands after the master run.
+        serverB.broadcast(MSG.FLOW_RUN_UPDATED, run({ taskId: "task-b" }));
+        await until(() => Boolean(useFlowStore.getState().activeRuns["task-b"]));
+
+        expect(useFlowStore.getState().activeRuns[MASTER_OWNER_ID]).toBeUndefined();
     });
 });
