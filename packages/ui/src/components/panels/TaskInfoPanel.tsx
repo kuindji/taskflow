@@ -365,6 +365,7 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <AttributesSection
+                            backendId={project.backendId}
                             owner={{ projectId: project.id }}
                             attributes={project.attributes}
                             inheritedLayers={NO_LAYERS}
@@ -535,6 +536,7 @@ function TaskInfoPanel() {
                     <Separator className="my-4" />
 
                     <AttributesSection
+                        backendId={task.backendId}
                         owner={{ taskId: task.id }}
                         attributes={task.attributes}
                         inheritedLayers={inheritedLayers}

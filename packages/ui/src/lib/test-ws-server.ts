@@ -6,7 +6,7 @@ interface ReceivedRequest {
 
 export interface TestServer {
     origin: string;
-    /** Every request with a correlation id, in arrival order. */
+    /** Every message, answered or fire-and-forget, in arrival order. */
     received: ReceivedRequest[];
     stop(): void;
     /** Push an event to every open socket; the payload defaults to `{ from: label }`. */
@@ -41,8 +41,8 @@ export function startTestServer(
                     type: string;
                     payload?: unknown;
                 };
-                if (!request.correlationId) return;
                 received.push({ type: request.type, payload: request.payload });
+                if (!request.correlationId) return;
                 const answer = respond(request.type, request.payload);
                 const reply = (payload: unknown) =>
                     ws.send(

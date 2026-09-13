@@ -32,14 +32,15 @@ function apiCall(c: Call): Promise<void> {
 }
 
 await mock.module("@/lib/attribute-api", () => ({
-    createAttribute: (owner: AttributeOwner, name: string, value: string) =>
+    createAttribute: (_backendId: string, owner: AttributeOwner, name: string, value: string) =>
         apiCall({ kind: "create", owner, updates: { name, value } }),
     updateAttribute: (
+        _backendId: string,
         owner: AttributeOwner,
         attrId: string,
         updates: { name?: string; value?: string },
     ) => apiCall({ kind: "update", owner, attrId, updates }),
-    deleteAttribute: (owner: AttributeOwner, attrId: string) =>
+    deleteAttribute: (_backendId: string, owner: AttributeOwner, attrId: string) =>
         apiCall({ kind: "delete", owner, attrId }),
 }));
 
@@ -94,6 +95,7 @@ function mount(
                 owner={owner}
                 attributes={attributes}
                 inheritedLayers={inheritedLayers}
+                backendId="laptop"
                 idPrefix="task-info"
             />
         );
@@ -127,6 +129,7 @@ function mountWithInlineOwner(attributes: Attribute[]) {
                 owner={{ taskId: "t1" }}
                 attributes={attributes}
                 inheritedLayers={[]}
+                backendId="laptop"
                 idPrefix="task-info"
             />
         );

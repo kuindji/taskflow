@@ -9,13 +9,12 @@ import type {
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MASTER_OWNER_ID, MSG } from "@taskflow/shared";
 import type { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
-import { sendRequest } from "@/hooks/useWebSocket";
 import { useSessionStore } from "@/stores/session-store";
 import type { Tab } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { resolveTerminalShellPath } from "@/lib/terminal-shells";
-import { getPrimary } from "@/lib/connection-registry";
+import { getPrimary, sendRequest } from "@/lib/connection-registry";
 
 const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
@@ -123,14 +122,17 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         };
     }, [ownerId, backendId]);
 
-    // Fetch scripts
+    // Fetch scripts. The working directory is only meaningful on the
+    // workspace's machine.
     useEffect(() => {
-        if (!workspace.workingDir || workspace.scope === "master") {
+        if (!workspace.workingDir || workspace.scope === "master" || !backendId) {
             setScripts(emptyScripts);
             return;
         }
         let cancelled = false;
-        sendRequest<ScriptsListResponse>(MSG.SCRIPTS_LIST, { path: workspace.workingDir })
+        sendRequest<ScriptsListResponse>(backendId, MSG.SCRIPTS_LIST, {
+            path: workspace.workingDir,
+        })
             .then((res) => {
                 if (cancelled) return;
                 setScripts(res.scripts);
@@ -141,16 +143,16 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         return () => {
             cancelled = true;
         };
-    }, [workspace.workingDir, workspace.scope]);
+    }, [workspace.workingDir, workspace.scope, backendId]);
 
     // Fetch agent commands
     useEffect(() => {
-        if (!workspace.workingDir) {
+        if (!workspace.workingDir || !backendId) {
             setAgentCommands(emptyAgentCommands);
             return;
         }
         let cancelled = false;
-        sendRequest<AgentCommandsListResponse>(MSG.AGENT_COMMANDS_LIST, {
+        sendRequest<AgentCommandsListResponse>(backendId, MSG.AGENT_COMMANDS_LIST, {
             path: workspace.workingDir,
         })
             .then((res) => {
@@ -163,18 +165,31 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         return () => {
             cancelled = true;
         };
-    }, [workspace.workingDir, workspace.scope]);
+    }, [workspace.workingDir, workspace.scope, backendId]);
 
-    // Resolve default shell
+    // Resolve default shell. A list answered after the workspace moved to
+    // another machine names that machine's shells, so it is dropped.
     useEffect(() => {
-        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
-            (res) =>
+        if (!backendId) {
+            setDefaultShellPath(null);
+            return;
+        }
+        let cancelled = false;
+        sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {}).then(
+            (res) => {
+                if (cancelled) return;
                 setDefaultShellPath(
                     resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell),
-                ),
-            () => setDefaultShellPath(null),
+                );
+            },
+            () => {
+                if (!cancelled) setDefaultShellPath(null);
+            },
         );
-    }, [configuredShell]);
+        return () => {
+            cancelled = true;
+        };
+    }, [configuredShell, backendId]);
 
     // Sync active tab when tabs change
     const visibleTabs = tabs;

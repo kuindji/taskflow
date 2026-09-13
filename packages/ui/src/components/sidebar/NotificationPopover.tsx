@@ -31,7 +31,7 @@ function formatRelativeTime(dateStr: string): string {
 interface NotificationPopoverProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onNavigate: (notification: Notification) => void;
+    onNavigate: (notification: Scoped<Notification>) => void;
     children: ReactNode;
 }
 
@@ -58,8 +58,10 @@ function NotificationPopover({
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-    function getProjectName(projectId: string): string {
-        return projects.find((p) => p.id === projectId)?.name ?? projectId;
+    function getProjectName({ backendId, projectId }: Scoped<Notification>): string {
+        return (
+            projects.find((p) => p.backendId === backendId && p.id === projectId)?.name ?? projectId
+        );
     }
 
     function handleItemClick(notification: Scoped<Notification>) {
@@ -144,7 +146,7 @@ function NotificationPopover({
                                             {notification.message}
                                         </p>
                                         <p className="text-muted-foreground mt-0.5 text-xs">
-                                            {getProjectName(notification.projectId)} ·{" "}
+                                            {getProjectName(notification)} ·{" "}
                                             {formatRelativeTime(notification.createdAt)}
                                         </p>
                                     </div>
@@ -176,9 +178,7 @@ function NotificationPopover({
                 <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-sm font-medium">
-                            {selectedNotification
-                                ? getProjectName(selectedNotification.projectId)
-                                : ""}
+                            {selectedNotification ? getProjectName(selectedNotification) : ""}
                         </DialogTitle>
                         <DialogDescription className="sr-only">
                             Notification details

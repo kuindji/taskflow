@@ -164,19 +164,25 @@ function useRunMenu({
         [taskId, projectId],
     );
 
-    const owner = useMemo(() => (taskId ? { taskId } : { projectId }), [taskId, projectId]);
+    // Sessions started from a row run on the row's machine, not wherever the
+    // open workspace happens to be.
+    const owner = useMemo(
+        () => (taskId ? { taskId, backendId } : { projectId, backendId }),
+        [taskId, projectId, backendId],
+    );
 
     const onRunScript = useCallback(
         (name: string) => {
             navigate(true);
             void runInShell({
+                backendId,
                 owner,
                 configuredShell,
                 label: name,
                 command: `${defaultRuntime} run ${name}\r`,
             });
         },
-        [navigate, owner, configuredShell, defaultRuntime],
+        [navigate, backendId, owner, configuredShell, defaultRuntime],
     );
 
     const onRunAgentCommand = useCallback(
@@ -194,6 +200,7 @@ function useRunMenu({
             navigate(true);
             if (action.sessionType === "shell") {
                 void runInShell({
+                    backendId,
                     owner,
                     configuredShell,
                     label: action.name,
@@ -212,7 +219,7 @@ function useRunMenu({
                     );
             }
         },
-        [navigate, owner, configuredShell],
+        [navigate, backendId, owner, configuredShell],
     );
 
     const onStartFlow = useCallback(
@@ -242,11 +249,13 @@ function useRunMenu({
         (type: AgentType, agentOptions?: AgentLaunchOptions) => {
             if (!taskId) return;
             navigate(true);
-            const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
+            const task = useTaskStore
+                .getState()
+                .tasks.find((t) => t.backendId === backendId && t.id === taskId);
             void useSessionStore
                 .getState()
                 .createSession(
-                    { taskId },
+                    { taskId, backendId },
                     type,
                     undefined,
                     task?.description || undefined,
@@ -254,7 +263,7 @@ function useRunMenu({
                     agentOptions,
                 );
         },
-        [navigate, taskId],
+        [navigate, taskId, backendId],
     );
 
     const onFlowInputSubmit = useCallback(

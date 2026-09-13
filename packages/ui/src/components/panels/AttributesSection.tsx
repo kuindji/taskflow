@@ -9,6 +9,8 @@ import { createAttribute, deleteAttribute, updateAttribute } from "@/lib/attribu
 const SAVE_DEBOUNCE_MS = 500;
 
 interface AttributesSectionProps {
+    /** The owning record's machine; every save goes there. */
+    backendId: string;
     owner: AttributeOwner;
     /** Own attributes, editable here. */
     attributes: Attribute[];
@@ -28,6 +30,7 @@ const scopeLabels: Record<string, string> = {
 };
 
 function AttributesSection({
+    backendId,
     owner,
     attributes,
     inheritedLayers,
@@ -113,7 +116,7 @@ function AttributesSection({
     // wipe whatever the user is mid-typing. The cleanup only ever reads the
     // `pending` ref, never `owner`, so it stays correct even though `owner`
     // isn't in the deps.
-    const ownerKey = owner.taskId ?? owner.projectId;
+    const ownerKey = `${backendId}:${owner.taskId ?? owner.projectId}`;
     useEffect(() => {
         const inFlight = pending.current;
         return () => {
@@ -137,6 +140,7 @@ function AttributesSection({
      */
     const makeCommit = useCallback(
         (attribute: Attribute, field: DraftField, text: string): (() => void) => {
+            const targetBackend = backendId;
             const targetOwner = owner;
             const siblings = attributes;
             const settle = () => clearDraftIfUnchanged(attribute.id, field, text);
@@ -148,7 +152,7 @@ function AttributesSection({
                         return;
                     }
                     setError(null);
-                    void updateAttribute(targetOwner, attribute.id, { value: text })
+                    void updateAttribute(targetBackend, targetOwner, attribute.id, { value: text })
                         .then(settle)
                         .catch((err: unknown) => {
                             setError(
@@ -178,7 +182,7 @@ function AttributesSection({
                     return;
                 }
                 setError(null);
-                void updateAttribute(targetOwner, attribute.id, { name })
+                void updateAttribute(targetBackend, targetOwner, attribute.id, { name })
                     .then(settle)
                     .catch((err: unknown) => {
                         setError(err instanceof Error ? err.message : "Failed to rename attribute");
@@ -186,7 +190,7 @@ function AttributesSection({
                     });
             };
         },
-        [attributes, clearDraftIfUnchanged, owner],
+        [attributes, backendId, clearDraftIfUnchanged, owner],
     );
 
     const handleChange = useCallback(
@@ -205,10 +209,10 @@ function AttributesSection({
             suffix += 1;
         }
         setError(null);
-        void createAttribute(owner, candidate, "").catch((err: unknown) => {
+        void createAttribute(backendId, owner, candidate, "").catch((err: unknown) => {
             setError(err instanceof Error ? err.message : "Failed to add attribute");
         });
-    }, [attributes, owner]);
+    }, [attributes, backendId, owner]);
 
     const removeAttribute = useCallback(
         (attrId: string) => {
@@ -230,11 +234,11 @@ function AttributesSection({
                 return rest;
             });
             setError(null);
-            void deleteAttribute(owner, attrId).catch((err: unknown) => {
+            void deleteAttribute(backendId, owner, attrId).catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : "Failed to delete attribute");
             });
         },
-        [owner],
+        [backendId, owner],
     );
 
     return (

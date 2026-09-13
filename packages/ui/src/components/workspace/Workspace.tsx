@@ -260,7 +260,9 @@ export function Workspace() {
                   : { master: true as const };
         setFocusedPanel("workspace");
         if (action.sessionType === "shell") {
+            if (!backendId) return;
             await runInShell({
+                backendId,
                 owner,
                 configuredShell,
                 label: action.name,
@@ -397,13 +399,14 @@ export function Workspace() {
     };
 
     const handleRunScript = async (scriptName: string) => {
-        if (!workspace.workspaceKey) return;
+        if (!workspace.workspaceKey || !backendId) return;
         const owner =
             workspace.scope === "task"
                 ? { taskId: workspace.task.id }
                 : { projectId: workspace.project.id };
         setFocusedPanel("workspace");
         await runInShell({
+            backendId,
             owner,
             configuredShell,
             label: scriptName,

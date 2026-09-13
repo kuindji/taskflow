@@ -277,15 +277,25 @@ export function TaskSidebar() {
     );
 
     const handleNotificationNavigate = useCallback(
-        (notification: Pick<Notification, "projectId" | "taskId" | "sessionId">) => {
-            const project = projects.find((p) => p.id === notification.projectId);
+        (
+            notification: Pick<
+                Scoped<Notification>,
+                "backendId" | "projectId" | "taskId" | "sessionId"
+            >,
+        ) => {
+            // The notification's own machine holds its project and task.
+            const project = projects.find(
+                (p) => p.backendId === notification.backendId && p.id === notification.projectId,
+            );
             if (!project) return;
 
             setFocusedPanel("workspace");
             setActiveProject(notification.projectId);
 
             if (notification.taskId) {
-                const task = tasks.find((t) => t.id === notification.taskId);
+                const task = tasks.find(
+                    (t) => t.backendId === notification.backendId && t.id === notification.taskId,
+                );
                 if (!task) return;
                 setActiveTask(task.id);
 

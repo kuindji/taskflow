@@ -9,11 +9,14 @@ import type {
     SessionResumeResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
-import { getPrimary, sendRequest as sendRequestTo } from "@/lib/connection-registry";
+import { getPrimary, sendFireAndForget, sendRequest } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useProjectStore } from "./project-store";
-import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
+import {
+    getProjectWorkspaceKey,
+    getTaskWorkspaceKey,
+    workspaceBackendId,
+} from "@/hooks/useActiveWorkspace";
 import {
     baseWorkspaceKey,
     normalizeSessionLabel,
@@ -26,7 +29,13 @@ import {
 } from "./session-helpers";
 import { syncOwnerTabs } from "./session-sync";
 import type { Tab } from "./session-helpers";
-import { forgetSession, markInteraction, sessionsOwnedBy } from "./session-activity";
+import {
+    forgetSession,
+    markInteraction,
+    noteSessionBackend,
+    sessionBackendOf,
+    sessionsOwnedBy,
+} from "./session-activity";
 import { initSessionSubscriptions } from "./session-subscriptions";
 import { registerBackendReset } from "./store-reset";
 
@@ -58,27 +67,41 @@ function claimWorkspaceKeys(backendId: string, keyPrefix: string, keys: string[]
 }
 
 /**
- * Session requests still go to primary through the shim until Task 13 routes
- * them, so the records a session change touches are primary's. A failed refetch
- * leaves the previous records in place, as before.
+ * A session change touches the records of the machine it ran on. A failed
+ * refetch leaves the previous records in place, as before.
  */
-function refetchPrimaryRecords(which: { tasks: boolean; projects: boolean }): Promise<unknown> {
-    const primary = getPrimary();
-    if (!primary) return Promise.resolve();
+function refetchRecords(
+    backendId: string,
+    which: { tasks: boolean; projects: boolean },
+): Promise<unknown> {
     return Promise.all([
         which.tasks
             ? useTaskStore
                   .getState()
-                  .fetchTasks(primary)
+                  .fetchTasks(backendId)
                   .catch(() => {})
             : null,
         which.projects
             ? useProjectStore
                   .getState()
-                  .fetchProjects(primary)
+                  .fetchProjects(backendId)
                   .catch(() => {})
             : null,
     ]);
+}
+
+/**
+ * The machine a session runs on: the one it was created on or last reported
+ * from, else the machine of the workspace whose tab holds it.
+ */
+function sessionBackend(sessionId: string): string | null {
+    const noted = sessionBackendOf(sessionId);
+    if (noted) return noted;
+    for (const [workspaceKey, tabs] of Object.entries(useSessionStore.getState().tabsByWorkspace)) {
+        if (tabs.some((tab) => tab.sessionId === sessionId))
+            return workspaceBackendId(workspaceKey);
+    }
+    return null;
 }
 
 interface SessionStore {
@@ -86,8 +109,12 @@ interface SessionStore {
     activeTabByWorkspace: Record<string, string>;
     sessionStatus: Partial<Record<string, SessionStatus>>;
     lastTerminalSize: { cols: number; rows: number } | null;
+    /**
+     * `owner.backendId` names the owner's machine; without it the machine is
+     * looked up from the owner's record (master: primary).
+     */
     createSession(
-        owner: { taskId?: string; projectId?: string; master?: boolean },
+        owner: { taskId?: string; projectId?: string; master?: boolean; backendId?: string },
         type: Tab["type"],
         label?: string,
         prompt?: string,
@@ -143,9 +170,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         cwd,
         targetWorkspaceKey,
     ) {
+        const { backendId: ownerBackendId, ...ownerIds } = owner;
         const ownerId = owner.taskId ?? owner.projectId;
         if (!ownerId && !owner.master)
             throw new Error("Either taskId, projectId, or master is required");
+
+        const ownerWorkspaceKey = owner.taskId
+            ? getTaskWorkspaceKey(owner.taskId)
+            : ownerId
+              ? getProjectWorkspaceKey(ownerId)
+              : "master";
+        // The session runs where its owner lives; asking any other machine
+        // could start it in a checkout that merely shares the path.
+        const backendId = ownerBackendId || workspaceBackendId(ownerWorkspaceKey);
+        if (!backendId) throw new Error("No attached machine holds this session's owner");
 
         // When targeting a non-default workspace key (e.g. split right pane),
         // block syncWithTasks from auto-placing the session while we await.
@@ -155,22 +193,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
 
         const lastTerminalSize = get().lastTerminalSize;
-        const { sessionId } = await sendRequest<SessionCreateResponse>(MSG.SESSION_CREATE, {
-            ...owner,
-            type,
-            label,
-            prompt,
-            shell,
-            cwd,
-            cols: lastTerminalSize?.cols,
-            rows: lastTerminalSize?.rows,
-            agentOptions,
-            ...(editorOpts && {
-                editorId: editorOpts.editorId,
-                filePath: editorOpts.filePath,
-                line: editorOpts.line,
-            }),
-        });
+        const { sessionId } = await sendRequest<SessionCreateResponse>(
+            backendId,
+            MSG.SESSION_CREATE,
+            {
+                ...ownerIds,
+                type,
+                label,
+                prompt,
+                shell,
+                cwd,
+                cols: lastTerminalSize?.cols,
+                rows: lastTerminalSize?.rows,
+                agentOptions,
+                ...(editorOpts && {
+                    editorId: editorOpts.editorId,
+                    filePath: editorOpts.filePath,
+                    line: editorOpts.line,
+                }),
+            },
+        );
         const tab: Tab = {
             id: sessionId,
             type,
@@ -179,23 +221,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ...(type === "shell" && { autoTitle: true }),
             ...(editorOpts && { filePath: editorOpts.filePath }),
         };
-        const workspaceKey =
-            targetWorkspaceKey ??
-            (owner.taskId
-                ? getTaskWorkspaceKey(owner.taskId)
-                : ownerId
-                  ? getProjectWorkspaceKey(ownerId)
-                  : "master");
-        get().addTab(workspaceKey, tab);
+        noteSessionBackend(sessionId, backendId);
+        get().addTab(targetWorkspaceKey ?? ownerWorkspaceKey, tab);
         if (pendingKey) pendingSessionCreates.delete(pendingKey);
-        await refetchPrimaryRecords({ tasks: !!owner.taskId, projects: !!owner.projectId });
+        await refetchRecords(backendId, { tasks: !!owner.taskId, projects: !!owner.projectId });
         return sessionId;
     },
     async closeSession(sessionId) {
-        await sendRequest(MSG.SESSION_CLOSE, { sessionId });
-        await refetchPrimaryRecords({ tasks: true, projects: true });
+        const backendId = sessionBackend(sessionId);
+        if (!backendId) throw new Error(`No attached machine runs session ${sessionId}`);
+        await sendRequest(backendId, MSG.SESSION_CLOSE, { sessionId });
+        await refetchRecords(backendId, { tasks: true, projects: true });
     },
     async resumeSession(sessionId, cols, rows) {
+        const backendId = sessionBackend(sessionId);
+        if (!backendId) throw new Error(`No attached machine runs session ${sessionId}`);
         set((state) => ({
             tabsByWorkspace: Object.fromEntries(
                 Object.entries(state.tabsByWorkspace).map(([key, tabs]) => [
@@ -209,7 +249,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ),
         }));
         try {
-            await sendRequest<SessionResumeResponse>(MSG.SESSION_RESUME, {
+            await sendRequest<SessionResumeResponse>(backendId, MSG.SESSION_RESUME, {
                 sessionId,
                 cols,
                 rows,
@@ -218,9 +258,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             // The master workspace is primary's alone.
             const primary = getPrimary();
             await Promise.all([
-                refetchPrimaryRecords({ tasks: true, projects: true }),
+                refetchRecords(backendId, { tasks: true, projects: true }),
                 primary
-                    ? sendRequestTo<{ sessions: SessionRef[] }>(
+                    ? sendRequest<{ sessions: SessionRef[] }>(
                           primary,
                           MSG.MASTER_SESSIONS_LIST,
                       ).then(({ sessions }) => get().syncWithMasterSessions(primary, sessions))
@@ -230,12 +270,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     },
     sendInput(sessionId, data) {
         markInteraction(sessionId);
-        sendFireAndForget(MSG.SESSION_INPUT, { sessionId, data });
+        const backendId = sessionBackend(sessionId);
+        if (backendId) sendFireAndForget(backendId, MSG.SESSION_INPUT, { sessionId, data });
     },
     resizeTerminal(sessionId, cols, rows) {
         markInteraction(sessionId);
         set({ lastTerminalSize: { cols, rows } });
-        sendFireAndForget(MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
+        const backendId = sessionBackend(sessionId);
+        if (backendId) {
+            sendFireAndForget(backendId, MSG.TERMINAL_RESIZE, { sessionId, cols, rows });
+        }
     },
     addTab(workspaceKey, tab) {
         set((s) => {
@@ -428,8 +472,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
         }));
 
-        if (labelChanged && tab.sessionId) {
-            sendFireAndForget(MSG.SESSION_RENAME, {
+        const sessionBackendId = tab.sessionId ? sessionBackend(tab.sessionId) : null;
+        if (labelChanged && tab.sessionId && sessionBackendId) {
+            sendFireAndForget(sessionBackendId, MSG.SESSION_RENAME, {
                 sessionId: tab.sessionId,
                 label: newLabel,
             });

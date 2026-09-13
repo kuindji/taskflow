@@ -21,6 +21,10 @@ function noteSessionBackend(sessionId: string, backendId: string): void {
     sessionBackends.set(sessionId, backendId);
 }
 
+function sessionBackendOf(sessionId: string): string | null {
+    return sessionBackends.get(sessionId) ?? null;
+}
+
 function sessionsOwnedBy(backendId: string): string[] {
     const owned: string[] = [];
     for (const [sessionId, owner] of sessionBackends) {
@@ -86,6 +90,7 @@ registerBackendReset("session-activity", (backendId) => {
 
 export {
     noteSessionBackend,
+    sessionBackendOf,
     sessionsOwnedBy,
     forgetSession,
     markInteraction,
