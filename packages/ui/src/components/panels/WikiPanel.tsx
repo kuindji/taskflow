@@ -16,7 +16,7 @@ import { useFileStore } from "@/stores/file-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
-import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
+import { LOCAL_ONLY_SUFFIX, useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 import useIsElectron from "@/hooks/useIsElectron";
 import { openFileInApp } from "@/lib/open-file";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
@@ -135,6 +135,7 @@ function WikiPanel() {
                                     }}>
                                     <FolderOpen className="h-4 w-4" />
                                     Reveal in Finder
+                                    {localOnlyHint ? LOCAL_ONLY_SUFFIX : ""}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onSelect={() => setNewPageOpen(true)}>

@@ -25,7 +25,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { sendRequest } from "@/lib/connection-registry";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
-import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
+import { LOCAL_ONLY_SUFFIX, useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 import { DEFAULT_TERMINAL_SHELL } from "@taskflow/shared";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import {
@@ -60,7 +60,7 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const backendId = useWorkspaceBackend();
     // Opening externally and revealing happen on the backend's machine's desktop.
     const localOnlyHint = useLocalOnlyHint(backendId);
-    const localOnlyLabel = localOnlyHint ? " (not on this machine)" : "";
+    const localOnlyLabel = localOnlyHint ? LOCAL_ONLY_SUFFIX : "";
     const configuredShell = useSettingsStore(
         (s) =>
             (backendId ? s.byBackend[backendId] : s.settings)?.terminal.defaultShell ??
@@ -287,7 +287,7 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
                             title={localOnlyHint ?? undefined}
                             onSelect={handleReveal}>
                             <FolderOpen />
-                            Reveal in Finder
+                            Reveal in Finder{localOnlyLabel}
                         </ContextMenuItem>
                         <ContextMenuItem onSelect={handleOpenInTerminal}>
                             <Terminal />

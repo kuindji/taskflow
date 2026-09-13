@@ -19,6 +19,9 @@ export function useIsLocalBackend(backendId: string | null): boolean {
     return isLocalBackend(machines, backendId);
 }
 
+/** Appended to a disabled menu item's label: a disabled item shows no tooltip. */
+export const LOCAL_ONLY_SUFFIX = " (not on this machine)";
+
 /**
  * Why a local-path affordance is disabled for this backend, naming its
  * machine; null when it is this machine. Shown as the disabled control's tooltip.
