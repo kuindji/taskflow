@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | implemented | `d4b6004` | `2856082` | |
+| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 2 | `d4b6004` | `2856082`, `702378f` | R1: 1 fixed (Codex + own), 2 rejected |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -599,6 +599,33 @@ startup order, the dev renderer path, the reset registry, removed `connectWebSoc
 the store tests, `useWebSocket.test.ts` and typecheck (pass). My own reread of `backend-store.ts`, the provider, the shim
 and `store-reset.ts` found nothing new. **Task 10 is clear.**
 
+### Task 11, round 1 (Codex gpt-5.5, prompted review of `d4b6004..2856082`, packages/ui + `task-order.ts`)
+
+Three findings; one confirmed and fixed in `702378f`, two rejected:
+
+1. **An event during a machine's list request loses the list — confirmed (Codex + own read), fixed.** Plan-faithful: the
+   plan's `replace` discards a response whenever the revision moved, and every `apply` bumps it, even a
+   `PROJECT_UPDATED`/`TASK_UPDATED` matching no record. Nothing refetches, so a machine broadcasting updates while its
+   bootstrap `PROJECT_LIST`/`TASK_LIST` is in flight (any machine with a running agent) showed no projects or tasks until
+   the next attach; the same for reconnect refetches, unarchive and remove refetches. Test in `aggregation.test.ts`: "an
+   event landing while a machine's first list is in flight does not lose the list" (the server broadcasts
+   `PROJECT_UPDATED` before answering; red on `2856082`: timed out with 0 projects; green after). A first fix (re-request
+   up to 5 times) stayed red, since a server that broadcasts before every answer starves it. The fix is a rebase:
+   `begin()` starts a `pending` write log, `apply` appends to it, and a stale `replace` replays those writes over the
+   response; the newest generation still wins, a landed or failed `load` stops the log. New `slices.load(backendId,
+   request)` wraps begin/request/replace (used by `fetchProjects`, `reorderProjects`, `fetchTasks`,
+   `fetchArchivedTasks`); `replace` no longer recreates a dropped machine's slice. Unit tests: "a list overtaken by
+   writes lands with those writes replayed over it", "writes after a list landed are not replayed over the next one",
+   "a load superseded by a later request does not ask again", "a response landing after its machine was dropped brings
+   nothing back".
+2. **Sidebar groups tasks by bare `projectId` across machines — rejected.** Needs two machines with the same project
+   id. Project and task ids are `randomUUID()` (`packages/backend/src/services/task-store.ts:517,859`), and the plan
+   builds on "ids are UUIDs and cannot collide" (plan lines 3688, 3717). Sidebar rows per machine are Task 16/18.
+3. **Id-only lookups in `TaskInfoPanel`/`LinkedProjectsSection` saves can hit another machine's record — rejected.**
+   Same premise as #2; `activeTaskId`/`activeProjectId` are id-only by the plan's design, so the lookups match it.
+   Caveat, not filed: two machines sharing one synced data dir (e.g. Dropbox) would hold identical ids and break this
+   premise plan-wide, not only here.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -808,8 +835,16 @@ and `store-reset.ts` found nothing new. **Task 10 is clear.**
   remote worktree tasks, and asking primary could attach a same-path local checkout's PR to them. A project drag reorders
   only within one machine (a drop onto another machine's project does nothing).
 - Task 11: `packages/shared/src/utils/task-order.ts` already failed `prettier --check` at HEAD; only the signature changed.
+- Task 11 R1: a stale list response is **rebased, not discarded** (departs from the plan's "the response is discarded
+  instead"). Relies on every store write being a function of the items it is given; Tasks 12-13 must write through
+  `apply` with such functions and fetch through `slices.load`. The plan's "a stale list response is discarded rather than
+  overwriting newer state" test still passes unchanged (the replayed write keeps `created`).
 
 ## Validation baseline
+
+After Task 11 R1 fix (`702378f`): scope + aggregation + backend-store + task-creation-store + store-reset tests 37 pass,
+1 todo (3 runs; the aggregation race test red on `2856082` first); `bun test packages/ui` 215 pass, 1 todo, 10 fail (the
+known ten); `bun run typecheck` clean; eslint and prettier clean on the five changed files.
 
 After Task 11 (`2856082`): `backend-scope` + `connection-registry` + `aggregation` + `backend-store` + `store-reset` +
 `task-creation-store` tests pass (`backend-store.test.ts` 14 pass, 3 runs). Mutation checks, each turning exactly its
@@ -961,6 +996,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 1 — one gpt-5.5 review via the codex-review skill over `d4b6004..2856082` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630 and the Task 11 decisions above.
+Next step: Task 11 review round 2 — one gpt-5.5 review via the codex-review skill over `d4b6004..702378f` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1
+rebase fix above. Tell Codex the UUID premise (R1 #2/#3 rejected) so it does not re-raise id collisions.
 `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
