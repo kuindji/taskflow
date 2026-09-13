@@ -5,35 +5,30 @@ import type { CodexModelInfo, CodexModelsResponse } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { createPerBackendCache } from "@/lib/per-backend-cache";
 
 interface CodexModelSelectProps {
+    /** The machine whose Codex CLI lists the models; null before one is known. */
+    backendId: string | null;
     value: string;
     onChange: (model: string) => void;
     onModelsChange: (models: CodexModelInfo[]) => void;
 }
 
-let cachedModels: CodexModelInfo[] | null = null;
-let pendingModels: Promise<CodexModelInfo[]> | null = null;
+const codexModelCache = createPerBackendCache(
+    (backendId) =>
+        sendRequest<CodexModelsResponse>(backendId, MSG.CODEX_MODELS, {}).then(
+            (response) => response.models,
+        ),
+    "codex-model-cache",
+);
 
-function loadCodexModels(): Promise<CodexModelInfo[]> {
-    if (cachedModels) return Promise.resolve(cachedModels);
-    if (pendingModels) return pendingModels;
-
-    pendingModels = sendRequest<CodexModelsResponse>(MSG.CODEX_MODELS, {})
-        .then((response) => {
-            cachedModels = response.models;
-            return response.models;
-        })
-        .finally(() => {
-            pendingModels = null;
-        });
-    return pendingModels;
-}
-
-function CodexModelSelect({ value, onChange, onModelsChange }: CodexModelSelectProps) {
+function CodexModelSelect({ backendId, value, onChange, onModelsChange }: CodexModelSelectProps) {
     const [open, setOpen] = useState(false);
-    const [models, setModels] = useState<CodexModelInfo[] | null>(cachedModels);
+    const [models, setModels] = useState<CodexModelInfo[] | null>(() =>
+        backendId ? codexModelCache.peek(backendId) : null,
+    );
     const [search, setSearch] = useState("");
     const [fetchFailed, setFetchFailed] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
@@ -41,8 +36,15 @@ function CodexModelSelect({ value, onChange, onModelsChange }: CodexModelSelectP
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
+        if (!backendId) {
+            setFetchFailed(true);
+            return;
+        }
         let cancelled = false;
-        loadCodexModels()
+        setFetchFailed(false);
+        setModels(codexModelCache.peek(backendId));
+        codexModelCache
+            .get(backendId)
             .then((nextModels) => {
                 if (cancelled) return;
                 setModels(nextModels);
@@ -54,7 +56,7 @@ function CodexModelSelect({ value, onChange, onModelsChange }: CodexModelSelectP
         return () => {
             cancelled = true;
         };
-    }, [onModelsChange]);
+    }, [backendId, onModelsChange]);
 
     useEffect(() => {
         setPortalContainer(

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { MSG } from "@taskflow/shared";
 import type { SystemInfoResponse } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { getPrimary, onPrimaryChange, sendRequest } from "@/lib/connection-registry";
+import { createPerBackendCache } from "@/lib/per-backend-cache";
 
 export function getTaskWorkspaceKey(taskId: string): string {
     return `task:${taskId}`;
@@ -16,34 +17,59 @@ export function getProjectWorkspaceKey(projectId: string): string {
 
 export const MASTER_WORKSPACE_KEY = "master";
 
-let cachedHomedir: string | null = null;
-
-// Pre-fetch homedir as early as possible so it's ready before master workspace is activated.
-// Called once when the module loads; subsequent calls to useHomedir() return the cached value instantly.
-export function prefetchHomedir(): void {
-    if (cachedHomedir) return;
-    sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
-        .then((res) => {
-            cachedHomedir = res.homedir;
-        })
-        .catch(() => {});
+/**
+ * The machine a workspace (or pane) key's record lives on; master is
+ * primary's. For code that holds a key rather than a record.
+ */
+export function workspaceBackendId(workspaceKey: string): string | null {
+    const key = workspaceKey.endsWith(":right")
+        ? workspaceKey.slice(0, -":right".length)
+        : workspaceKey;
+    if (key === MASTER_WORKSPACE_KEY) return getPrimary();
+    if (key.startsWith("task:")) {
+        const id = key.slice("task:".length);
+        return useTaskStore.getState().tasks.find((t) => t.id === id)?.backendId ?? null;
+    }
+    if (key.startsWith("project:")) {
+        const id = key.slice("project:".length);
+        return useProjectStore.getState().projects.find((p) => p.id === id)?.backendId ?? null;
+    }
+    return null;
 }
 
-export function useHomedir(): string | null {
-    const [homedir, setHomedir] = useState<string | null>(cachedHomedir);
+const homedirCache = createPerBackendCache(
+    (backendId) =>
+        sendRequest<SystemInfoResponse>(backendId, MSG.SYSTEM_INFO, {}).then((res) => res.homedir),
+    "homedir-cache",
+);
+
+/** Fetch a machine's home directory ahead of the master workspace needing it. */
+export function prefetchHomedir(backendId: string): void {
+    homedirCache.get(backendId).catch(() => {});
+}
+
+function useHomedir(backendId: string | null): string | null {
+    const [homedir, setHomedir] = useState<string | null>(() =>
+        backendId ? homedirCache.peek(backendId) : null,
+    );
 
     useEffect(() => {
-        if (cachedHomedir) {
-            setHomedir(cachedHomedir);
+        if (!backendId) {
+            setHomedir(null);
             return;
         }
-        sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
-            .then((res) => {
-                cachedHomedir = res.homedir;
-                setHomedir(res.homedir);
-            })
-            .catch(() => {});
-    }, []);
+        let cancelled = false;
+        setHomedir(homedirCache.peek(backendId));
+        homedirCache.get(backendId).then(
+            (next) => {
+                if (!cancelled) setHomedir(next);
+            },
+            () => {},
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [backendId]);
 
     return homedir;
 }
@@ -54,7 +80,9 @@ export function useActiveWorkspace() {
     const activeTaskId = useTaskStore((s) => s.activeTaskId);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
     const masterWorkspaceActive = useUIStore((s) => s.masterWorkspaceActive);
-    const homedir = useHomedir();
+    // The master workspace is primary's, so its working directory is primary's home.
+    const primaryId = useSyncExternalStore(onPrimaryChange, getPrimary);
+    const homedir = useHomedir(primaryId);
 
     return useMemo(() => {
         if (masterWorkspaceActive) {

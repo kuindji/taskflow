@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { useHomedir } from "./useActiveWorkspace";
+import { useActiveWorkspace } from "./useActiveWorkspace";
 
 // Children mount (and run their effects) before WebSocketProvider has named a
 // primary backend, so the shim must answer "not connected" the way the old
@@ -86,10 +86,10 @@ test("an event subscribed through the shim comes only from primary", async () =>
     expect(JSON.parse(await new Response(child.stdout).text()) as unknown).toEqual(["A"]);
 });
 
-test("a component fetching the home directory on mount does not crash before connect", () => {
+test("a component reading the active workspace on mount does not crash before connect", () => {
     const uncaught: unknown[] = [];
     function Probe() {
-        useHomedir();
+        useActiveWorkspace();
         return null;
     }
     const container = document.createElement("div");

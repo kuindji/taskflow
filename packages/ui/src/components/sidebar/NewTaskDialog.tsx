@@ -101,7 +101,10 @@ export function NewTaskDialog({
         wasOpen.current = open;
     }, [open, prefill]);
 
-    const agents = useAgentAvailability();
+    // The machine the task will run on: its installed agents are the ones on offer.
+    const agents = useAgentAvailability(
+        projects.find((project) => project.id === projectId)?.backendId ?? null,
+    );
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const codexAvailable = isAgentAvailable(agents, "codex");
     const opencodeAvailable = isAgentAvailable(agents, "opencode");

@@ -13,6 +13,7 @@ import {
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
+import { useBackendStore } from "@/stores/backend-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CodexOptions } from "@/components/shared/CodexOptions";
@@ -52,7 +53,9 @@ function AgentOptionsPanel({
     const opencodeSettings = settings?.opencode;
     const piSettings = settings?.pi;
     const kimiSettings = settings?.kimi;
-    const agents = useAgentAvailability();
+    const primaryId = useBackendStore((s) => s.primaryId);
+    const agentBackendId = backendId ?? primaryId;
+    const agents = useAgentAvailability(agentBackendId);
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
 
@@ -307,6 +310,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "codex" ? (
                 <CodexOptions
+                    backendId={agentBackendId}
                     modelValue={model}
                     reasoningEffort={codexReasoningEffort}
                     sandbox={codexSandbox}

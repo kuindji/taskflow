@@ -1,11 +1,18 @@
 import { useSyncExternalStore } from "react";
 import { MSG } from "@taskflow/shared";
 import type { ConnectivityStatusPayload } from "@taskflow/shared";
-import { sendRequest, onEvent } from "./useWebSocket";
+import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
+import { registerBackendReset } from "@/stores/store-reset";
 
+/** Primary's internet connectivity: the offline indicator is app-level. */
 let online = true;
 const listeners = new Set<() => void>();
-let initialized = false;
+/** Machines whose status has already been asked for. */
+const initialized = new Set<string>();
+
+registerBackendReset("connectivity", (backendId) => {
+    initialized.delete(backendId);
+});
 
 function notify(): void {
     for (const listener of listeners) listener();
@@ -29,26 +36,30 @@ function setOnline(value: boolean): void {
     }
 }
 
-function initConnectivity(): void {
-    if (initialized) return;
-    initialized = true;
+const _unsubConnectivityChanged = onEvent(MSG.CONNECTIVITY_STATUS_CHANGED, (payload, backendId) => {
+    if (backendId !== getPrimary()) return;
+    setOnline((payload as ConnectivityStatusPayload).online);
+});
 
-    sendRequest<ConnectivityStatusPayload>(MSG.CONNECTIVITY_STATUS).then(
-        (payload) => setOnline(payload.online),
+function initConnectivity(backendId: string): void {
+    if (initialized.has(backendId)) return;
+    initialized.add(backendId);
+
+    sendRequest<ConnectivityStatusPayload>(backendId, MSG.CONNECTIVITY_STATUS).then(
+        (payload) => {
+            if (backendId === getPrimary()) setOnline(payload.online);
+        },
         () => {
             // Backend may not support this yet — assume online
         },
     );
-
-    onEvent(MSG.CONNECTIVITY_STATUS_CHANGED, (payload) => {
-        const data = payload as ConnectivityStatusPayload;
-        setOnline(data.online);
-    });
 }
 
 async function recheckConnectivity(): Promise<boolean> {
-    const payload = await sendRequest<ConnectivityStatusPayload>(MSG.CONNECTIVITY_RECHECK);
-    setOnline(payload.online);
+    const primary = getPrimary();
+    if (!primary) throw new Error("Not connected to a backend");
+    const payload = await sendRequest<ConnectivityStatusPayload>(primary, MSG.CONNECTIVITY_RECHECK);
+    if (primary === getPrimary()) setOnline(payload.online);
     return payload.online;
 }
 

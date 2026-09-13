@@ -1,46 +1,42 @@
 import { useState, useEffect } from "react";
 import { MSG } from "@taskflow/shared";
 import type { AgentAvailability, AgentListResponse, AgentType } from "@taskflow/shared";
-import { sendRequest, onStatusChange } from "./useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { createPerBackendCache } from "@/lib/per-backend-cache";
 
 const emptyAgents: AgentAvailability[] = [];
 
-let cachedAgents: AgentAvailability[] | null = null;
-let fetchPromise: Promise<AgentAvailability[]> | null = null;
+const agentCache = createPerBackendCache(
+    (backendId) =>
+        sendRequest<AgentListResponse>(backendId, MSG.AGENTS_LIST, {}).then((res) => res.agents),
+    "agent-cache",
+);
 
-function clearAgentCache(): void {
-    cachedAgents = null;
-    fetchPromise = null;
-}
-
-onStatusChange((status) => {
-    if (!status.connected) {
-        clearAgentCache();
-    }
-});
-
-function fetchAgents(): Promise<AgentAvailability[]> {
-    if (cachedAgents) return Promise.resolve(cachedAgents);
-    if (fetchPromise) return fetchPromise;
-    fetchPromise = sendRequest<AgentListResponse>(MSG.AGENTS_LIST, {})
-        .then((res) => {
-            cachedAgents = res.agents;
-            fetchPromise = null;
-            return cachedAgents;
-        })
-        .catch(() => {
-            fetchPromise = null;
-            return emptyAgents;
-        });
-    return fetchPromise;
-}
-
-export function useAgentAvailability(): AgentAvailability[] {
-    const [agents, setAgents] = useState<AgentAvailability[]>(cachedAgents ?? emptyAgents);
+/** The agents installed on `backendId`, the machine that would run them. */
+export function useAgentAvailability(backendId: string | null): AgentAvailability[] {
+    const [agents, setAgents] = useState<AgentAvailability[]>(
+        () => (backendId ? agentCache.peek(backendId) : null) ?? emptyAgents,
+    );
 
     useEffect(() => {
-        void fetchAgents().then(setAgents);
-    }, []);
+        if (!backendId) {
+            setAgents(emptyAgents);
+            return;
+        }
+        let cancelled = false;
+        setAgents(agentCache.peek(backendId) ?? emptyAgents);
+        agentCache.get(backendId).then(
+            (next) => {
+                if (!cancelled) setAgents(next);
+            },
+            () => {
+                if (!cancelled) setAgents(emptyAgents);
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [backendId]);
 
     return agents;
 }

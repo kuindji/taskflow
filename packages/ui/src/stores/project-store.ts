@@ -173,8 +173,17 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 }));
 
 registerBackendReset("project-store", (backendId) => {
+    const dropped = new Set(
+        slices
+            .read()
+            .filter((p) => p.backendId === backendId)
+            .map((p) => p.id),
+    );
     slices.drop(backendId);
     publish();
+    // Here rather than in a reset of its own: resets run in registration order,
+    // and a later one could no longer tell which project ids were this machine's.
+    useUIStore.getState().forgetRecords({ projectIds: dropped, taskIds: new Set() });
 });
 
 function isProject(payload: unknown): payload is Project {

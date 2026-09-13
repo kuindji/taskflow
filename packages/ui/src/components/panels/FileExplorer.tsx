@@ -6,6 +6,7 @@ import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import useIsElectron from "@/hooks/useIsElectron";
@@ -28,24 +29,33 @@ function FileExplorer() {
         clearExplorerState,
     } = useFileStore();
     const workspace = useActiveWorkspace();
+    const backendId = useWorkspaceBackend();
     const toggleFileExplorer = useUIStore((s) => s.toggleFileExplorer);
     const workingDir = workspace.workingDir;
     const isElectron = useIsElectron();
 
     useEffect(() => {
-        if (!workingDir) {
+        if (!workingDir || !backendId) {
             clearExplorerState();
             return;
         }
 
         void fetchTree(workingDir);
         void fetchGitStatus(workingDir);
-        void watchPath(workingDir);
+        void watchPath(backendId, workingDir);
 
         return () => {
-            void unwatchPath(workingDir);
+            void unwatchPath(backendId, workingDir);
         };
-    }, [workingDir, clearExplorerState, fetchTree, fetchGitStatus, watchPath, unwatchPath]);
+    }, [
+        workingDir,
+        backendId,
+        clearExplorerState,
+        fetchTree,
+        fetchGitStatus,
+        watchPath,
+        unwatchPath,
+    ]);
 
     const gitFiles = useMemo(() => {
         const map = new Map<string, string>();

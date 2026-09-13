@@ -10,6 +10,7 @@ import { MSG, sortTasksByCreatedAtDesc } from "@taskflow/shared";
 import { createSlices, type Scoped } from "@/lib/backend-scope";
 import { onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
+import { useUIStore } from "./ui-store";
 
 interface TaskCreatePayload {
     projectId: string;
@@ -222,6 +223,8 @@ registerBackendReset("task-store", (backendId) => {
     );
     live.drop(backendId);
     archived.drop(backendId);
+    // See the project-store reset for why this is not a reset of its own.
+    useUIStore.getState().forgetRecords({ projectIds: new Set(), taskIds: dropped });
     useTaskStore.setState((s) => ({
         tasks: live.read(),
         archivedTasks: archived.read(),

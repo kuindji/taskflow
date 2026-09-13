@@ -3,6 +3,7 @@ import { X, CaseSensitive, WholeWord, Regex, Filter, ReplaceAll } from "lucide-r
 import { useSearchStore } from "@/stores/search-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { openFileInApp } from "@/lib/open-file";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
@@ -12,6 +13,7 @@ import { SearchResults } from "./SearchResults";
 function SearchPanel() {
     const workspace = useActiveWorkspace();
     const workingDir = workspace.workingDir;
+    const backendId = useWorkspaceBackend();
     const taskId = workspace.task?.id;
     const projectId = workspace.project?.id;
     const workspaceKey = workspace.workspaceKey;
@@ -49,13 +51,13 @@ function SearchPanel() {
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
 
-        if (!workingDir || !query) {
+        if (!workingDir || !backendId || !query) {
             return;
         }
 
         if (query.length >= 3) {
             debounceRef.current = setTimeout(() => {
-                void search(workingDir);
+                void search(backendId, workingDir);
             }, 300);
         }
 
@@ -70,6 +72,7 @@ function SearchPanel() {
         includePattern,
         excludePattern,
         workingDir,
+        backendId,
         search,
     ]);
 
@@ -80,9 +83,9 @@ function SearchPanel() {
 
     const handleSearchKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
-            if (e.key === "Enter" && workingDir) {
+            if (e.key === "Enter" && workingDir && backendId) {
                 e.preventDefault();
-                void search(workingDir);
+                void search(backendId, workingDir);
             }
             if (e.key === "Escape") {
                 if (results.length > 0 || query) {
@@ -92,7 +95,7 @@ function SearchPanel() {
                 }
             }
         },
-        [workingDir, search, results.length, query, clear, toggleSearchPanel],
+        [workingDir, backendId, search, results.length, query, clear, toggleSearchPanel],
     );
 
     const handleReplaceKeyDown = useCallback(

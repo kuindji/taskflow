@@ -33,7 +33,7 @@ async function attachAll(taskflow: NonNullable<Window["taskflow"]>): Promise<voi
         const local = useBackendStore.getState().machines.find((m) => m.id === LOCAL_BACKEND_ID);
         throw new Error(local?.failure?.message ?? "Could not connect to the local backend");
     }
-    initConnectivity();
+    initConnectivity(localId);
     // The persisted intent, not `getAttached()`: main no longer dials on its
     // own, so at launch it holds no tunnels. Each machine attaches on its own
     // and none blocks the render.
@@ -61,7 +61,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
                     await attachAll(window.taskflow);
                 } else {
                     await connectDevRenderer();
-                    initConnectivity();
+                    initConnectivity(LOCAL_BACKEND_ID);
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Connection failed");

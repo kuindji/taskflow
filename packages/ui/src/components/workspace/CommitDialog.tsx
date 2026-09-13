@@ -11,6 +11,7 @@ import { sendRequest } from "@/hooks/useWebSocket";
 import { isAgentAvailable, useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import {
     Dialog,
     DialogContent,
@@ -43,7 +44,11 @@ interface CommitDialogProps {
 }
 
 export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
-    const defaultAgent = useSettingsStore((s) => s.settings?.general.defaultAgent ?? "claude");
+    // The commit agent runs on the workspace's machine, with that machine's defaults.
+    const backendId = useWorkspaceBackend();
+    const defaultAgent = useSettingsStore(
+        (s) => (backendId ? s.byBackend[backendId] : s.settings)?.general.defaultAgent ?? "claude",
+    );
     const [message, setMessage] = useState("");
     const [useAgent, setUseAgent] = useState(false);
     const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
@@ -61,7 +66,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [behind, setBehind] = useState(0);
 
     const createSession = useSessionStore((s) => s.createSession);
-    const agents = useAgentAvailability();
+    const agents = useAgentAvailability(backendId);
 
     const resetForm = useCallback(() => {
         setMessage("");
@@ -376,6 +381,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                             <CollapsibleContent>
                                                 <div className="border-border mt-1.5 rounded-md border p-3">
                                                     <AgentOptionsPanel
+                                                        backendId={backendId ?? undefined}
                                                         key={`${agentType}-${agentOptionsKey}`}
                                                         agentType={agentType}
                                                         value={agentOptions}

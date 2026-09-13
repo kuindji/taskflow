@@ -1,10 +1,12 @@
 import type { Terminal, ILink, ILinkProvider } from "@xterm/xterm";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
 import type { FileStatResponse } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
 import { openFileInApp } from "@/lib/open-file";
+import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
+import { registerBackendReset } from "@/stores/store-reset";
 import { getWrappedLineWindow, getWrappedRangeForMatch } from "@/lib/terminal-wrapped-links";
 import { getWorkspaceKey, getWorkingDir, openExternalFile } from "./terminal-links";
 
@@ -73,22 +75,39 @@ interface CachedStat {
     ts: number;
 }
 
-const fileStatCache = new Map<string, CachedStat>();
+/**
+ * Per machine, then by absolute path: two machines holding one repository at
+ * one path would otherwise answer for each other.
+ */
+const fileStatCache = new Map<string, Map<string, CachedStat>>();
 const STAT_CACHE_TTL_MS = 10_000;
 
+registerBackendReset("file-stat-cache", (backendId) => {
+    fileStatCache.delete(backendId);
+});
+
 async function cachedFileStat(
+    backendId: string | null,
     absolutePath: string,
 ): Promise<{ exists: boolean; isDirectory: boolean }> {
-    const cached = fileStatCache.get(absolutePath);
+    if (!backendId) return { exists: false, isDirectory: false };
+    let stats = fileStatCache.get(backendId);
+    if (!stats) {
+        stats = new Map();
+        fileStatCache.set(backendId, stats);
+    }
+    const cached = stats.get(absolutePath);
     if (cached && Date.now() - cached.ts < STAT_CACHE_TTL_MS) {
         return cached;
     }
     try {
-        const result = await sendRequest<FileStatResponse>(MSG.FILE_STAT, {
+        const result = await sendRequest<FileStatResponse>(backendId, MSG.FILE_STAT, {
             path: absolutePath,
         });
-        const entry: CachedStat = { ...result, ts: Date.now() };
-        fileStatCache.set(absolutePath, entry);
+        // A detach while this was in flight dropped the machine's entries.
+        if (fileStatCache.get(backendId) === stats) {
+            stats.set(absolutePath, { ...result, ts: Date.now() });
+        }
         return result;
     } catch {
         return { exists: false, isDirectory: false };
@@ -208,7 +227,8 @@ function createFilePathLinkProvider(
             }
 
             // Validate bare candidates against filesystem before exposing as links
-            void Promise.all(bareCandidates.map((c) => cachedFileStat(c.resolved))).then(
+            const backendId = workspaceKey ? workspaceBackendId(workspaceKey) : null;
+            void Promise.all(bareCandidates.map((c) => cachedFileStat(backendId, c.resolved))).then(
                 (results) => {
                     for (let i = 0; i < results.length; i++) {
                         if (results[i].exists) links.push(bareCandidates[i].link);
@@ -235,7 +255,10 @@ async function handlePathActivation(
     const line = lineMatch?.[1] ? Number(lineMatch[1]) : undefined;
     const col = lineMatch?.[2] ? Number(lineMatch[2]) : undefined;
 
-    const stat = await cachedFileStat(resolved);
+    const stat = await cachedFileStat(
+        workspaceKey ? workspaceBackendId(workspaceKey) : null,
+        resolved,
+    );
     if (!stat.exists) return;
 
     const isExternal = event.metaKey || event.ctrlKey;

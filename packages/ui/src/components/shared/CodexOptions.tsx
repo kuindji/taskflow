@@ -19,6 +19,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 interface CodexOptionsProps {
+    /** The machine whose Codex CLI lists the models. */
+    backendId: string | null;
     modelValue: string;
     reasoningEffort: CodexReasoningEffort | "default";
     sandbox: CodexSandboxMode;
@@ -65,6 +67,7 @@ function capitalize(value: string): string {
 }
 
 function CodexOptions({
+    backendId,
     modelValue,
     reasoningEffort,
     sandbox,
@@ -132,6 +135,7 @@ function CodexOptions({
             <SettingRow label={labels.model} hint={labels.modelHint}>
                 <div className="w-[220px]">
                     <CodexModelSelect
+                        backendId={backendId}
                         value={modelValue}
                         onChange={handleModelChange}
                         onModelsChange={setModels}

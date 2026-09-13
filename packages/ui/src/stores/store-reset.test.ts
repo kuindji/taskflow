@@ -26,8 +26,7 @@ describe("store reset registry", () => {
         expect(calls.filter((c) => c.startsWith("first"))).toHaveLength(0);
     });
 
-    // Turned on in Task 19, the task that completes the set.
-    test.todo("every module that talks to a backend registers a reset", async () => {
+    test("every module that talks to a backend registers a reset", async () => {
         // Deliberately NOT a hand-written list. A hardcoded `required` array is
         // green on the day it is written and stays green for every store nobody
         // thought of, which is exactly the failure it exists to prevent. The
@@ -48,7 +47,24 @@ describe("store reset registry", () => {
         // is a decision someone makes on purpose, in a diff, rather than an
         // omission nobody notices.
         const STATELESS = new Set<string>([
-            // e.g. "src/lib/attribute-api.ts" — fire-and-forget writes, no cache
+            // The machinery itself: these define sendRequest/onEvent, or call resetBackend.
+            "src/lib/connection.ts",
+            "src/lib/connection-registry.ts",
+            "src/stores/backend-store.ts",
+            // Forwards to the registry and holds nothing; deleted in Task 19.
+            "src/hooks/useWebSocket.ts",
+            // Writes that return nothing it keeps.
+            "src/lib/attribute-api.ts",
+            // Asks for the shell list per launch; nothing kept between calls.
+            "src/lib/run-in-shell.ts",
+            // Asks per menu open; nothing kept between calls.
+            "src/lib/wiki/open-in-obsidian.ts",
+            // Component state only, refetched on mount.
+            "src/hooks/useRemoteAgentStatus.ts",
+            // Component state only; requests carry the row's machine.
+            "src/hooks/useRunMenu.ts",
+            // Routes events into session-store and session-activity, which register the resets.
+            "src/stores/session-subscriptions.ts",
         ]);
 
         expect(suspects.filter((s) => !STATELESS.has(s))).toEqual([]);

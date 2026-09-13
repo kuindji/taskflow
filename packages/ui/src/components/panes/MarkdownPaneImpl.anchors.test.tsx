@@ -41,6 +41,7 @@ await mock.module("@/hooks/useActiveWorkspace", () => ({
     MASTER_WORKSPACE_KEY: "master",
     getTaskWorkspaceKey: (id: string) => `task:${id}`,
     getProjectWorkspaceKey: (id: string) => `project:${id}`,
+    workspaceBackendId: () => "local",
     useActiveWorkspace: () => ({
         scope: "project" as const,
         task: null,

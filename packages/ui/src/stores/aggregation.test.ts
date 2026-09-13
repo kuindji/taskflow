@@ -16,6 +16,7 @@ import { useProjectStore } from "./project-store";
 import { settingsFor, useSettingsStore } from "./settings-store";
 import { resetBackend } from "./store-reset";
 import { useTaskStore } from "./task-store";
+import { useUIStore } from "./ui-store";
 
 function project(id: string, name: string): Project {
     return {
@@ -430,5 +431,25 @@ describe("the stores the sidebar reads, across backends", () => {
         await until(() => Boolean(useFlowStore.getState().activeRuns["task-b"]));
 
         expect(useFlowStore.getState().activeRuns[MASTER_OWNER_ID]).toBeUndefined();
+    });
+});
+
+describe("ui state across a detach", () => {
+    test("detaching a machine forgets its open project, collapse and split, not the other's", async () => {
+        await attachTwo([project("pa", "A")], [project("pb", "B")]);
+        const split = { open: true, ratio: 0.5, activePane: "left" as const };
+        useUIStore.setState({
+            activeProjectId: "pa",
+            collapsedProjectIds: ["pa", "pb"],
+            splitByWorkspace: { "project:pa": split, "project:pb": split },
+        });
+
+        closeConnection("a", "detach");
+        resetBackend("a");
+
+        const ui = useUIStore.getState();
+        expect(ui.activeProjectId).toBeNull();
+        expect(ui.collapsedProjectIds).toEqual(["pb"]);
+        expect(Object.keys(ui.splitByWorkspace)).toEqual(["project:pb"]);
     });
 });

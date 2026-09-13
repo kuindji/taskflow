@@ -34,6 +34,7 @@ import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings"
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useWikiStore } from "@/stores/wiki-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { rawFileUrl } from "@/lib/backend-url";
 import { getPrimary } from "@/lib/connection-registry";
 import { openFileInApp } from "@/lib/open-file";
@@ -129,12 +130,15 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         (s) => s.settings?.editor?.markdownWidth ?? DEFAULT_EDITOR_MARKDOWN_WIDTH,
     );
     const wikiRoot = useWikiRoot();
-    const wikiIndex = useWikiStore((s) => (wikiRoot ? s.indexByRoot[wikiRoot] : undefined));
+    const backendId = useWorkspaceBackend();
+    const wikiIndex = useWikiStore((s) =>
+        backendId && wikiRoot ? s.indexByBackend[backendId]?.[wikiRoot] : undefined,
+    );
     const fetchWikiIndex = useWikiStore((s) => s.fetchIndex);
 
     useEffect(() => {
-        if (wikiRoot) void fetchWikiIndex(wikiRoot);
-    }, [fetchWikiIndex, wikiRoot]);
+        if (backendId && wikiRoot) void fetchWikiIndex(backendId, wikiRoot);
+    }, [backendId, fetchWikiIndex, wikiRoot]);
 
     /** Page id → path relative to the wiki root, for every indexed page. */
     const wikiPathById = useMemo(

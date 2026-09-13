@@ -48,8 +48,10 @@ function useSidebarData(connected: boolean) {
         // `connected` follows primary. An attach bootstraps its own machine; this
         // covers the dev renderer, which attaches nothing, and primary's reconnects.
         const primary = getPrimary();
-        if (primary) void bootstrapBackend(primary);
-        prefetchHomedir();
+        if (primary) {
+            void bootstrapBackend(primary);
+            prefetchHomedir(primary);
+        }
 
         void (async () => {
             // The theme choice is a setting, so themes wait for primary's settings.

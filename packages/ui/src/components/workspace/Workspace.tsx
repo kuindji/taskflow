@@ -11,7 +11,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { TaskHeader } from "./TaskHeader";
 import { SplitContainer } from "./SplitContainer";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
@@ -115,13 +115,17 @@ export function Workspace() {
         if (
             workspace.scope !== "task" ||
             !workspace.task?.worktree.enabled ||
-            !workspace.task.worktree.path
+            !workspace.task.worktree.path ||
+            !backendId
         ) {
             return;
         }
 
         let cancelled = false;
-        sendRequest<FileStatResponse>(MSG.FILE_STAT, { path: workspace.task.worktree.path })
+        // The worktree path is the task's machine's.
+        sendRequest<FileStatResponse>(backendId, MSG.FILE_STAT, {
+            path: workspace.task.worktree.path,
+        })
             .then(({ exists }) => {
                 if (!cancelled && !exists) {
                     setWorktreeMissingDialogOpen(true);
@@ -139,6 +143,7 @@ export function Workspace() {
         workspace.task?.id,
         workspace.task?.worktree.enabled,
         workspace.task?.worktree.path,
+        backendId,
     ]);
 
     const handleWorktreeReset = useCallback(() => {

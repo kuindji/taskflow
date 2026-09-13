@@ -15,6 +15,7 @@ import { useWikiStore } from "@/stores/wiki-store";
 import { useFileStore } from "@/stores/file-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import useIsElectron from "@/hooks/useIsElectron";
 import { openFileInApp } from "@/lib/open-file";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
@@ -47,15 +48,20 @@ function WikiPanel() {
     const workspace = useActiveWorkspace();
     const root = useWikiRoot();
     const isElectron = useIsElectron();
-    const index = useWikiStore((s) => (root ? s.indexByRoot[root] : undefined));
-    const error = useWikiStore((s) => (root ? s.errorByRoot[root] : undefined));
+    const backendId = useWorkspaceBackend();
+    const index = useWikiStore((s) =>
+        backendId && root ? s.indexByBackend[backendId]?.[root] : undefined,
+    );
+    const error = useWikiStore((s) =>
+        backendId && root ? s.errorByBackend[backendId]?.[root] : undefined,
+    );
     const fetchIndex = useWikiStore((s) => s.fetchIndex);
     const [obsidian, setObsidian] = useState<ObsidianState | null>(null);
     const [newPageOpen, setNewPageOpen] = useState(false);
 
     useEffect(() => {
-        if (root) void fetchIndex(root);
-    }, [fetchIndex, root]);
+        if (backendId && root) void fetchIndex(backendId, root);
+    }, [backendId, fetchIndex, root]);
 
     const tree = useMemo(
         () => (query.trim() === "" ? (index?.tree ?? []) : filterTree(index?.tree ?? [], query)),

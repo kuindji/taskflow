@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { SearchFileResult, SearchMatch } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "../hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { registerBackendReset } from "./store-reset";
 import type {
     SearchQueryResponse,
     SearchReplaceResponse,
@@ -19,6 +20,11 @@ interface SearchStore {
     results: SearchFileResult[];
     totalMatches: number;
     searchId: string | null;
+    /**
+     * The machine the search ran on. Its id, its results and any replace in them
+     * are that machine's, whatever workspace is open by the time they are used.
+     */
+    searchBackendId: string | null;
     searching: boolean;
     expandedFiles: Set<string>;
     error: string | null;
@@ -30,7 +36,7 @@ interface SearchStore {
     toggleUseRegex(): void;
     setIncludePattern(pattern: string): void;
     setExcludePattern(pattern: string): void;
-    search(rootPath: string): Promise<void>;
+    search(backendId: string, rootPath: string): Promise<void>;
     cancel(): Promise<void>;
     replaceMatch(rootPath: string, filePath: string, match: SearchMatch): Promise<void>;
     replaceInFile(rootPath: string, filePath: string): Promise<void>;
@@ -40,6 +46,9 @@ interface SearchStore {
     removeFile(filePath: string): void;
     clear(): void;
 }
+
+/** Bumped by every search and by a detach of the searched machine: a late answer is dropped. */
+let searchGeneration = 0;
 
 export const useSearchStore = create<SearchStore>((set, get) => ({
     query: "",
@@ -52,6 +61,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     results: [],
     totalMatches: 0,
     searchId: null,
+    searchBackendId: null,
     searching: false,
     expandedFiles: new Set<string>(),
     error: null,
@@ -78,7 +88,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         set({ excludePattern: pattern });
     },
 
-    async search(rootPath) {
+    async search(backendId, rootPath) {
         const state = get();
         if (!state.query) {
             set({ results: [], totalMatches: 0, searchId: null, error: null });
@@ -89,10 +99,11 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
             await get().cancel();
         }
 
-        set({ searching: true, error: null });
+        const generation = ++searchGeneration;
+        set({ searching: true, error: null, searchBackendId: backendId });
 
         try {
-            const response = await sendRequest<SearchQueryResponse>(MSG.SEARCH_QUERY, {
+            const response = await sendRequest<SearchQueryResponse>(backendId, MSG.SEARCH_QUERY, {
                 path: rootPath,
                 query: state.query,
                 caseSensitive: state.caseSensitive,
@@ -102,6 +113,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 excludePattern: state.excludePattern,
             });
 
+            if (generation !== searchGeneration) return;
             const expanded = new Set<string>();
             for (const file of response.result.files) {
                 expanded.add(file.path);
@@ -115,6 +127,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 expandedFiles: expanded,
             });
         } catch (err) {
+            if (generation !== searchGeneration) return;
             set({
                 searching: false,
                 error: err instanceof Error ? err.message : "Search failed",
@@ -123,10 +136,13 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async cancel() {
-        const { searchId } = get();
+        const { searchId, searchBackendId } = get();
         if (searchId) {
             try {
-                await sendRequest(MSG.SEARCH_CANCEL, { searchId });
+                // Only the machine that issued the id knows it: never the open workspace's.
+                if (searchBackendId) {
+                    await sendRequest(searchBackendId, MSG.SEARCH_CANCEL, { searchId });
+                }
             } catch {
                 // Ignore cancel errors
             }
@@ -136,8 +152,9 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
     async replaceMatch(rootPath, filePath, match) {
         const state = get();
+        if (!state.searchBackendId) return;
         try {
-            await sendRequest<SearchReplaceResponse>(MSG.SEARCH_REPLACE, {
+            await sendRequest<SearchReplaceResponse>(state.searchBackendId, MSG.SEARCH_REPLACE, {
                 path: rootPath,
                 filePath,
                 query: state.query,
@@ -156,18 +173,23 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
     async replaceInFile(rootPath, filePath) {
         const state = get();
+        if (!state.searchBackendId) return;
         try {
-            await sendRequest<SearchReplaceAllResponse>(MSG.SEARCH_REPLACE_ALL, {
-                path: rootPath,
-                query: state.query,
-                replacement: state.replacement,
-                caseSensitive: state.caseSensitive,
-                wholeWord: state.wholeWord,
-                useRegex: state.useRegex,
-                includePattern: state.includePattern,
-                excludePattern: state.excludePattern,
-                filePath,
-            });
+            await sendRequest<SearchReplaceAllResponse>(
+                state.searchBackendId,
+                MSG.SEARCH_REPLACE_ALL,
+                {
+                    path: rootPath,
+                    query: state.query,
+                    replacement: state.replacement,
+                    caseSensitive: state.caseSensitive,
+                    wholeWord: state.wholeWord,
+                    useRegex: state.useRegex,
+                    includePattern: state.includePattern,
+                    excludePattern: state.excludePattern,
+                    filePath,
+                },
+            );
 
             get().removeFile(filePath);
         } catch (err) {
@@ -177,18 +199,23 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
     async replaceAll(rootPath, filePath) {
         const state = get();
+        if (!state.searchBackendId) return;
         try {
-            await sendRequest<SearchReplaceAllResponse>(MSG.SEARCH_REPLACE_ALL, {
-                path: rootPath,
-                query: state.query,
-                replacement: state.replacement,
-                caseSensitive: state.caseSensitive,
-                wholeWord: state.wholeWord,
-                useRegex: state.useRegex,
-                includePattern: state.includePattern,
-                excludePattern: state.excludePattern,
-                filePath,
-            });
+            await sendRequest<SearchReplaceAllResponse>(
+                state.searchBackendId,
+                MSG.SEARCH_REPLACE_ALL,
+                {
+                    path: rootPath,
+                    query: state.query,
+                    replacement: state.replacement,
+                    caseSensitive: state.caseSensitive,
+                    wholeWord: state.wholeWord,
+                    useRegex: state.useRegex,
+                    includePattern: state.includePattern,
+                    excludePattern: state.excludePattern,
+                    filePath,
+                },
+            );
 
             if (filePath) {
                 get().removeFile(filePath);
@@ -245,9 +272,25 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
             results: [],
             totalMatches: 0,
             searchId: null,
+            searchBackendId: null,
             searching: false,
             expandedFiles: new Set<string>(),
             error: null,
         });
     },
 }));
+
+registerBackendReset("search-store", (backendId) => {
+    if (useSearchStore.getState().searchBackendId !== backendId) return;
+    // The query and options are the user's and stay; the results were that machine's.
+    searchGeneration++;
+    useSearchStore.setState({
+        results: [],
+        totalMatches: 0,
+        searchId: null,
+        searchBackendId: null,
+        searching: false,
+        expandedFiles: new Set<string>(),
+        error: null,
+    });
+});

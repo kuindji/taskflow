@@ -14,6 +14,7 @@ import { openFileInApp } from "@/lib/open-file";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import {
     getTaskWorkspaceKey,
     getProjectWorkspaceKey,
@@ -89,8 +90,14 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const editorFontSizeRef = useRef(editorFontSize);
     const editorWordWrapRef = useRef(editorWordWrap);
     const { readFile, writeFile } = useFileStore();
+    const backendId = useWorkspaceBackend();
+    const backendIdRef = useRef(backendId);
     const [loading, setLoading] = useState(true);
     const [dirty, setDirty] = useState(() => dirtyModels.get(filePath) ?? false);
+
+    useEffect(() => {
+        backendIdRef.current = backendId;
+    }, [backendId]);
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -127,8 +134,8 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         // Sync TypeScript compiler options with nearest tsconfig
         const language = getLanguage(filePath);
-        if (language === "typescript" || language === "javascript") {
-            void syncCompilerOptions(filePath);
+        if ((language === "typescript" || language === "javascript") && backendIdRef.current) {
+            void syncCompilerOptions(backendIdRef.current, filePath);
         }
 
         const restoreViewState = () => {

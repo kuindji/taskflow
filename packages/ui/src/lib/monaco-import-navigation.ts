@@ -2,17 +2,41 @@ import * as monaco from "monaco-editor";
 import { MSG } from "@taskflow/shared";
 import type { TsResolveTsconfigResponse, TsResolveImportResponse } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest as sendRequestTo } from "@/lib/connection-registry";
+import { registerBackendReset } from "@/stores/store-reset";
 
 const TS_LANGUAGES = new Set(["typescript", "javascript"]);
 
-/** Tracks the tsconfig path currently applied to Monaco's compiler options */
-let activeTsconfigPath: string | null | undefined;
+interface TsconfigCache {
+    /** Directory → tsconfig path (avoids repeated backend calls) */
+    tsconfigByDir: Map<string, string | null>;
+    /** Tsconfig path → compiler options (avoids re-fetching when switching between zones) */
+    optionsByTsconfig: Map<string, Record<string, unknown>>;
+}
 
-/** Cache: directory → tsconfig path (avoids repeated backend calls) */
-const dirTsconfigCache = new Map<string, string | null>();
+/** Per machine: one directory path names a different tsconfig on each. */
+const tsconfigCaches = new Map<string, TsconfigCache>();
 
-/** Cache: tsconfig path → compiler options (avoids re-fetching when switching between zones) */
-const tsconfigOptionsCache = new Map<string, Record<string, unknown>>();
+/** The machine and tsconfig path whose options Monaco currently holds */
+let activeTsconfig: { backendId: string; path: string | null } | undefined;
+
+registerBackendReset("tsconfig-cache", (backendId) => {
+    tsconfigCaches.delete(backendId);
+    if (activeTsconfig?.backendId === backendId) activeTsconfig = undefined;
+});
+
+function tsconfigCacheFor(backendId: string): TsconfigCache {
+    let cache = tsconfigCaches.get(backendId);
+    if (!cache) {
+        cache = { tsconfigByDir: new Map(), optionsByTsconfig: new Map() };
+        tsconfigCaches.set(backendId, cache);
+    }
+    return cache;
+}
+
+function isActiveTsconfig(backendId: string, path: string | null): boolean {
+    return activeTsconfig?.backendId === backendId && activeTsconfig.path === path;
+}
 
 function buildMonacoOpts(
     opts: Record<string, unknown>,
@@ -46,19 +70,20 @@ function applyCompilerOptions(opts: Record<string, unknown>): void {
 
 /**
  * Sync Monaco's TypeScript compiler options with the nearest tsconfig for the given file.
- * Only calls the backend if the file's directory hasn't been seen before.
+ * Only calls the backend if the file's directory hasn't been seen before on that machine.
  */
-async function syncCompilerOptions(filePath: string): Promise<void> {
+async function syncCompilerOptions(backendId: string, filePath: string): Promise<void> {
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    const cache = tsconfigCacheFor(backendId);
 
     // Check if we've already resolved this directory
-    const cachedPath = dirTsconfigCache.get(dir);
+    const cachedPath = cache.tsconfigByDir.get(dir);
     if (cachedPath !== undefined) {
-        if (cachedPath === activeTsconfigPath) return;
+        if (isActiveTsconfig(backendId, cachedPath)) return;
         // Different tsconfig — apply cached options if available
-        activeTsconfigPath = cachedPath;
+        activeTsconfig = { backendId, path: cachedPath };
         if (cachedPath !== null) {
-            const cachedOpts = tsconfigOptionsCache.get(cachedPath);
+            const cachedOpts = cache.optionsByTsconfig.get(cachedPath);
             if (cachedOpts) {
                 applyCompilerOptions(cachedOpts);
                 return;
@@ -68,21 +93,25 @@ async function syncCompilerOptions(filePath: string): Promise<void> {
 
     let result: TsResolveTsconfigResponse;
     try {
-        result = await sendRequest<TsResolveTsconfigResponse>(MSG.TS_RESOLVE_TSCONFIG, {
-            filePath,
-        });
+        result = await sendRequestTo<TsResolveTsconfigResponse>(
+            backendId,
+            MSG.TS_RESOLVE_TSCONFIG,
+            { filePath },
+        );
     } catch {
         return;
     }
+    // Detached while the request was out: the answer is that machine's.
+    if (tsconfigCaches.get(backendId) !== cache) return;
 
-    dirTsconfigCache.set(dir, result.tsconfigPath);
+    cache.tsconfigByDir.set(dir, result.tsconfigPath);
 
-    if (result.tsconfigPath === activeTsconfigPath) return;
-    activeTsconfigPath = result.tsconfigPath;
+    if (isActiveTsconfig(backendId, result.tsconfigPath)) return;
+    activeTsconfig = { backendId, path: result.tsconfigPath };
 
     if (!result.tsconfigPath) return;
 
-    tsconfigOptionsCache.set(result.tsconfigPath, result.compilerOptions);
+    cache.optionsByTsconfig.set(result.tsconfigPath, result.compilerOptions);
     applyCompilerOptions(result.compilerOptions);
 }
 
@@ -183,6 +212,8 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
             const importMatch = extractImportSpecifier(lineContent);
             if (importMatch) {
                 try {
+                    // TODO(remote-projects): primary until Task 15 gives models a
+                    // machine-scoped URI this provider can read the machine from.
                     const result = await sendRequest<TsResolveImportResponse>(
                         MSG.TS_RESOLVE_IMPORT,
                         { sourceFilePath: filePath, importSpecifier: importMatch.specifier },

@@ -15,7 +15,8 @@ import {
     type AgentType,
     type ShellListResponse,
 } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,10 +106,14 @@ function AgentDropdownMenu({
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
     const [runOptionsContext, setRunOptionsContext] = useState<"newTab" | "runTab" | null>(null);
-    const agents = useAgentAvailability();
+    // Agents and shells are the workspace machine's: that is where the tab runs.
+    const backendId = useWorkspaceBackend();
+    const agents = useAgentAvailability(backendId);
     const online = useConnectivity();
     const configuredShell = useSettingsStore(
-        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+        (s) =>
+            (backendId ? s.byBackend[backendId] : s.settings)?.terminal.defaultShell ??
+            DEFAULT_TERMINAL_SHELL,
     );
     const favoriteAgents = useSettingsStore(
         (s) => s.settings?.general.favoriteAgents ?? ALL_AGENT_TYPES,
@@ -123,12 +128,12 @@ function AgentDropdownMenu({
     );
 
     useEffect(() => {
-        if (!allowSessionTabs) {
+        if (!allowSessionTabs || !backendId) {
             setShells([]);
             setSystemShellPath(null);
             return;
         }
-        sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {}).then(
+        sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {}).then(
             (res) => {
                 setShells(res.shells);
                 setSystemShellPath(res.systemShellPath);
@@ -138,7 +143,7 @@ function AgentDropdownMenu({
                 setSystemShellPath(null);
             },
         );
-    }, [allowSessionTabs]);
+    }, [allowSessionTabs, backendId]);
 
     const defaultShellPath = resolveTerminalShellPath(shells, systemShellPath, configuredShell);
     const defaultShellSummary = getTerminalShellSummary(shells, systemShellPath, configuredShell);
@@ -473,6 +478,7 @@ function AgentDropdownMenu({
                     </DropdownMenu>
                 ))}
             <AgentOptionsDialog
+                backendId={backendId ?? undefined}
                 open={runOptionsAgent !== null}
                 title={
                     runOptionsAgent

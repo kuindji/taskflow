@@ -23,7 +23,8 @@ import { useFileStore } from "@/stores/file-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { DEFAULT_TERMINAL_SHELL } from "@taskflow/shared";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import {
@@ -54,8 +55,12 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     const revealInFinder = useFileStore((s) => s.revealInFinder);
     const setContextMenuPath = useFileStore((s) => s.setContextMenuPath);
     const createSession = useSessionStore((s) => s.createSession);
+    // The terminal opens on the workspace's machine, with that machine's shell.
+    const backendId = useWorkspaceBackend();
     const configuredShell = useSettingsStore(
-        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+        (s) =>
+            (backendId ? s.byBackend[backendId] : s.settings)?.terminal.defaultShell ??
+            DEFAULT_TERMINAL_SHELL,
     );
 
     const handleOpenChange = useCallback(
@@ -108,8 +113,8 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
     }, [filePath, openExternal]);
 
     const handleOpenInTerminal = useCallback(async () => {
-        if (!workspace.scope) return;
-        const res = await sendRequest<ShellListResponse>(MSG.SHELLS_LIST, {});
+        if (!workspace.scope || !backendId) return;
+        const res = await sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {});
         const shell = resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell);
         if (!shell) return;
         const targetDir = isDirectory ? filePath : filePath.substring(0, filePath.lastIndexOf("/"));
@@ -129,7 +134,7 @@ function FileContextMenu({ children, filePath, isDirectory, rootPath }: FileCont
             undefined,
             targetDir,
         );
-    }, [filePath, isDirectory, workspace, configuredShell, createSession]);
+    }, [filePath, isDirectory, workspace, backendId, configuredShell, createSession]);
 
     const handleReveal = useCallback(() => {
         void revealInFinder(filePath);

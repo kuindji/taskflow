@@ -8,8 +8,10 @@ import type {
     FileReadResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { onEvent, sendRequest } from "../hooks/useWebSocket";
+import { sendRequest } from "../hooks/useWebSocket";
+import { onEvent as onEventFrom, sendRequest as sendRequestTo } from "@/lib/connection-registry";
 import { useDiffStore } from "./diff-store";
+import { registerBackendReset } from "./store-reset";
 
 function setChildrenAtPath(root: FileNode, targetPath: string, children: FileNode[]): FileNode {
     if (root.path === targetPath) {
@@ -58,6 +60,16 @@ function collectLoadedDirs(root: FileNode, prefix: string, out: Set<string>): vo
     }
 }
 
+/**
+ * A watch lives on one machine. Two machines can hold the same path, so the
+ * path alone cannot say whether a watch is already in place, nor whose change
+ * event is whose.
+ */
+interface WatchedPath {
+    backendId: string;
+    path: string;
+}
+
 interface PendingMove {
     sourcePath: string;
     destinationDir: string;
@@ -69,7 +81,7 @@ interface FileStore {
     gitignorePatterns: string[];
     gitStatus: GitStatusResult | null;
     gitStatusPath: string | null;
-    watchedPath: string | null;
+    watched: WatchedPath | null;
     loading: boolean;
     loadingDirs: Set<string>;
     expandedDirs: Set<string>;
@@ -81,8 +93,8 @@ interface FileStore {
     fetchTree(path: string): Promise<void>;
     fetchDir(dirPath: string): Promise<void>;
     fetchGitStatus(path: string): Promise<void>;
-    watchPath(path: string): Promise<void>;
-    unwatchPath(path: string): Promise<void>;
+    watchPath(backendId: string, path: string): Promise<void>;
+    unwatchPath(backendId: string, path: string): Promise<void>;
     clearExplorerState(): void;
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
@@ -110,6 +122,8 @@ const pendingRecursiveDirs = new Set<string>();
 const pendingChangedDirs = new Set<string>();
 let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
+/** Bumped by every watch, unwatch and detach: a watch that lands late is not recorded. */
+let watchGeneration = 0;
 let gitStatusRequestId = 0;
 
 const emptyLoadingDirs = new Set<string>();
@@ -120,7 +134,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     gitignorePatterns: [],
     gitStatus: null,
     gitStatusPath: null,
-    watchedPath: null,
+    watched: null,
     loading: false,
     loadingDirs: emptyLoadingDirs,
     expandedDirs: new Set<string>(),
@@ -196,20 +210,25 @@ export const useFileStore = create<FileStore>((set, get) => ({
         if (requestId !== gitStatusRequestId) return;
         set({ gitStatus: status, gitStatusPath: path });
     },
-    async watchPath(path) {
-        const previousPath = get().watchedPath;
-        if (previousPath === path) return;
+    async watchPath(backendId, path) {
+        const previous = get().watched;
+        if (previous?.backendId === backendId && previous.path === path) return;
+        const generation = ++watchGeneration;
         if (!fileChangeSubscriptionReady) {
             fileChangeSubscriptionReady = true;
-            onEvent(MSG.FILE_CHANGED, (payload) => {
+            onEventFrom(MSG.FILE_CHANGED, (payload, fromBackendId) => {
                 const event = payload as FileChangeEvent;
-                const watchedPath = get().watchedPath;
-                if (!watchedPath || !isSameOrChild(event.path, watchedPath)) return;
+                const watched = get().watched;
+                if (!watched || fromBackendId !== watched.backendId) return;
+                const watchedPath = watched.path;
+                if (!isSameOrChild(event.path, watchedPath)) return;
                 if (event.recursive) {
                     pendingRecursiveDirs.add(event.path);
                     // The collapsed directory itself may be gone; its parent's listing shows that.
                     if (event.path !== watchedPath) {
-                        pendingChangedDirs.add(event.path.substring(0, event.path.lastIndexOf("/")));
+                        pendingChangedDirs.add(
+                            event.path.substring(0, event.path.lastIndexOf("/")),
+                        );
                     }
                 } else {
                     pendingChangedDirs.add(event.path.substring(0, event.path.lastIndexOf("/")));
@@ -231,9 +250,14 @@ export const useFileStore = create<FileStore>((set, get) => ({
                 }, 150);
             });
         }
-        if (previousPath) {
-            await sendRequest(MSG.FILE_UNWATCH, { path: previousPath });
-            set({ watchedPath: null });
+        if (previous) {
+            // Released on the machine that holds it, which may not be the new one.
+            // A machine that cannot be reached has no watch left to release.
+            await sendRequestTo(previous.backendId, MSG.FILE_UNWATCH, {
+                path: previous.path,
+            }).catch(() => {});
+            if (generation !== watchGeneration) return;
+            set({ watched: null });
         }
         if (diffStoreUnsubscribe) {
             diffStoreUnsubscribe();
@@ -241,23 +265,26 @@ export const useFileStore = create<FileStore>((set, get) => ({
         }
         diffStoreUnsubscribe = useDiffStore.subscribe((state, prevState) => {
             if (state.statsByProject !== prevState.statsByProject) {
-                const watchedPath = get().watchedPath;
-                if (watchedPath) {
-                    get().fetchGitStatus(watchedPath).catch(console.error);
+                const watched = get().watched;
+                if (watched) {
+                    get().fetchGitStatus(watched.path).catch(console.error);
                 }
             }
         });
-        await sendRequest(MSG.FILE_WATCH, { path });
-        set({ watchedPath: path });
+        await sendRequestTo(backendId, MSG.FILE_WATCH, { path });
+        if (generation !== watchGeneration) return;
+        set({ watched: { backendId, path } });
     },
-    async unwatchPath(path) {
-        if (get().watchedPath !== path) return;
+    async unwatchPath(backendId, path) {
+        const watched = get().watched;
+        if (watched?.backendId !== backendId || watched.path !== path) return;
+        watchGeneration++;
         if (diffStoreUnsubscribe) {
             diffStoreUnsubscribe();
             diffStoreUnsubscribe = null;
         }
-        await sendRequest(MSG.FILE_UNWATCH, { path });
-        set({ watchedPath: null });
+        await sendRequestTo(backendId, MSG.FILE_UNWATCH, { path });
+        set({ watched: null });
     },
     clearExplorerState() {
         treeRequestId += 1;
@@ -312,8 +339,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async writeFile(path, content) {
         await sendRequest(MSG.FILE_WRITE, { path, content });
-        const watchedPath = get().watchedPath;
-        if (watchedPath && path.startsWith(watchedPath)) await get().fetchGitStatus(watchedPath);
+        const watched = get().watched;
+        if (watched && path.startsWith(watched.path)) await get().fetchGitStatus(watched.path);
     },
     async renameFile(oldPath, newPath) {
         await sendRequest(MSG.FILE_RENAME, { oldPath, newPath });
@@ -385,3 +412,22 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({ pendingMove: null });
     },
 }));
+
+registerBackendReset("file-store", (backendId) => {
+    if (useFileStore.getState().watched?.backendId !== backendId) return;
+    // The connection is gone and its watches with it, so there is nothing to
+    // unwatch; the tree it listed belongs to a workspace that no longer exists.
+    watchGeneration++;
+    if (diffStoreUnsubscribe) {
+        diffStoreUnsubscribe();
+        diffStoreUnsubscribe = null;
+    }
+    if (fileChangeRefreshTimer) {
+        clearTimeout(fileChangeRefreshTimer);
+        fileChangeRefreshTimer = null;
+    }
+    pendingChangedDirs.clear();
+    pendingRecursiveDirs.clear();
+    useFileStore.setState({ watched: null });
+    useFileStore.getState().clearExplorerState();
+});

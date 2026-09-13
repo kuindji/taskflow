@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
@@ -41,7 +42,10 @@ function useWorkspaceTabOps({
 }: TabOpsParams): TabOpsResult {
     const closeTab = useSessionStore((s) => s.closeTab);
     const createSession = useSessionStore((s) => s.createSession);
-    const defaultAgent = useSettingsStore((s) => s.settings?.general.defaultAgent ?? "claude");
+    const backendId = useWorkspaceBackend();
+    const defaultAgent = useSettingsStore(
+        (s) => (backendId ? s.byBackend[backendId] : s.settings)?.general.defaultAgent ?? "claude",
+    );
     const setActiveTask = useTaskStore((s) => s.setActiveTask);
     const requestNewTask = useTaskCreationStore((s) => s.requestNewTask);
     const setActiveProject = useUIStore((s) => s.setActiveProject);

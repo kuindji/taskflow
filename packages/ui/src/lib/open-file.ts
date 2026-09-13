@@ -1,41 +1,43 @@
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
 import type { EditorInfo, SystemInfoResponse } from "@taskflow/shared";
 import { setPendingLine } from "@/components/panes/editor-dirty-state";
 import { planFileOpen } from "@/lib/open-file-plan";
+import { createPerBackendCache } from "@/lib/per-backend-cache";
+import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
 
-/** Module-level cache of detected editors for synchronous availability checks. */
-let cachedEditors: EditorInfo[] = [];
-let fetchPromise: Promise<void> | null = null;
+/** Each machine's detected editors: a CLI editor runs on the machine that owns the file. */
+const editorCache = createPerBackendCache(
+    (backendId) =>
+        sendRequest<SystemInfoResponse>(backendId, MSG.SYSTEM_INFO, {}).then(
+            (info) => info.editors,
+        ),
+    "editor-cache",
+);
 
-function ensureEditorsCached(): Promise<void> {
-    if (cachedEditors.length > 0) return Promise.resolve();
-    if (!fetchPromise) {
-        fetchPromise = sendRequest<SystemInfoResponse>(MSG.SYSTEM_INFO, {})
-            .then(
-                (info) => {
-                    cachedEditors = info.editors;
-                },
-                () => {},
-            )
-            .finally(() => {
-                fetchPromise = null;
-            });
-    }
-    return fetchPromise;
+/** Empty when the machine cannot be asked, so the file opens in Monaco. */
+function detectedEditors(backendId: string | null): Promise<EditorInfo[]> {
+    if (!backendId) return Promise.resolve([]);
+    return editorCache.get(backendId).catch(() => []);
+}
+
+function isInternalEditorAvailable(editors: EditorInfo[], internalEditor: string): boolean {
+    return editors.some((e) => e.id === internalEditor && e.type === "internal");
 }
 
 /**
- * Returns the configured internal editor id when it is a detected CLI editor,
- * or null when Monaco should be used. Reads the editor cache synchronously —
- * callers must `await ensureEditorsCached()` first.
+ * Returns the configured internal editor id when it is a CLI editor detected on
+ * `backendId`, or null when Monaco should be used.
  */
-function getInternalEditorId(internalEditor: string): string | null {
+async function getInternalEditorId(
+    backendId: string | null,
+    internalEditor: string,
+): Promise<string | null> {
     if (internalEditor === "monaco") return null;
-    const available = cachedEditors.some((e) => e.id === internalEditor && e.type === "internal");
-    return available ? internalEditor : null;
+    const editors = await detectedEditors(backendId);
+    return isInternalEditorAvailable(editors, internalEditor) ? internalEditor : null;
 }
 
 async function openFileInApp(
@@ -46,14 +48,12 @@ async function openFileInApp(
 ): Promise<void> {
     if (!workspaceKey) return;
 
-    await ensureEditorsCached();
+    const editors = await detectedEditors(workspaceBackendId(workspaceKey));
 
     const store = useSessionStore.getState();
     const settings = useSettingsStore.getState().settings;
     const internalEditor = settings?.editor.internalEditor ?? "monaco";
-    const editorAvailable = cachedEditors.some(
-        (e) => e.id === internalEditor && e.type === "internal",
-    );
+    const editorAvailable = isInternalEditorAvailable(editors, internalEditor);
     const plan = planFileOpen({ filePath, line, internalEditor, editorAvailable });
     const label = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
 
@@ -107,4 +107,4 @@ async function openFileInApp(
     });
 }
 
-export { ensureEditorsCached, getInternalEditorId, openFileInApp };
+export { getInternalEditorId, openFileInApp };

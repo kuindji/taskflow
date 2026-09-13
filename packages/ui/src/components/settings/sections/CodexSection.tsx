@@ -1,4 +1,5 @@
 import { CodexOptions } from "@/components/shared/CodexOptions";
+import { useBackendStore } from "@/stores/backend-store";
 import type { CodexApprovalPolicy, CodexReasoningEffort, CodexSandboxMode } from "@taskflow/shared";
 
 interface CodexSectionProps {
@@ -26,9 +27,12 @@ function CodexSection({
     onApprovalPolicyChange,
     onDangerouslyBypassApprovalsAndSandboxChange,
 }: CodexSectionProps) {
+    // Settings are primary's, so its Codex CLI lists the models.
+    const primaryId = useBackendStore((s) => s.primaryId);
     return (
         <CodexOptions
             mode="defaults"
+            backendId={primaryId}
             modelValue={defaultModel}
             reasoningEffort={defaultReasoningEffort}
             sandbox={sandbox}

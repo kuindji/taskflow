@@ -49,6 +49,12 @@ function getOrderedPanels(registered: Set<PanelId>): PanelId[] {
 
 export { getOrderedPanels };
 
+/** Records a detach dropped. Project and task ids are UUIDs, unique across machines. */
+interface DroppedRecords {
+    projectIds: ReadonlySet<string>;
+    taskIds: ReadonlySet<string>;
+}
+
 interface UIStore {
     activeProjectId: string | null;
     masterWorkspaceActive: boolean;
@@ -125,6 +131,8 @@ interface UIStore {
     setSplitRatio(workspaceKey: string, ratio: number): void;
     setActivePane(workspaceKey: string, pane: PaneId): void;
     getSplit(workspaceKey: string): WorkspaceSplit | undefined;
+    /** Forget every reference to records a detached machine held. */
+    forgetRecords(dropped: DroppedRecords): void;
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
@@ -342,5 +350,27 @@ export const useUIStore = create<UIStore>((set, get) => ({
     },
     getSplit(workspaceKey) {
         return get().splitByWorkspace[workspaceKey];
+    },
+    forgetRecords({ projectIds, taskIds }) {
+        const dropped = (type: "project" | "task", id: string) =>
+            type === "project" ? projectIds.has(id) : taskIds.has(id);
+        set((s) => ({
+            activeProjectId:
+                s.activeProjectId && projectIds.has(s.activeProjectId) ? null : s.activeProjectId,
+            sidebarFocusedItem:
+                s.sidebarFocusedItem && dropped(s.sidebarFocusedItem.type, s.sidebarFocusedItem.id)
+                    ? null
+                    : s.sidebarFocusedItem,
+            collapsedProjectIds: s.collapsedProjectIds.filter((id) => !projectIds.has(id)),
+            splitByWorkspace: Object.fromEntries(
+                Object.entries(s.splitByWorkspace).filter(([key]) => {
+                    if (key.startsWith("task:")) return !taskIds.has(key.slice("task:".length));
+                    if (key.startsWith("project:")) {
+                        return !projectIds.has(key.slice("project:".length));
+                    }
+                    return true;
+                }),
+            ),
+        }));
     },
 }));

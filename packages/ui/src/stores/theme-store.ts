@@ -9,7 +9,9 @@ import type {
     ThemeSource,
 } from "@taskflow/shared";
 import { sendRequest } from "../hooks/useWebSocket";
+import { getPrimary } from "@/lib/connection-registry";
 import { useSettingsStore } from "./settings-store";
+import { registerBackendReset } from "./store-reset";
 
 // Eagerly resolve the default bundled theme so `resolved` is never null.
 // This ensures terminals and Monaco have a valid theme before settings load.
@@ -34,6 +36,9 @@ interface ThemeStore {
     scanTerminalApps(): Promise<void>;
     deleteTheme(themeId: string): Promise<void>;
 }
+
+/** The machine the theme list came from. Themes are primary's alone. */
+let themesBackendId: string | null = null;
 
 // Helper: given a response with themes + importedThemeId, update store and persist setting.
 function applyImportResponse(
@@ -66,7 +71,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
     async fetchThemes(options) {
         try {
+            const primary = getPrimary();
             const { themes } = await sendRequest<ThemeListResponse>(MSG.THEMES_LIST);
+            themesBackendId = primary;
 
             const preferredThemeId =
                 options?.preferredThemeId && themes.some((t) => t.id === options.preferredThemeId)
@@ -154,3 +161,12 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         }
     },
 }));
+
+registerBackendReset("theme-store", (backendId) => {
+    if (backendId !== themesBackendId) return;
+    // Primary went away, and the next primary has its own themes. The applied
+    // look stays until those arrive, so the app keeps rendering; the list and
+    // the import scan were the old machine's.
+    themesBackendId = null;
+    useThemeStore.setState({ themes: bundledThemes, scannedApps: [] });
+});

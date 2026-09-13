@@ -8,7 +8,7 @@ import type {
     ScriptsListResponse,
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG, type AgentType } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
+import { sendRequest } from "@/lib/connection-registry";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -64,7 +64,7 @@ function useRunMenu({
     const [flowInputState, setFlowInputState] = useState<FlowInputState | null>(null);
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
 
-    const agents = useAgentAvailability();
+    const agents = useAgentAvailability(backendId);
     const online = useConnectivity();
     const defaultRuntime = useSettingsStore(
         (s) => s.byBackend[backendId]?.general.defaultRuntime ?? "bun",
@@ -89,12 +89,13 @@ function useRunMenu({
 
     // Fetch scripts and agent commands lazily when context menu opens
     useEffect(() => {
-        if (!enabled || !projectPath) {
+        if (!enabled || !projectPath || !backendId) {
             return;
         }
         let cancelled = false;
 
-        sendRequest<ScriptsListResponse>(MSG.SCRIPTS_LIST, { path: projectPath })
+        // The row's machine: the path is only meaningful there.
+        sendRequest<ScriptsListResponse>(backendId, MSG.SCRIPTS_LIST, { path: projectPath })
             .then((res) => {
                 if (!cancelled) setScripts(res.scripts);
             })
@@ -102,7 +103,9 @@ function useRunMenu({
                 if (!cancelled) setScripts(emptyScripts);
             });
 
-        sendRequest<AgentCommandsListResponse>(MSG.AGENT_COMMANDS_LIST, { path: projectPath })
+        sendRequest<AgentCommandsListResponse>(backendId, MSG.AGENT_COMMANDS_LIST, {
+            path: projectPath,
+        })
             .then((res) => {
                 if (!cancelled) setAgentCommands(res.commands);
             })
@@ -113,7 +116,7 @@ function useRunMenu({
         return () => {
             cancelled = true;
         };
-    }, [enabled, projectPath]);
+    }, [enabled, projectPath, backendId]);
 
     // Ensure flow/action definitions are loaded
     useEffect(() => {

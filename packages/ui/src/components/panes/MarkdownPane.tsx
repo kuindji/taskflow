@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useActiveWorkspace, workspaceBackendId } from "@/hooks/useActiveWorkspace";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { MarkdownToolbar } from "@/components/panes/markdown/MarkdownToolbar";
 import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
@@ -10,7 +10,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { fetchObsidianState, openInObsidian } from "@/lib/wiki/open-in-obsidian";
 import type { ObsidianState } from "@taskflow/shared";
-import { ensureEditorsCached, getInternalEditorId } from "@/lib/open-file";
+import { getInternalEditorId } from "@/lib/open-file";
 
 interface MarkdownPaneProps {
     filePath: string;
@@ -80,13 +80,14 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
             store.setTabMode(workspaceKey, tabId, "preview");
             return;
         }
-        // The editor list is fetched over the WebSocket, which may not have been
-        // open when this module loaded. Awaiting here (a user click, so latency
-        // is fine) is what makes the CLI-editor branch reliable on first use.
-        await ensureEditorsCached();
-        // A configured, available CLI editor opens in a terminal session and the
-        // markdown tab stays in preview — matching how non-markdown files behave.
-        const cliEditorId = getInternalEditorId(internalEditor);
+        // A configured CLI editor detected on the file's machine opens in a
+        // terminal session and the markdown tab stays in preview — matching how
+        // non-markdown files behave. The editor list is fetched on first use;
+        // a user click, so the latency is fine.
+        const cliEditorId = await getInternalEditorId(
+            workspaceBackendId(workspaceKey),
+            internalEditor,
+        );
         if (cliEditorId) {
             const owner =
                 workspace.scope === "task"

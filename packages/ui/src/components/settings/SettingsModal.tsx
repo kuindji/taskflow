@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUIStore } from "@/stores/ui-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useBackendStore } from "@/stores/backend-store";
 import { sendRequest } from "@/hooks/useWebSocket";
 import {
     MSG,
@@ -66,7 +67,9 @@ function SettingsModal() {
     const [systemEditors, setSystemEditors] = useState<EditorInfo[]>([]);
     const [systemHostname, setSystemHostname] = useState("");
     const [section, setSection] = useState<SectionKey>("general");
-    const agents = useAgentAvailability();
+    // Settings are primary's, so its installed agents decide what is offered.
+    const primaryId = useBackendStore((s) => s.primaryId);
+    const agents = useAgentAvailability(primaryId);
     const claudeAvailable = isAgentAvailable(agents, "claude");
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
