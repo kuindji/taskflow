@@ -16,7 +16,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
-| 2 | Per-client file watcher ownership | implemented | `43d1a49` | `ea8574a` | |
+| 2 | Per-client file watcher ownership | in-review round 1 | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
@@ -111,6 +111,21 @@ both passing. My own read of the full diff found nothing either; the only produc
 of `SystemInfo` is `handlers/system.ts`, so the newly required `hostname` breaks no
 other code. **Task 1 is clear.**
 
+### Task 2, round 1 (Codex gpt-5.5, prompted review of `43d1a49..ea8574a`, packages only)
+
+One finding, reproduced before fixing (I had found the same one independently):
+
+1. **A watch requested just before a disconnect leaks — confirmed, fixed in `ea2000e`.**
+   `FILE_WATCH` awaits `assertWorkspacePath` before `fileWatcher.watch`; if the socket
+   closes during that await, `close` runs `releaseClient` first (nothing to release),
+   then the handler registers a watch owned by a gone client, and the recursive watcher
+   runs for the life of the backend. Handler-level scratch repro: a file write after
+   `releaseClient` still broadcast `FILE_CHANGED` (1 event, expected 0). Fix: the
+   server's `message` handler, in `finally`, fires the disconnect callback again when the
+   socket is no longer in `clients`; `releaseClient` is idempotent. Test in
+   `packages/backend/src/ws/server.test.ts`: "releases what a request acquired after its
+   socket had already closed" (red on `ea8574a`, green after). No other findings.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -137,6 +152,14 @@ other code. **Task 1 is clear.**
 
 ## Validation baseline
 
+After Task 2 R1 fix (`ea2000e`): `bun test packages/backend` 670 pass, 0 fail (55 s);
+`bun run typecheck` clean; eslint and prettier clean on the two changed files. The full
+repo `bun test` stalled twice (0% CPU, no output for 10+ min, no overlapping test run)
+right after `task-store.test.ts` / `task-store-durability.test.ts` output; that file
+passes alone in 0.25 s and the whole backend package passes, so the stall is outside
+the backend (the fix is backend-only). Same stall family as noted under Task 1 R4. If
+the next session needs the full suite, run packages separately.
+
 Full `bun test` after Task 2 (`ea8574a`): 1255 pass, 2 skip, 10 fail (same ten; +3 new
 ownership tests). `bun run typecheck` clean; eslint clean on the changed files.
 Known flake, not a Task 2 regression: `FileWatcher > reports a deleted file as delete and
@@ -161,6 +184,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 2 review round 1 — Codex gpt-5.5 review of `43d1a49..ea8574a`
-(per-client file watcher ownership). Review needed: it changes the router handler
-signature, the WebSocket server's socket data and disconnect path, and watcher lifecycle.
+Next step: Task 2 review round 2 — Codex gpt-5.5 review of the Task 2 implementation
+`43d1a49..ea2000e` (per-client file watcher ownership, including the R1 re-disconnect in
+`ws/server.ts`).
