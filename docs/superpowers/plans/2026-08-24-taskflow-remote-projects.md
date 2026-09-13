@@ -3056,6 +3056,12 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
 
         let liveId = id;
         if (info.backendUid) {
+            // Task 9 as implemented: `confirmBackend` REJECTS, touching nothing,
+            // for a uid outside `isSafeLabel`, a record removed mid-handshake, and
+            // an already-confirmed record answering with a different uid (a
+            // different backend on that host and port). Wrap this call: on
+            // rejection `closeConnection(id, "detach")`, patch the row offline
+            // with the error's message as the failure, and return null. Test it.
             const { id: canonical, merged } = await window.taskflow!.confirmBackend(id, {
                 backendUid: info.backendUid,
                 protocolVersion: info.protocolVersion,

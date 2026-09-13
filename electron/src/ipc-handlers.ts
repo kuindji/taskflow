@@ -3,11 +3,23 @@ import { autoUpdater } from "electron-updater";
 import { execFile } from "child_process";
 import { copyFile, writeFile } from "fs/promises";
 import { join } from "path";
+import type { TunnelFailure } from "@taskflow/shared";
+import type { BackendRegistry } from "./backend-registry";
+import { backendOrigin } from "./backend-url";
 import type { TrayState } from "./tray-manager";
+import { onTunnelExit } from "./tunnel-manager";
+
+/**
+ * The backend this app started. It is not a saved record, so the backend IPC
+ * channels answer for it here and the renderer attaches, detaches and handshakes
+ * it through the same calls as any other machine.
+ */
+const LOCAL_BACKEND_ID = "local";
 
 interface IpcHandlersDeps {
     getMainWindow: () => BrowserWindow | null;
     getBackendPort: () => number | null;
+    registry: BackendRegistry;
     setRendererTrayState: (status: TrayState) => void;
     updateTrayIcon: () => void;
     setShowArchiveChecked: (value: boolean) => void;
@@ -281,6 +293,106 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
 
     ipcMain.on("confirm-before-exit-changed", (_event, enabled: boolean) => {
         deps.setConfirmBeforeExit(enabled);
+    });
+
+    registerBackendHandlers(deps);
+}
+
+function registerBackendHandlers(deps: IpcHandlersDeps): void {
+    const { registry } = deps;
+
+    function localOrigin(): string | null {
+        const port = deps.getBackendPort();
+        return port === null ? null : backendOrigin(port);
+    }
+
+    ipcMain.handle("list-backends", () => registry.listBackends());
+
+    ipcMain.handle("get-attached-backends", () => {
+        const origin = localOrigin();
+        const local = origin === null ? [] : [{ id: LOCAL_BACKEND_ID, origin, isLocal: true }];
+        return [...local, ...registry.attached().map((entry) => ({ ...entry, isLocal: false }))];
+    });
+
+    ipcMain.handle("attach-backend", (_event, id: string) => {
+        if (id !== LOCAL_BACKEND_ID) return registry.attachBackend(id);
+        const origin = localOrigin();
+        if (origin === null) {
+            const failure: TunnelFailure = {
+                kind: "no-backend",
+                message: "The local backend is not running.",
+                stderr: "",
+            };
+            return { ok: false, failure };
+        }
+        return { ok: true, origin };
+    });
+
+    ipcMain.handle("detach-backend", (_event, id: string) => {
+        if (id === LOCAL_BACKEND_ID) return;
+        return registry.detachBackend(id);
+    });
+
+    ipcMain.handle(
+        "confirm-backend",
+        (_event, id: string, info: { backendUid: string; protocolVersion: number }) => {
+            // Local is not a record. Letting the registry answer would report a
+            // rename onto local's uid, and the renderer would refile its local row.
+            if (id === LOCAL_BACKEND_ID) return { id: LOCAL_BACKEND_ID, merged: false };
+            // A remote backend reporting "local" as its uid would be refiled onto
+            // the local row's id.
+            if (info.backendUid === LOCAL_BACKEND_ID) {
+                throw new Error(`"${LOCAL_BACKEND_ID}" is not a valid backend uid.`);
+            }
+            return registry.confirmBackend(id, info);
+        },
+    );
+
+    ipcMain.handle("probe-backends", () => registry.probe());
+
+    ipcMain.handle(
+        "add-backend",
+        (
+            _event,
+            input: {
+                host: string;
+                user?: string;
+                sshPort?: number;
+                port?: number;
+                instanceId?: string;
+            },
+        ) => registry.addBackend(input),
+    );
+
+    ipcMain.handle("add-discovered-backend", (_event, entryId: string) =>
+        registry.addDiscoveredBackend(entryId),
+    );
+
+    ipcMain.handle(
+        "update-backend",
+        (_event, id: string, patch: { displayName?: string; user?: string; sshPort?: number }) =>
+            registry.updateBackend(id, patch),
+    );
+
+    ipcMain.handle("remove-backend", (_event, id: string) => registry.removeBackend(id));
+
+    ipcMain.handle("trust-backend-host", (_event, id: string) => registry.trustBackendHost(id));
+
+    ipcMain.handle("get-host-fingerprint", (_event, id: string) => registry.getHostFingerprint(id));
+
+    ipcMain.handle("attached-record-ids", () => registry.attachedRecordIds());
+
+    registry.onChanged(() => {
+        deps.getMainWindow()?.webContents.send("backends-changed");
+    });
+
+    registry.onSeen((id) => {
+        deps.getMainWindow()?.webContents.send("backend-seen", { id });
+    });
+
+    onTunnelExit((id, failure) => {
+        void registry.tunnelExited(id);
+        deps.getMainWindow()?.webContents.send("backend-dropped", { id, failure });
     });
 }
 

@@ -44,6 +44,17 @@ export interface BackendRecord {
     addedAt: string;
 }
 
+/** A row in the machines menu: a saved record, a discovered backend, or both. */
+export interface MenuEntry {
+    id: string;
+    displayName: string;
+    instanceId: string;
+    host: string;
+    attached: boolean;
+    saved: boolean;
+    seen: boolean;
+}
+
 export type TunnelFailureKind =
     | "unknown-host-key"
     | "changed-host-key"

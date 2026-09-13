@@ -1,16 +1,5 @@
 import { backendIdFor, isSafeLabel, isStale, isValidPort } from "@taskflow/shared/discovery";
-import type { BackendRecord, DiscoveredBackend } from "@taskflow/shared";
-
-/** A row in the machines menu: a saved record, a discovered backend, or both. */
-export interface MenuEntry {
-    id: string;
-    displayName: string;
-    instanceId: string;
-    host: string;
-    attached: boolean;
-    saved: boolean;
-    seen: boolean;
-}
+import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
 
 function isRecordLike(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;

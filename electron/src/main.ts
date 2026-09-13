@@ -1,6 +1,18 @@
 import { app, dialog, nativeTheme } from "electron";
-import { homedir } from "os";
+import { homedir, userInfo } from "os";
 import { join } from "path";
+
+import { createRegistry } from "./backend-registry";
+import {
+    closeAllTunnels,
+    closeTunnel,
+    fetchHostKeyFingerprint,
+    forgetScannedHostKey,
+    openTunnel,
+    readRemotePort,
+    rekeyTunnel,
+    trustHostKey,
+} from "./tunnel-manager";
 
 import {
     startBackend,
@@ -127,9 +139,24 @@ initNotificationPoller({
     getBackendPort,
 });
 
+// Created here so the IPC handlers can hold it; nothing is read or bound until
+// `init()` runs in `whenReady`. `userData` is final by now (dev mode sets it above).
+const registry = createRegistry({
+    file: join(app.getPath("userData"), "backends.json"),
+    defaultUser: userInfo().username,
+    openTunnel,
+    closeTunnel,
+    rekeyTunnel,
+    readRemotePort,
+    fetchHostKeyFingerprint,
+    trustHostKey,
+    forgetScannedHostKey,
+});
+
 registerIpcHandlers({
     getMainWindow,
     getBackendPort,
+    registry,
     setRendererTrayState,
     updateTrayIcon,
     setShowArchiveChecked,
@@ -153,6 +180,9 @@ void app.whenReady().then(async () => {
         const port = await startBackend(devBranch);
         setBackendPort(port);
         console.log(`Backend started on port ${port}`);
+        // Main does not redial persisted records: the renderer does, through
+        // `attachedRecordIds()`, because only it can finish the handshake.
+        await registry.init();
         startTrayStatePolling();
         startNotificationPolling();
         await createWindow();
@@ -224,12 +254,16 @@ app.on("before-quit", (e) => {
                 clearWindowSavePromise();
             })
             .finally(() => {
+                registry.stop();
+                closeAllTunnels();
                 killBackendProcess();
                 void cleanupBackendArtifacts();
                 app.quit();
             });
         return;
     }
+    registry.stop();
+    closeAllTunnels();
     killBackendProcess();
     void cleanupBackendArtifacts();
 });

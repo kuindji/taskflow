@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";
+
 interface NativeMenuItem {
     id?: string;
     label?: string;
@@ -75,6 +77,38 @@ interface TaskflowBridge {
             taskId?: string;
         }) => void,
     ): () => void;
+    listBackends(): Promise<MenuEntry[]>;
+    getAttached(): Promise<{ id: string; origin: string; isLocal: boolean }[]>;
+    attachBackend(
+        id: string,
+    ): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>;
+    detachBackend(id: string): Promise<void>;
+    confirmBackend(
+        id: string,
+        info: { backendUid: string; protocolVersion: number },
+    ): Promise<{ id: string; merged: boolean }>;
+    probeBackends(): Promise<void>;
+    addBackend(input: {
+        host: string;
+        user?: string;
+        sshPort?: number;
+        port?: number;
+        instanceId?: string;
+    }): Promise<BackendRecord>;
+    addDiscoveredBackend(entryId: string): Promise<BackendRecord | null>;
+    updateBackend(
+        id: string,
+        patch: { displayName?: string; user?: string; sshPort?: number },
+    ): Promise<{ ok: boolean; reason?: string }>;
+    removeBackend(id: string): Promise<{ ok: boolean; reason?: string }>;
+    trustBackendHost(id: string): Promise<{ ok: boolean; reason?: string }>;
+    getHostFingerprint(
+        id: string,
+    ): Promise<{ ok: true; fingerprint: string } | { ok: false; reason: string }>;
+    onBackendsChanged(cb: () => void): () => void;
+    onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void;
+    onBackendSeen(cb: (id: string) => void): () => void;
+    attachedRecordIds(): Promise<string[]>;
 }
 
 declare global {

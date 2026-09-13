@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";
 
 interface NativeMenuItem {
     id?: string;
@@ -246,4 +247,68 @@ contextBridge.exposeInMainWorld("taskflow", {
     },
     showNativeMenu: (items: NativeMenuItem[], position: NativeMenuPosition) =>
         ipcRenderer.invoke("show-native-menu", items, position) as Promise<string | null>,
+    listBackends: () => ipcRenderer.invoke("list-backends") as Promise<MenuEntry[]>,
+    getAttached: () =>
+        ipcRenderer.invoke("get-attached-backends") as Promise<
+            { id: string; origin: string; isLocal: boolean }[]
+        >,
+    attachBackend: (id: string) =>
+        ipcRenderer.invoke("attach-backend", id) as Promise<
+            { ok: true; origin: string } | { ok: false; failure: TunnelFailure }
+        >,
+    detachBackend: (id: string) => ipcRenderer.invoke("detach-backend", id) as Promise<void>,
+    confirmBackend: (id: string, info: { backendUid: string; protocolVersion: number }) =>
+        ipcRenderer.invoke("confirm-backend", id, info) as Promise<{
+            id: string;
+            merged: boolean;
+        }>,
+    probeBackends: () => ipcRenderer.invoke("probe-backends") as Promise<void>,
+    addBackend: (input: {
+        host: string;
+        user?: string;
+        sshPort?: number;
+        port?: number;
+        instanceId?: string;
+    }) => ipcRenderer.invoke("add-backend", input) as Promise<BackendRecord>,
+    addDiscoveredBackend: (entryId: string) =>
+        ipcRenderer.invoke("add-discovered-backend", entryId) as Promise<BackendRecord | null>,
+    updateBackend: (id: string, patch: { displayName?: string; user?: string; sshPort?: number }) =>
+        ipcRenderer.invoke("update-backend", id, patch) as Promise<{
+            ok: boolean;
+            reason?: string;
+        }>,
+    removeBackend: (id: string) =>
+        ipcRenderer.invoke("remove-backend", id) as Promise<{ ok: boolean; reason?: string }>,
+    trustBackendHost: (id: string) =>
+        ipcRenderer.invoke("trust-backend-host", id) as Promise<{ ok: boolean; reason?: string }>,
+    getHostFingerprint: (id: string) =>
+        ipcRenderer.invoke("get-host-fingerprint", id) as Promise<
+            { ok: true; fingerprint: string } | { ok: false; reason: string }
+        >,
+    attachedRecordIds: () => ipcRenderer.invoke("attached-record-ids") as Promise<string[]>,
+    onBackendsChanged: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("backends-changed", listener);
+        return () => {
+            ipcRenderer.removeListener("backends-changed", listener);
+        };
+    },
+    onBackendDropped: (callback: (id: string, failure: TunnelFailure) => void) => {
+        const listener = (
+            _event: Electron.IpcRendererEvent,
+            payload: { id: string; failure: TunnelFailure },
+        ) => callback(payload.id, payload.failure);
+        ipcRenderer.on("backend-dropped", listener);
+        return () => {
+            ipcRenderer.removeListener("backend-dropped", listener);
+        };
+    },
+    onBackendSeen: (callback: (id: string) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: { id: string }) =>
+            callback(payload.id);
+        ipcRenderer.on("backend-seen", listener);
+        return () => {
+            ipcRenderer.removeListener("backend-seen", listener);
+        };
+    },
 });
