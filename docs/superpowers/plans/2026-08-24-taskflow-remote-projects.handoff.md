@@ -18,7 +18,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
-| 4 | The advertiser and listener, and the backend that runs one | implemented | `443a0cd` | `a64af14` | |
+| 4 | The advertiser and listener, and the backend that runs one | in-review round 1 (fixed) | `443a0cd` | `a64af14`, `235d583` | R1: 1 fixed |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
@@ -166,6 +166,25 @@ read of the diff found nothing either: `displayName` is capped in UTF-16 units, 
 advertiser's `.slice(0, 64)`; `appVersion`/`os` are bounded only by the 1 KiB datagram cap,
 which is what the plan specifies. **Task 3 is clear.**
 
+### Task 4, round 1 (Codex gpt-5.5, prompted review of `443a0cd..a64af14`, packages + `electron/package.json`)
+
+One finding, reproduced with a failing test before fixing:
+
+1. **Listener table unbounded on an untrusted LAN — confirmed, fixed in `235d583`.** Valid
+   announces under distinct hostnames each added a `seen` entry (kept until stale, 15 s) and
+   copied the whole table into `onChange`. New `DISCOVERY_MAX_BACKENDS = 64`
+   (`packages/shared/src/constants.ts`); newcomers past the cap are ignored, known ids keep
+   refreshing. Test in `socket.test.ts`: "a listener tracks at most DISCOVERY_MAX_BACKENDS
+   machines however many announce" (100 announced → Received 100 before the fix, 64 after;
+   LAN-gated like the other socket tests).
+
+Codex otherwise found the socket lifecycle, membership refresh, settings path, advertiser wiring
+(with `backendUid`) and UI wiring matching the spec. Not verified by it: `bun build --compile`
+JSON import and the packaged local-network prompt (already deferred to Task 22).
+My own suspicion that an async send failure emits `error` and permanently kills discovery was
+tested and rejected: sends to 0.0.0.1 / 240.0.0.1 / broadcast and a 70 KB datagram produced
+neither an `error` event nor a throw in Bun or Node.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -218,6 +237,10 @@ which is what the plan specifies. **Task 3 is clear.**
 
 ## Validation baseline
 
+After Task 4 R1 fix (`235d583`): `bun test packages/shared/src/discovery` 20 pass, 5/5
+repeated runs; `bun run typecheck` clean; eslint and prettier clean on the three changed files.
+Change is listener-only in `packages/shared`, so the backend suite was not rerun.
+
 After Task 4 (`a64af14`): `bun test packages/shared/src/discovery` 19 pass (socket test
 20/20 repeated runs); `packages/backend` 671 pass, 2 skip, 0 fail; settings/handlers/tui
 store/shared combined 225 pass; tui `app.test.ts` 34 pass; `bun run typecheck` clean;
@@ -266,5 +289,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 4 review round 1 — Codex gpt-5.5 prompted review of `443a0cd..a64af14`
+Next step: Task 4 review round 2 — Codex gpt-5.5 prompted review of `443a0cd..235d583`
 (packages + `electron/package.json`), against superseded plan Task 3 and this plan's Task 4 delta.
