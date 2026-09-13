@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
+    releaseInstancePort,
     removeInstancePortFile,
     writeInstancePortFile,
 } from "../../src/services/instance-port-file";
@@ -61,6 +62,22 @@ describe("removeInstancePortFile", () => {
     test("does nothing when the file is already gone", async () => {
         await withDir(async (dir) => {
             await removeInstancePortFile(join(dir, "main.port"), 4321);
+        });
+    });
+});
+
+describe("releaseInstancePort", () => {
+    test("a backend that takes over a fixed port keeps its port file", async () => {
+        // With TASKFLOW_DEV_PORT the next backend of the instance binds the same
+        // port the moment it is freed and writes the same contents. A removal that
+        // runs after that point cannot tell the file apart from ours.
+        await withDir(async (dir) => {
+            const file = join(dir, "main.port");
+            await writeInstancePortFile(file, 4321);
+            await releaseInstancePort(file, 4321, () => {
+                writeFileSync(file, "4321");
+            });
+            expect(existsSync(file)).toBe(true);
         });
     });
 });

@@ -48,3 +48,21 @@ export async function removeInstancePortFile(file: string, port: number): Promis
         await rm(aside, { force: true });
     }
 }
+
+/**
+ * Withdraws the stable port file, then frees the listening port. The ordering is
+ * the point: with a fixed port (TASKFLOW_DEV_PORT) the next backend of this
+ * instance names the same port, so once the port is free it can start and
+ * write a file identical to ours, which a later removal would delete.
+ */
+export async function releaseInstancePort(
+    file: string,
+    port: number,
+    stop: (() => void) | undefined,
+): Promise<void> {
+    try {
+        await removeInstancePortFile(file, port);
+    } finally {
+        stop?.();
+    }
+}

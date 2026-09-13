@@ -55,7 +55,7 @@ import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
 import { registerSystemHandlers } from "./handlers/system";
 import { writeFile } from "fs/promises";
-import { removeInstancePortFile, writeInstancePortFile } from "./services/instance-port-file";
+import { releaseInstancePort, writeInstancePortFile } from "./services/instance-port-file";
 import { homedir, hostname } from "os";
 
 async function main() {
@@ -532,8 +532,7 @@ async function main() {
             changeTracker.dispose();
             ptyManager.closeAll();
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
-            stop?.();
-            await removeInstancePortFile(config.instancePortFile, startedServer.port);
+            await releaseInstancePort(config.instancePortFile, startedServer.port, stop);
             process.exit(0);
         };
         process.on("SIGINT", () => void shutdown());
@@ -541,9 +540,10 @@ async function main() {
             process.on("SIGTERM", () => void shutdown());
         }
     } catch (error) {
-        stop?.();
         if (advertisedPort !== undefined) {
-            await removeInstancePortFile(config.instancePortFile, advertisedPort);
+            await releaseInstancePort(config.instancePortFile, advertisedPort, stop);
+        } else {
+            stop?.();
         }
         throw error;
     }
