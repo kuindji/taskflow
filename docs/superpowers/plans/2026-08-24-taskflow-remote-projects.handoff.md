@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | pending | | | |
+| 5 | The backend record list, keyed by uid | implemented | `cfe462d` | `be34c1b` | |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -261,8 +261,20 @@ found nothing substantive either (see the display-name decision below). **Task 4
 - Task 4 R3: the "Name on the network" input sends one non-optimistic `SETTINGS_UPDATE` per
   keystroke and renders the server's answer. That is the existing Settings pattern
   (`RemoteSection` `appName` does the same), so it was left consistent rather than changed here.
+- Task 5: `electron/package.json` already had a `dependencies` block; `@taskflow/shared` was
+  added to it. `bun install` also refreshed `bun.lock`'s stale electron version
+  (0.14.2 → 0.14.4); committed with the task.
+- Task 5: `removeRecord`, `matchesDiscovered`, `mergeForMenu` and `MenuEntry` are exported as the
+  plan's interface specifies, though nothing consumes them until Task 9. The plan's test file
+  covers only `adoptUid`, `recordFromDiscovered`, `normalizeRecords` and `upsertRecord`; it was
+  taken as written.
 
 ## Validation baseline
+
+After Task 5 (`be34c1b`): `bun test electron/src/backend-records.test.ts` 7 pass (red first:
+module missing); `bun run typecheck` clean (incl. electron's Bun-less `tsconfig.src.json`);
+eslint and prettier clean on the changed files. Additive electron + shared-type change with no
+consumers yet, so the full suite was not rerun.
 
 After Task 4 R2 fix (`d5ac582`): `settings-store.test.ts` 20 pass; `bun run typecheck` clean;
 eslint and prettier clean on the two changed files.
@@ -319,5 +331,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 5 — "The backend record list, keyed by uid" (plan line ~834; record
-HEAD as its base commit first).
+Next step: Task 5 review round 1 — Codex gpt-5.5 prompted review of `cfe462d..be34c1b`
+(plan Task 5, line ~834). Review the task's implementation, not the docs commits.
