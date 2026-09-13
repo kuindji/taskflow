@@ -22,7 +22,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
-| 8 | One connection per backend | in-review round 2 | `17aebdd` | `dff8dc2`, `4f32c14` | R1: 3 fixed (1 own, 2 Codex) |
+| 8 | One connection per backend | in-review round 3 | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own) |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
@@ -418,6 +418,26 @@ up under that id, so after a rekey it no longer finds it (the moved/merged handl
 move-only code has the same gap; the shim re-subscribes on primary change and Task 10's `statusUnsubs` are
 dropped before open, so no current caller leaks. Revisit if Task 10 subscribes before rekeying.
 
+### Task 8, round 2 (Codex gpt-5.5, prompted review of `17aebdd..4f32c14`, packages/ui)
+
+One finding, found independently by Codex and by my own read, reproduced with a failing test before fixing:
+
+1. **Subscribers already waiting under the rekey target stay "disconnected" — confirmed, fixed in `b34625a`.**
+   R1's merge kept them subscribed but never told them the moved connection's status, so
+   `onStatusChange("a-uid")` → `openConnection("a")` → `rekeyConnection("a","a-uid")` left that subscriber at
+   `connected: false` while requests to `a-uid` succeeded (the R1 test even asserted `[false, false]`). Now
+   `rekeyConnection` sends `connection.getStatus()` to the listeners that were under the target id (after any
+   close of a connection previously filed there), then merges. Test "a rekey keeps the status subscribers
+   already waiting under the new id" now expects `[false, true, false]` (red on `4f32c14`: 1 fail / 5 pass).
+   Not reachable via the plan today: Task 10's `followSocket(liveId)` subscribes after the rekey, and the
+   shim re-follows on the primary change, which replays the current status.
+
+My own checks that found nothing: `rejectOpen` settles once (onerror + onclose both call `fail`, second is a
+no-op; onclose after open rejects an already-resolved promise); reconnect-timer opens swallow their rejection;
+`close()` rejects the open before bumping the epoch; the shim's re-follow on rekey re-adds the same handler to a
+`Set` (no duplicate); a first connect that closes before opening now rejects, which the provider already handles
+like the old onerror path. Codex reran the registry and shim tests and typecheck (pass).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -534,6 +554,10 @@ dropped before open, so no current caller leaks. Revisit if Task 10 subscribes b
 
 ## Validation baseline
 
+After Task 8 R2 fix (`b34625a`): `bun test packages/ui/src/lib/connection-registry.test.ts` 6 pass (3 runs);
+`useWebSocket.test.ts` 2 pass; `bun test packages/ui` 182 pass, 10 fail (the known ten); `bun run typecheck`
+clean; eslint and prettier clean on the two changed files.
+
 After Task 8 R1 fix (`4f32c14`): `bun test packages/ui/src/lib/connection-registry.test.ts` 6 pass (3 runs);
 `bun test packages/ui/src/hooks/useWebSocket.test.ts` 2 pass; `bun test packages/ui` 182 pass, 10 fail (the
 known ten); `bun run typecheck` clean; eslint and prettier clean on the five changed files.
@@ -638,7 +662,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 8 review round 2 — Codex gpt-5.5 prompted review of `17aebdd..4f32c14` (packages/ui only)
-against plan section `### Task 8` (line ~1366), telling it the three R1 fixes are intentional deviations
-from the plan code. Check especially the new `rejectOpen` lifecycle (reconnect timer opens, reopen, close
-after open resolves), the shim's reject-before-primary contract, and the rekey listener merge.
+Next step: Task 8 review round 3 — Codex gpt-5.5 prompted review of `17aebdd..b34625a` (packages/ui only)
+against plan section `### Task 8` (line ~1366), telling it the R1 fixes and the R2 rekey status replay are
+intentional deviations from the plan code. The R2 fix is small; if round 3 is clean, Task 8 is clear and
+Task 9 is next.
