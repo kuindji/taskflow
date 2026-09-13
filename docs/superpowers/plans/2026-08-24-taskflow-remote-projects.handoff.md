@@ -15,7 +15,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
-| 1 | Backend prerequisites — protocol version, stable port file, backend uid | in-review round 4 done (fix landed) | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed |
+| 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | pending | | | |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
@@ -104,6 +104,13 @@ One finding, reproduced before fixing:
    both paths in `index.ts` use it. Test: "a backend that takes over a fixed port
    keeps its port file" (red with the old order, green after). No other findings.
 
+### Task 1, round 5 (Codex gpt-5.5, prompted review of `6978606..42b6fdb`, packages only)
+
+Clean: no findings. Codex reran the four Task 1 test files and `bun run typecheck`,
+both passing. My own read of the full diff found nothing either; the only producer
+of `SystemInfo` is `handlers/system.ts`, so the newly required `hostname` breaks no
+other code. **Task 1 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -134,9 +141,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: review round 5 of Task 1 — review the task's implementation as it now
-stands, code only: `git diff 6978606..HEAD -- packages/` (excludes the handoff doc).
-Rounds 1–4 fixes are listed above; tell the reviewer so it does not re-report them.
-Findings: 4 → 2 → 1 → 1, all narrow port-file/uid lifecycle edges. Round 5 is the
-last worthwhile one: if it is clean, or reports only more speculative edges of the
-same kind, mark Task 1 clear and move to Task 2.
+Next step: implement Task 2 (Per-client file watcher ownership). Record HEAD as its
+base commit in the table before changing any code.
