@@ -6,6 +6,7 @@ import { buildReorderedProjectIds } from "@taskflow/shared";
 import type { Notification } from "@taskflow/shared";
 import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
+import { requirePrimary } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useNotificationStore } from "@/stores/notification-store";
@@ -94,9 +95,21 @@ export function TaskSidebar() {
             const oldIndex = visibleProjectIds.indexOf(String(active.id));
             const newIndex = visibleProjectIds.indexOf(String(over.id));
             if (oldIndex === -1 || newIndex === -1) return;
-            const reorderedVisible = arrayMove(visibleProjectIds, oldIndex, newIndex);
-            const fullIds = allProjects.map((p) => p.id);
-            void reorderProjects(buildReorderedProjectIds(fullIds, reorderedVisible));
+            // Ordering is per machine: a drop onto another machine's project
+            // has no order to land in.
+            const moved = allProjects.find((p) => p.id === String(active.id));
+            const target = allProjects.find((p) => p.id === String(over.id));
+            if (!moved || !target || moved.backendId !== target.backendId) return;
+            const machineIds = new Set(
+                allProjects.filter((p) => p.backendId === moved.backendId).map((p) => p.id),
+            );
+            const reorderedVisible = arrayMove(visibleProjectIds, oldIndex, newIndex).filter((id) =>
+                machineIds.has(id),
+            );
+            void reorderProjects(
+                moved.backendId,
+                buildReorderedProjectIds([...machineIds], reorderedVisible),
+            );
         },
         [visibleProjectIds, allProjects, reorderProjects],
     );
@@ -176,7 +189,8 @@ export function TaskSidebar() {
         async (path: string) => {
             try {
                 setProjectError(null);
-                await addProject(path);
+                // Add Project stays on primary; Task 19 gates it per target.
+                await addProject(requirePrimary(), path);
                 setNewProjectOpen(false);
             } catch (err) {
                 setProjectError(err instanceof Error ? err.message : "Failed to add project");

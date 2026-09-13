@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Project } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import {
     Dialog,
     DialogContent,
@@ -23,7 +24,7 @@ import { FolderOpen } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 
 interface MissingLocationDialogProps {
-    project: Project | null;
+    project: Scoped<Project> | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }
@@ -40,7 +41,7 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
         const selected = await window.taskflow?.selectProjectDirectory();
         if (!selected) return;
         try {
-            await updateProject(project.id, { path: selected });
+            await updateProject(project, { path: selected });
             onOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to update project location");
@@ -49,7 +50,7 @@ export function MissingLocationDialog({ project, open, onOpenChange }: MissingLo
 
     const handleRemove = useCallback(async () => {
         if (!project) return;
-        await removeProject(project.id);
+        await removeProject(project);
         setConfirmRemoveOpen(false);
         onOpenChange(false);
     }, [project, removeProject, onOpenChange]);

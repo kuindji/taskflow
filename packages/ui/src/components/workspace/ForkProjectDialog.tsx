@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Project } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import {
     Dialog,
     DialogContent,
@@ -16,7 +17,7 @@ import { alert } from "@/stores/dialog-store";
 interface ForkProjectDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    project: Project;
+    project: Scoped<Project>;
 }
 
 function slugify(branch: string): string {
@@ -77,7 +78,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
         setLoading(true);
         setError(null);
         try {
-            const response = await forkProject(project.id, branch.trim(), folder.trim());
+            const response = await forkProject(project, branch.trim(), folder.trim());
             onOpenChange(false);
             void alert({
                 title: "Project forked",
@@ -88,7 +89,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
         } finally {
             setLoading(false);
         }
-    }, [canSubmit, forkProject, project.id, branch, folder, onOpenChange]);
+    }, [canSubmit, forkProject, project, branch, folder, onOpenChange]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {

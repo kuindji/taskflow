@@ -10,46 +10,7 @@ import {
     sendRequest,
     setPrimary,
 } from "./connection-registry";
-
-/** A minimal WS server that answers every request with its own label. */
-function startServer(label: string): {
-    origin: string;
-    stop(): void;
-    broadcast(type: string): void;
-} {
-    const sockets = new Set<{ send(data: string): void }>();
-    const server = Bun.serve({
-        port: 0,
-        hostname: "127.0.0.1",
-        fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("ok")),
-        websocket: {
-            open(ws) {
-                sockets.add(ws);
-            },
-            close(ws) {
-                sockets.delete(ws);
-            },
-            message(ws, raw) {
-                const request = JSON.parse(String(raw)) as { correlationId?: string; type: string };
-                if (!request.correlationId) return;
-                ws.send(
-                    JSON.stringify({
-                        correlationId: request.correlationId,
-                        type: request.type,
-                        payload: { from: label },
-                    }),
-                );
-            },
-        },
-    });
-    return {
-        origin: `http://127.0.0.1:${server.port}`,
-        stop: () => void server.stop(true),
-        broadcast: (type: string) => {
-            for (const ws of sockets) ws.send(JSON.stringify({ type, payload: { from: label } }));
-        },
-    };
-}
+import { startTestServer as startServer } from "./test-ws-server";
 
 const servers: { stop(): void }[] = [];
 afterEach(() => {

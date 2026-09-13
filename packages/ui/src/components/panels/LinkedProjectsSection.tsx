@@ -15,6 +15,17 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
     const updateProject = useProjectStore((s) => s.updateProject);
     const linkedProjects = useMemo(() => project.linkedProjects ?? [], [project.linkedProjects]);
 
+    // The record is looked up when the save runs: the unmount flush can outlive
+    // it, and depending on the record itself would re-arm that flush on every
+    // project update.
+    const saveLinkedProjects = useCallback(
+        (linked: LinkedProject[]) => {
+            const target = useProjectStore.getState().projects.find((p) => p.id === project.id);
+            if (target) void updateProject(target, { linkedProjects: linked });
+        },
+        [project.id, updateProject],
+    );
+
     // Keep a ref to avoid stale closures in debounced callbacks
     const linkedProjectsRef = useRef<LinkedProject[]>(linkedProjects);
     useEffect(() => {
@@ -81,9 +92,9 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             for (const lp of updated) {
                 lastSavedNotes.current[lp.projectId] = lp.note;
             }
-            void updateProject(project.id, { linkedProjects: updated });
+            saveLinkedProjects(updated);
         },
-        [project.id, updateProject],
+        [saveLinkedProjects],
     );
 
     // Debounce note changes
@@ -114,10 +125,10 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             ];
             setNoteDrafts((prev) => ({ ...prev, [targetProjectId]: "" }));
             lastSavedNotes.current[targetProjectId] = "";
-            void updateProject(project.id, { linkedProjects: updated });
+            saveLinkedProjects(updated);
             setAddPopoverOpen(false);
         },
-        [project.id, updateProject],
+        [saveLinkedProjects],
     );
 
     const handleRemove = useCallback(
@@ -131,9 +142,9 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             });
             const { [targetProjectId]: _, ...restSaved } = lastSavedNotes.current;
             lastSavedNotes.current = restSaved;
-            void updateProject(project.id, { linkedProjects: updated });
+            saveLinkedProjects(updated);
         },
-        [project.id, updateProject],
+        [saveLinkedProjects],
     );
 
     return (

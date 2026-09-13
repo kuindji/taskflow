@@ -14,6 +14,7 @@ type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
 function startBackend(
     info: () => { protocolVersion: number; backendUid?: string },
     holdInfo?: (answer: () => void) => void,
+    answerLists = true,
 ): {
     origin: string;
     stop(): void;
@@ -28,7 +29,14 @@ function startBackend(
                 if (!request.correlationId) return;
                 const correlationId = request.correlationId;
                 if (request.type !== MSG.SYSTEM_INFO) {
-                    ws.send(JSON.stringify({ correlationId, payload: {} }));
+                    // An attach bootstraps the machine's projects and tasks;
+                    // with `answerLists` false those answers are malformed.
+                    let payload: object = {};
+                    if (answerLists && request.type === MSG.PROJECT_LIST) {
+                        payload = { projects: [] };
+                    }
+                    if (answerLists && request.type === MSG.TASK_LIST) payload = { tasks: [] };
+                    ws.send(JSON.stringify({ correlationId, payload }));
                     return;
                 }
                 const answer = () => ws.send(JSON.stringify({ correlationId, payload: info() }));
@@ -152,6 +160,25 @@ describe("backend store attach", () => {
         ]);
         // The same socket, now reachable under the uid.
         expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
+    });
+
+    test("a machine whose projects and tasks cannot be loaded ends offline with the reason", async () => {
+        const backend = startBackend(
+            () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }),
+            undefined,
+            false,
+        );
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+
+        await store.getState().attach("abc123");
+
+        expect(row("abc123")?.state).toBe("offline");
+        expect(row("abc123")?.failure?.message).toBe(
+            "Could not load this machine's projects and tasks",
+        );
     });
 
     test("a refused confirm leaves the row offline with main's reason and no socket", async () => {

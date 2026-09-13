@@ -11,7 +11,7 @@ function getCreatedAtTimestamp(value: string): number {
  * broadcasts into a snapshot have to reapply it, or their lists drift from the
  * order the next snapshot will bring back.
  */
-export function sortTasksByCreatedAtDesc(tasks: Task[]): Task[] {
+export function sortTasksByCreatedAtDesc<T extends Task>(tasks: T[]): T[] {
     return [...tasks].sort((a, b) => {
         const aPinned = a.pinned ? 1 : 0;
         const bPinned = b.pinned ? 1 : 0;

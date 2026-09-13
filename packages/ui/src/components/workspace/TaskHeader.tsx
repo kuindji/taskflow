@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
+import type { Scoped } from "@/lib/backend-scope";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -55,8 +56,8 @@ import useIsElectron from "@/hooks/useIsElectron";
 import { Toolbar } from "@/components/ui/toolbar";
 
 interface TaskHeaderProps {
-    task?: Task;
-    project?: Project;
+    task?: Scoped<Task>;
+    project?: Scoped<Project>;
     onDiff?: () => void;
     onHistory?: () => void;
 }
@@ -174,13 +175,13 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
             title: "Archive task",
             description: `Archive "${task.title}"? You can restore it later.`,
             confirmLabel: "Archive",
-            onConfirm: () => archiveTask(task.id),
+            onConfirm: () => archiveTask(task),
         });
     }, [archiveTask, task]);
 
     const handleUnarchive = useCallback(() => {
         if (!task) return;
-        void unarchiveTask(task.id);
+        void unarchiveTask(task);
     }, [task, unarchiveTask]);
 
     const handleDelete = useCallback(() => {
@@ -190,7 +191,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                 description: `Permanently delete "${task.title}"? This cannot be undone.`,
                 confirmLabel: "Delete",
                 variant: "destructive",
-                onConfirm: () => deleteTask(task.id),
+                onConfirm: () => deleteTask(task),
             });
             return;
         }
@@ -200,7 +201,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
 
     const handleTogglePin = useCallback(() => {
         if (!task) return;
-        void updateTask(task.id, { pinned: !task.pinned });
+        void updateTask(task, { pinned: !task.pinned });
     }, [task, updateTask]);
 
     const handleAddSubtask = useCallback(() => {
@@ -215,7 +216,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
 
     const handleToggleProjectArchive = useCallback(() => {
         if (!project) return;
-        void (project.hidden ? unarchiveProject(project.id) : archiveProject(project.id));
+        void (project.hidden ? unarchiveProject(project) : archiveProject(project));
     }, [archiveProject, project, unarchiveProject]);
 
     const handleToggleSplit = useCallback(() => {

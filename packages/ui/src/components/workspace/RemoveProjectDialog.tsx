@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Project } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import {
     Dialog,
     DialogContent,
@@ -14,10 +15,10 @@ import { Label } from "@/components/ui/label";
 
 interface RemoveProjectDialogProps {
     open: boolean;
-    project: Project;
+    project: Scoped<Project>;
     onOpenChange: (open: boolean) => void;
-    onRemove: (projectId: string) => void;
-    onArchive: (projectId: string) => void;
+    onRemove: (project: Scoped<Project>) => void;
+    onArchive: (project: Scoped<Project>) => void;
 }
 
 export function RemoveProjectDialog({
@@ -31,12 +32,12 @@ export function RemoveProjectDialog({
 
     const handleConfirm = useCallback(() => {
         if (keepData) {
-            onArchive(project.id);
+            onArchive(project);
         } else {
-            onRemove(project.id);
+            onRemove(project);
         }
         onOpenChange(false);
-    }, [keepData, project.id, onRemove, onArchive, onOpenChange]);
+    }, [keepData, project, onRemove, onArchive, onOpenChange]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>

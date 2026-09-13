@@ -3,6 +3,8 @@ import type { Task, TaskWorktreePr, MasterSessionsListResponse } from "@taskflow
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/hooks/useWebSocket";
 import { prefetchHomedir } from "@/hooks/useActiveWorkspace";
+import type { Scoped } from "@/lib/backend-scope";
+import { getPrimary, sendRequest as sendRequestTo } from "@/lib/connection-registry";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -32,8 +34,13 @@ function useSidebarData(connected: boolean) {
     // Initial data fetch
     useEffect(() => {
         if (!connected) return;
-        void fetchProjects();
-        void fetchTasks();
+        // `connected` follows primary. An attach bootstraps its own machine; this
+        // covers the dev renderer, which attaches nothing, and primary's reconnects.
+        const primary = getPrimary();
+        if (primary) {
+            fetchProjects(primary).catch(() => {});
+            fetchTasks(primary).catch(() => {});
+        }
         void useFlowStore.getState().fetchFlows();
         void useFlowStore.getState().fetchActions();
         prefetchHomedir();
@@ -78,7 +85,7 @@ function useSidebarData(connected: boolean) {
             ),
         [tasks],
     );
-    const prCheckTasksRef = useRef<Task[]>(prCheckTasks);
+    const prCheckTasksRef = useRef<Scoped<Task>[]>(prCheckTasks);
     useEffect(() => {
         prCheckTasksRef.current = prCheckTasks;
     }, [prCheckTasks]);
@@ -93,12 +100,15 @@ function useSidebarData(connected: boolean) {
             for (const task of tasksToCheck) {
                 if (!task.worktree.path || !task.worktree.branch) continue;
                 try {
-                    const result = await sendRequest<{ pr: TaskWorktreePr | null }>(
+                    // The worktree path is the task's machine's: asked anywhere
+                    // else, a checkout at the same path could answer for it.
+                    const result = await sendRequestTo<{ pr: TaskWorktreePr | null }>(
+                        task.backendId,
                         MSG.GIT_CHECK_PR,
                         { path: task.worktree.path, branch: task.worktree.branch },
                     );
                     if (result.pr) {
-                        await updateTask(task.id, {
+                        await updateTask(task, {
                             worktree: { ...task.worktree, pr: result.pr },
                         });
                     }
@@ -122,7 +132,7 @@ function useSidebarData(connected: boolean) {
     const displayTasks = showArchive ? archivedTasks : tasks;
 
     const tasksByProject = useMemo(() => {
-        const map = new Map<string, Task[]>();
+        const map = new Map<string, Scoped<Task>[]>();
         for (const task of displayTasks) {
             const list = map.get(task.projectId) ?? [];
             list.push(task);

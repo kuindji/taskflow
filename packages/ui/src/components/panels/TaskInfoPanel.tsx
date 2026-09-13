@@ -128,7 +128,10 @@ function TaskInfoPanel() {
 
             lastSavedRef.current = { title, description, notes };
 
-            void updateTask(targetTaskId, updates).catch((err: unknown) => {
+            // Looked up now: the unmount flush can outlive the record.
+            const target = useTaskStore.getState().tasks.find((t) => t.id === targetTaskId);
+            if (!target) return;
+            void updateTask(target, updates).catch((err: unknown) => {
                 console.error("Failed to update task:", err);
             });
         },
@@ -151,7 +154,11 @@ function TaskInfoPanel() {
 
             lastSavedProjectRef.current = { name, defaultInitCommand, prompt };
 
-            void updateProject(targetProjectId, updates).catch((err: unknown) => {
+            const target = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === targetProjectId);
+            if (!target) return;
+            void updateProject(target, updates).catch((err: unknown) => {
                 console.error("Failed to update project:", err);
             });
         },
@@ -274,8 +281,9 @@ function TaskInfoPanel() {
 
     // Fetch task log when task changes
     useEffect(() => {
-        if (!taskId) return;
-        void fetchTaskLog(taskId);
+        const target = useTaskStore.getState().tasks.find((t) => t.id === taskId);
+        if (!target) return;
+        void fetchTaskLog(target);
     }, [taskId, fetchTaskLog]);
 
     if (workspace.scope === "project" && project) {

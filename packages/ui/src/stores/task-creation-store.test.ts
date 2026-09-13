@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import type { Project } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import { useProjectStore } from "./project-store";
 import { useTaskCreationStore } from "./task-creation-store";
 
-function project(id: string): Project {
+function project(id: string): Scoped<Project> {
     return {
+        backendId: "local",
         id,
         name: id,
         path: `/tmp/${id}`,

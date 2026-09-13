@@ -136,7 +136,7 @@ export function Workspace() {
 
     const handleWorktreeReset = useCallback(() => {
         if (!workspace.task) return;
-        void updateTask(workspace.task.id, {
+        void updateTask(workspace.task, {
             worktree: { enabled: false, path: null, branch: null, pr: null },
         });
         setWorktreeMissingDialogOpen(false);
@@ -144,7 +144,7 @@ export function Workspace() {
 
     const handleWorktreeDeleteTask = useCallback(() => {
         if (!workspace.task) return;
-        void deleteTask(workspace.task.id);
+        void deleteTask(workspace.task);
         setWorktreeMissingDialogOpen(false);
     }, [workspace.task, deleteTask]);
 

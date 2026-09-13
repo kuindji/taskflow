@@ -31,6 +31,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { Scoped } from "@/lib/backend-scope";
 import { cn } from "@/lib/utils";
 import { KeyBadge } from "@/components/ui/key-badge";
 import { getEventMenuPosition, showNativeMenuAndRun, supportsNativeMenus } from "@/lib/native-menu";
@@ -68,7 +69,7 @@ const taskCardVariants = cva(
 const emptySessions: SessionRef[] = [];
 
 interface TaskCardProps extends VariantProps<typeof taskCardVariants> {
-    task: Task;
+    task: Scoped<Task>;
     projectId: string;
     projectPath: string;
     isActive: boolean;
@@ -153,24 +154,24 @@ export function TaskCard({
     }, [requestNewSubtask, task.id]);
 
     const handleArchiveConfirm = useCallback(() => {
-        void archiveTask(task.id);
-    }, [archiveTask, task.id]);
+        void archiveTask(task);
+    }, [archiveTask, task]);
 
     const openArchive = useCallback(() => {
         if (subtaskCount > 0) {
             setArchiveConfirmOpen(true);
         } else {
-            void archiveTask(task.id);
+            void archiveTask(task);
         }
-    }, [archiveTask, subtaskCount, task.id]);
+    }, [archiveTask, subtaskCount, task]);
 
     const openUnarchive = useCallback(() => {
-        void unarchiveTask(task.id);
-    }, [unarchiveTask, task.id]);
+        void unarchiveTask(task);
+    }, [unarchiveTask, task]);
 
     const togglePin = useCallback(() => {
-        void updateTask(task.id, { pinned: !task.pinned });
-    }, [task.id, task.pinned, updateTask]);
+        void updateTask(task, { pinned: !task.pinned });
+    }, [task, updateTask]);
 
     const openDelete = useCallback(() => {
         setDeleteWorktree(false);
@@ -178,8 +179,8 @@ export function TaskCard({
     }, []);
 
     const handleDeleteConfirm = useCallback(() => {
-        void deleteTask(task.id, hasWorktree ? { deleteWorktree } : undefined);
-    }, [deleteTask, task.id, hasWorktree, deleteWorktree]);
+        void deleteTask(task, hasWorktree ? { deleteWorktree } : undefined);
+    }, [deleteTask, task, hasWorktree, deleteWorktree]);
 
     const handleNativeContextMenu = useCallback(
         async (event: MouseEvent<HTMLDivElement>) => {

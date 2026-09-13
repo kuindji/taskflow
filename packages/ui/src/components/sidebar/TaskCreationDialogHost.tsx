@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { AgentLaunchOptions } from "@taskflow/shared";
+import { requirePrimary } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -89,7 +90,8 @@ export function TaskCreationDialogHost() {
         async (path: string) => {
             try {
                 setProjectError(null);
-                await addProject(path);
+                // Add Project stays on primary; Task 19 gates it per target.
+                await addProject(requirePrimary(), path);
                 handleProjectCreated();
             } catch (err) {
                 setProjectError(err instanceof Error ? err.message : "Failed to add project");
@@ -111,7 +113,10 @@ export function TaskCreationDialogHost() {
             initCommand?: string;
         }) => {
             try {
-                const task = await createTask(data);
+                // A task lives on its project's machine.
+                const project = projects.find((p) => p.id === data.projectId);
+                if (!project) throw new Error(`Unknown project ${data.projectId}`);
+                const task = await createTask(project.backendId, data);
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
@@ -149,7 +154,7 @@ export function TaskCreationDialogHost() {
                 console.error("Failed to create task:", err);
             }
         },
-        [createSession, createTask, setActiveProject, setActiveTask],
+        [createSession, createTask, projects, setActiveProject, setActiveTask],
     );
 
     return (

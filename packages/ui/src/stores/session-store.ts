@@ -10,6 +10,7 @@ import type {
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
+import { getPrimary } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useProjectStore } from "./project-store";
 import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
@@ -34,6 +35,30 @@ import { initSessionSubscriptions } from "./session-subscriptions";
  * owner — the createSession caller will place the tab explicitly.
  */
 const pendingSessionCreates = new Set<string>();
+
+/**
+ * Session requests still go to primary through the shim until Task 13 routes
+ * them, so the records a session change touches are primary's. A failed refetch
+ * leaves the previous records in place, as before.
+ */
+function refetchPrimaryRecords(which: { tasks: boolean; projects: boolean }): Promise<unknown> {
+    const primary = getPrimary();
+    if (!primary) return Promise.resolve();
+    return Promise.all([
+        which.tasks
+            ? useTaskStore
+                  .getState()
+                  .fetchTasks(primary)
+                  .catch(() => {})
+            : null,
+        which.projects
+            ? useProjectStore
+                  .getState()
+                  .fetchProjects(primary)
+                  .catch(() => {})
+            : null,
+    ]);
+}
 
 interface SessionStore {
     tabsByWorkspace: Record<string, Tab[]>;
@@ -140,18 +165,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                   : "master");
         get().addTab(workspaceKey, tab);
         if (pendingKey) pendingSessionCreates.delete(pendingKey);
-        await Promise.all([
-            owner.taskId ? useTaskStore.getState().fetchTasks() : Promise.resolve(),
-            owner.projectId ? useProjectStore.getState().fetchProjects() : Promise.resolve(),
-        ]);
+        await refetchPrimaryRecords({ tasks: !!owner.taskId, projects: !!owner.projectId });
         return sessionId;
     },
     async closeSession(sessionId) {
         await sendRequest(MSG.SESSION_CLOSE, { sessionId });
-        await Promise.all([
-            useTaskStore.getState().fetchTasks(),
-            useProjectStore.getState().fetchProjects(),
-        ]);
+        await refetchPrimaryRecords({ tasks: true, projects: true });
     },
     async resumeSession(sessionId, cols, rows) {
         set((state) => ({
@@ -174,8 +193,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             });
         } finally {
             await Promise.all([
-                useTaskStore.getState().fetchTasks(),
-                useProjectStore.getState().fetchProjects(),
+                refetchPrimaryRecords({ tasks: true, projects: true }),
                 sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST).then(
                     ({ sessions }) => get().syncWithMasterSessions(sessions),
                 ),

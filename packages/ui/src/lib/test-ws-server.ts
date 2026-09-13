@@ -1,0 +1,64 @@
+/** A request as a test server received it. */
+interface ReceivedRequest {
+    type: string;
+    payload: unknown;
+}
+
+export interface TestServer {
+    origin: string;
+    /** Every request with a correlation id, in arrival order. */
+    received: ReceivedRequest[];
+    stop(): void;
+    /** Push an event to every open socket; the payload defaults to `{ from: label }`. */
+    broadcast(type: string, payload?: unknown): void;
+}
+
+/**
+ * A minimal backend for tests that need real sockets. Each request is answered
+ * with `respond(type, payload)`, by default `{ from: label }` — enough to tell
+ * which server a request reached.
+ */
+export function startTestServer(
+    label: string,
+    respond: (type: string, payload: unknown) => unknown = () => ({ from: label }),
+): TestServer {
+    const sockets = new Set<{ send(data: string): void }>();
+    const received: ReceivedRequest[] = [];
+    const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("ok")),
+        websocket: {
+            open(ws) {
+                sockets.add(ws);
+            },
+            close(ws) {
+                sockets.delete(ws);
+            },
+            message(ws, raw) {
+                const request = JSON.parse(String(raw)) as {
+                    correlationId?: string;
+                    type: string;
+                    payload?: unknown;
+                };
+                if (!request.correlationId) return;
+                received.push({ type: request.type, payload: request.payload });
+                ws.send(
+                    JSON.stringify({
+                        correlationId: request.correlationId,
+                        type: request.type,
+                        payload: respond(request.type, request.payload),
+                    }),
+                );
+            },
+        },
+    });
+    return {
+        origin: `http://127.0.0.1:${server.port}`,
+        received,
+        stop: () => void server.stop(true),
+        broadcast: (type, payload = { from: label }) => {
+            for (const ws of sockets) ws.send(JSON.stringify({ type, payload }));
+        },
+    };
+}

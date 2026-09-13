@@ -9,7 +9,9 @@ import {
     sendRequest,
     setPrimary,
 } from "@/lib/connection-registry";
+import { useProjectStore } from "./project-store";
 import { resetBackend } from "./store-reset";
+import { useTaskStore } from "./task-store";
 
 /**
  * For the failures that never reach ssh at all — a refused socket, a handshake
@@ -51,7 +53,7 @@ interface BackendStore {
     retry(id: string): void;
     /** Reconcile rows with main. Never sets a row "attached": only `attach` does. */
     refresh(): Promise<void>;
-    /** Fetch every slice for one machine. Task 11 fills the body in. */
+    /** Fetch every slice for one machine. A failed leg marks only that machine offline. */
     bootstrapBackend(id: string): Promise<void>;
     /** `attach`'s tail, run when a socket reconnects on its own. */
     rehandshake(id: string): Promise<void>;
@@ -312,8 +314,22 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         });
     },
 
-    async bootstrapBackend(_id) {
-        // Task 11 fills this in with fetchProjects / fetchTasks.
+    async bootstrapBackend(id) {
+        const attempt = attempts.get(id);
+        const legs = await Promise.allSettled([
+            useProjectStore.getState().fetchProjects(id),
+            useTaskStore.getState().fetchTasks(id),
+        ]);
+        // A detach, retry or drop meanwhile owns the row now, and its closed
+        // socket is what failed these requests.
+        if (attempts.get(id) !== attempt) return;
+        // Only this machine goes offline; every other machine's slices stay.
+        if (legs.some((leg) => leg.status === "rejected")) {
+            patch(id, {
+                state: "offline",
+                failure: unknownFailure("Could not load this machine's projects and tasks"),
+            });
+        }
     },
 
     async rehandshake(id) {
@@ -376,6 +392,13 @@ function followSocket(backendId: string): void {
             }
         }),
     );
+}
+
+/** Primary's id, for a surface that addresses primary; throws before one exists. */
+export function requirePrimary(): string {
+    const { primaryId } = useBackendStore.getState();
+    if (!primaryId) throw new Error("Not connected to a backend");
+    return primaryId;
 }
 
 export function setPrimaryBackend(id: string): void {

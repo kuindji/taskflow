@@ -21,6 +21,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { KeyBadge } from "@/components/ui/key-badge";
+import type { Scoped } from "@/lib/backend-scope";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
 import { useDiffStore } from "@/stores/diff-store";
@@ -56,8 +57,8 @@ const contextMenuComponents: MenuComponents = {
 };
 
 interface ProjectGroupProps {
-    project: Project;
-    tasks: Task[];
+    project: Scoped<Project>;
+    tasks: Scoped<Task>[];
     activeTaskId: string | null;
     isActive: boolean;
     diffStats?: { additions: number; deletions: number } | null;
@@ -118,8 +119,8 @@ export function ProjectGroup({
     };
 
     const { topLevelTasks, subtaskMap } = useMemo(() => {
-        const topLevel: Task[] = [];
-        const subtasks = new Map<string, Task[]>();
+        const topLevel: Scoped<Task>[] = [];
+        const subtasks = new Map<string, Scoped<Task>[]>();
         for (const task of tasks) {
             if (task.parentId) {
                 const list = subtasks.get(task.parentId) ?? [];
@@ -204,7 +205,7 @@ export function ProjectGroup({
     };
 
     const handleToggleProjectArchive = () => {
-        return project.hidden ? unarchiveProject(project.id) : archiveProject(project.id);
+        return project.hidden ? unarchiveProject(project) : archiveProject(project);
     };
 
     const handleNativeContextMenu = async (event: MouseEvent<HTMLDivElement>) => {
