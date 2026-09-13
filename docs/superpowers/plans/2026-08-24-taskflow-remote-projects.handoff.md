@@ -16,7 +16,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
-| 2 | Per-client file watcher ownership | pending | | | |
+| 2 | Per-client file watcher ownership | implemented | `43d1a49` | `ea8574a` | |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
@@ -123,8 +123,28 @@ other code. **Task 1 is clear.**
   and is left in place (it is the file the real backend would mint anyway).
 - Task 1 R1: `packages/tui/src/dev.ts:68` prints an unsanitized `dev-${branch}` label
   when `TASKFLOW_DEV_BRANCH` holds characters outside the safe set. Display-only, not fixed.
+- Task 2: the plan's Step 10 says only `tests/ws/router.test.ts` needs a context argument,
+  but tsc found 110 two-argument `router.handle` calls in 9 more handler test files
+  (`tests/handlers/*`, `src/handlers/system.test.ts`, `session-log-leak.repro.test.ts`).
+  Threading `{ clientId: "test" }` through each made prettier reflow ~840 lines, so those
+  tests use a new `packages/backend/tests/test-router.ts` (`TestRouter extends Router`,
+  `handle` defaults the context). Production `Router.handle` keeps `ctx` required, so a
+  server path that forgets it still fails to compile. `router.test.ts` tests `Router`
+  itself and passes the context explicitly, as the plan says.
+- Task 2: one client watching a path twice holds one reference (owners is a `Set`), so a
+  single `FILE_UNWATCH` from it releases the watch. Same as before the change; the UI's
+  `file-store` watches at most one path per client and unwatches before re-watching.
 
 ## Validation baseline
+
+Full `bun test` after Task 2 (`ea8574a`): 1255 pass, 2 skip, 10 fail (same ten; +3 new
+ownership tests). `bun run typecheck` clean; eslint clean on the changed files.
+Known flake, not a Task 2 regression: `FileWatcher > reports a deleted file as delete and
+a written file as modify` (`tests/services/file-watcher.test.ts`) fails intermittently
+under machine load (load avg ~8, another project's `bun test` running). Alternating
+the baseline `43d1a49` watcher + test against `ea8574a` in one loop: baseline failed 5/8,
+Task 2 failed 3/8. A killed, overlapping full run also failed `watches for file changes`
+once. Rerun watcher tests in isolation before suspecting the code.
 
 Full `bun test` after Task 1 R4 fix (`de96b4e`): 1252 pass, 10 fail (same ten; +1 new test).
 One earlier full run in that session stalled with no output past 10 min (Codex saw a
@@ -141,5 +161,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 2 (Per-client file watcher ownership). Record HEAD as its
-base commit in the table before changing any code.
+Next step: Task 2 review round 1 — Codex gpt-5.5 review of `43d1a49..ea8574a`
+(per-client file watcher ownership). Review needed: it changes the router handler
+signature, the WebSocket server's socket data and disconnect path, and watcher lifecycle.
