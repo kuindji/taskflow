@@ -28,7 +28,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
-| 14 | Per-machine caches and path-keyed stores | pending | | | |
+| 14 | Per-machine caches and path-keyed stores | implemented | `f03c740` | `fba0011` | |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
@@ -1092,7 +1092,69 @@ connection first, so no late event can re-note a session. **Task 13 is clear.**
   Task 19 Step 5 (delete the shim, resolve each remaining call site with the record's own backend) is where it must land
   at the latest; Task 18's implementer should check first.
 
+- Task 14: the store-reset enumeration test is **on now** (plan Task 14 Step 6c), not in Task 19 as Task 10's note said;
+  Task 19 Step 6 is then already done. `STATELESS` holds the three machinery files the plan names plus, each with its
+  reason in the diff: the `useWebSocket` shim, `attribute-api`, `run-in-shell`, `wiki/open-in-obsidian`,
+  `useRemoteAgentStatus`, `useRunMenu`, `session-subscriptions`.
+- Task 14: no `run-menu-cache`. `useRunMenu` holds no module cache (scripts and agent commands are component state); its
+  two requests now go to the row's machine and the file is listed as stateless.
+- Task 14: per-machine maps are **nested** (`Map<backendId, Map<path, …>>`, `indexByBackend[backendId][root]`) instead of
+  the plan's `${backendId}:${path}` string keys. Provisional ids contain `:`, so a reset matching a string prefix could
+  drop another machine's keys. Applies to the stat cache (`file-stat-cache`), the tsconfig cache (`tsconfig-cache`) and
+  the wiki store.
+- Task 14: `createPerBackendCache` does not cache a fetch that lands after its machine's reset (it still returns it), and
+  never caches a failure. Tests for both beside the plan's three.
+- Task 14: `useWorkspaceBackend` reads primary from the connection registry (`useSyncExternalStore(onPrimaryChange,
+  getPrimary)`), not `useBackendStore` as the plan's snippet does. Same value; keeps backend-store's store graph out of
+  pane components and their `mock.module` tests. `useActiveWorkspace` does the same for master's homedir.
+- Task 14: new exported `workspaceBackendId(workspaceKey)` in `useActiveWorkspace.ts`, for code holding a key rather than a
+  record (`open-file`, `MarkdownPane`, the terminal link provider); a `:right` key resolves to its base.
+- Task 14 `open-file`: `ensureEditorsCached` is gone; `getInternalEditorId(backendId, internalEditor)` is async. The
+  `internalEditor` setting itself is still primary's `settings`.
+- Task 14 `ui-store`: **no reset named `ui-store`.** `forgetRecords({ projectIds, taskIds })` is called from the
+  project-store and task-store resets, which still hold the dropped ids. Resets run in registration order, so a separate
+  reset could run after those drops and no longer tell which ids were the machine's. It clears `activeProjectId`,
+  `sidebarFocusedItem`, `collapsedProjectIds` and `task:`/`project:` split keys (master kept). A detached machine's
+  collapsed ids therefore leave the persisted layout at its next save, as the plan directs.
+- Task 14 `file-store`: `watched: { backendId, path }`; `FILE_CHANGED` comes through the registry and is filtered by
+  machine; the previous machine's `FILE_UNWATCH` is `.catch`-ed so an unreachable old machine cannot block the new watch;
+  `watchGeneration` drops a watch that lands after a newer watch, unwatch or detach; the reset clears the watch and the
+  explorer state. **Not converted:** tree, listing, git status, read/write/rename requests still go through the shim to
+  primary (Task 19 Step 5), so a watched remote change refreshes the tree from primary until then.
+- Task 14 `search-store`: `searchBackendId` is set when a search starts; cancel and every replace go to that machine, and
+  the replace signatures did not change. The plan's "refuse a cancel that does not match" became "a cancel can only
+  address the search's own machine". A generation counter drops late answers; the reset keeps query and options.
+- Task 14 `theme-store`: remembers the primary that answered `THEMES_LIST`; when that machine detaches its reset restores
+  the bundled list and clears `scannedApps`, keeping the applied theme until the next fetch. Not tested.
+- Task 14 connectivity: one `online` for primary; status answers and events from other machines are ignored;
+  `initConnectivity(backendId)` guards per machine.
+- Task 14 Monaco: `syncCompilerOptions(backendId, filePath)` (EditorPaneImpl passes `useWorkspaceBackend` through a ref so
+  a machine change does not recreate the editor). `TS_RESOLVE_IMPORT` in the definition provider still uses the shim,
+  with a `TODO(remote-projects)` for Task 15's machine-scoped URIs.
+- Task 14: `CodexModelSelect` takes `backendId`, threaded through `CodexOptions` (`CodexSection`: primary;
+  `AgentOptionsPanel`: its `backendId` ?? primary, which also drives its agent availability).
+- Task 14 carry-overs done: `AgentDropdownMenu` (agents, shell list, configured shell, options dialog), `FileContextMenu`'s
+  shell, `CommitDialog` (default agent, agents, options panel) and `useWorkspaceTabOps`' default agent read the workspace's
+  machine, falling back to primary's `settings` with no workspace machine; `Workspace`'s worktree `FILE_STAT` goes to the
+  task's machine; `NewTaskDialog`'s agents follow the selected project's machine; `SettingsModal`'s are primary's.
+  Session creation is still primary-routed (Task 13 note), so for a remote workspace the shell path comes from the remote
+  while the session lands on primary until sessions are routed.
+- Task 14: `useAgentAvailability`'s `onStatusChange` cache clearing is deleted (plan). A backend that restarts with a newly
+  installed agent is not re-detected until a detach and re-attach.
+- Task 14: repros `file-backend-collision.repro.test.ts` and `wiki-backend-collision.repro.test.ts` deleted (plan notes), so
+  the known baseline failures are nine now. The three `MarkdownPaneImpl` test mocks of `useActiveWorkspace` gained
+  `workspaceBackendId`.
+
 ## Validation baseline
+
+After Task 14 (`fba0011`): new/changed tests pass — `per-backend-cache` 5, `wiki-store` 4, `file-store` 7 (alone),
+`search-store` 3, `ui-store.forget` 3, `aggregation` 16, `store-reset` 3 (enumeration on), `backend-store` + `useWebSocket` +
+`task-creation-store` + `session-sync.backend` pass, `CommitDialog` 2 and the `MarkdownPaneImpl` anchors 3 / checkbox 5 /
+rerender 1 each alone. Mutation checks, each restored by checksum: wiki push applied to every machine (push test red);
+file-change filter ignoring the machine (cross-machine test red); cache late-landing guard removed (its test red);
+project-store reset not calling `forgetRecords` (aggregation ui test red); search start not recording its machine (search
+tests red). `bun test packages/ui` 255 pass, 9 fail — the known MarkdownPaneImpl mock-leak nine; `bun run typecheck` clean;
+eslint and prettier clean on every changed file; `bun run build:ui` ok. Not run: the Electron app.
 
 After Task 13 R1 (clean, no code change): `session-sync.backend.test.ts` 6 pass, `session-sync.test.ts` 9 pass;
 `bun run typecheck` clean.
@@ -1293,7 +1355,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 14 (Per-machine caches and path-keyed stores). Record HEAD as its base commit first.
-Carry-overs owned by Task 14: `ui-store` reset for `activeProjectId`, `sidebarFocusedItem`, `collapsedProjectIds` and
-`splitByWorkspace` (Task 11 R3), `useWorkspaceBackend` for the unconverted launch defaults (Task 12 decisions), and
-the primary-routed `FILE_STAT` in `Workspace` (Task 11 R6).
+Next step: Task 14 review round 1 — one gpt-5.5 review of `f03c740..fba0011` (packages/ui). Check especially the
+deviations recorded under the Task 14 decisions (nested keys, no `ui-store` reset, search replace routed by
+`searchBackendId`, registry-based `useWorkspaceBackend`) and the "not converted" file-store requests.
