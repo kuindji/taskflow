@@ -15,7 +15,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
-| 1 | Backend prerequisites — protocol version, stable port file, backend uid | implemented | `6978606` | `e7a226c` | |
+| 1 | Backend prerequisites — protocol version, stable port file, backend uid | in-review round 1 done (fixes landed) | `6978606` | `e7a226c`, `c192cdb` | R1: 3 fixed, 1 rejected |
 | 2 | Per-client file watcher ownership | pending | | | |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
@@ -40,16 +40,44 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 
 ## Review round results
 
-(none yet)
+### Task 1, round 1 (Codex gpt-5.5, prompted review of `6978606..e7a226c`)
+
+Four findings, each checked by hand:
+
+1. **Uid mint race — confirmed, fixed.** Six processes minting into one empty dir
+   returned more than one uid in 15/15 trials. Now temp file + `linkSync` (EEXIST →
+   adopt winner). Test: "backends starting at the same moment agree on one uid".
+2. **Stable port file stale/deleted by the wrong backend — confirmed (trace), fixed.**
+   Startup failure after the write left it; the older of two same-instance backends
+   deleted the newer one's file. New `services/instance-port-file.ts`
+   (`removeInstancePortFile(file, port)` removes only when the file names that port),
+   called on shutdown and in the startup `catch`. Test:
+   `packages/backend/tests/services/instance-port-file.test.ts`.
+3. **`toSafeLabel` collapses distinct branch names — rejected.** Plan-specified
+   behaviour; the git fallback (`/`→`-`) and TUI `sanitizeBranch` already collapse
+   the same way; needs two dev branches differing only in punctuation running at once.
+4. **Importing config writes the uid into the real config dir — confirmed, fixed.**
+   The test preload's `process.env.HOME` override does not reach `os.homedir()`;
+   `~/.config/taskflow/backend-uid-main` was minted by the Task 1 test run
+   (born 08:36:18, commit 08:38:02). `config.backendUid` is now a memoized getter.
+   Test: "importing config writes no uid file; reading backendUid mints it".
 
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
 - Task 1: `packages/backend/src/index.ts` already fails `prettier --check` at the
   plan baseline (the `SYSTEM_CLIENTS` registration); left as is, not part of this task.
+- Task 1 R1: `config.backendUid` is a lazy getter rather than the plan's eager field;
+  the interface (`config.backendUid: string`) is unchanged. It is still minted at
+  startup because `registerSystemHandlers` reads it.
+- Task 1 R1: the test-minted `~/.config/taskflow/backend-uid-main` holds a valid uid
+  and is left in place (it is the file the real backend would mint anyway).
+- Task 1 R1: `packages/tui/src/dev.ts:68` prints an unsanitized `dev-${branch}` label
+  when `TASKFLOW_DEV_BRANCH` holds characters outside the safe set. Display-only, not fixed.
 
 ## Validation baseline
 
+Full `bun test` at `c192cdb`: 1249 pass, 10 fail (same ten as below; +6 new tests).
 Full `bun test` at `e7a226c`: 1243 pass, 10 fail. All ten are the known
 mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 `MarkdownPaneImpl.anchors` (3), `MarkdownPaneImpl.checkbox` (5),
@@ -58,4 +86,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: review round 1 of Task 1 (diff `6978606..e7a226c`).
+Next step: review round 2 of Task 1 — review the task's implementation as it now
+stands, code only: `git diff 6978606..c192cdb -- packages/` (excludes the handoff doc).
