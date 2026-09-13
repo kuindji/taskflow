@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 2 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex) |
+| 20 | Electron main across several backends | in-review round 3 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1099,6 +1099,22 @@ Own read found nothing else: the renderer's local connection in Electron comes f
 the non-Electron dev renderer, which has no `saveArtifact`); relative artifact paths were refused by the old `copyFile`
 guard too.
 
+### Task 20, round 3 (Codex gpt-5.5, prompted review of `5f0ec24..4a77b3c`)
+
+One finding, confirmed and fixed in `4509c26`; Codex reviewed R2's failed-first-poll fix and found nothing:
+
+1. **`save-artifact` checks the attached set before the save dialog but fetches after it — confirmed, fixed.** The
+   dialog can stay open indefinitely; detaching that machine meanwhile still had its old origin fetched (and, if the
+   port is reused by then, another machine's bytes saved). Unlike R1's rejected 1-2 s poll race, this window is as
+   long as the user leaves the dialog open. Fix: `fetchArtifactBytes(url, attached)` re-runs `isArtifactUrl` against
+   the live attached set when the download starts (throws "Invalid artifact URL", shown in the error dialog);
+   `ipc-handlers.ts` keeps the pre-dialog check and passes the same getter. Test "a machine detached while the save
+   dialog was open does not get its origin fetched" (red on `4a77b3c`: Received "REPORT"; asserts the server was not
+   hit). Codex's stronger suggestion (bind the payload to `backendId`) not taken — see Decisions.
+
+Own read of `notification-poller.ts` found nothing: `failedSince` is set only while unbaselined, cleared on first
+success and by the detach sweep; later failures keep the watermark.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1649,9 +1665,14 @@ guard too.
   `nosniff`, `no-cache`. Test: `packages/backend/tests/api/flow-artifact-raw.test.ts` (4 tests; the plan names no
   route test).
 - Task 20 not run: the Electron app (native notifications, tray, save dialog against a remote machine; Task 22).
+- Task 20 R3: the artifact download re-checks the origin against the attached set at fetch time, not the backend id.
+  Binding the IPC payload to `backendId` would also catch another machine attached on the reused port while the
+  dialog is open, but needs preload/renderer changes for a case that again rests on ephemeral-port reuse (R1 #3).
 
 ## Validation baseline
 
+After Task 20 R3 fix (`4509c26`): `bun test electron/src` 76 pass (7 files); `artifact-download.test.ts` 4 pass (new
+test red on `4a77b3c`); `bun run typecheck` clean; eslint and prettier clean on the three touched files.
 After Task 20 R1 fix (`930a4bb`): `bun test electron/src` 74 pass (7 files); `artifact-download.test.ts` 3 pass, red
 (1 fail) with `redirect: "error"` removed; `bun run typecheck` clean (all packages); eslint and prettier clean on the
 three changed files.
@@ -1938,7 +1959,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 3 — Codex gpt-5.5 prompted review of `5f0ec24..4a77b3c` (electron/src incl.
+Next step: Task 20 review round 4 — Codex gpt-5.5 prompted review of `5f0ec24..4509c26` (electron/src incl.
 `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and its test,
 `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and
-the tunnel-port-reuse race, and that R2's failed-first-poll baseline was fixed in `4a77b3c` (review that fix).
+the tunnel-port-reuse race, R2's failed-first-poll baseline was fixed in `4a77b3c` (R3 found it sound), and R3's
+fetch-time attached-set recheck landed in `4509c26` with backend-id binding deliberately not taken (review that fix).
