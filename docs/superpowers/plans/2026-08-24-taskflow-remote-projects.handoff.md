@@ -20,7 +20,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
-| 6 | SSH argument construction and failure classification | pending | | | |
+| 6 | SSH argument construction and failure classification | implemented | `e4787f4` | `7c7c421` | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
@@ -364,8 +364,24 @@ and `adoptUid`'s merge keeps the existing record's position. **Task 5 is clear.*
   lookup) amended in `d9c59ab`. Task 17 must pass that id to `addDiscoveredBackend`.
 - Task 5 R1: `adoptUid` still merges only against `record.id === backendUid`; with
   `normalizeRecords` canonicalizing confirmed ids, a `backendUid` lookup there would be redundant.
+- Task 6: only the `tunnel-args.ts` half of the delta lands here. The `readRemotePort` argv and
+  `trustHostKey` (write `KNOWN_HOSTS_FILE`, `~/.taskflow` mode `0o700`, rewrite the scanned line's
+  first field to the alias) live in the tunnel manager, so Task 7 must apply them.
+- Task 6: the superseded plan's test fixture predates Task 5's `BackendRecord` (`hostSource`,
+  `manualPort`); the fixture uses the current shape (`backendUid`, `attached`). The old
+  bracket-form `knownHostsKey` test was replaced by alias tests, so the suite is 18 tests, not 14.
+- Task 6: `buildKeyscanArgs`, `knownHostsKey`, `KNOWN_HOSTS_FILE` and `hostKeyAlias` are exported as
+  the plan's interface says, with no consumer until Task 7. The long `buildTunnelArgs` comment dropped
+  the superseded spec's line reference.
+- Task 6: the delta's claim was checked before implementing: `ssh -G` with a config setting
+  `UserKnownHostsFile`, `GlobalKnownHostsFile`, `HostKeyAlias` and `StrictHostKeyChecking no` reports
+  the command-line `-o` values for all four.
 
 ## Validation baseline
+
+After Task 6 (`7c7c421`): `bun test electron/src/tunnel-args.test.ts` 18 pass (red first: module
+missing); `bun run typecheck` clean; eslint and prettier clean on both files. New pure module with no
+consumers yet, so the full suite was not rerun.
 
 After Task 5 R4 fix (`a25f3b5`): `bun test electron/src/backend-records.test.ts
 packages/shared/src/discovery/beacon.test.ts` 29 pass (records 14); `bun run typecheck` clean;
@@ -443,5 +459,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 6 — SSH argument construction and failure classification (plan line ~1196;
-executed from the superseded plan's Task 5 with this plan's deltas). Record HEAD as its base commit first.
+Next step: Task 6 review round 1 — Codex gpt-5.5 prompted review of `e4787f4..7c7c421`
+(`electron/src/tunnel-args.ts` + test) against the superseded plan's Task 5 and this plan's Task 6 delta.
