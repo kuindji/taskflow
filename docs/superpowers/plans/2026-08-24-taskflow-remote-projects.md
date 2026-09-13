@@ -2037,7 +2037,7 @@ Replaces **Task 7** of the superseded plan, which owned a single `activeId`. Mai
   - `confirmBackend(id, info: { backendUid: string; protocolVersion: number }): Promise<{ id: string; merged: boolean }>` — rekeys onto the uid and returns the canonical id. `merged: false` is a rename: this record simply had no uid yet, and the caller's connection and tunnel moved with it. `merged: true` is the alias case: another record already held the uid, so the caller's connection is surplus. For `"local"` the IPC layer answers `{ id: "local", merged: false }` without touching the registry (Step 5): local is not a record, and letting the registry answer would rename the renderer's local row onto its uid.
   - `probeBackends(): Promise<void>` — send a discovery probe now. The machines menu calls it on open so the list is fresh rather than up to one announce interval stale
   - `addBackend(input: { host: string; user?: string; sshPort?: number; port?: number; instanceId?: string }): Promise<BackendRecord>`
-  - `addDiscoveredBackend(entryId): Promise<BackendRecord | null>` — saves a seen-but-unsaved menu entry (its id is the announced uid) as a *provisional* record via Task 5's `recordFromDiscovered`; `null` if the entry is no longer live. This is the machines menu's add affordance (Task 17)
+  - `addDiscoveredBackend(entryId): Promise<BackendRecord | null>` — saves a seen-but-unsaved menu entry (its id is `backendIdFor(address, instanceId)`, the id the saved record will have — not the announced uid, which two beacons can share; changed in Task 5 review round 1) as a *provisional* record via Task 5's `recordFromDiscovered`; `null` if the entry is no longer live. This is the machines menu's add affordance (Task 17)
   - `updateBackend(id, patch: { displayName?: string; user?: string; sshPort?: number }): Promise<{ ok: boolean; reason?: string }>`
   - `removeBackend(id): Promise<{ ok: boolean; reason?: string }>`
   - `trustBackendHost(id): Promise<{ ok: boolean; reason?: string }>`
@@ -2289,7 +2289,7 @@ describe("backend registry", () => {
             discovered({ backendUid: "abc123", address: "192.168.1.20", instanceId: "dev-x" }),
         ]);
 
-        const record = await reg.addDiscoveredBackend("abc123");
+        const record = await reg.addDiscoveredBackend("192.168.1.20:dev-x");
 
         expect(record?.id).toBe("192.168.1.20:dev-x");
         expect(record?.backendUid).toBeNull();
@@ -2494,7 +2494,9 @@ export function createRegistry(deps: RegistryDeps) {
         async addDiscoveredBackend(entryId: string): Promise<BackendRecord | null> {
             const now = Date.now();
             const live = discovered.find(
-                (entry) => entry.backendUid === entryId && !isStale(entry.lastSeenAt, now),
+                (entry) =>
+                    backendIdFor(entry.address, entry.instanceId) === entryId &&
+                    !isStale(entry.lastSeenAt, now),
             );
             if (!live) return null;
             const record = recordFromDiscovered(live, deps.defaultUser, new Date(now).toISOString());
@@ -2592,6 +2594,13 @@ export function createRegistry(deps: RegistryDeps) {
             return serialize(id, async () => {
                 const uid = info.backendUid;
                 if (id === uid) return { id, merged: false };
+
+                // Task 5 review round 1: `adoptUid` rekeys whatever record sits
+                // under `id`, including one already confirmed under another uid.
+                // A confirmed record answering with a different uid is a
+                // different backend on that host and port (see Task 10's
+                // `rehandshake`); decide here whether to refuse it rather than
+                // adopt it, and cover the case with a test.
 
                 // Merge only when the canonical record is *live*. A saved but
                 // detached record under this uid has nothing worth keeping; the

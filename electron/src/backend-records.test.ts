@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { BackendRecord } from "@taskflow/shared";
-import { adoptUid, normalizeRecords, recordFromDiscovered, upsertRecord } from "./backend-records";
+import type { BackendRecord, DiscoveredBackend } from "@taskflow/shared";
+import {
+    adoptUid,
+    mergeForMenu,
+    normalizeRecords,
+    recordFromDiscovered,
+    upsertRecord,
+} from "./backend-records";
 
 function record(patch: Partial<BackendRecord> = {}): BackendRecord {
     return {
@@ -91,6 +97,67 @@ describe("normalizeRecords", () => {
 
     test("drops entries that are not usable records", () => {
         expect(normalizeRecords([null, 42, {}, { host: "x" }])).toHaveLength(0);
+    });
+});
+
+describe("normalizeRecords and adoptUid on a hand-edited file", () => {
+    test("a confirmed record saved under a stale id is keyed by its uid, and adopting that uid merges into it", () => {
+        const parsed = normalizeRecords([
+            {
+                id: "desktop.local:main",
+                backendUid: "abc123",
+                host: "desktop.local",
+                instanceId: "main",
+            },
+            { id: "abc123", backendUid: "abc123", host: "desktop.local", instanceId: "main" },
+            { id: "192.168.1.20:main", backendUid: null, host: "192.168.1.20", instanceId: "main" },
+        ]);
+        expect(parsed.map((r) => r.id)).toEqual(["abc123", "192.168.1.20:main"]);
+
+        const next = adoptUid(parsed, "192.168.1.20:main", "abc123");
+        expect(next.map((r) => r.id)).toEqual(["abc123"]);
+    });
+
+    test("ports outside 1-65535 fall back to their defaults", () => {
+        const [parsed] = normalizeRecords([
+            { host: "desktop.local", instanceId: "main", sshPort: 0, lastKnownPort: -1 },
+        ]);
+        expect(parsed.sshPort).toBe(22);
+        expect(parsed.lastKnownPort).toBeNull();
+
+        const [fractional] = normalizeRecords([
+            { host: "desktop.local", instanceId: "main", sshPort: 22.5, lastKnownPort: 70000 },
+        ]);
+        expect(fractional.sshPort).toBe(22);
+        expect(fractional.lastKnownPort).toBeNull();
+    });
+});
+
+describe("mergeForMenu", () => {
+    function beacon(patch: Partial<DiscoveredBackend>): DiscoveredBackend {
+        return {
+            v: 1,
+            protocolVersion: 1,
+            instanceId: "main",
+            hostname: "desktop",
+            displayName: "",
+            port: 54892,
+            appVersion: "0.14.4",
+            os: "darwin",
+            backendUid: "abc123",
+            address: "192.168.1.20",
+            lastSeenAt: 1_000,
+            ...patch,
+        };
+    }
+
+    test("two unsaved machines announcing one uid get distinct rows, keyed as they would be saved", () => {
+        const entries = mergeForMenu(
+            [],
+            [beacon({ address: "192.168.1.20" }), beacon({ address: "192.168.1.66" })],
+            1_000,
+        );
+        expect(entries.map((e) => e.id)).toEqual(["192.168.1.20:main", "192.168.1.66:main"]);
     });
 });
 

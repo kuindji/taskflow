@@ -1,4 +1,4 @@
-import { backendIdFor, isStale } from "@taskflow/shared/discovery";
+import { backendIdFor, isStale, isValidPort } from "@taskflow/shared/discovery";
 import type { BackendRecord, DiscoveredBackend } from "@taskflow/shared";
 
 /** A row in the machines menu: a saved record, a discovered backend, or both. */
@@ -26,24 +26,30 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
 export function normalizeRecords(parsed: unknown): BackendRecord[] {
     if (!Array.isArray(parsed)) return [];
     const records: BackendRecord[] = [];
+    const ids = new Set<string>();
     for (const entry of parsed) {
         if (!isRecordLike(entry)) continue;
         const host = typeof entry.host === "string" ? entry.host : null;
         const instanceId = typeof entry.instanceId === "string" ? entry.instanceId : null;
         if (!host || !instanceId) continue;
-        const backendUid = typeof entry.backendUid === "string" ? entry.backendUid : null;
+        const backendUid =
+            typeof entry.backendUid === "string" && entry.backendUid ? entry.backendUid : null;
+        // A confirmed record is keyed by its uid whatever id the file holds, so
+        // `adoptUid` finds it by id; a hand-edited duplicate keeps the first.
+        const id =
+            backendUid ??
+            (typeof entry.id === "string" && entry.id ? entry.id : backendIdFor(host, instanceId));
+        if (ids.has(id)) continue;
+        ids.add(id);
         records.push({
-            id:
-                typeof entry.id === "string"
-                    ? entry.id
-                    : (backendUid ?? backendIdFor(host, instanceId)),
+            id,
             backendUid,
             host,
             instanceId,
             displayName: typeof entry.displayName === "string" ? entry.displayName : host,
             user: typeof entry.user === "string" ? entry.user : "",
-            sshPort: typeof entry.sshPort === "number" ? entry.sshPort : 22,
-            lastKnownPort: typeof entry.lastKnownPort === "number" ? entry.lastKnownPort : null,
+            sshPort: isValidPort(entry.sshPort) ? entry.sshPort : 22,
+            lastKnownPort: isValidPort(entry.lastKnownPort) ? entry.lastKnownPort : null,
             attached: entry.attached === true,
             addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date(0).toISOString(),
         });
@@ -139,7 +145,12 @@ export function matchesDiscovered(record: BackendRecord, entry: DiscoveredBacken
     return record.host === entry.address && record.instanceId === entry.instanceId;
 }
 
-/** Saved records first in their stored order, then live entries not yet saved. */
+/**
+ * Saved records first in their stored order, then live entries not yet saved.
+ * An unsaved row is keyed by source address and instance — the id
+ * `recordFromDiscovered` will save it under — not by its announced uid, which
+ * any machine on the LAN can repeat.
+ */
 export function mergeForMenu(
     records: BackendRecord[],
     discovered: DiscoveredBackend[],
@@ -158,7 +169,7 @@ export function mergeForMenu(
     const unsaved: MenuEntry[] = live
         .filter((entry) => !records.some((record) => matchesDiscovered(record, entry)))
         .map((entry) => ({
-            id: entry.backendUid,
+            id: backendIdFor(entry.address, entry.instanceId),
             displayName: entry.displayName || entry.hostname,
             instanceId: entry.instanceId,
             host: entry.address,

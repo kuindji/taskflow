@@ -44,6 +44,10 @@ function isSafeLabel(value: string): boolean {
     return SAFE_LABEL.test(value);
 }
 
+function isValidPort(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
+}
+
 /**
  * Anything on the LAN can send us bytes, so every field is checked and any
  * surprise returns null rather than throwing.
@@ -73,9 +77,7 @@ function parseDatagram(bytes: Uint8Array): BeaconAnnounce | BeaconProbe | null {
     ) {
         return null;
     }
-    if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) {
-        return null;
-    }
+    if (!isValidPort(port)) return null;
     if (typeof appVersion !== "string") return null;
     if (typeof os !== "string") return null;
     if (typeof backendUid !== "string" || !isSafeLabel(backendUid)) return null;
@@ -97,4 +99,12 @@ function isStale(lastSeenAt: number, now: number): boolean {
     return now - lastSeenAt > DISCOVERY_STALE_AFTER_MS;
 }
 
-export { backendIdFor, encodeAnnounce, encodeProbe, isSafeLabel, isStale, parseDatagram };
+export {
+    backendIdFor,
+    encodeAnnounce,
+    encodeProbe,
+    isSafeLabel,
+    isStale,
+    isValidPort,
+    parseDatagram,
+};
