@@ -95,6 +95,16 @@ describe("SettingsStore network settings", () => {
             { discoverable: false, displayName: "" },
         ]);
     });
+
+    it("replaces hand-edited network values of the wrong type with defaults", async () => {
+        // The advertiser calls `displayName.trim()` on every announce; a number
+        // here would throw inside the bind callback and take the backend down.
+        await writeFile(
+            join(tempDir, "settings.json"),
+            JSON.stringify({ network: { discoverable: "no", displayName: 5 } }),
+        );
+        expect((await store.get()).network).toEqual(DEFAULT_NETWORK);
+    });
 });
 
 describe("SettingsStore", () => {

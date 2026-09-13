@@ -23,6 +23,7 @@ import type {
     ClaudeSettings,
     CodexSettings,
     EditorSettings,
+    NetworkSettings,
     GeneralSettings,
     OpenCodeSettings,
     RemoteAgentSettings,
@@ -243,6 +244,21 @@ function normalizeRemoteAgentSettings(
     return changed;
 }
 
+/** The advertiser reads these on every announce, so a hand-edited value of the
+ *  wrong type would throw there and take the backend down. */
+function normalizeNetworkSettings(settings: NetworkSettings, defaults: NetworkSettings): boolean {
+    let changed = false;
+    if (typeof settings.discoverable !== "boolean") {
+        settings.discoverable = defaults.discoverable;
+        changed = true;
+    }
+    if (typeof settings.displayName !== "string") {
+        settings.displayName = defaults.displayName;
+        changed = true;
+    }
+    return changed;
+}
+
 export class SettingsStore {
     private updateListeners = new Set<(settings: AppSettings) => void>();
 
@@ -315,6 +331,8 @@ export class SettingsStore {
             needsMigration =
                 normalizeRemoteAgentSettings(result.remoteAgent, defaults.remoteAgent) ||
                 needsMigration;
+            needsMigration =
+                normalizeNetworkSettings(result.network, defaults.network) || needsMigration;
 
             // Persist migration so it only runs once
             if (needsMigration) {
