@@ -6,7 +6,6 @@ import { buildReorderedProjectIds } from "@taskflow/shared";
 import type { Notification, Project } from "@taskflow/shared";
 import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import type { Scoped } from "@/lib/backend-scope";
-import { cn } from "@/lib/utils";
 import { requirePrimary, useBackendStore } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -29,7 +28,8 @@ import { UpdateDialog } from "./UpdateDialog";
 import type { UpdateStatus } from "./UpdateDialog";
 import { OfflineIndicator } from "./OfflineIndicator";
 import { SidebarToolbar } from "./SidebarToolbar";
-import { Bell, FolderPlus, Monitor, Plus } from "lucide-react";
+import { MachinesMenu } from "./MachinesMenu";
+import { Bell, FolderPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 
@@ -464,19 +464,10 @@ export function TaskSidebar() {
             {/* <Separator /> */}
             <Toolbar noBorder className="justify-between">
                 <div className="flex items-center">
-                    <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={handleMasterWorkspace}
-                        aria-label="Master Workspace"
-                        tooltip="Master Workspace"
-                        tooltipSide="right"
-                        className={cn(
-                            "[-webkit-app-region:no-drag]",
-                            masterWorkspaceActive ? "text-accent" : "",
-                        )}>
-                        <Monitor className="h-3.5 w-3.5" />
-                    </Button>
+                    <MachinesMenu
+                        masterWorkspaceActive={masterWorkspaceActive}
+                        onMasterWorkspace={handleMasterWorkspace}
+                    />
                     {notifications.length > 0 && (
                         <NotificationPopover
                             open={notificationPopoverOpen}

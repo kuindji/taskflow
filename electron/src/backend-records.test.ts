@@ -218,6 +218,18 @@ describe("mergeForMenu", () => {
         );
         expect(entries.map((e) => e.id)).toEqual(["192.168.1.20:main", "192.168.1.66:main"]);
     });
+
+    test("a saved row carries its ssh login for editing; a discovered one does not", () => {
+        const entries = mergeForMenu(
+            [record({ id: "a", host: "a", user: "ivan", sshPort: 2222 })],
+            [beacon({ address: "192.168.1.66" })],
+            1_000,
+        );
+        expect(entries.map((e) => [e.id, e.user, e.sshPort])).toEqual([
+            ["a", "ivan", 2222],
+            ["192.168.1.66:main", undefined, undefined],
+        ]);
+    });
 });
 
 describe("upsertRecord", () => {

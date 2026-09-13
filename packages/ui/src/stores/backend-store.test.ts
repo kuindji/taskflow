@@ -473,4 +473,35 @@ describe("backend store refresh", () => {
             ["local", "offline", true],
         ]);
     });
+
+    test("a refresh while the user's attach opens the tunnel keeps the machine wanted", async () => {
+        seedRow("abc123");
+        store.setState((state) => ({
+            machines: state.machines.map((m) => ({ ...m, keepAttached: false })),
+        }));
+        let openTunnel: (result: AttachResult) => void = () => {};
+        main.attachBackend = () => new Promise((resolve) => (openTunnel = resolve));
+        // Main persists `attached: true` only once the tunnel is open.
+        const original = bridge.listBackends;
+        bridge.listBackends = () =>
+            Promise.resolve([
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    attached: false,
+                    saved: true,
+                    seen: true,
+                },
+            ]);
+        cleanups.push(() => (bridge.listBackends = original));
+
+        const attaching = store.getState().attach("abc123");
+        await store.getState().refresh();
+
+        expect(row("abc123")?.keepAttached).toBe(true);
+        openTunnel({ ok: false, failure: failure("no route") });
+        await attaching;
+    });
 });

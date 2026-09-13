@@ -166,6 +166,8 @@ export function mergeForMenu(
         attached: record.attached,
         saved: true,
         seen: live.some((entry) => matchesDiscovered(record, entry)),
+        user: record.user,
+        sshPort: record.sshPort,
     }));
     const unsaved: MenuEntry[] = live
         .filter((entry) => !records.some((record) => matchesDiscovered(record, entry)))

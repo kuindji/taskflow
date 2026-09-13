@@ -53,6 +53,9 @@ export interface MenuEntry {
     attached: boolean;
     saved: boolean;
     seen: boolean;
+    /** The saved record's ssh login, for editing. Absent on an unsaved discovered row. */
+    user?: string;
+    sshPort?: number;
 }
 
 export type TunnelFailureKind =

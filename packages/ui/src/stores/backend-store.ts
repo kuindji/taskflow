@@ -288,6 +288,10 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 state: previous?.state ?? "offline",
                 failure: previous?.failure,
                 backendUid: previous?.backendUid,
+                // Main persists `attached` only once the tunnel is open, so a
+                // refresh landing mid-attach would read the old `false` and
+                // drop the section of a machine the user just ticked.
+                keepAttached: previous?.state === "attaching" ? true : base.keepAttached,
             };
         }
 
