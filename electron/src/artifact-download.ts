@@ -1,5 +1,7 @@
+import { randomUUID } from "crypto";
 import { createWriteStream } from "fs";
-import { rm } from "fs/promises";
+import { rename, rm } from "fs/promises";
+import { basename, dirname, join } from "path";
 import { pipeline } from "stream/promises";
 import type { AttachedBackend } from "./attached-backends";
 
@@ -40,8 +42,9 @@ function isArtifactUrl(value: string, attached: AttachedBackend[]): boolean {
  * when the download starts, not only when it was asked for: the save dialog in between
  * can stay open while that machine is detached. Redirects are refused: following one
  * would fetch an origin that check never saw. The body is streamed to disk, since an
- * artifact can be larger than main should hold in memory; a download that breaks off
- * removes its partial file.
+ * artifact can be larger than main should hold in memory. It is written beside
+ * `destination` and renamed over it only once complete, so a download that breaks off
+ * removes its own partial file and leaves a file the user chose to replace as it was.
  */
 async function downloadArtifact(
     url: string,
@@ -54,10 +57,12 @@ async function downloadArtifact(
         throw new Error((await response.text()) || `HTTP ${response.status}`);
     }
     if (!response.body) throw new Error("Artifact response has no body");
+    const partial = join(dirname(destination), `.${basename(destination)}.${randomUUID()}.part`);
     try {
-        await pipeline(chunksOf(response.body), createWriteStream(destination));
+        await pipeline(chunksOf(response.body), createWriteStream(partial));
+        await rename(partial, destination);
     } catch (err) {
-        await rm(destination, { force: true });
+        await rm(partial, { force: true });
         throw err;
     }
 }

@@ -1,7 +1,15 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { downloadArtifact, isArtifactUrl } from "./artifact-download";
 
 type Server = ReturnType<typeof Bun.serve>;
@@ -16,9 +24,19 @@ function serve(fetch: () => Response): Server {
     return server;
 }
 
+/** A fresh path, alone in its own directory so a download's other files are visible. */
 function destination(): string {
     fileCount += 1;
-    return join(dir, `artifact-${fileCount}`);
+    const own = join(dir, `save-${fileCount}`);
+    mkdirSync(own);
+    return join(own, "artifact");
+}
+
+/** Files next to `target` other than `target` itself: a download still being written. */
+function inProgressFiles(target: string): string[] {
+    return readdirSync(dirname(target))
+        .filter((name) => name !== basename(target))
+        .map((name) => join(dirname(target), name));
 }
 
 function errorMessage(err: unknown): string {
@@ -139,7 +157,9 @@ test("a large artifact is written as it arrives, not held whole in memory first"
     const deadline = Date.now() + 2000;
     let early = "";
     while (Date.now() < deadline) {
-        early = existsSync(target) ? readFileSync(target, "utf-8") : "";
+        early = inProgressFiles(target)
+            .map((file) => readFileSync(file, "utf-8"))
+            .join("");
         if (early === "PART-1") break;
         await Bun.sleep(20);
     }
@@ -148,20 +168,41 @@ test("a large artifact is written as it arrives, not held whole in memory first"
 
     expect(early).toBe("PART-1");
     expect(readFileSync(target, "utf-8")).toBe("PART-1PART-2");
+    expect(inProgressFiles(target)).toEqual([]);
+});
+
+/** A body that breaks off after its first chunk, once the response is already under way. */
+function breakingBody(): Response {
+    return new Response(
+        new ReadableStream({
+            async start(controller) {
+                controller.enqueue(new TextEncoder().encode("PART-1"));
+                await Bun.sleep(100);
+                controller.error(new Error("connection lost"));
+            },
+        }),
+    );
+}
+
+test("a failed download leaves the file the user chose to replace untouched", async () => {
+    const backend = serve(breakingBody);
+    const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/recording/raw`;
+    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const target = destination();
+    writeFileSync(target, "USER-OLD");
+
+    const outcome = await downloadArtifact(url, () => attachedNow, target).then(
+        () => "saved",
+        () => "failed",
+    );
+
+    expect(outcome).toBe("failed");
+    expect(readFileSync(target, "utf-8")).toBe("USER-OLD");
+    expect(inProgressFiles(target)).toEqual([]);
 });
 
 test("a body that breaks off mid-download leaves no partial file", async () => {
-    const backend = serve(
-        () =>
-            new Response(
-                new ReadableStream({
-                    start(controller) {
-                        controller.enqueue(new TextEncoder().encode("PART-1"));
-                        controller.error(new Error("connection lost"));
-                    },
-                }),
-            ),
-    );
+    const backend = serve(breakingBody);
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/recording/raw`;
     const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
     const target = destination();
@@ -173,4 +214,5 @@ test("a body that breaks off mid-download leaves no partial file", async () => {
 
     expect(outcome).toBe("failed");
     expect(existsSync(target)).toBe(false);
+    expect(inProgressFiles(target)).toEqual([]);
 });
