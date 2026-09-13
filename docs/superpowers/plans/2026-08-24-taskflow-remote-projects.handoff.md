@@ -17,7 +17,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
-| 3 | Shared discovery types and the pure beacon codec | implemented | `f32c53f` | `a0a0907` | |
+| 3 | Shared discovery types and the pure beacon codec | in-review round 1 | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
@@ -136,6 +136,26 @@ minting and the R1 re-disconnect in `ws/server.ts`; it reran
 and its owners so the next `FILE_WATCH` recreates it with only that client, is the behaviour
 the plan's Step 3 explicitly accepts. **Task 2 is clear.**
 
+### Task 3, round 1 (Codex gpt-5.5, prompted review of `f32c53f..a0a0907`, packages only)
+
+Two low-severity findings, both plan-faithful gaps at the LAN trust boundary, both
+reproduced with failing tests before fixing (`cd0fc47`):
+
+1. **Non-integer `protocolVersion` accepted — confirmed, fixed.** `"protocolVersion":1e309`
+   is valid JSON, parses to `Infinity`, and came back as a valid announce (serializes to
+   `null` over IPC/JSON later). Now `Number.isInteger`. Test: "returns null for a
+   protocolVersion that is not an integer" (1e309, 1.5, -1e309).
+2. **`displayName` over `DISCOVERY_MAX_DISPLAY_NAME` accepted — confirmed, fixed.** An
+   800-char name fits in the 1 KiB datagram and was returned whole. The advertiser (superseded
+   plan Task 3 Step 9, i.e. this plan's Task 4) clamps with `.slice(0, 64)` in UTF-16 units,
+   so the parse-side `length > 64` check never rejects an honest backend. Test: "returns null
+   for a displayName longer than the cap".
+
+Codex otherwise found no drift from the superseded plan's Task 2 or Deltas A–C, no extra
+returned keys, and no name/signature drift against later consumers. My own read agreed; the
+`@taskflow/shared/discovery` subpath the later tasks import is created by Task 4 (superseded
+Task 3 Step creating `discovery/index.ts` + package `exports`), so its absence is expected.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -169,6 +189,9 @@ the plan's Step 3 explicitly accepts. **Task 2 is clear.**
   superseded spec's line reference.
 
 ## Validation baseline
+
+After Task 3 R1 fix (`cd0fc47`): `bun test packages/shared` 130 pass, 0 fail (codec 15);
+`bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
 After Task 3 (`a0a0907`): `bun test packages/shared` 128 pass, 0 fail; beacon codec 13
 pass; `bun run typecheck` clean; eslint and prettier clean on the changed files. Change is
@@ -207,6 +230,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 3 review round 1 — Codex gpt-5.5 prompted review of `f32c53f..a0a0907`
-(packages only), checked against the superseded plan's Task 2 plus this plan's Deltas A–C.
-Review needed: the codec is the LAN-facing trust boundary.
+Next step: Task 3 review round 2 — Codex gpt-5.5 prompted review of `f32c53f..cd0fc47`
+(packages only), checked against the superseded plan's Task 2 plus this plan's Deltas A–C
+and the R1 parse-side caps (integer `protocolVersion`, `displayName` ≤ 64).
