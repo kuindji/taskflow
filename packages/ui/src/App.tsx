@@ -22,6 +22,7 @@ import { WikiPanel } from "@/components/panels/WikiPanel";
 import { TaskInfoPanel } from "@/components/panels/TaskInfoPanel";
 import { FlowPanel } from "@/components/flows/FlowPanel";
 import { Workspace } from "@/components/workspace/Workspace";
+import { useBackendStore } from "@/stores/backend-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -87,6 +88,7 @@ export function App() {
         activeOwnerId ? s.activeRuns[activeOwnerId] : undefined,
     );
     const flowPanelOpen = useUIStore((s) => s.flowPanelOpen);
+    const shellKey = useBackendStore((s) => s.shellKey);
 
     // Auto-open flow panel when a flow run appears
     const prevFlowRunId = useRef<string | undefined>(undefined);
@@ -144,6 +146,7 @@ export function App() {
                 <TaskCreationDialogHost />
                 <TooltipProvider>
                     <AppShell
+                        key={shellKey}
                         sidebar={<TaskSidebar />}
                         fileExplorer={<FileExplorer />}
                         searchPanel={<SearchPanel />}

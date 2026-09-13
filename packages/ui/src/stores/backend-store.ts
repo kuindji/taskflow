@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
 import type { SystemInfoResponse, TunnelFailure } from "@taskflow/shared";
+import { dirtyFilePaths } from "@/components/panes/editor-dirty-state";
+import { initConnectivity } from "@/hooks/useConnectivity";
 import {
     closeConnection,
     onStatusChange,
@@ -47,9 +49,33 @@ export type MachineState = {
     backendUid?: string;
 };
 
+/** Local is not a record; main answers its attach with the local origin. */
+export const LOCAL_BACKEND_ID = "local";
+
+export type SwitchResult =
+    | { ok: true }
+    | { ok: false; reason: "dirty"; files: string[] }
+    | { ok: false; reason: "unreachable"; failure: TunnelFailure }
+    | { ok: false; reason: "busy" };
+
 interface BackendStore {
     machines: MachineState[];
     primaryId: string | null;
+    /** The app shell's `key`: bumped when a hard switch changes primary. */
+    shellKey: number;
+    /**
+     * A hard switch is running. For rendering only — the controls that start
+     * one are disabled off it; the guard itself is `switchInFlight`.
+     */
+    switching: boolean;
+    /**
+     * Hard switch: make `id` the only attached machine and primary. The target
+     * is prepared first and never torn down, so a failure leaves the attached
+     * set untouched.
+     */
+    workAs(id: string): Promise<SwitchResult>;
+    /** `workAs` local. */
+    returnToLocal(): Promise<SwitchResult>;
     /**
      * Resolves to the id the machine ended up attached under — its uid after a
      * first handshake renames it — or null when it did not attach. Callers
@@ -156,6 +182,28 @@ function renameRow(fromId: string, toId: string): void {
 export const useBackendStore = create<BackendStore>((_set, get) => ({
     machines: [],
     primaryId: null,
+    shellKey: 0,
+    switching: false,
+
+    async workAs(id) {
+        // One switch at a time. Two in flight each detach everything except
+        // their own target, so each closes the other's: pick b and c while a,
+        // b and c are attached, and every backend ends up offline — including
+        // both targets that were just validated. A double-click is enough.
+        if (switchInFlight) return { ok: false, reason: "busy" };
+        switchInFlight = true;
+        useBackendStore.setState({ switching: true });
+        try {
+            return await runSwitch(id);
+        } finally {
+            switchInFlight = false;
+            useBackendStore.setState({ switching: false });
+        }
+    },
+
+    returnToLocal() {
+        return get().workAs(LOCAL_BACKEND_ID);
+    },
 
     async attach(id) {
         const attempt = nextAttempt(id);
@@ -429,6 +477,68 @@ export function requirePrimary(): string {
 export function setPrimaryBackend(id: string): void {
     setPrimary(id);
     useBackendStore.setState({ primaryId: id });
+}
+
+/**
+ * Beside the store rather than in it: it guards a procedure, and state would
+ * invite a component to render off it and race the guard it exists to be.
+ */
+let switchInFlight = false;
+
+/** Unsaved buffers on any machine the switch would detach, which disposes their models. */
+function refusedAsDirty(target: string): SwitchResult | null {
+    const files = dirtyFilePaths(target);
+    return files.length > 0 ? { ok: false, reason: "dirty", files } : null;
+}
+
+/** Only `workAs` calls this, inside its guard. */
+async function runSwitch(id: string): Promise<SwitchResult> {
+    const dirty = refusedAsDirty(id);
+    if (dirty) return dirty;
+
+    // Prepare the target first and never tear it down. Reuse it as-is if it
+    // is already attached, which is the likely case. Otherwise address it by
+    // the id `attach` hands back: a first handshake renames a provisional
+    // record onto its uid, and by the id we were given it no longer exists.
+    let target = id;
+    const machines = () => useBackendStore.getState().machines;
+    if (!machines().some((m) => m.id === id && m.state === "attached")) {
+        const attached = await useBackendStore.getState().attach(id);
+        // `attach` answers once the bootstrap ran, and a bootstrap that could
+        // not load the machine's projects leaves it offline: not usable as primary.
+        const row = machines().find((m) => m.id === (attached ?? id));
+        if (attached === null || row?.state !== "attached") {
+            return {
+                ok: false,
+                reason: "unreachable",
+                failure: row?.failure ?? unknownFailure("The machine did not attach"),
+            };
+        }
+        target = attached;
+        // A buffer may have been edited while the target attached.
+        const dirtyNow = refusedAsDirty(target);
+        if (dirtyNow) return dirtyNow;
+    }
+
+    // Promote before detaching anything: closing the old primary's connection
+    // clears primary in the registry, and every surface that addresses primary
+    // — the connection overlay first — would read "not connected" until the
+    // loop below finished.
+    setPrimaryBackend(target);
+    initConnectivity(target);
+
+    // Detach everything except the target through the same `detach` the menu
+    // uses, so each row goes offline and its socket subscription is dropped —
+    // local included; main's IPC layer makes local's detach a no-op on its
+    // side. Snapshot first: the detaches mutate the list.
+    for (const machine of [...machines()]) {
+        if (machine.id === target) continue;
+        await useBackendStore.getState().detach(machine.id, "switch");
+    }
+
+    // Primary changing re-roots theme, master workspace, settings and connectivity.
+    useBackendStore.setState((state) => ({ shellKey: state.shellKey + 1 }));
+    return { ok: true };
 }
 
 window.taskflow?.onBackendsChanged(() => void useBackendStore.getState().refresh());

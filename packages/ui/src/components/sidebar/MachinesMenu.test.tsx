@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { MenuEntry, TunnelFailure } from "@taskflow/shared";
 import { useBackendStore } from "@/stores/backend-store";
-import type { MachineState } from "@/stores/backend-store";
+import type { MachineState, SwitchResult } from "@/stores/backend-store";
+import { useDialogStore } from "@/stores/dialog-store";
 import { MachinesMenu } from "./MachinesMenu";
 
 // @ts-expect-error react act env flag, no upstream type for this global
@@ -21,9 +22,11 @@ afterEach(() => {
     useBackendStore.setState({
         machines: [],
         primaryId: null,
+        switching: false,
         attach: original.attach,
         detach: original.detach,
         refresh: original.refresh,
+        workAs: original.workAs,
     });
 });
 
@@ -187,6 +190,94 @@ test("Work as… is its own submenu entry, not another checkbox row", async () =
     );
     expect(workAs?.getAttribute("aria-haspopup")).toBe("menu");
     expect(checkboxes().some((item) => item.textContent?.includes("Work as"))).toBe(false);
+});
+
+/** Stub the hard switch; the returned list records every target it was asked for. */
+function stubWorkAs(result: SwitchResult = { ok: true }): string[] {
+    const targets: string[] = [];
+    useBackendStore.setState({
+        workAs: (id) => {
+            targets.push(id);
+            return Promise.resolve(result);
+        },
+    });
+    return targets;
+}
+
+function menuItemNamed(name: string): HTMLElement | undefined {
+    return [...document.querySelectorAll<HTMLElement>("[role='menuitem']")].find((item) =>
+        item.textContent?.includes(name),
+    );
+}
+
+async function openWorkAs(): Promise<void> {
+    const trigger = menuItemNamed("Work as");
+    if (!trigger) throw new Error("no Work as… entry");
+    await act(async () => {
+        trigger.focus();
+        trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        await Bun.sleep(10);
+    });
+}
+
+function returnToLocalButton(): HTMLButtonElement | null {
+    return document.querySelector<HTMLButtonElement>("button[aria-label='Return to local']");
+}
+
+test("choosing a machine under Work as… runs the hard switch for it", async () => {
+    setup([local, laptop], []);
+    const targets = stubWorkAs();
+    await render();
+    await openMenu();
+    await openWorkAs();
+
+    await act(async () => menuItemNamed("Laptop")?.click());
+
+    expect(targets).toEqual(["laptop-uid"]);
+});
+
+test("a refused switch names the unsaved files in a dialog", async () => {
+    setup([local, laptop], []);
+    stubWorkAs({ ok: false, reason: "dirty", files: ["/repo/a.ts"] });
+    cleanups.push(() => useDialogStore.getState().dismiss());
+    await render();
+    await openMenu();
+    await openWorkAs();
+
+    await act(async () => menuItemNamed("Laptop")?.click());
+
+    const dialog = useDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.title).toBe("Could not switch to Laptop");
+    expect(dialog.description).toContain("/repo/a.ts");
+});
+
+test("while working as another machine the toolbar names it and returns to local", async () => {
+    setup([local, laptop], []);
+    const targets = stubWorkAs();
+    useBackendStore.setState({ primaryId: "laptop-uid" });
+    await render();
+
+    const button = returnToLocalButton();
+    expect(button?.textContent).toContain("Laptop");
+    await act(async () => button?.click());
+
+    expect(targets).toEqual(["local"]);
+});
+
+test("the return control is disabled, not hidden, while a switch runs", async () => {
+    setup([local, laptop], []);
+    useBackendStore.setState({ primaryId: "laptop-uid", switching: true });
+    await render();
+
+    expect(returnToLocalButton()?.disabled).toBe(true);
+});
+
+test("working as local shows no return control", async () => {
+    setup([local, laptop], []);
+    await render();
+
+    expect(returnToLocalButton()).toBeNull();
 });
 
 function hostKeyFailure(kind: TunnelFailure["kind"], stderr = ""): TunnelFailure {

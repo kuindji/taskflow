@@ -1,10 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { initConnectivity } from "../hooks/useConnectivity";
 import { onPrimaryStatusChange, openConnection } from "../lib/connection-registry";
-import { setPrimaryBackend, useBackendStore } from "../stores/backend-store";
+import { LOCAL_BACKEND_ID, setPrimaryBackend, useBackendStore } from "../stores/backend-store";
 import { WsContext } from "./ws-context";
-
-const LOCAL_BACKEND_ID = "local";
 
 /** The non-Electron dev renderer: one connection to `VITE_BACKEND_PORT`, no machines. */
 async function connectDevRenderer(): Promise<void> {

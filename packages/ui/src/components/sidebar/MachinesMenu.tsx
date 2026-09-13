@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MenuEntry, TunnelFailure } from "@taskflow/shared";
-import { Loader2, Monitor, Plus } from "lucide-react";
+import { Loader2, Monitor, Plus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -21,8 +21,9 @@ import {
 } from "@/lib/native-menu";
 import type { NativeMenuActionMap, NativeMenuItem } from "@/lib/native-menu";
 import { cn } from "@/lib/utils";
-import { useBackendStore } from "@/stores/backend-store";
-import type { MachineState } from "@/stores/backend-store";
+import { LOCAL_BACKEND_ID, useBackendStore } from "@/stores/backend-store";
+import { alert } from "@/stores/dialog-store";
+import type { MachineState, SwitchResult } from "@/stores/backend-store";
 import { ipcErrorMessage } from "./backend-fields";
 import { ConnectBackendDialog } from "./ConnectBackendDialog";
 import { ManageBackendsDialog } from "./ManageBackendsDialog";
@@ -45,6 +46,24 @@ interface MachineRow {
 
 function nameOf(displayName: string, instanceId: string): string {
     return instanceId === "main" ? displayName : `${displayName} · ${instanceId}`;
+}
+
+function labelOf(machine: MachineState): string {
+    return machine.isLocal
+        ? "This machine (local)"
+        : nameOf(machine.displayName, machine.instanceId);
+}
+
+/** Why a switch did not happen. */
+function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
+    switch (result.reason) {
+        case "dirty":
+            return `Save or discard unsaved changes first: ${result.files.join(", ")}`;
+        case "unreachable":
+            return result.failure.message;
+        case "busy":
+            return "A switch is already under way.";
+    }
 }
 
 function statusOf(machine: MachineState, seen: boolean): string {
@@ -71,9 +90,7 @@ function buildRows(
     const seen = new Set(entries.filter((entry) => entry.seen).map((entry) => entry.id));
     const rows: MachineRow[] = machines.map((machine) => ({
         id: machine.id,
-        label: machine.isLocal
-            ? "This machine (local)"
-            : nameOf(machine.displayName, machine.instanceId),
+        label: labelOf(machine),
         status: statusOf(machine, seen.has(machine.id)),
         // `keepAttached`, not `state`: a machine whose tunnel died is still one
         // the user wants, and unticking it is how they say otherwise.
@@ -108,6 +125,7 @@ function isHostKeyFailure(failure: TunnelFailure | undefined): failure is Tunnel
 function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenuProps) {
     const machines = useBackendStore((s) => s.machines);
     const primaryId = useBackendStore((s) => s.primaryId);
+    const switching = useBackendStore((s) => s.switching);
     const [open, setOpen] = useState(false);
     const [entries, setEntries] = useState<MenuEntry[]>([]);
     const [notice, setNotice] = useState<string | null>(null);
@@ -172,6 +190,22 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
         });
     }
 
+    /**
+     * A dialog rather than the menu's notice line: the item that started the
+     * switch has closed its menu, and a native menu cannot show a notice at all.
+     */
+    async function switchTo(id: string, label: string): Promise<void> {
+        let reason: string;
+        try {
+            const result = await useBackendStore.getState().workAs(id);
+            if (result.ok) return;
+            reason = switchRefusal(result);
+        } catch (error) {
+            reason = ipcErrorMessage(error, "The switch failed.");
+        }
+        await alert({ title: `Could not switch to ${label}`, description: reason });
+    }
+
     const rows = buildRows(machines, entries, primaryId);
     const workAsTargets = machines.filter((machine) => machine.id !== primaryId);
 
@@ -212,14 +246,15 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
         items.push({
             label: "Work as…",
             type: "submenu",
-            // TODO(remote-projects): Task 21 adds the hard switch these run.
             submenu:
                 targets.length === 0
                     ? [{ label: "No other machines", enabled: false }]
-                    : targets.map((machine) => ({
-                          label: nameOf(machine.displayName, machine.instanceId),
-                          enabled: false,
-                      })),
+                    : targets.map((machine) => {
+                          const id = `work-as:${machine.id}`;
+                          const label = labelOf(machine);
+                          actions[id] = () => switchTo(machine.id, label);
+                          return { id, label, enabled: !store.switching };
+                      }),
         });
         items.push({ id: "connect", label: "Connect to backend…" });
         actions.connect = () => setConnectOpen(true);
@@ -262,6 +297,10 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
             )}
         </Button>
     );
+
+    // Hard-switched: primary is another machine. A mode you can enter and
+    // forget is a bad mode, so it stays named in the toolbar while it lasts.
+    const workingAs = machines.find((machine) => machine.id === primaryId && !machine.isLocal);
 
     const trustMachine = machines.find(
         (machine) => isHostKeyFailure(machine.failure) && !dismissedFailures.has(machine.failure),
@@ -325,13 +364,17 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
                         <DropdownMenuSub>
                             <DropdownMenuSubTrigger>Work as…</DropdownMenuSubTrigger>
                             <DropdownMenuSubContent>
-                                {/* TODO(remote-projects): Task 21 adds the hard switch these run. */}
                                 {workAsTargets.length === 0 ? (
                                     <DropdownMenuItem disabled>No other machines</DropdownMenuItem>
                                 ) : (
                                     workAsTargets.map((machine) => (
-                                        <DropdownMenuItem key={machine.id} disabled>
-                                            {nameOf(machine.displayName, machine.instanceId)}
+                                        <DropdownMenuItem
+                                            key={machine.id}
+                                            disabled={switching}
+                                            onSelect={() =>
+                                                void switchTo(machine.id, labelOf(machine))
+                                            }>
+                                            {labelOf(machine)}
                                         </DropdownMenuItem>
                                     ))
                                 )}
@@ -349,6 +392,22 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
+            )}
+            {workingAs && (
+                <Button
+                    variant="ghost"
+                    size="xs"
+                    // Disabled, not hidden, mid-switch: "busy" is not something
+                    // the user should be able to provoke and then interpret.
+                    disabled={switching}
+                    onClick={() => void switchTo(LOCAL_BACKEND_ID, "this machine")}
+                    aria-label="Return to local"
+                    tooltip={`Working as ${labelOf(workingAs)} — return to local`}
+                    tooltipSide="right"
+                    className="text-accent max-w-40 [-webkit-app-region:no-drag]">
+                    <Undo2 className="h-3.5 w-3.5" />
+                    <span className="truncate">{labelOf(workingAs)}</span>
+                </Button>
             )}
             <ConnectBackendDialog open={connectOpen} onOpenChange={setConnectOpen} />
             <ManageBackendsDialog open={manageOpen} onOpenChange={setManageOpen} />

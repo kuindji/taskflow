@@ -1,8 +1,18 @@
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
-import type { MenuEntry, TunnelFailure } from "@taskflow/shared";
+import type { MenuEntry } from "@taskflow/shared";
 import { BackendDetachedError, closeConnection, sendRequest } from "@/lib/connection-registry";
 import type { useBackendStore as UseBackendStore } from "./backend-store";
+import {
+    bridge,
+    emitBackendDropped,
+    emitBackendSeen,
+    installFakeBridge,
+    main,
+    resetFakeMain,
+    tunnelFailure,
+    uninstallFakeBridge,
+} from "./fake-desktop-bridge";
 
 type Bridge = NonNullable<Window["taskflow"]>;
 type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
@@ -51,76 +61,21 @@ function startBackend(
     };
 }
 
-interface FakeMain {
-    attachBackend: (id: string) => Promise<AttachResult>;
-    confirmBackend: Bridge["confirmBackend"];
-    detached: string[];
-    confirmed: string[];
-}
-
-const main: FakeMain = {
-    attachBackend: () => Promise.resolve({ ok: false, failure: failure("unset") }),
-    confirmBackend: () => Promise.reject(new Error("unset")),
-    detached: [],
-    confirmed: [],
-};
-
-function failure(message: string): TunnelFailure {
-    return { kind: "unknown", message, stderr: "" };
-}
-
-let backendSeen: (id: string) => void = () => {};
-let backendDropped: (id: string, failure: TunnelFailure) => void = () => {};
-
-const bridge: Pick<
-    Bridge,
-    | "attachBackend"
-    | "confirmBackend"
-    | "detachBackend"
-    | "listBackends"
-    | "getAttached"
-    | "onBackendsChanged"
-    | "onBackendDropped"
-    | "onBackendSeen"
-    | "sendTrayState"
-> = {
-    // Session state reports the tray on import; the bootstrap's flow store pulls it in.
-    sendTrayState: () => {},
-    attachBackend: (id) => main.attachBackend(id),
-    confirmBackend: (id, info) => {
-        main.confirmed.push(id);
-        return main.confirmBackend(id, info);
-    },
-    detachBackend: (id) => {
-        main.detached.push(id);
-        return Promise.resolve();
-    },
-    listBackends: () => Promise.resolve([]),
-    getAttached: () => Promise.resolve([]),
-    onBackendsChanged: () => () => {},
-    onBackendDropped: (handler) => {
-        backendDropped = handler;
-        return () => {};
-    },
-    onBackendSeen: (handler) => {
-        backendSeen = handler;
-        return () => {};
-    },
-};
+const failure = tunnelFailure;
 
 let store: typeof UseBackendStore;
 
 beforeAll(async () => {
-    window.taskflow = bridge as Bridge;
-    ({ useBackendStore: store } = await import("./backend-store"));
+    ({ useBackendStore: store } = await installFakeBridge());
 });
+
+afterAll(uninstallFakeBridge);
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
     for (const machine of store.getState().machines) closeConnection(machine.id, "detach");
     cleanups.splice(0).forEach((cleanup) => cleanup());
-    main.detached = [];
-    main.confirmed = [];
+    resetFakeMain();
 });
 
 function seedRow(id: string): void {
@@ -335,7 +290,7 @@ describe("backend store attach", () => {
 
         const attaching = store.getState().attach("abc123");
         while (main.confirmed.length < 1) await Bun.sleep(5);
-        backendDropped("abc123", failure("ssh exited"));
+        emitBackendDropped("abc123", failure("ssh exited"));
         answerConfirm();
 
         expect(await attaching).toBeNull();
@@ -421,7 +376,7 @@ describe("backend store beacon", () => {
     test("a beacon from a machine the user detached does not dial it", async () => {
         const { dials } = beaconSetup(false);
 
-        backendSeen("abc123");
+        emitBackendSeen("abc123");
         await Bun.sleep(20);
 
         expect(dials()).toBe(0);
@@ -431,7 +386,7 @@ describe("backend store beacon", () => {
     test("a beacon from an attached machine that went offline dials it again", async () => {
         const { dials } = beaconSetup(true);
 
-        backendSeen("abc123");
+        emitBackendSeen("abc123");
         await Bun.sleep(20);
 
         expect(dials()).toBe(1);
@@ -448,7 +403,7 @@ describe("backend store beacon", () => {
             return new Promise((resolve) => (answerList = () => void stale().then(resolve)));
         };
 
-        backendSeen("abc123");
+        emitBackendSeen("abc123");
         while (!listed) await Bun.sleep(5);
         await store.getState().detach("abc123");
         answerList();

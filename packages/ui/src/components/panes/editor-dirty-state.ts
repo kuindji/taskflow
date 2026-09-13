@@ -52,6 +52,16 @@ function clearEditorDirty(backendId: string, filePath: string): void {
     dirtyModels.get(backendId)?.delete(filePath);
 }
 
+/** Paths with unsaved edits on every machine except `keepBackendId`, which a hard switch keeps. */
+function dirtyFilePaths(keepBackendId: string): string[] {
+    const paths = new Set<string>();
+    for (const [backendId, models] of dirtyModels) {
+        if (backendId === keepBackendId) continue;
+        for (const [filePath, dirty] of models) if (dirty) paths.add(filePath);
+    }
+    return [...paths];
+}
+
 function getViewState(
     backendId: string,
     filePath: string,
@@ -82,6 +92,7 @@ export {
     isEditorDirty,
     setEditorDirty,
     clearEditorDirty,
+    dirtyFilePaths,
     getViewState,
     saveViewState,
     setPendingLine,
