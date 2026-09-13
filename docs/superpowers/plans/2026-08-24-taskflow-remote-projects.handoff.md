@@ -28,7 +28,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
-| 14 | Per-machine caches and path-keyed stores | implemented | `f03c740` | `fba0011` | |
+| 14 | Per-machine caches and path-keyed stores | in-review round 2 | `f03c740` | `fba0011`, `5bae8ff` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
@@ -804,6 +804,42 @@ ever claimed only come from live `addTab` calls. The session-activity reset runs
 (import order) and leaves owner entries for it to read. `resetBackend`'s only caller, `detach`, closes the
 connection first, so no late event can re-note a session. **Task 13 is clear.**
 
+### Task 14, round 1 (Codex gpt-5.5, prompted review of `f03c740..fba0011`, packages/ui)
+
+Three findings; two reproduced with failing tests (4 red on `fba0011`) and fixed in `5bae8ff`, one rejected:
+
+1. **A replace in results still shown while another machine's search runs hits that other machine — confirmed,
+   fixed.** `search()` set `searchBackendId` when it started, and the replace methods took `rootPath` from the
+   open workspace. Search machine a at `/repo-a`, start a search on b (answer held), click replace-in-file on a's
+   result: `SEARCH_REPLACE_ALL` went to b. With one repository at one path on both machines that rewrites b's file
+   at a's match positions. Now `searchBackendId` and new `searchRoot` are set together with the results; the
+   replace methods lost their `rootPath` parameter and use both (`SearchResults`/`SearchPanel` updated; the result
+   list shows paths relative to `searchRoot ?? workingDir`). A module `pendingSearchBackendId` lets the reset drop a
+   running search's late answer while keeping another machine's shown results. Tests in `search-store.test.ts`:
+   "a replace in results still shown while a search on another machine runs acts on the results' machine and
+   root" (red: b received the replace) and "detaching the machine a running search asked drops its late answer"
+   (red: a's results cleared).
+2. **A watch that lands late stays installed on the backend — confirmed, fixed.** (My own read had noted the same
+   leak and judged it pre-existing; the generation check added in Task 14 dropped the late watch locally without
+   releasing it.) `watchPath(laptop)` held → `unwatchPath(laptop)` returns early (nothing recorded) →
+   `watchPath(desktop, other)`; when laptop's answer lands, no `FILE_UNWATCH` was ever sent, and the backend's
+   recursive watcher lives until disconnect. With only the unwatch (panel closed), the late watch was even
+   recorded. Now module `requestedWatch` (newest watch asked for, not since unwatched/detached): `unwatchPath` of a
+   still-pending watch bumps the generation and clears it; a stale landed watch sends `FILE_UNWATCH` unless
+   `requestedWatch` names the same machine and path (the backend keeps one owner entry per client and path, so
+   releasing would kill the newer one); the reset clears it for its machine. Tests in `file-store.test.ts`: "a watch
+   that lands after the pane moved to another machine is released where it landed" and "a watch unwatched before
+   it lands is released and not recorded" (both timed out red waiting for the unwatch). `test-ws-server.ts`'s
+   `respond` may now return a promise to hold an answer.
+3. **A queued `FILE_CHANGED` refresh survives a switch to another machine — rejected.** True that the 150 ms
+   timer is cleared only by a reset, but it only calls `fetchDir`/`fetchGitStatus`, which fetch the directory's
+   current listing (dirs not in the current tree are skipped by `isDirLoaded`/`setChildrenAtPath`). Worst case is
+   one redundant listing, never wrong data; the same holds for a same-machine path switch before Task 14.
+
+Own read of the full diff otherwise found nothing: `createPerBackendCache` drops a post-reset answer and never
+caches a failure; the wiki and tsconfig in-flight identity checks hold across a reset and refetch;
+`forgetRecords` gets the ids before the slices drop; `initConnectivity` has only local callers.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1144,8 +1180,19 @@ connection first, so no late event can re-note a session. **Task 13 is clear.**
 - Task 14: repros `file-backend-collision.repro.test.ts` and `wiki-backend-collision.repro.test.ts` deleted (plan notes), so
   the known baseline failures are nine now. The three `MarkdownPaneImpl` test mocks of `useActiveWorkspace` gained
   `workspaceBackendId`.
+- Task 14 R1: search results carry their machine **and root** (`searchBackendId`, `searchRoot`, set when results
+  land); `replaceMatch(filePath, match)`, `replaceInFile(filePath)`, `replaceAll(filePath?)` no longer take a root.
+  This supersedes "`searchBackendId` is set when a search starts" above. Opening a result still uses the open
+  workspace's key (pre-existing; a remote result opens from primary until Task 15/19 anyway).
+- Task 14 R1: a file watch that lands stale is released on its machine unless the newest request is the same
+  watch. Not fixed (pre-existing, same-machine too): `watchPath` returns early when `watched` already equals the
+  target even if a newer watch for another target is still in flight.
 
 ## Validation baseline
+
+After Task 14 R1 fix (`5bae8ff`): `search-store` 5 pass, `file-store` 9 pass (each alone, 3 runs; the four new tests
+red on `fba0011` first); `bun test packages/ui` 259 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run
+typecheck` clean; eslint and prettier clean on the seven changed files.
 
 After Task 14 (`fba0011`): new/changed tests pass — `per-backend-cache` 5, `wiki-store` 4, `file-store` 7 (alone),
 `search-store` 3, `ui-store.forget` 3, `aggregation` 16, `store-reset` 3 (enumeration on), `backend-store` + `useWebSocket` +
@@ -1355,6 +1402,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 14 review round 1 — one gpt-5.5 review of `f03c740..fba0011` (packages/ui). Check especially the
-deviations recorded under the Task 14 decisions (nested keys, no `ui-store` reset, search replace routed by
-`searchBackendId`, registry-based `useWorkspaceBackend`) and the "not converted" file-store requests.
+Next step: Task 14 review round 2 — one gpt-5.5 review of `f03c740..5bae8ff` (packages/ui). Check especially the
+R1 fixes (`searchRoot`/`pendingSearchBackendId` in `search-store.ts`, `requestedWatch` release in `file-store.ts`),
+and the rejected R1 finding 3 need not be re-raised.
