@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | implemented | `5f0ec24` | `f7438e4` | |
+| 20 | Electron main across several backends | in-review round 1 done | `5f0ec24` | `f7438e4`, `930a4bb` | R1: 1 fixed (Codex), 2 rejected |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1051,6 +1051,34 @@ visible " (not on this machine)" suffix; `Open in External Editor` and the nativ
 use a shared `LOCAL_ONLY_SUFFIX` from `hooks/useIsLocalBackend.ts`. Label text only, so no further review round (see
 Decisions). **Task 19 is clear.**
 
+### Task 20, round 1 (Codex gpt-5.5, prompted review of `5f0ec24..f7438e4`)
+
+Three findings; one confirmed and fixed in `930a4bb`, two rejected:
+
+1. **`save-artifact` follows redirects after its attached-origin check — confirmed, fixed.** The handler checked that
+   the URL was `/api/flow/artifact/…` on an attached origin, then `fetch(url)` with the default `redirect: "follow"`.
+   Scratch repro (Bun): a server on an allowed origin answering `302 Location: http://127.0.0.1:<other>/admin` made the
+   fetch return the other server's body. Low impact (the bytes only go to a file the user picks on this machine), but it
+   bypasses the recorded "only attached origins are fetched" contract. The check and the download moved to new
+   `electron/src/artifact-download.ts` (`isArtifactUrl(value, attached)`, `fetchArtifactBytes(url)` with
+   `redirect: "error"`) so they are testable without electron; `ipc-handlers.ts` uses them. Test
+   `electron/src/artifact-download.test.ts`: "an attached backend redirecting elsewhere does not get the other origin
+   fetched" (red with the option removed: Received "CLIENT-LOCAL"; green after), plus the accept/refuse cases (other
+   port, other route, `..` normalized away, not a URL) and the non-OK body becoming the error.
+2. **Notification click sets the bare project/task id — rejected.** Same premise as Task 18 R1 #2: project/task ids are
+   `randomUUID()`, the active ids are flat by spec design.
+3. **An in-flight poll whose origin is detached and reused by another machine's tunnel misattributes its result —
+   rejected (not reproducible in practice).** Needs machine B detached and machine C's tunnel bound to the same local
+   port within the poll's 2 s (notifications) / 1 s (tray) fetch timeout. Tunnel ports come from `listen(0)`
+   (`tunnel-manager.ts:94`), i.e. the kernel's ephemeral range (49152-65535 here), which does not hand back a just-freed
+   port in that window. The fix Codex suggests (an attachment generation carried through rename) touches the registry
+   for a race with no observable repro. Same class as my own pre-report suspicion (reuse between two polls re-using an
+   old watermark), also not filed.
+
+Own read that found nothing else: `getArtifacts` in production is `latestArtifactsByType`, so the route serves what the
+panel row shows; `FlowPanel`'s `backendId` is a required string; the renderer's tray state (`session-subscriptions.ts`)
+already aggregates every session status, so main's background aggregate only matters with no synced window.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1604,6 +1632,10 @@ Decisions). **Task 19 is clear.**
 
 ## Validation baseline
 
+After Task 20 R1 fix (`930a4bb`): `bun test electron/src` 74 pass (7 files); `artifact-download.test.ts` 3 pass, red
+(1 fail) with `redirect: "error"` removed; `bun run typecheck` clean (all packages); eslint and prettier clean on the
+three changed files.
+
 After Task 20 (`f7438e4`): `notification-poller.test.ts` 4 pass; mutation check (one watermark shared by every origin, run
 on a scratch copy) turns exactly "a machine's notification older than another machine's newest still arrives" red.
 `flow-artifact-raw.test.ts` 4 + `routes.test.ts` = 21 pass; `FlowPanel.artifacts` 2 pass. Suites run one after another:
@@ -1882,5 +1914,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 1 — Codex gpt-5.5 prompted review of `5f0ec24..f7438e4` (electron/src, the
-`flow-routes.ts` raw-artifact route and its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`).
+Next step: Task 20 review round 2 — Codex gpt-5.5 prompted review of `5f0ec24..930a4bb` (electron/src incl. new
+`artifact-download.ts`, the `flow-routes.ts` raw-artifact route and its test, `FlowPanel.tsx`, `TaskSidebar.tsx`,
+`env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and the tunnel-port-reuse race.
