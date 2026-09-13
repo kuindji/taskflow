@@ -29,7 +29,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
-| 15 | Editor identity across machines | in-review round 2 | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed |
+| 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
@@ -949,6 +949,14 @@ One own finding, fixed in `67300d3`:
    into URIs (true of the plan's string keys, not the nested maps we built); it now names the real string→URI trip
    (TS worker file names). No behaviour change.
 
+### Task 15, round 3 (Codex gpt-5.5, prompted review of `57a78e8..67300d3`, packages/ui)
+
+Clean: no findings. Codex reran `editor-uri.test.ts` and `EditorPaneImpl.machine.test.tsx` (alone and together),
+`bun run typecheck` and `git diff --check`, all passing (only React `act(...)` environment warnings). My own sweep
+agreed: every caller of the dirty-state accessors (`EditorPaneImpl`, `WorkspacePane`, `open-file`) passes a machine,
+and no `Uri.file(` / `uri.path` / `resource.path` readers remain outside the diff viewer's in-memory models.
+**Task 15 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1571,4 +1579,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 15 review round 3 — Codex gpt-5.5 prompted review of `57a78e8..67300d3` (packages/ui), against plan Task 15 (line ~4235), the Task 15 Decisions entries, and R1's rejected finding (do not re-raise the path-only `editor-navigate` event unless it shows two mounted editors on different machines). R2 was Codex-clean with only a test-only export removal fixed; if R3 is clean too, Task 15 is clear and Task 16 is next.
+Next step: implement Task 16 (Machine sections in the sidebar), plan line ~4442. Record HEAD as its base commit first.
