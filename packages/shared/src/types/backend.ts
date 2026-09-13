@@ -26,6 +26,24 @@ export interface DiscoveredBackend extends BeaconAnnounce {
     lastSeenAt: number;
 }
 
+export interface BackendRecord {
+    /** The record's key. The `backendUid` once known, otherwise a provisional
+     *  `${host}:${instanceId}`. Never assume it is one or the other. */
+    id: string;
+    /** Confirmed identity, learned at handshake. `null` until then. */
+    backendUid: string | null;
+    host: string;
+    instanceId: string;
+    displayName: string;
+    user: string;
+    sshPort: number;
+    /** The backend's own port, refreshed from the beacon. Not the tunnel's. */
+    lastKnownPort: number | null;
+    /** Restored at launch. Attach is attempted in the background, never blocking. */
+    attached: boolean;
+    addedAt: string;
+}
+
 export type TunnelFailureKind =
     | "unknown-host-key"
     | "changed-host-key"

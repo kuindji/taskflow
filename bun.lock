@@ -22,8 +22,9 @@
     },
     "electron": {
       "name": "taskflow",
-      "version": "0.14.2",
+      "version": "0.14.4",
       "dependencies": {
+        "@taskflow/shared": "workspace:*",
         "electron-updater": "^6.8.3",
       },
       "devDependencies": {

@@ -99,6 +99,7 @@
         "sharp": "^0.34.5"
     },
     "dependencies": {
+        "@taskflow/shared": "workspace:*",
         "electron-updater": "^6.8.3"
     }
 }
