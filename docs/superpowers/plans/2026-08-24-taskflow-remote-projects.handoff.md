@@ -18,7 +18,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
-| 4 | The advertiser and listener, and the backend that runs one | pending | | | |
+| 4 | The advertiser and listener, and the backend that runs one | implemented | `443a0cd` | `a64af14` | |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
@@ -197,8 +197,34 @@ which is what the plan specifies. **Task 3 is clear.**
 - Task 3: `types/backend.ts` holds no `BackendRecord` and no `MenuEntry` (Delta C); Task 5
   writes the only `BackendRecord`. The `MEMBERSHIP_REFRESH_MS` comment dropped the
   superseded spec's line reference.
+- Task 4: `SettingsStore.update()` also applies `partial.network` (`applyNullable`). The
+  superseded plan's Step 8 adds defaults/clone/merge but no update branch, so a Settings
+  toggle would never have persisted. New test "persists a network update and tells update
+  listeners the re-read settings".
+- Task 4: the superseded plan's "stopping the advertiser stops new announcements" test
+  flaked 1/6 as written (a loopback duplicate of a pre-stop announce landed 75 ms after
+  `stop()`). The test now waits 300 ms after `stop()` before sampling `lastSeenAt`;
+  20/20 runs pass. The multicast test also asserts `backendUid` comes through.
+- Task 4: the plan's long code comments were trimmed of references to the superseded
+  spec's line numbers and review-round history; the substance is kept.
+- Task 4: Step 7's packaged-app check (build with `bun run package`, launch, see the macOS
+  local-network prompt) was not run — it needs a signed packaging run. Only the
+  `extendInfo` entry was added. Re-check during Task 22.
+- Task 4: the listener still keys entries by `backendIdFor(hostname, instanceId)` (the plan's
+  delta says no listener change). Task 5 decides uid keying for records.
+- Task 4: `AppSettings.network` is required, so three fixtures gained it:
+  `packages/backend/tests/services/settings-store.test.ts`, `packages/tui/src/settings/store.test.ts`,
+  `packages/tui/src/opentui/app.test.ts`.
 
 ## Validation baseline
+
+After Task 4 (`a64af14`): `bun test packages/shared/src/discovery` 19 pass (socket test
+20/20 repeated runs); `packages/backend` 671 pass, 2 skip, 0 fail; settings/handlers/tui
+store/shared combined 225 pass; tui `app.test.ts` 34 pass; `bun run typecheck` clean;
+`bun run build:ui` ok and no `node:dgram` in `packages/ui/dist/assets`; eslint clean;
+prettier clean except the known baseline `SYSTEM_CLIENTS` block in `backend/src/index.ts`.
+Live smoke: sandboxed backend (fake HOME, `TASKFLOW_DEV_PORT=48917`) was found by a scratch
+listener with `backendUid` matching `backend-uid-main`, `appVersion` 0.14.4.
 
 After Task 3 R1 fix (`cd0fc47`): `bun test packages/shared` 130 pass, 0 fail (codec 15);
 `bun run typecheck` clean; eslint and prettier clean on the two changed files.
@@ -240,5 +266,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 4 — the advertiser and listener, and the backend that runs one
-(superseded plan Task 3, with this plan's Task 4 deltas). Record HEAD as its base commit first.
+Next step: Task 4 review round 1 — Codex gpt-5.5 prompted review of `443a0cd..a64af14`
+(packages + `electron/package.json`), against superseded plan Task 3 and this plan's Task 4 delta.
