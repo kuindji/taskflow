@@ -35,7 +35,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
-| 21 | The hard switch | pending | | | |
+| 21 | The hard switch | implemented | `840ca15c` | `3530513e` | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
 ## Review round results
@@ -1757,7 +1757,44 @@ absolute file path) and detach pruning in the tray and poller maps. It ran `noti
   `createdAt` it holds, even after failed polls; notifications raised during those failures are then not shown
   natively (in-app list still has them). Client time is never compared with a machine's stamps.
 
+- Task 21 `workAs` follows the plan's shape (module-level `switchInFlight` guard and `runSwitch`; `SwitchResult`
+  exported from `backend-store.ts`) with these deltas:
+  - **Promote before detaching**, not after. `closeConnection` on the old primary clears primary in the registry, so
+    with the plan's order `onPrimaryStatusChange` (the connection overlay) and `usePrimaryBackend` read null for the
+    whole awaited detach loop. The target is already attached and validated at that point, so the non-destructive
+    property holds. `initConnectivity(target)` runs right after promotion (connectivity is bound per machine at launch).
+  - **Dirty check excludes the target's own buffers** (`dirtyFilePaths(keepBackendId)` in `editor-dirty-state.ts`,
+    only `true` entries, deduped): detach disposes the detached machines' models, not the target's. Checked before the
+    attach and again after it (a buffer can be edited meanwhile).
+  - **A target whose bootstrap left it offline is `unreachable`**: `attach` returns the id even when
+    `bootstrapBackend` marked the row offline. `unreachable.failure` is the row's own failure (main's, or the store's
+    reason), falling back to `unknownFailure("The machine did not attach")` (e.g. `incompatible` has none).
+  - `switching` is a **store field for rendering only** (disables "Work as…" items and Return to local); the guard
+    stays the module `let`, as the plan requires.
+  - `returnToLocal()` is a store method (`workAs(LOCAL_BACKEND_ID)`). `LOCAL_BACKEND_ID` is now exported from
+    `backend-store.ts`; `WebSocketProvider` imports it instead of declaring its own.
+- Task 21 Step 4: the `key` is set in **`App.tsx`** (`<AppShell key={shellKey}>`), since a component cannot key
+  itself; `AppShell.tsx` is unchanged. `shellKey` bumps only on a successful switch.
+- Task 21 Step 5: the indicator lives in `MachinesMenu` (same toolbar, beside the Machines button): a `size="xs"`
+  accent button with `Undo2` and the machine's name, `aria-label="Return to local"`, shown while primary's row is not
+  local, disabled while `switching`. "Work as…" items (native + Radix) are enabled and list local as
+  "This machine (local)" when switched. **Refusals and IPC errors show via `dialog-store`'s `alert`**, not the menu's
+  notice line: the selected item closes its menu and a native menu cannot show a notice.
+- Task 21 tests: new `stores/fake-desktop-bridge.ts` (test support, like `lib/test-ws-server.ts`) now backs both
+  `backend-store.test.ts` and `hard-switch.test.ts`. Reason, reproduced: with two private bridges in one run,
+  `backend-store.test.ts`'s three drop/beacon tests failed in either file order (the store registers
+  `onBackendDropped`/`onBackendSeen` once, at first import), and not restoring `window.taskflow` broke
+  `aggregation.test.ts`'s settings test. The shared module installs one bridge object and restores the previous one
+  in `afterAll`.
+- Task 21 not run: the Electron app (Task 22).
+
 ## Validation baseline
+
+After Task 21 (`3530513e`): `hard-switch.test.ts` 10 pass (red first: `workAs` missing); mutations each turn exactly
+one test red — no busy guard, target keeps the passed id (provisional), no already-attached reuse, no bootstrap-offline
+check, no dirty check. `MachinesMenu.test.tsx` 11 pass. `backend-store.test.ts` + `hard-switch.test.ts` 25 pass in
+both orders; `aggregation.test.ts` + `hard-switch.test.ts` 26 pass. `bun test packages/ui` 312 pass, 9 fail (the known
+nine). `bun run typecheck` clean; eslint and prettier clean on the nine changed files.
 
 After Task 20 R7 fix (`40aecede`): `bun test electron/src` 82 pass (3 runs); new poller test red on `ebe46fb`;
 `bun run typecheck` clean; eslint and prettier clean on the two touched files.
@@ -2060,6 +2097,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 21 (the hard switch: `workAs` / `returnToLocal` in `backend-store.ts`, `AppShell.tsx`,
-`MachinesMenu.tsx`, new `hard-switch.test.ts`). Record current HEAD as its base commit first. Task 20 is clear
-(round 8, zero findings).
+Next step: Task 21 review round 1 — Codex gpt-5.5 prompted review of `840ca15c..3530513e` (packages/ui). Task 21 is
+implemented (`3530513e`); see its decisions for the deltas from the plan (promote before detach, target-excluded dirty
+check, bootstrap-offline refusal, dialog refusals, shared fake bridge).
