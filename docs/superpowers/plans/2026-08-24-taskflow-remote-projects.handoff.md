@@ -26,7 +26,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
-| 12 | The remaining aggregating stores | in-review round 2 done (fix landed; round 3 due) | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex) |
+| 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
@@ -759,6 +759,25 @@ Codex found the R1 class otherwise clean: `useRunMenu`, `ScheduleForm`/`Schedule
 library. My own check: an edited schedule cannot change project (`ScheduleForm` renders the picker only on create), so
 updates cannot carry another machine's `projectId`.
 
+### Task 12, round 3 (Codex gpt-5.5, prompted review of `c4d1729..5d8b515`, packages/ui)
+
+One finding, checked and rejected; round is clean.
+
+1. **Schedules dialog resolves a row by bare id — rejected.** `ScheduleManagementDialog` passes `s.id` to
+   `handleTrigger`/`setPendingDeleteId` and finds the record with `schedules.find((sc) => sc.id === id)` (~115, 129,
+   149, 163), so Codex's scenario was two machines each holding a schedule with id `"nightly"`, where Run now on b's row
+   reaches a. Schedule ids are `randomUUID()` (`packages/backend/src/handlers/schedule.ts:68`), and the spec makes
+   UUID uniqueness across machines the design's identity rule (spec lines 38-45; "No compound keys", line 126). The
+   only way to see one UUID under two `backendId`s is one machine attached twice, which `backendUid` dedup prevents
+   (spec lines 201-218). Same reasoning as `diff-store`'s flat maps and R2's decision (only the non-UUID
+   `MASTER_OWNER_ID` collided). Not a repro, so not fixed.
+
+Codex's R2-class sweep (non-UUID keys in the notification, schedule, diff, flow and settings stores) found nothing else,
+and it judged the slice detach and late-response guards through `createSlices` correct; it reran `aggregation`,
+`backend-store`, `task-creation-store`, `FlowEditor.library` (pass) and typecheck (clean). My own check: a settings
+reply cannot land after its machine's reset: `Connection.close` rejects pending requests (`connection.ts` ~197-207),
+so the unguarded `fetchSettings` write is safe. **Task 12 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1021,6 +1040,8 @@ updates cannot carry another machine's `projectId`.
 
 ## Validation baseline
 
+After Task 12 R3 (clean, no code change): `aggregation.test.ts` 15 pass.
+
 After Task 12 R2 fix (`5d8b515`): `aggregation.test.ts` 15 pass (3 runs; new test red first); `bun test packages/ui`
 232 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
@@ -1206,9 +1227,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 12 review round 3 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..5d8b515`, packages/ui
-only, against plan lines 3632-3845 and the Task 12 decisions above (settings `settings` kept as primary's mirror, the
-non-blocking bootstrap legs, the notification clear write, the launch-default call sites converted and those left for
-Tasks 14/18, R1's `flowsFor`, the deferred `FlowEditor` project picker, R2's primary-only master runs). Ask it to sweep
-for the R2 class: state keyed by an id that is not unique across machines (constants such as `MASTER_OWNER_ID`, or
-anything not a UUID) in the Task 12 stores. Verify each finding with a failing test before fixing.
+Next step: implement Task 13 (Session state per backend), plan section starting at line 3846. Record current HEAD as its
+base commit first.
