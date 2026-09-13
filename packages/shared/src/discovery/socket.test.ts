@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import dgram from "node:dgram";
 import { networkInterfaces } from "node:os";
-import { PROTOCOL_VERSION } from "../constants";
+import {
+    DISCOVERY_GROUP,
+    DISCOVERY_MAX_BACKENDS,
+    DISCOVERY_PORT,
+    PROTOCOL_VERSION,
+} from "../constants";
 import type { BeaconAnnounce } from "../types/backend";
+import { encodeAnnounce } from "./beacon";
 import { createAdvertiser, createListener, membershipDelta } from "./socket";
 
 const stops: Array<() => void> = [];
@@ -99,6 +106,37 @@ describe("discovery over the loopback multicast group", () => {
             expect(entry?.instanceId).toBe("main");
             expect(entry?.backendUid).toBe("0123456789abcdef0123456789abcdef");
             expect(entry?.address.length).toBeGreaterThan(0);
+        },
+    );
+
+    test.skipIf(!hasLan)(
+        "a listener tracks at most DISCOVERY_MAX_BACKENDS machines however many announce",
+        async () => {
+            const listener = createListener({ onChange: () => {} });
+            stops.push(() => listener.stop());
+            await listener.start();
+
+            const sender = dgram.createSocket({ type: "udp4", reuseAddr: true });
+            stops.push(() => sender.close());
+            await new Promise<void>((resolve) => sender.bind(0, resolve));
+            const addresses = Object.values(networkInterfaces())
+                .flatMap((entries) => entries ?? [])
+                .filter((entry) => entry.family === "IPv4" && !entry.internal)
+                .map((entry) => entry.address);
+
+            for (let i = 0; i < DISCOVERY_MAX_BACKENDS + 36; i++) {
+                const bytes = encodeAnnounce({ ...announce(55000 + i), hostname: `flood-${i}` });
+                for (const address of addresses) {
+                    sender.setMulticastInterface(address);
+                    sender.send(bytes, DISCOVERY_PORT, DISCOVERY_GROUP);
+                }
+                // Pace the burst so the receive buffer does not drop it.
+                if (i % 10 === 9) await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+
+            await waitFor(() => listener.entries().length >= DISCOVERY_MAX_BACKENDS);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            expect(listener.entries().length).toBe(DISCOVERY_MAX_BACKENDS);
         },
     );
 

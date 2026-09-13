@@ -35,6 +35,13 @@ export const DISCOVERY_MAX_DATAGRAM_BYTES = 1_024;
  * bytes of room inside a 1 KiB datagram.
  */
 export const DISCOVERY_MAX_DISPLAY_NAME = 64;
+/**
+ * Most backends one listener tracks at once. The LAN is untrusted: without a
+ * bound, a burst of announcements under distinct hostnames grows the table
+ * until entries go stale, and every datagram copies the whole table into
+ * `onChange`. Newcomers past the cap are ignored; known entries keep refreshing.
+ */
+export const DISCOVERY_MAX_BACKENDS = 64;
 
 // WebSocket message types
 export const MSG = {

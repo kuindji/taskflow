@@ -3,6 +3,7 @@ import { networkInterfaces } from "node:os";
 import {
     ANNOUNCE_INTERVAL_MS,
     DISCOVERY_GROUP,
+    DISCOVERY_MAX_BACKENDS,
     DISCOVERY_PORT,
     DISCOVERY_TTL,
     MEMBERSHIP_REFRESH_MS,
@@ -358,6 +359,8 @@ function createListener(opts: {
                             }
                             return;
                         }
+                        // Bounded, because anyone on the LAN can announce.
+                        if (!existing && seen.size >= DISCOVERY_MAX_BACKENDS) return;
                         seen.set(id, { ...message, address, lastSeenAt: Date.now() });
                         opts.onChange(live());
                     },
