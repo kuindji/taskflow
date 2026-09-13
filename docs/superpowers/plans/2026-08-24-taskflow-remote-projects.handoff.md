@@ -18,7 +18,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
-| 4 | The advertiser and listener, and the backend that runs one | in-review round 2 (fixed) | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed |
+| 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
@@ -201,6 +201,14 @@ Codex otherwise found socket start/stop idempotence, bind-stop settlement, stale
 capped slots, membership refresh, shutdown wiring, `backendUid` in the payload, and hostile
 datagram parsing sound; it reran `bun test packages/shared/src/discovery` (20 pass) and typecheck.
 
+### Task 4, round 3 (Codex gpt-5.5, prompted review of `443a0cd..d5ac582`, packages + `electron/package.json`)
+
+Clean: no findings. Codex checked the socket lifecycle, listener cap, malformed datagrams, network
+settings persistence and the update hook, advertiser wiring with `backendUid`, UI wiring and the
+package export split; it reran `bun test packages/shared/src/discovery` (20 pass),
+`settings-store.test.ts` (20 pass) and `bun run typecheck` (pass). My own read of the full diff
+found nothing substantive either (see the display-name decision below). **Task 4 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -250,6 +258,9 @@ datagram parsing sound; it reran `bun test packages/shared/src/discovery` (20 pa
 - Task 4: `AppSettings.network` is required, so three fixtures gained it:
   `packages/backend/tests/services/settings-store.test.ts`, `packages/tui/src/settings/store.test.ts`,
   `packages/tui/src/opentui/app.test.ts`.
+- Task 4 R3: the "Name on the network" input sends one non-optimistic `SETTINGS_UPDATE` per
+  keystroke and renders the server's answer. That is the existing Settings pattern
+  (`RemoteSection` `appName` does the same), so it was left consistent rather than changed here.
 
 ## Validation baseline
 
@@ -308,5 +319,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 4 review round 3 — Codex gpt-5.5 prompted review of `443a0cd..d5ac582`
-(packages + `electron/package.json`), against superseded plan Task 3 and this plan's Task 4 delta.
+Next step: implement Task 5 — "The backend record list, keyed by uid" (plan line ~834; record
+HEAD as its base commit first).
