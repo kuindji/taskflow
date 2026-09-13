@@ -20,7 +20,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
-| 6 | SSH argument construction and failure classification | implemented | `e4787f4` | `7c7c421` | |
+| 6 | SSH argument construction and failure classification | in-review round 1 | `e4787f4` | `7c7c421`, `65c25ad` | R1: 1 fixed |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
@@ -300,6 +300,29 @@ and `bun run typecheck` (pass). My own read of the full diff found nothing eithe
 logic in `normalizeRecords` replaces in place only when a later row is exact and the held one is not,
 and `adoptUid`'s merge keeps the existing record's position. **Task 5 is clear.**
 
+### Task 6, round 1 (Codex gpt-5.5, prompted review of `e4787f4..7c7c421`)
+
+One finding, reproduced before fixing:
+
+1. **A host with whitespace or a quote breaks the `HostKeyAlias` option — confirmed, fixed in
+   `65c25ad`.** `hostKeyAlias` copied `record.host` raw, so `host: "bad host"` gave
+   `-o HostKeyAlias=taskflow-bad host-22`. `ssh -F /dev/null -G` exits on the option (`keyword
+   hostkeyalias extra arguments at end of line`; tab and newline the same, `"`/`'` give `invalid
+   quotes`) before it reaches its own `hostname contains invalid characters`, so
+   `classifyTunnelFailure` returned `unknown` instead of `bad-destination`. A newline does not
+   inject a second config line. Fix: the alias percent-encodes space, ASCII control chars, `"`, `'`,
+   `\` and `%` (always two hex digits, so distinct hosts keep distinct aliases); ordinary hosts are
+   unchanged (`taskflow-desktop.local-22`). An IPv6 zone host `fe80::1%en0` now aliases as
+   `taskflow-fe80::1%25en0-22`. Tests: "a host with whitespace is reported as an invalid host name"
+   (runs the real `ssh -G`, skipped without ssh), "the alias is a single token ssh can parse,
+   whatever the host holds", "encoding the alias keeps distinct hosts apart" (first two red on
+   `7c7c421`). Codex otherwise checked option precedence, forwarding, IPv6, leading dash and the
+   known-host options with `ssh -G`, Task 7 consumer names, tests and typecheck.
+
+My own suspicion, not filed: `UserKnownHostsFile` accepts whitespace-separated files and `%` tokens,
+so a home directory containing a space or `%` could break `KNOWN_HOSTS_FILE`. `ssh -G` cannot show
+the split, and a macOS short user name (hence home dir) cannot contain either.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -378,6 +401,10 @@ and `adoptUid`'s merge keeps the existing record's position. **Task 5 is clear.*
   the command-line `-o` values for all four.
 
 ## Validation baseline
+
+After Task 6 R1 fix (`65c25ad`): `bun test electron/src/tunnel-args.test.ts` 21 pass (2 of the 3 new
+tests red first); `bun run typecheck` clean; eslint and prettier clean on both files (control-char
+regexes replaced by char-code checks to satisfy `no-control-regex`).
 
 After Task 6 (`7c7c421`): `bun test electron/src/tunnel-args.test.ts` 18 pass (red first: module
 missing); `bun run typecheck` clean; eslint and prettier clean on both files. New pure module with no
@@ -459,5 +486,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 6 review round 1 — Codex gpt-5.5 prompted review of `e4787f4..7c7c421`
+Next step: Task 6 review round 2 — Codex gpt-5.5 prompted review of `e4787f4..65c25ad`
 (`electron/src/tunnel-args.ts` + test) against the superseded plan's Task 5 and this plan's Task 6 delta.
+Task 7's `trustHostKey` must write the scanned line under `hostKeyAlias(record)` (now encoded).
