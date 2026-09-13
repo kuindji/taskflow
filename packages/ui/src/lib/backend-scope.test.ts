@@ -106,6 +106,17 @@ describe("createSlices", () => {
         expect(slices.backends()).toEqual([]);
     });
 
+    test("a request begun before its machine was dropped cannot land on the slice that replaced it", () => {
+        const slices = createSlices<Item>();
+        const old = slices.begin("a");
+        slices.drop("a");
+        const fresh = slices.begin("a");
+        slices.replace("a", [{ id: "fresh" }], fresh);
+
+        expect(slices.replace("a", [{ id: "old" }], old)).toBe(false);
+        expect(slices.read().map((i) => i.id)).toEqual(["fresh"]);
+    });
+
     test("dropping one backend leaves the others untouched", () => {
         const slices = createSlices<Item>();
         slices.replace("a", [{ id: "1" }], slices.begin("a"));

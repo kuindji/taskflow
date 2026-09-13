@@ -7,7 +7,7 @@ interface Slice<T> {
     items: Scoped<T>[];
     /** Bumped by every write. A list response taken before a write is stale. */
     revision: number;
-    /** Bumped by every `begin()`. Only the newest request may land. */
+    /** Set by every `begin()`, unique across slices. Only the newest request may land. */
     generation: number;
     /**
      * The writes since the newest `begin()`, while its response is awaited;
@@ -34,6 +34,9 @@ interface FetchToken {
  */
 export function createSlices<T>() {
     const slices = new Map<string, Slice<T>>();
+    // Shared by every slice and never reset: a slice recreated after a drop
+    // must not hand out a generation a request begun before the drop holds.
+    let generations = 0;
 
     function sliceFor(backendId: string): Slice<T> {
         let slice = slices.get(backendId);
@@ -63,7 +66,7 @@ export function createSlices<T>() {
          */
         begin(backendId: string): FetchToken {
             const slice = sliceFor(backendId);
-            slice.generation++;
+            slice.generation = ++generations;
             slice.pending = [];
             return { revision: slice.revision, generation: slice.generation };
         },

@@ -218,6 +218,8 @@ registerBackendReset("task-store", (backendId) => {
     useTaskStore.setState((s) => ({
         tasks: live.read(),
         archivedTasks: archived.read(),
+        // The same rule as a list response: only this machine's task can vanish.
+        activeTaskId: s.activeTaskId && dropped.has(s.activeTaskId) ? null : s.activeTaskId,
         taskLogs: Object.fromEntries(
             Object.entries(s.taskLogs).filter(([taskId]) => !dropped.has(taskId)),
         ),

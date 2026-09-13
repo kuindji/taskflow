@@ -166,4 +166,35 @@ describe("task store across backends", () => {
 
         expect(useTaskStore.getState().tasks.map((t) => t.id)).toEqual(["t1"]);
     });
+
+    test("detaching a machine clears the active task only when it was that machine's", async () => {
+        const serverA = startTestServer("A", (type) =>
+            type === MSG.TASK_LIST ? { tasks: [task("ta")] } : {},
+        );
+        const serverB = startTestServer("B", (type) =>
+            type === MSG.TASK_LIST ? { tasks: [task("tb")] } : {},
+        );
+        servers.push(serverA, serverB);
+        await openConnection("a", serverA.origin);
+        await openConnection("b", serverB.origin);
+        await useTaskStore.getState().fetchTasks("a");
+        await useTaskStore.getState().fetchTasks("b");
+
+        useTaskStore.getState().setActiveTask("tb");
+        closeConnection("a", "detach");
+        resetBackend("a");
+        expect(useTaskStore.getState().activeTaskId).toBe("tb");
+
+        useTaskStore.getState().setActiveTask("ta");
+        // Detaching b does not know ta; only a's own detach may clear it.
+        closeConnection("b", "detach");
+        resetBackend("b");
+        expect(useTaskStore.getState().activeTaskId).toBe("ta");
+
+        await openConnection("a", serverA.origin);
+        await useTaskStore.getState().fetchTasks("a");
+        closeConnection("a", "detach");
+        resetBackend("a");
+        expect(useTaskStore.getState().activeTaskId).toBeNull();
+    });
 });
