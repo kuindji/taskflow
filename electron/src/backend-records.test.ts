@@ -54,6 +54,15 @@ describe("adoptUid", () => {
         const records = [record({ id: "abc123", backendUid: "abc123" })];
         expect(adoptUid(records, "abc123", "abc123")).toEqual(records);
     });
+
+    test("refuses a uid outside the safe label set, which could name a provisional record", () => {
+        const byName = record();
+        const byIp = record({ id: "192.168.1.20:main", host: "192.168.1.20" });
+        const records = [byName, byIp];
+
+        expect(adoptUid(records, "desktop.local:main", "192.168.1.20:main")).toEqual(records);
+        expect(adoptUid(records, "desktop.local:main", "")).toEqual(records);
+    });
 });
 
 describe("recordFromDiscovered", () => {
@@ -139,6 +148,20 @@ describe("normalizeRecords and adoptUid on a hand-edited file", () => {
         expect(parsed[0].host).toBe("192.168.1.20");
         expect(parsed[0].sshPort).toBe(2222);
         expect(parsed[0].attached).toBe(true);
+    });
+
+    test("a uid outside the safe label set is read as provisional and cannot take another record's id", () => {
+        const parsed = normalizeRecords([
+            {
+                id: "desktop.local:main",
+                backendUid: "192.168.1.20:main",
+                host: "desktop.local",
+                instanceId: "main",
+            },
+            { id: "192.168.1.20:main", backendUid: null, host: "192.168.1.20", instanceId: "main" },
+        ]);
+        expect(parsed.map((r) => r.id)).toEqual(["desktop.local:main", "192.168.1.20:main"]);
+        expect(parsed[0].backendUid).toBeNull();
     });
 
     test("ports outside 1-65535 fall back to their defaults", () => {

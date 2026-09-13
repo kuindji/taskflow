@@ -1,4 +1,4 @@
-import { backendIdFor, isStale, isValidPort } from "@taskflow/shared/discovery";
+import { backendIdFor, isSafeLabel, isStale, isValidPort } from "@taskflow/shared/discovery";
 import type { BackendRecord, DiscoveredBackend } from "@taskflow/shared";
 
 /** A row in the machines menu: a saved record, a discovered backend, or both. */
@@ -34,8 +34,12 @@ export function normalizeRecords(parsed: unknown): BackendRecord[] {
         const host = typeof entry.host === "string" ? entry.host : null;
         const instanceId = typeof entry.instanceId === "string" ? entry.instanceId : null;
         if (!host || !instanceId) continue;
+        // Held to the codec's label set: `:` is outside it, so a uid can never
+        // spell a provisional `host:instance` id.
         const backendUid =
-            typeof entry.backendUid === "string" && entry.backendUid ? entry.backendUid : null;
+            typeof entry.backendUid === "string" && isSafeLabel(entry.backendUid)
+                ? entry.backendUid
+                : null;
         const storedId = typeof entry.id === "string" && entry.id ? entry.id : null;
         // A confirmed record is keyed by its uid whatever id the file holds, so
         // `adoptUid` finds it by id. Of hand-edited duplicates, the one already
@@ -86,6 +90,7 @@ export function adoptUid(
     currentId: string,
     backendUid: string,
 ): BackendRecord[] {
+    if (!isSafeLabel(backendUid)) return records;
     const source = records.find((record) => record.id === currentId);
     if (!source) return records;
     if (source.id === backendUid && source.backendUid === backendUid) return records;

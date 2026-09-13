@@ -2602,6 +2602,13 @@ export function createRegistry(deps: RegistryDeps) {
                 // `rehandshake`); decide here whether to refuse it rather than
                 // adopt it, and cover the case with a test.
 
+                // Task 5 review round 3: `adoptUid` returns the list unchanged
+                // for a uid that fails `isSafeLabel` (a string like
+                // "192.168.1.20:main" would otherwise name, and merge into, a
+                // provisional record). Reject such a uid here, before touching
+                // origins or tunnels, so the registry never files a connection
+                // under an id its records do not hold; cover it with a test.
+
                 // Merge only when the canonical record is *live*. A saved but
                 // detached record under this uid has nothing worth keeping; the
                 // newcomer's tunnel and socket are the only ones there are, so
