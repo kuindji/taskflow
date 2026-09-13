@@ -130,6 +130,11 @@ function isSessionFocused(
     return false;
 }
 
+/** The workspace a pane key belongs to: `task:t1:right` → `task:t1`. */
+function baseWorkspaceKey(key: string): string {
+    return key.endsWith(":right") ? key.slice(0, -":right".length) : key;
+}
+
 function getSessionTab(
     sessionId: string,
     getSessionState: () => { tabsByWorkspace: Record<string, Tab[]> },
@@ -208,6 +213,7 @@ export {
     exitedSessions,
     isSessionExited,
     isSessionFocused,
+    baseWorkspaceKey,
     getSessionTab,
     usesTerminalActivityStatus,
     getWindowFocused,

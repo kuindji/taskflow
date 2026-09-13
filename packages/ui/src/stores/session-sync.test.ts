@@ -16,6 +16,7 @@ function makeSession(id: string, label = "Claude"): SessionRef {
 const baseArgs = {
     keyPrefix: "task:",
     getWorkspaceKey: (id: string) => `task:${id}`,
+    ownedWorkspaceKeys: new Set(["task:t1", "task:t2"]),
     pendingSessionCreates: new Set<string>(),
 };
 
@@ -32,6 +33,7 @@ describe("syncOwnerTabs", () => {
             owners: [{ id: "owner-1", sessions: [interrupted] }],
             keyPrefix: "task:",
             getWorkspaceKey: () => "task:owner-1",
+            ownedWorkspaceKeys: new Set(["task:owner-1"]),
             tabsByWorkspace: { "task:owner-1": [tab] },
             activeTabByWorkspace: { "task:owner-1": tab.id },
             pendingSessionCreates: new Set(),

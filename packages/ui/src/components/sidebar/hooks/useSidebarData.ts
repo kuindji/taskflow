@@ -1,25 +1,37 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Task, TaskWorktreePr, MasterSessionsListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
 import { prefetchHomedir } from "@/hooks/useActiveWorkspace";
 import type { Scoped } from "@/lib/backend-scope";
 import { getPrimary, sendRequest as sendRequestTo } from "@/lib/connection-registry";
+import { useBackendStore } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useFlowStore } from "@/stores/flow-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { useNotificationStore } from "@/stores/notification-store";
 
+/** Each machine's records, with an empty list for a machine that holds none. */
+function recordsByBackend<T extends { backendId: string }>(
+    backendIds: readonly string[],
+    records: readonly T[],
+): Map<string, T[]> {
+    const map = new Map<string, T[]>(backendIds.map((id) => [id, []]));
+    for (const record of records) map.get(record.backendId)?.push(record);
+    return map;
+}
+
 function useSidebarData(connected: boolean) {
-    const { projects, fetchProjects } = useProjectStore();
+    const projects = useProjectStore((s) => s.projects);
     const showArchivedProjects = useProjectStore((s) => s.showArchivedProjects);
-    const { tasks, fetchTasks } = useTaskStore();
+    const tasks = useTaskStore((s) => s.tasks);
     const archivedTasks = useTaskStore((s) => s.archivedTasks);
     const showArchive = useTaskStore((s) => s.showArchive);
+    const machines = useBackendStore((s) => s.machines);
+    const primaryId = useBackendStore((s) => s.primaryId);
+    const bootstrapBackend = useBackendStore((s) => s.bootstrapBackend);
     const syncWithTasks = useSessionStore((s) => s.syncWithTasks);
     const syncWithProjects = useSessionStore((s) => s.syncWithProjects);
     const syncWithMasterSessions = useSessionStore((s) => s.syncWithMasterSessions);
@@ -28,7 +40,6 @@ function useSidebarData(connected: boolean) {
     const diffStatsByProject = useDiffStore((s) => s.statsByProject);
     const behindByProject = useDiffStore((s) => s.behindByProject);
     const notifications = useNotificationStore((s) => s.notifications);
-    const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
     const updateTask = useTaskStore((s) => s.updateTask);
 
     // Initial data fetch
@@ -37,15 +48,11 @@ function useSidebarData(connected: boolean) {
         // `connected` follows primary. An attach bootstraps its own machine; this
         // covers the dev renderer, which attaches nothing, and primary's reconnects.
         const primary = getPrimary();
-        if (primary) {
-            fetchProjects(primary).catch(() => {});
-            fetchTasks(primary).catch(() => {});
-            void useFlowStore.getState().fetchFlows(primary);
-            void useFlowStore.getState().fetchActions(primary);
-        }
+        if (primary) void bootstrapBackend(primary);
         prefetchHomedir();
 
         void (async () => {
+            // The theme choice is a setting, so themes wait for primary's settings.
             try {
                 if (primary) await fetchSettings(primary);
             } catch {
@@ -58,22 +65,40 @@ function useSidebarData(connected: boolean) {
                 // Theme store already has a bundled fallback; keep the app usable.
             }
         })();
-    }, [connected, fetchProjects, fetchTasks, fetchSettings, fetchThemes]);
+    }, [connected, bootstrapBackend, fetchSettings, fetchThemes]);
 
-    // Sync sessions with tasks/projects
+    // Every machine the sidebar knows of, including one that holds no records
+    // any more (its last task's tabs still need pruning) and the dev renderer's
+    // primary, which has no machine row.
+    const backendIds = useMemo(() => {
+        const ids = new Set(machines.map((machine) => machine.id));
+        if (primaryId) ids.add(primaryId);
+        for (const record of [...projects, ...tasks]) ids.add(record.backendId);
+        return [...ids];
+    }, [machines, primaryId, projects, tasks]);
+
+    // Sync sessions with tasks/projects, one machine at a time: a sync rebuilds
+    // only its own machine's workspaces.
+    const tasksByBackend = useMemo(() => recordsByBackend(backendIds, tasks), [backendIds, tasks]);
     useEffect(() => {
-        syncWithTasks(tasks);
-    }, [tasks, syncWithTasks]);
+        for (const [backendId, list] of tasksByBackend) syncWithTasks(backendId, list);
+    }, [tasksByBackend, syncWithTasks]);
 
+    const projectsByBackend = useMemo(
+        () => recordsByBackend(backendIds, projects),
+        [backendIds, projects],
+    );
     useEffect(() => {
-        syncWithProjects(projects);
-    }, [projects, syncWithProjects]);
+        for (const [backendId, list] of projectsByBackend) syncWithProjects(backendId, list);
+    }, [projectsByBackend, syncWithProjects]);
 
-    // Fetch master sessions
+    // Fetch master sessions: the master workspace is primary's.
     useEffect(() => {
         if (!connected) return;
-        sendRequest<MasterSessionsListResponse>(MSG.MASTER_SESSIONS_LIST, {})
-            .then((res) => syncWithMasterSessions(res.sessions))
+        const primary = getPrimary();
+        if (!primary) return;
+        sendRequestTo<MasterSessionsListResponse>(primary, MSG.MASTER_SESSIONS_LIST, {})
+            .then((res) => syncWithMasterSessions(primary, res.sessions))
             .catch(() => {});
     }, [connected, syncWithMasterSessions]);
 
@@ -122,13 +147,6 @@ function useSidebarData(connected: boolean) {
         const interval = setInterval(() => void checkPrs(), 30_000);
         return () => clearInterval(interval);
     }, [connected, updateTask]);
-
-    // Fetch notifications
-    useEffect(() => {
-        if (!connected) return;
-        const primary = getPrimary();
-        if (primary) void fetchNotifications(primary);
-    }, [connected, fetchNotifications]);
 
     const displayTasks = showArchive ? archivedTasks : tasks;
 

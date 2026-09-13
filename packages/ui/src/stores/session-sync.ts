@@ -1,6 +1,11 @@
 import type { SessionRef } from "@taskflow/shared";
 import type { Tab } from "./session-helpers";
-import { createSessionTab, isKnownSessionType, normalizeSessionLabel } from "./session-helpers";
+import {
+    baseWorkspaceKey,
+    createSessionTab,
+    isKnownSessionType,
+    normalizeSessionLabel,
+} from "./session-helpers";
 
 interface SyncOwner {
     id: string;
@@ -16,6 +21,11 @@ interface SyncOwnerTabsArgs extends WorkspaceTabState {
     owners: SyncOwner[];
     keyPrefix: string;
     getWorkspaceKey: (ownerId: string) => string;
+    /**
+     * The workspace keys this sync may rebuild: one machine's. A workspace
+     * owns its `:right` pane, so base keys are enough.
+     */
+    ownedWorkspaceKeys: ReadonlySet<string>;
     pendingSessionCreates: ReadonlySet<string>;
 }
 
@@ -72,22 +82,25 @@ function sameRecord<T>(a: Record<string, T>, b: Record<string, T>): boolean {
 }
 
 /**
- * Rebuild the workspace tab maps for all owners under a key prefix
- * ("task:" or "project:"). Behavior matches the previous inline
- * syncWithTasks/syncWithProjects logic exactly, with one addition:
- * when the result is identical, the ORIGINAL map references are
- * returned so Zustand subscribers don't re-render.
+ * Rebuild the workspace tab maps for one machine's owners under a key prefix
+ * ("task:" or "project:"). Only the keys in `ownedWorkspaceKeys` are rebuilt;
+ * when the result is identical, the ORIGINAL map references are returned so
+ * Zustand subscribers don't re-render.
  */
 function syncOwnerTabs(args: SyncOwnerTabsArgs): WorkspaceTabState {
-    const { owners, keyPrefix, getWorkspaceKey, pendingSessionCreates } = args;
+    const { owners, keyPrefix, getWorkspaceKey, ownedWorkspaceKeys, pendingSessionCreates } = args;
 
+    // Carry over anything this sync does not own: another key space entirely,
+    // or another machine's workspace under the same prefix.
+    const owned = (key: string): boolean =>
+        key.startsWith(keyPrefix) && ownedWorkspaceKeys.has(baseWorkspaceKey(key));
     const nextTabs: Record<string, Tab[]> = {};
     for (const [key, value] of Object.entries(args.tabsByWorkspace)) {
-        if (!key.startsWith(keyPrefix)) nextTabs[key] = value;
+        if (!owned(key)) nextTabs[key] = value;
     }
     const nextActive: Record<string, string> = {};
     for (const [key, value] of Object.entries(args.activeTabByWorkspace)) {
-        if (!key.startsWith(keyPrefix)) nextActive[key] = value;
+        if (!owned(key)) nextActive[key] = value;
     }
 
     for (const owner of owners) {

@@ -7,7 +7,7 @@ import type {
     SessionStatus,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { onEvent } from "../hooks/useWebSocket";
+import { getPrimary, onEvent } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
 import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
@@ -20,7 +20,8 @@ import {
 import {
     isUserInteracting,
     clearActivityTimer,
-    clearInteraction,
+    forgetSession,
+    noteSessionBackend,
     scheduleActivityTimeout,
     settleInactiveSession,
 } from "./session-activity";
@@ -35,6 +36,7 @@ interface SessionStoreApi {
         setActiveTab(workspaceKey: string, tabId: string): void;
         addTab(workspaceKey: string, tab: Tab): void;
         syncWithMasterSessions(
+            backendId: string,
             sessions: { id: string; type: Tab["type"]; label?: string; trayExclude?: boolean }[],
         ): void;
     };
@@ -95,10 +97,14 @@ function onWindowFocusChanged(focused: boolean, store: SessionStoreApi): void {
 }
 
 function initSessionSubscriptions(store: SessionStoreApi): void {
+    // Every attached machine's sessions report here. Session ids are UUIDs, so
+    // the status map is flat; the owner is noted so a detach can clear them.
+
     // Track terminal output → working / attention status
-    const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
+    const _unsubTerminalOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload, backendId) => {
         if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
         const { sessionId } = payload as TerminalOutputEvent;
+        noteSessionBackend(sessionId, backendId);
 
         const state = store.getState();
         const currentStatus = state.sessionStatus[sessionId];
@@ -122,7 +128,7 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         scheduleActivityTimeout(sessionId, store.getState);
     });
 
-    const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload) => {
+    const _unsubSessionStatus = onEvent(MSG.SESSION_STATUS, (payload, backendId) => {
         if (
             !payload ||
             typeof payload !== "object" ||
@@ -133,6 +139,7 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         }
 
         const { sessionId, status } = payload as SessionStatusEvent;
+        noteSessionBackend(sessionId, backendId);
         store.getState().setSessionStatus(sessionId, status);
 
         if (status === "working") {
@@ -148,21 +155,21 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         if (!payload || typeof payload !== "object" || !("sessionId" in payload)) return;
         const { sessionId } = payload as SessionExitedEvent;
         exitedSessions.add(sessionId);
-        clearActivityTimer(sessionId);
-        clearInteraction(sessionId);
+        forgetSession(sessionId);
         const { [sessionId]: _, ...remaining } = store.getState().sessionStatus;
         store.setState({ sessionStatus: remaining });
     });
 
     // Listen for browser:open events from backend (e.g., agent API calls).
-    const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload) => {
+    const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload, backendId) => {
         if (!payload || typeof payload !== "object" || !("url" in payload)) return;
         const { taskId, projectId, url, label } = payload as BrowserOpenPayload;
+        // Task and project ids are UUIDs; "master" is one key, and primary's.
         const workspaceKey = taskId
             ? getTaskWorkspaceKey(taskId)
             : projectId
               ? getProjectWorkspaceKey(projectId)
-              : (payload as BrowserOpenPayload).master
+              : (payload as BrowserOpenPayload).master && backendId === getPrimary()
                 ? "master"
                 : null;
         if (!workspaceKey) return;
@@ -174,10 +181,12 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         });
     });
 
-    const _unsubMasterSessions = onEvent(MSG.MASTER_SESSIONS_LIST, (payload) => {
+    // The "master" workspace key is a singleton and belongs to primary alone.
+    const _unsubMasterSessions = onEvent(MSG.MASTER_SESSIONS_LIST, (payload, backendId) => {
+        if (backendId !== getPrimary()) return;
         if (!payload || typeof payload !== "object" || !("sessions" in payload)) return;
         const { sessions } = payload as MasterSessionsListResponse;
-        store.getState().syncWithMasterSessions(sessions);
+        store.getState().syncWithMasterSessions(backendId, sessions);
     });
 
     const _unsubActiveTask = useTaskStore.subscribe((state, prevState) => {

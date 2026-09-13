@@ -10,11 +10,12 @@ import type {
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest, sendFireAndForget } from "../hooks/useWebSocket";
-import { getPrimary } from "@/lib/connection-registry";
+import { getPrimary, sendRequest as sendRequestTo } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useProjectStore } from "./project-store";
 import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import {
+    baseWorkspaceKey,
     normalizeSessionLabel,
     createSessionTab,
     isKnownSessionType,
@@ -25,8 +26,9 @@ import {
 } from "./session-helpers";
 import { syncOwnerTabs } from "./session-sync";
 import type { Tab } from "./session-helpers";
-import { markInteraction } from "./session-activity";
+import { forgetSession, markInteraction, sessionsOwnedBy } from "./session-activity";
 import { initSessionSubscriptions } from "./session-subscriptions";
+import { registerBackendReset } from "./store-reset";
 
 /**
  * Owner IDs with an in-flight createSession call that targets a non-default
@@ -35,6 +37,25 @@ import { initSessionSubscriptions } from "./session-subscriptions";
  * owner — the createSession caller will place the tab explicitly.
  */
 const pendingSessionCreates = new Set<string>();
+
+/** The task and project workspace keys each machine's last sync covered. */
+const workspaceKeysByBackend = new Map<string, Set<string>>();
+/** The machine whose master sessions the "master" workspace shows. */
+let masterBackendId: string | null = null;
+
+/**
+ * The keys a sync for one machine may rebuild: the ones its previous list held,
+ * so a record that vanished from it takes its tabs along, plus the current ones.
+ * Records the current keys as what the next sync starts from.
+ */
+function claimWorkspaceKeys(backendId: string, keyPrefix: string, keys: string[]): Set<string> {
+    const held = workspaceKeysByBackend.get(backendId) ?? new Set<string>();
+    const owned = new Set([...held, ...keys]);
+    const next = new Set([...held].filter((key) => !key.startsWith(keyPrefix)));
+    for (const key of keys) next.add(key);
+    workspaceKeysByBackend.set(backendId, next);
+    return owned;
+}
 
 /**
  * Session requests still go to primary through the shim until Task 13 routes
@@ -96,9 +117,11 @@ interface SessionStore {
     getActiveTab(workspaceKey: string): Tab | undefined;
     mergeSplitTabs(workspaceKey: string): void;
     moveTabToPane(sourceKey: string, targetKey: string, tabId: string, insertIndex?: number): void;
-    syncWithTasks(tasks: Task[]): void;
-    syncWithProjects(projects: { id: string; sessions: SessionRef[] }[]): void;
-    syncWithMasterSessions(sessions: SessionRef[]): void;
+    /** `tasks` is that machine's whole list; other machines' workspaces are left alone. */
+    syncWithTasks(backendId: string, tasks: Task[]): void;
+    /** `projects` is that machine's whole list; other machines' workspaces are left alone. */
+    syncWithProjects(backendId: string, projects: { id: string; sessions: SessionRef[] }[]): void;
+    syncWithMasterSessions(backendId: string, sessions: SessionRef[]): void;
 }
 
 export type { Tab };
@@ -192,11 +215,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 rows,
             });
         } finally {
+            // The master workspace is primary's alone.
+            const primary = getPrimary();
             await Promise.all([
                 refetchPrimaryRecords({ tasks: true, projects: true }),
-                sendRequest<{ sessions: SessionRef[] }>(MSG.MASTER_SESSIONS_LIST).then(
-                    ({ sessions }) => get().syncWithMasterSessions(sessions),
-                ),
+                primary
+                    ? sendRequestTo<{ sessions: SessionRef[] }>(
+                          primary,
+                          MSG.MASTER_SESSIONS_LIST,
+                      ).then(({ sessions }) => get().syncWithMasterSessions(primary, sessions))
+                    : null,
             ]);
         }
     },
@@ -504,31 +532,44 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             };
         });
     },
-    syncWithTasks(tasks) {
+    syncWithTasks(backendId, tasks) {
+        const ownedWorkspaceKeys = claimWorkspaceKeys(
+            backendId,
+            "task:",
+            tasks.map((task) => getTaskWorkspaceKey(task.id)),
+        );
         set((state) =>
             syncOwnerTabs({
                 owners: tasks,
                 keyPrefix: "task:",
                 getWorkspaceKey: getTaskWorkspaceKey,
+                ownedWorkspaceKeys,
                 pendingSessionCreates,
                 tabsByWorkspace: state.tabsByWorkspace,
                 activeTabByWorkspace: state.activeTabByWorkspace,
             }),
         );
     },
-    syncWithProjects(projects) {
+    syncWithProjects(backendId, projects) {
+        const ownedWorkspaceKeys = claimWorkspaceKeys(
+            backendId,
+            "project:",
+            projects.map((project) => getProjectWorkspaceKey(project.id)),
+        );
         set((state) =>
             syncOwnerTabs({
                 owners: projects,
                 keyPrefix: "project:",
                 getWorkspaceKey: getProjectWorkspaceKey,
+                ownedWorkspaceKeys,
                 pendingSessionCreates,
                 tabsByWorkspace: state.tabsByWorkspace,
                 activeTabByWorkspace: state.activeTabByWorkspace,
             }),
         );
     },
-    syncWithMasterSessions(sessions) {
+    syncWithMasterSessions(backendId, sessions) {
+        masterBackendId = backendId;
         set((state) => {
             const workspaceKey = "master";
             const rightKey = "master:right";
@@ -629,3 +670,36 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
 // Initialize all event subscriptions after store creation
 initSessionSubscriptions(useSessionStore);
+
+registerBackendReset("session-store", (backendId) => {
+    const keys = workspaceKeysByBackend.get(backendId) ?? new Set<string>();
+    workspaceKeysByBackend.delete(backendId);
+    if (masterBackendId === backendId) {
+        keys.add("master");
+        masterBackendId = null;
+    }
+    const drops = (key: string): boolean => keys.has(baseWorkspaceKey(key));
+
+    const state = useSessionStore.getState();
+    // Sessions this machine reported activity for, and those in its tabs.
+    const sessions = new Set(sessionsOwnedBy(backendId));
+    const tabsByWorkspace: Record<string, Tab[]> = {};
+    for (const [key, tabs] of Object.entries(state.tabsByWorkspace)) {
+        if (!drops(key)) {
+            tabsByWorkspace[key] = tabs;
+            continue;
+        }
+        for (const tab of tabs) if (tab.sessionId) sessions.add(tab.sessionId);
+    }
+    for (const sessionId of sessions) forgetSession(sessionId);
+
+    useSessionStore.setState({
+        tabsByWorkspace,
+        activeTabByWorkspace: Object.fromEntries(
+            Object.entries(state.activeTabByWorkspace).filter(([key]) => !drops(key)),
+        ),
+        sessionStatus: Object.fromEntries(
+            Object.entries(state.sessionStatus).filter(([sessionId]) => !sessions.has(sessionId)),
+        ),
+    });
+});
