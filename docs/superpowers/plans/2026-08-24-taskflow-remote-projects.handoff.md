@@ -20,7 +20,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
-| 6 | SSH argument construction and failure classification | in-review round 2 | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed |
+| 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
@@ -348,6 +348,24 @@ one token with no `%` expansion; NBSP and U+3000 give `hostname contains invalid
 classifies as `bad-destination`. Codex otherwise checked the spec + delta, consumer names, exports, `as any`,
 IPv6, leading dash and classifier ordering; it reran the tests (21 pass) and typecheck.
 
+### Task 6, round 3 (Codex gpt-5.5, prompted review of `e4787f4..f126113`)
+
+One finding, rejected after an end-to-end repro attempt:
+
+1. **Mixed-case host breaks the host key lookup — rejected.** Codex: `ssh -G` lowercases
+   `HostKeyAlias` (`taskflow-Desktop.local-22` → `taskflow-desktop.local-22`, confirmed), so a line
+   Task 7 writes under the mixed-case alias would never match. It does match: OpenSSH compares
+   known_hosts host patterns case-insensitively. `ssh-keygen -F taskflow-desktop.local-22` finds a
+   `taskflow-Desktop.local-22` line, and against a throwaway `/usr/sbin/sshd` on 127.0.0.1:2299 (OpenSSH
+   10.3p1) the real tunnel options with `HostKeyAlias=taskflow-Localhost-2299` and that key filed under the
+   mixed-case alias reached `Permission denied (publickey)`, i.e. past host-key checking. Control: the
+   same line with a different key gave the full `REMOTE HOST IDENTIFICATION HAS CHANGED` banner +
+   `Host key verification failed.`, which `classifyTunnelFailure` returns as `changed-host-key`.
+
+Codex otherwise checked the base spec + delta, Task 7/9 consumer names, exports, `as any`, `--` for ssh and
+keyscan, IPv6 argv, leading-dash hosts and classifier ordering; it reran the tests and typecheck. My own read
+of the full diff found nothing either. **Task 6 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -514,6 +532,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 6 review round 3 — Codex gpt-5.5 prompted review of `e4787f4..f126113`
-(`electron/src/tunnel-args.ts` + test) against the superseded plan's Task 5 and this plan's Task 6 delta.
-Task 7's `trustHostKey` must write the scanned line under `hostKeyAlias(record)` (now encoded).
+Next step: implement Task 7 (the tunnel manager) — superseded plan's Task 6 in full plus this plan's
+Task 7 deltas (in-flight open dedupe, `rekeyTunnel`) and the Task 6 delta pieces that live in the manager:
+`readRemotePort` argv gains the three known-host options, and `trustHostKey` writes `KNOWN_HOSTS_FILE`
+(`~/.taskflow` mode `0o700`) with the scanned line's first field rewritten to `hostKeyAlias(record)` (now
+encoded). Record HEAD as the base commit first.
