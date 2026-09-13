@@ -35,7 +35,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
-| 21 | The hard switch | in-review round 4 done | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7`, `8d60a842`, `b6e0004b` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
+| 21 | The hard switch | clear | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7`, `8d60a842`, `b6e0004b` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 22 | End-to-end verification on two machines | pending | | | |
 
 ## Review round results
@@ -1257,6 +1257,12 @@ One finding, confirmed and fixed in `b6e0004b`. Codex found nothing else, did no
    with `Promise.allSettled`. Main's `detachBackend` is `serializeCanonical` per id with a chained `persist`, so
    concurrent detaches are safe there.
 
+### Task 21, round 5 (Codex gpt-5.5, prompted review of `840ca15c..b6e0004b`, packages/ui)
+
+Clean. Codex found no findings, did not re-raise the recorded R1–R4 decisions, and ran `hard-switch.test.ts`,
+`backend-store.test.ts`, `MachinesMenu.test.tsx`, the three combined, and `bun run typecheck` (all pass). Task 21 is
+clear.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1868,6 +1874,9 @@ One finding, confirmed and fixed in `b6e0004b`. Codex found nothing else, did no
 
 ## Validation baseline
 
+After Task 21 R5 (clean, no code change, HEAD `172faf35`): `hard-switch` + `backend-store` 31 pass;
+`MachinesMenu.test.tsx` 11 pass.
+
 After Task 21 R4 fix (`b6e0004b`): `hard-switch.test.ts` 16 pass (new test red on `8d60a842`); `backend-store` +
 `hard-switch` 31 pass in both orders; `aggregation` + `hard-switch` 32 pass; `MachinesMenu.test.tsx` 11 pass;
 `bun run typecheck` clean; eslint and prettier clean on the two changed files. Full `bun test packages/ui` not rerun
@@ -2195,8 +2204,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 21 review round 5 — Codex gpt-5.5 prompted review of `840ca15c..b6e0004b` (packages/ui). R4 fixed one
-finding in `b6e0004b` (the switch's detaches now start together, so none outlives the dirty check). Tell Codex about
-the R1 rejection (drop mid-switch) and the recorded R1–R4 decisions so they are not re-raised without new evidence.
-Rounds are now at 4 findings in a row, one each and narrowing; if R5 only raises further timing races of the same
-shape, weigh them against the "questioning whether another round is needed" guidance before fixing.
+Next step: AWAITING USER — Task 22 (end-to-end verification on two machines) is manual by the plan: "Nothing here is
+automated; it needs two machines on one network and a person." Tasks 1–21 are clear. Will you run Task 22's steps
+(plan Steps 1–9a) yourself and report results for recording in Step 10, or should the loop treat Task 22 as deferred
+and mark the plan's automated work complete?
