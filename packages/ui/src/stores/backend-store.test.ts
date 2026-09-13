@@ -7,8 +7,14 @@ import type { useBackendStore as UseBackendStore } from "./backend-store";
 type Bridge = NonNullable<Window["taskflow"]>;
 type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
 
-/** A backend that answers SYSTEM_INFO with `info()` and every other request with `{}`. */
-function startBackend(info: () => { protocolVersion: number; backendUid?: string }): {
+/**
+ * A backend that answers SYSTEM_INFO with `info()` and every other request with
+ * `{}`. `holdInfo`, when given, decides when each SYSTEM_INFO answer is sent.
+ */
+function startBackend(
+    info: () => { protocolVersion: number; backendUid?: string },
+    holdInfo?: (answer: () => void) => void,
+): {
     origin: string;
     stop(): void;
 } {
@@ -20,8 +26,14 @@ function startBackend(info: () => { protocolVersion: number; backendUid?: string
             message(ws, raw) {
                 const request = JSON.parse(String(raw)) as { correlationId?: string; type: string };
                 if (!request.correlationId) return;
-                const payload = request.type === MSG.SYSTEM_INFO ? info() : {};
-                ws.send(JSON.stringify({ correlationId: request.correlationId, payload }));
+                const correlationId = request.correlationId;
+                if (request.type !== MSG.SYSTEM_INFO) {
+                    ws.send(JSON.stringify({ correlationId, payload: {} }));
+                    return;
+                }
+                const answer = () => ws.send(JSON.stringify({ correlationId, payload: info() }));
+                if (holdInfo) holdInfo(answer);
+                else answer();
             },
         },
     });
@@ -49,6 +61,8 @@ function failure(message: string): TunnelFailure {
     return { kind: "unknown", message, stderr: "" };
 }
 
+let backendSeen: (id: string) => void = () => {};
+
 const bridge: Pick<
     Bridge,
     | "attachBackend"
@@ -73,7 +87,10 @@ const bridge: Pick<
     getAttached: () => Promise.resolve([]),
     onBackendsChanged: () => () => {},
     onBackendDropped: () => () => {},
-    onBackendSeen: () => () => {},
+    onBackendSeen: (handler) => {
+        backendSeen = handler;
+        return () => {};
+    },
 };
 
 let store: typeof UseBackendStore;
@@ -265,6 +282,33 @@ describe("backend store attach", () => {
         expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
     });
 
+    test("an attach whose handshake a newer attach cut off leaves the newer one alone", async () => {
+        let infoRequests = 0;
+        let answerFirst: () => void = () => {};
+        const backend = startBackend(
+            () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }),
+            (answer) => {
+                // Hold the first handshake unanswered; answer the rest at once.
+                if (++infoRequests === 1) answerFirst = answer;
+                else answer();
+            },
+        );
+        cleanups.push(backend.stop);
+        cleanups.push(() => answerFirst());
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+
+        const first = store.getState().attach("abc123");
+        while (infoRequests < 1) await Bun.sleep(5);
+        const second = store.getState().attach("abc123");
+
+        expect(await first).toBeNull();
+        expect(await second).toBe("abc123");
+        expect(row("abc123")?.state).toBe("attached");
+        expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
+    });
+
     test("a reconnect answered by a different backend detaches the machine", async () => {
         let uid = "abc123";
         const backend = startBackend(() => ({
@@ -284,6 +328,52 @@ describe("backend store attach", () => {
         expect(row("abc123")?.failure?.message).toMatch(/different backend/);
         expect(main.detached).toEqual(["abc123"]);
         expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+    });
+});
+
+describe("backend store beacon", () => {
+    /** Main lists abc123 with the given persisted intent; counts attach dials. */
+    function beaconSetup(attached: boolean): { dials: () => number } {
+        seedRow("abc123");
+        let dials = 0;
+        main.attachBackend = () => {
+            dials++;
+            return Promise.resolve({ ok: false, failure: failure("still asleep") });
+        };
+        const original = bridge.listBackends;
+        bridge.listBackends = () =>
+            Promise.resolve([
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    attached,
+                    saved: true,
+                    seen: true,
+                },
+            ]);
+        cleanups.push(() => (bridge.listBackends = original));
+        return { dials: () => dials };
+    }
+
+    test("a beacon from a machine the user detached does not dial it", async () => {
+        const { dials } = beaconSetup(false);
+
+        backendSeen("abc123");
+        await Bun.sleep(20);
+
+        expect(dials()).toBe(0);
+        expect(row("abc123")?.state).toBe("offline");
+    });
+
+    test("a beacon from an attached machine that went offline dials it again", async () => {
+        const { dials } = beaconSetup(true);
+
+        backendSeen("abc123");
+        await Bun.sleep(20);
+
+        expect(dials()).toBe(1);
     });
 });
 

@@ -101,16 +101,22 @@ function drop(id: string): void {
  * a compatible Taskflow, and the beacon's uid is a hint anyone on the LAN can
  * forge — this is where identity is actually established. On failure the
  * connection is dropped, the row says why, and the answer is null.
+ *
+ * `current` says whether the caller still owns the machine. A newer attach
+ * replaces the socket, which fails this request; the connection and row are
+ * then the newer attach's, so a stale caller leaves both alone.
  */
-async function handshake(id: string): Promise<SystemInfoResponse | null> {
+async function handshake(id: string, current: () => boolean): Promise<SystemInfoResponse | null> {
     let info: SystemInfoResponse;
     try {
         info = await sendRequest<SystemInfoResponse>(id, MSG.SYSTEM_INFO, {});
     } catch {
+        if (!current()) return null;
         drop(id);
         patch(id, { state: "offline", failure: unknownFailure("No handshake") });
         return null;
     }
+    if (!current()) return null;
     // Before anything is confirmed with main: main has no socket, so the
     // version check is only ever enforced here.
     if (info.protocolVersion !== PROTOCOL_VERSION) {
@@ -169,8 +175,8 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         }
         if (!current()) return null;
 
-        const info = await handshake(id);
-        if (!info || !current()) return null;
+        const info = await handshake(id, current);
+        if (!info) return null;
 
         let liveId = id;
         if (info.backendUid) {
@@ -313,8 +319,8 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
     async rehandshake(id) {
         const expectedUid = get().machines.find((m) => m.id === id)?.backendUid;
         const attempt = attempts.get(id);
-        const info = await handshake(id);
-        if (!info || attempts.get(id) !== attempt) return;
+        const info = await handshake(id, () => attempts.get(id) === attempt);
+        if (!info) return;
         if (expectedUid && info.backendUid !== expectedUid) {
             // A different backend is answering on this port. Detach rather than
             // adopt it: its data would be filed under another machine's id.
@@ -388,7 +394,13 @@ window.taskflow?.onBackendDropped((id, failure) => {
 
 window.taskflow?.onBackendSeen((id) => {
     // The beacon reappeared, which is positive evidence the machine woke up.
-    // Re-attach now rather than waiting out the reconnect backoff.
-    const machine = useBackendStore.getState().machines.find((m) => m.id === id);
-    if (machine && machine.state === "offline") useBackendStore.getState().retry(id);
+    // Re-attach now rather than waiting out the reconnect backoff. Only a machine
+    // the user left attached: main announces every saved machine it sees, and a
+    // detached row is "offline" too.
+    void (async () => {
+        const entries = await bridge().listBackends();
+        if (!entries.some((entry) => entry.id === id && entry.attached)) return;
+        const machine = useBackendStore.getState().machines.find((m) => m.id === id);
+        if (machine && machine.state === "offline") useBackendStore.getState().retry(id);
+    })();
 });
