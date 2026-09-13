@@ -17,7 +17,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
-| 3 | Shared discovery types and the pure beacon codec | pending | | | |
+| 3 | Shared discovery types and the pure beacon codec | implemented | `f32c53f` | `a0a0907` | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
@@ -160,7 +160,20 @@ the plan's Step 3 explicitly accepts. **Task 2 is clear.**
   single `FILE_UNWATCH` from it releases the watch. Same as before the change; the UI's
   `file-store` watches at most one path per client and unwatches before re-watching.
 
+- Task 3: `parseDatagram` validates `backendUid` with `isSafeLabel` (Delta A). The real
+  uid is 32 lowercase hex (`packages/backend/src/config.ts:88`), well inside the safe set;
+  the test fixture uses that shape. Besides the plan's "missing backendUid" test, one more
+  test rejects unsafe/non-string uids, so the codec suite is 13 tests, not the plan's 10.
+- Task 3: `types/backend.ts` holds no `BackendRecord` and no `MenuEntry` (Delta C); Task 5
+  writes the only `BackendRecord`. The `MEMBERSHIP_REFRESH_MS` comment dropped the
+  superseded spec's line reference.
+
 ## Validation baseline
+
+After Task 3 (`a0a0907`): `bun test packages/shared` 128 pass, 0 fail; beacon codec 13
+pass; `bun run typecheck` clean; eslint and prettier clean on the changed files. Change is
+shared-package-only and additive (new files, new constants, one barrel line), so the full
+suite was not rerun.
 
 After Task 2 R1 fix (`ea2000e`): `bun test packages/backend` 670 pass, 0 fail (55 s);
 `bun run typecheck` clean; eslint and prettier clean on the two changed files. The full
@@ -194,6 +207,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 3 — shared discovery types and the pure beacon codec (executed
-from the superseded multi-backend plan's Task 2 with the deltas this plan lists). Record HEAD
-as its base commit first.
+Next step: Task 3 review round 1 — Codex gpt-5.5 prompted review of `f32c53f..a0a0907`
+(packages only), checked against the superseded plan's Task 2 plus this plan's Deltas A–C.
+Review needed: the codec is the LAN-facing trust boundary.
