@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 1 | `76a0746` | `4abc696`, `f1b70e0` | R1: 1 fixed (Codex + own) |
+| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 2 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -538,6 +538,27 @@ registry (the IPC handler answers `{ id: "local", merged: false }`); the attempt
 could in principle let a stale attach match a restarted count, but only via a third attach under the provisional id, whose
 row is gone by then.
 
+### Task 10, round 2 (Codex gpt-5.5, prompted review of `76a0746..f1b70e0`, packages/ui)
+
+Codex: clean (checked plan contract, handoff decisions, R1 fix, pushes, provider startup, store reset, `as any`, exports;
+reran store tests and typecheck). My own read found two, each reproduced with a failing test before fixing in `4b40bbf`:
+
+1. **An attach superseded mid-handshake kills the newer attach — confirmed, fixed.** `handshake()` dropped the connection
+   and marked the row offline on any request failure, without checking the attempt counter. A second `attach(id)` (e.g.
+   the R1 merged branch dialling a canonical id whose own attach is still handshaking, or a launch redial of both a
+   provisional and a canonical record) replaces the socket, which rejects the first attach's `SYSTEM_INFO`; its catch then
+   closed the second attach's opening socket, so that attach resolved null with "Socket refused" while the backend was
+   healthy. `handshake(id, current)` now leaves socket and row alone when the caller is stale (attach passes `current`,
+   rehandshake its attempt check). Test: "an attach whose handshake a newer attach cut off leaves the newer one alone"
+   (red: second attach Received null).
+2. **A beacon re-attaches a machine the user detached — confirmed, fixed.** Plan-faithful (plan line 3274). Main's
+   listener fires `backend-seen` for every saved record whose beacon newly appears (`backend-registry.ts:188-191`),
+   including at every launch, and a detached row is `offline` like a dropped one, so `retry` → `attach` dialled it and
+   main re-persisted `attached`. The spec's beacon signal resets the backoff of machines in the attached set. The handler
+   now asks `listBackends()` and retries only when the entry's persisted `attached` is true. Tests: "a beacon from a
+   machine the user detached does not dial it" (red: 1 dial) and "a beacon from an attached machine that went offline
+   dials it again" (guards over-restriction).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -716,6 +737,10 @@ row is gone by then.
 
 ## Validation baseline
 
+After Task 10 R2 fixes (`4b40bbf`): `backend-store.test.ts` 11 pass (3 runs; the race and detached-beacon tests red
+first); `bun test packages/ui` 198 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier
+clean on the two changed files.
+
 After Task 10 R1 fix (`f1b70e0`): `backend-store.test.ts` 8 pass (3 runs; new test red first); `bun test packages/ui`
 195 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
@@ -846,8 +871,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 10 review round 2 — standard gpt-5.5 review via codex-review over `76a0746..f1b70e0`
+Next step: Task 10 review round 3 — standard gpt-5.5 review via codex-review over `76a0746..4b40bbf`
 (packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
-`hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above (attempt counter, conditional detach in
-`retry`, rename-row dedupe), the R1 merged-branch fix (re-attach the canonical id unless its row is attached) and plan
-Task 10 (plan lines 2810-3330).
+`hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above, the R1 merged-branch fix, the R2 fixes
+(`handshake(id, current)` staleness guard; `onBackendSeen` gated on the persisted `attached` intent) and plan Task 10
+(plan lines 2810-3330).
