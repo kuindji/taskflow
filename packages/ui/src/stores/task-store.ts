@@ -53,6 +53,11 @@ function publish(): void {
     useTaskStore.setState({ tasks: live.read(), archivedTasks: archived.read() });
 }
 
+async function requestTasks(backendId: string, type: string): Promise<Task[]> {
+    const { tasks } = await sendRequest<TaskListResponse>(backendId, type);
+    return sortTasksByCreatedAtDesc(tasks);
+}
+
 /** A task and its subtasks: archiving or deleting one takes the others with it. */
 function withoutTaskFamily(items: Scoped<Task>[], id: string): Scoped<Task>[] {
     return items.filter((t) => t.id !== id && t.parentId !== id);
@@ -76,15 +81,14 @@ export const useTaskStore = create<TaskStore>((set) => ({
         set({ loading: true });
         try {
             const before = live.read().filter((t) => t.backendId === backendId);
-            const token = live.begin(backendId);
-            const { tasks } = await sendRequest<TaskListResponse>(backendId, MSG.TASK_LIST);
-            if (!live.replace(backendId, sortTasksByCreatedAtDesc(tasks), token)) return;
+            const landed = await live.load(backendId, () => requestTasks(backendId, MSG.TASK_LIST));
+            if (!landed) return;
             // Only a task this machine held can have vanished from it; an active
             // task on another machine is not this response's to clear.
             const { activeTaskId } = useTaskStore.getState();
             const vanished =
                 before.some((t) => t.id === activeTaskId) &&
-                !tasks.some((t) => t.id === activeTaskId);
+                !live.read().some((t) => t.backendId === backendId && t.id === activeTaskId);
             useTaskStore.setState({
                 tasks: live.read(),
                 activeTaskId: vanished ? null : activeTaskId,
@@ -94,9 +98,10 @@ export const useTaskStore = create<TaskStore>((set) => ({
         }
     },
     async fetchArchivedTasks(backendId) {
-        const token = archived.begin(backendId);
-        const { tasks } = await sendRequest<TaskListResponse>(backendId, MSG.TASK_LIST_ARCHIVED);
-        if (archived.replace(backendId, sortTasksByCreatedAtDesc(tasks), token)) publish();
+        const landed = await archived.load(backendId, () =>
+            requestTasks(backendId, MSG.TASK_LIST_ARCHIVED),
+        );
+        if (landed) publish();
     },
     setShowArchive(show) {
         set({ showArchive: show });
@@ -113,8 +118,8 @@ export const useTaskStore = create<TaskStore>((set) => ({
         const task = await sendRequest<Task>(backendId, MSG.TASK_CREATE, payload);
         const scoped = { ...task, backendId };
         // TASK_CREATE does not broadcast to its sender, so this response is the
-        // only write. `apply` bumps the revision, which is what stops a
-        // TASK_LIST already in flight from erasing it.
+        // only write. Going through `apply` is what makes a TASK_LIST already
+        // in flight land with it replayed rather than erase it.
         live.apply(backendId, (items) =>
             items.some((t) => t.id === task.id)
                 ? items

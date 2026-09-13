@@ -97,6 +97,23 @@ describe("project store across two backends", () => {
         ]);
     });
 
+    test("an event landing while a machine's first list is in flight does not lose the list", async () => {
+        // A busy machine broadcasts updates all the time; one reaches the
+        // renderer before the answer to the list request does.
+        const projects = [project("1", "Alpha"), project("2", "Beta")];
+        const server: TestServer = startTestServer("A", (type) => {
+            if (type !== MSG.PROJECT_LIST) return {};
+            server.broadcast(MSG.PROJECT_UPDATED, project("1", "Alpha"));
+            return { projects };
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+
+        await useProjectStore.getState().fetchProjects("a");
+
+        await until(() => useProjectStore.getState().projects.length === 2);
+    });
+
     test("a mutation on one backend's record is sent on that backend's connection only", async () => {
         const [serverA, serverB] = await attachTwo(
             [project("same", "Repo")],

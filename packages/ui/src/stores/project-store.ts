@@ -86,12 +86,14 @@ export const useProjectStore = create<ProjectStore>((set) => ({
             const before = useProjectStore
                 .getState()
                 .projects.filter((p) => p.backendId === backendId);
-            const token = slices.begin(backendId);
-            const { projects } = await sendRequest<ProjectListResponse>(
-                backendId,
-                MSG.PROJECT_LIST,
-            );
-            if (!slices.replace(backendId, projects, token)) return;
+            const landed = await slices.load(backendId, async () => {
+                const { projects } = await sendRequest<ProjectListResponse>(
+                    backendId,
+                    MSG.PROJECT_LIST,
+                );
+                return projects;
+            });
+            if (!landed) return;
             publish();
             // Only a project this machine held can have vanished from it; an
             // active project on another machine is not this response's to clear.
@@ -99,7 +101,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
             if (
                 activeProjectId &&
                 before.some((p) => p.id === activeProjectId) &&
-                !projects.some((p) => p.id === activeProjectId)
+                !slices.read().some((p) => p.backendId === backendId && p.id === activeProjectId)
             ) {
                 useUIStore.getState().setActiveProject(null);
             }
@@ -158,13 +160,15 @@ export const useProjectStore = create<ProjectStore>((set) => ({
         // Optimistic local reorder, then confirm with the server.
         slices.apply(backendId, (items) => orderProjectsByIds(items, orderedIds));
         publish();
-        const token = slices.begin(backendId);
-        const { projects } = await sendRequest<ProjectListResponse>(
-            backendId,
-            MSG.PROJECT_REORDER,
-            { orderedIds },
-        );
-        if (slices.replace(backendId, projects, token)) publish();
+        const landed = await slices.load(backendId, async () => {
+            const { projects } = await sendRequest<ProjectListResponse>(
+                backendId,
+                MSG.PROJECT_REORDER,
+                { orderedIds },
+            );
+            return projects;
+        });
+        if (landed) publish();
     },
 }));
 

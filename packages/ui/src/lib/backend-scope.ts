@@ -1,12 +1,19 @@
 /** A record tagged with the connection that delivered it. The protocol never carries this. */
 export type Scoped<T> = T & { backendId: string };
 
+type Write<T> = (items: Scoped<T>[]) => Scoped<T>[];
+
 interface Slice<T> {
     items: Scoped<T>[];
     /** Bumped by every write. A list response taken before a write is stale. */
     revision: number;
     /** Bumped by every `begin()`. Only the newest request may land. */
     generation: number;
+    /**
+     * The writes since the newest `begin()`, while its response is awaited;
+     * null when no response is. A stale response is rebased onto these.
+     */
+    pending: Write<T>[] | null;
 }
 
 /** What `begin()` hands back and `replace()` requires. */
@@ -31,13 +38,13 @@ export function createSlices<T>() {
     function sliceFor(backendId: string): Slice<T> {
         let slice = slices.get(backendId);
         if (!slice) {
-            slice = { items: [], revision: 0, generation: 0 };
+            slice = { items: [], revision: 0, generation: 0, pending: null };
             slices.set(backendId, slice);
         }
         return slice;
     }
 
-    return {
+    const scope = {
         read(): Scoped<T>[] {
             return [...slices.values()].flatMap((slice) => slice.items);
         },
@@ -52,27 +59,53 @@ export function createSlices<T>() {
          * fresher data — then sees 0 !== 1 and is discarded, so a project just
          * created on that machine stays missing until the next detach and
          * reattach. `generation` orders requests against each other;
-         * `revision` guards against events and optimistic writes landing
-         * mid-flight. A response must survive both.
+         * `revision` tells whether events or optimistic writes landed mid-flight.
          */
         begin(backendId: string): FetchToken {
             const slice = sliceFor(backendId);
             slice.generation++;
+            slice.pending = [];
             return { revision: slice.revision, generation: slice.generation };
         },
-        /** Whether the response landed; false when it was stale and discarded. */
+        /**
+         * Land the newest request's response. When writes landed while it was in
+         * flight, they are replayed over it rather than the response being
+         * discarded: nothing else refetches, so discarding would leave a machine
+         * that broadcast an update mid-list without its records until the next
+         * attach. Every store write is a function of the items it is given
+         * (upsert, replace by id, filter, reorder), so a replay keeps the newer
+         * state and the snapshot's records both.
+         *
+         * Whether the response landed; false when a later request superseded it
+         * or its machine was dropped.
+         */
         replace(backendId: string, items: T[], token: FetchToken): boolean {
-            const slice = sliceFor(backendId);
-            // Superseded by a later request, or overtaken by a write.
-            if (slice.generation !== token.generation) return false;
-            if (slice.revision !== token.revision) return false;
-            slice.items = items.map((item) => ({ ...item, backendId }));
+            // A dropped machine's late response must not bring its slice back.
+            const slice = slices.get(backendId);
+            if (!slice || slice.generation !== token.generation) return false;
+            let next = items.map((item) => ({ ...item, backendId }));
+            if (slice.revision !== token.revision) {
+                for (const write of slice.pending ?? []) next = write(next);
+            }
+            slice.items = next;
+            slice.pending = null;
             slice.revision++;
             return true;
         },
-        apply(backendId: string, fn: (items: Scoped<T>[]) => Scoped<T>[]): void {
+        /** `begin`, request, `replace`; a request that fails stops the slice keeping writes for it. */
+        async load(backendId: string, request: () => Promise<T[]>): Promise<boolean> {
+            const token = scope.begin(backendId);
+            try {
+                return scope.replace(backendId, await request(), token);
+            } finally {
+                const slice = slices.get(backendId);
+                if (slice?.generation === token.generation) slice.pending = null;
+            }
+        },
+        apply(backendId: string, fn: Write<T>): void {
             const slice = sliceFor(backendId);
             slice.items = fn(slice.items);
+            slice.pending?.push(fn);
             slice.revision++;
         },
         drop(backendId: string): void {
@@ -82,4 +115,5 @@ export function createSlices<T>() {
             return [...slices.keys()];
         },
     };
+    return scope;
 }
