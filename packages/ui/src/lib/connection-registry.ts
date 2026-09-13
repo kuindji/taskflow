@@ -107,7 +107,10 @@ export function rekeyConnection(fromId: string, toId: string): void {
     const listeners = statusListeners.get(fromId);
     if (listeners) {
         statusListeners.delete(fromId);
-        statusListeners.set(toId, listeners);
+        // Merge: someone may already be waiting on the uid.
+        const existing = statusListeners.get(toId);
+        if (existing) for (const listener of listeners) existing.add(listener);
+        else statusListeners.set(toId, listeners);
     }
     if (primaryId === fromId) {
         primaryId = toId;

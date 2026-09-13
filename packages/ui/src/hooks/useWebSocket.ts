@@ -22,12 +22,22 @@ function primaryOrThrow(): string {
     return id;
 }
 
+/**
+ * Before a primary exists these answer "not connected" as the old module did: a
+ * rejected request and a dropped message, never a throw. Children run their
+ * mount effects before `WebSocketProvider` connects, and several call
+ * `sendRequest(...).then(...)` synchronously inside those effects, where a
+ * throw would take down the whole renderer.
+ */
 export function sendRequest<T = unknown>(type: string, payload: unknown = {}): Promise<T> {
-    return sendRequestRouted<T>(primaryOrThrow(), type, payload);
+    const id = getPrimary();
+    if (!id) return Promise.reject(new Error("No primary backend"));
+    return sendRequestRouted<T>(id, type, payload);
 }
 
 export function sendFireAndForget(type: string, payload: unknown = {}): void {
-    sendFireAndForgetRouted(primaryOrThrow(), type, payload);
+    const id = getPrimary();
+    if (id) sendFireAndForgetRouted(id, type, payload);
 }
 
 export function onEvent(type: string, handler: (payload: unknown) => void): () => void {

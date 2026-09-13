@@ -4,6 +4,7 @@ import {
     closeConnection,
     onEvent,
     onPrimaryChange,
+    onStatusChange,
     openConnection,
     rekeyConnection,
     sendRequest,
@@ -117,5 +118,39 @@ describe("connection registry", () => {
         closeConnection("a-uid", "detach");
 
         expect(seen).toEqual(["a", "a-uid"]);
+    });
+
+    test("closing a connection that is still opening rejects the open", async () => {
+        const a = startServer("A");
+        servers.push(a);
+
+        const opening = openConnection("a", a.origin);
+        closeConnection("a", "detach");
+
+        const outcome = await Promise.race([
+            opening.then(
+                () => "resolved",
+                (reason: unknown) => reason,
+            ),
+            new Promise((resolve) => setTimeout(() => resolve("still pending"), 1000)),
+        ]);
+        expect(outcome).toBeInstanceOf(BackendDetachedError);
+    });
+
+    test("a rekey keeps the status subscribers already waiting under the new id", async () => {
+        const a = startServer("A");
+        servers.push(a);
+
+        const seen: boolean[] = [];
+        const off = onStatusChange("a-uid", (status) => seen.push(status.connected));
+        await openConnection("a", a.origin);
+        const offProvisional = onStatusChange("a", () => {});
+        rekeyConnection("a", "a-uid");
+        closeConnection("a-uid", "detach");
+        off();
+        offProvisional();
+
+        // The initial "not connected", then the close of the rekeyed connection.
+        expect(seen).toEqual([false, false]);
     });
 });

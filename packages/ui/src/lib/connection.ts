@@ -41,6 +41,8 @@ export class Connection {
     private pending = new Map<string, Pending>();
     private status: ConnectionStatus = { connected: false, reconnecting: false };
     private closed = false;
+    /** Rejects the `open()` still waiting on its socket; null once it settles. */
+    private rejectOpen: ((reason: Error) => void) | null = null;
 
     constructor(
         backendId: string,
@@ -84,19 +86,26 @@ export class Connection {
         // reopens while connected, the old socket's handlers are dead (their
         // epoch is stale) and not closing it would leak a live socket.
         this.socket?.close();
+        this.rejectOpen?.(new Error(`Backend ${this.backendId} was reopened`));
         return new Promise((resolve, reject) => {
+            const fail = (reason: Error): void => {
+                if (this.rejectOpen === fail) this.rejectOpen = null;
+                reject(reason);
+            };
+            this.rejectOpen = fail;
             const socket = new WebSocket(this.wsUrl());
             this.socket = socket;
 
             socket.onopen = () => {
                 if (epoch !== this.epoch) return;
+                if (this.rejectOpen === fail) this.rejectOpen = null;
                 this.reconnectAttempt = 0;
                 this.setStatus({ connected: true, reconnecting: false });
                 resolve();
             };
             socket.onerror = () => {
                 if (epoch !== this.epoch) return;
-                reject(new Error(`WebSocket error for backend ${this.backendId}`));
+                fail(new Error(`WebSocket error for backend ${this.backendId}`));
             };
             socket.onmessage = (event) => {
                 if (epoch !== this.epoch) return;
@@ -104,6 +113,9 @@ export class Connection {
             };
             socket.onclose = () => {
                 if (epoch !== this.epoch) return;
+                // A socket can close before it opens without an error event;
+                // the open waiting on it must not hang.
+                fail(new Error("WebSocket closed"));
                 this.failPending(new Error("WebSocket closed"), epoch);
                 this.setStatus({ connected: false, reconnecting: false });
                 if (!this.closed) this.scheduleReconnect();
@@ -190,6 +202,9 @@ export class Connection {
             this.reconnectTimer = null;
         }
         this.failPending(reason, this.epoch);
+        // The bumped epoch silences the socket's handlers, so an open still in
+        // flight would otherwise never settle.
+        this.rejectOpen?.(reason);
         this.epoch++;
         this.socket?.close();
         this.socket = null;
