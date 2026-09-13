@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import * as monaco from "monaco-editor";
-import { backendFromModelUri, modelKey, modelUriFor, pathFromModelUri } from "./editor-uri";
+import { backendFromModelUri, modelUriFor, pathFromModelUri } from "./editor-uri";
+
+/** Monaco's model registry keys models by this string. */
+const modelKey = (backendId: string, path: string) => modelUriFor(backendId, path).toString();
 
 describe("editor model URIs", () => {
     test("the same path on two machines produces two distinct URIs", () => {
@@ -22,8 +25,8 @@ describe("editor model URIs", () => {
     });
 
     test("survives a trip through the string key", () => {
-        // The reset in editor-dirty-state parses map keys back into URIs, so
-        // `toString` and `parse` must round-trip the fragment exactly —
+        // TS worker file names come back as strings and are parsed into URIs,
+        // so `toString` and `parse` must round-trip the fragment exactly —
         // including the characters `toString` percent-encodes.
         const path = "/Users/me/my repo/src/café #1 ☕.ts";
         const parsed = monaco.Uri.parse(modelKey("desktop", path));

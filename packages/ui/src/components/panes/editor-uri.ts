@@ -58,11 +58,6 @@ export function backendFromModelUri(uri: monaco.Uri): string | null {
     return decodeId(uri.authority);
 }
 
-/** Same identity as the model URI, as a string. */
-export function modelKey(backendId: string, absolutePath: string): string {
-    return modelUriFor(backendId, absolutePath).toString();
-}
-
 // Every model of a detached machine goes, dirty or not: the placeholder models
 // import navigation creates are never disposed by a pane.
 registerBackendReset("editor-models", (backendId) => {
