@@ -510,10 +510,18 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     if (!machines().some((m) => m.id === id && m.state === "attached")) {
         // A refusal must leave the attached set as it found it, so a target
         // attached only for this switch is detached again. One the user already
-        // wanted keeps the attach: that is what they asked for anyway.
-        const wanted = machines().find((m) => m.id === id)?.keepAttached ?? false;
+        // wanted keeps the attach: that is what they asked for anyway. Judged by
+        // both ids, before attaching: the target can turn out to be an alias of
+        // a machine already attached under its uid.
+        const wanted = new Set(
+            machines()
+                .filter((m) => m.keepAttached || m.state === "attached")
+                .map((m) => m.id),
+        );
         const refuse = async (result: SwitchResult, liveId: string): Promise<SwitchResult> => {
-            if (!wanted) await useBackendStore.getState().detach(liveId);
+            if (!wanted.has(id) && !wanted.has(liveId)) {
+                await useBackendStore.getState().detach(liveId);
+            }
             return result;
         };
 

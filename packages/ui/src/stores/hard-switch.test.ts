@@ -236,6 +236,34 @@ describe("hard switch", () => {
         expect(main.detached).toEqual([]);
     });
 
+    test("a refusal leaves attached a machine the target turned out to be an alias of", async () => {
+        await launch("b-uid", "desktop.local:main");
+        startMachine("b-uid", "b-uid");
+        startMachine("desktop.local:main", "b-uid");
+        expect(await store.getState().attach("b-uid")).toBe("b-uid");
+        dials.length = 0;
+        // The saved record handshakes as a machine already attached under its uid.
+        main.confirmBackend = (id, info) =>
+            Promise.resolve({ id: info.backendUid, merged: id !== info.backendUid });
+        const answer = main.attachBackend;
+        main.attachBackend = (id) => {
+            setEditorDirty("local", "/repo/a.ts", true);
+            return answer(id);
+        };
+        try {
+            expect(await store.getState().workAs("desktop.local:main")).toMatchObject({
+                reason: "dirty",
+            });
+        } finally {
+            clearEditorDirty("local", "/repo/a.ts");
+        }
+
+        expect(row("b-uid")).toMatchObject({ state: "attached", keepAttached: true });
+        expect(main.detached).not.toContain("b-uid");
+        expect(await sendRequest<Record<string, never>>("b-uid", "ping")).toEqual({});
+        expect(store.getState().primaryId).toBe("local");
+    });
+
     test("a machine main fails to detach still goes offline and the switch completes", async () => {
         await launch("b", "c");
         startMachine("b", "b");
