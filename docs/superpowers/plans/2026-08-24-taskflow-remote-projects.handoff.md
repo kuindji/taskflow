@@ -17,7 +17,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
-| 3 | Shared discovery types and the pure beacon codec | in-review round 1 | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed |
+| 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
@@ -156,6 +156,16 @@ returned keys, and no name/signature drift against later consumers. My own read 
 `@taskflow/shared/discovery` subpath the later tasks import is created by Task 4 (superseded
 Task 3 Step creating `discovery/index.ts` + package `exports`), so its absence is expected.
 
+### Task 3, round 2 (Codex gpt-5.5, prompted review of `f32c53f..cd0fc47`, packages only)
+
+Clean: no findings. Codex checked encode/parse round trips, malformed JSON, wrong types,
+extra fields (dropped by the normalized return), oversized datagrams, prototype-pollution
+keys (no merge path), and name/signature drift against later consumers; it reran
+`bun test packages/shared/src/discovery` (15 pass) and `bun run typecheck` (pass). My own
+read of the diff found nothing either: `displayName` is capped in UTF-16 units, matching the
+advertiser's `.slice(0, 64)`; `appVersion`/`os` are bounded only by the 1 KiB datagram cap,
+which is what the plan specifies. **Task 3 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -230,6 +240,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 3 review round 2 — Codex gpt-5.5 prompted review of `f32c53f..cd0fc47`
-(packages only), checked against the superseded plan's Task 2 plus this plan's Deltas A–C
-and the R1 parse-side caps (integer `protocolVersion`, `displayName` ≤ 64).
+Next step: implement Task 4 — the advertiser and listener, and the backend that runs one
+(superseded plan Task 3, with this plan's Task 4 deltas). Record HEAD as its base commit first.
