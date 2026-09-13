@@ -13,6 +13,7 @@ import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
 import { destroyTerminal } from "@/components/panes/TerminalPane";
 import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
+import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
 import { confirm } from "@/stores/dialog-store";
 import { cn } from "@/lib/utils";
 
@@ -89,8 +90,10 @@ export function WorkspacePane({
     const handleTabClose = (id: string) => {
         const tab = tabs.find((t) => t.id === id);
 
+        const backendId = workspaceBackendId(workspaceKey);
+
         const doClose = () => {
-            if (tab?.filePath) clearEditorDirty(tab.filePath);
+            if (tab?.filePath && backendId !== null) clearEditorDirty(backendId, tab.filePath);
             if (tab?.sessionId) destroyTerminal(tab.sessionId);
             void closeTab(workspaceKey, id);
         };
@@ -98,7 +101,8 @@ export function WorkspacePane({
         if (
             (tab?.type === "editor" || tab?.type === "markdown") &&
             tab.filePath &&
-            isEditorDirty(tab.filePath)
+            backendId !== null &&
+            isEditorDirty(backendId, tab.filePath)
         ) {
             void confirm({
                 title: "Unsaved Changes",

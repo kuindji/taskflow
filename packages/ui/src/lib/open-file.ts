@@ -48,7 +48,8 @@ async function openFileInApp(
 ): Promise<void> {
     if (!workspaceKey) return;
 
-    const editors = await detectedEditors(workspaceBackendId(workspaceKey));
+    const backendId = workspaceBackendId(workspaceKey);
+    const editors = await detectedEditors(backendId);
 
     const store = useSessionStore.getState();
     const settings = useSettingsStore.getState().settings;
@@ -77,8 +78,8 @@ async function openFileInApp(
         (t) => t.type === tabType && t.filePath === filePath && !t.sessionId,
     );
 
-    if (plan.line !== undefined) {
-        setPendingLine(filePath, plan.line);
+    if (plan.line !== undefined && backendId !== null) {
+        setPendingLine(backendId, filePath, plan.line);
     }
 
     if (existing) {

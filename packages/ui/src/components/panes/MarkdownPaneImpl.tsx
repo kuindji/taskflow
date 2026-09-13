@@ -36,7 +36,6 @@ import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useWikiStore } from "@/stores/wiki-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { rawFileUrl } from "@/lib/backend-url";
-import { getPrimary } from "@/lib/connection-registry";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import {
@@ -508,14 +507,12 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                     return <img src={source} alt={alt ?? ""} {...rest} />;
                 }
                 const absolute = joinRelative(dirnameOf(filePath), source);
-                // TODO(remote-projects): route to the workspace backend
-                const backendId = getPrimary();
                 const url = backendId === null ? null : rawFileUrl(backendId, absolute);
                 if (url === null) return <img alt={alt ?? ""} {...rest} />;
                 return <img src={url} alt={alt ?? ""} {...rest} />;
             },
         }),
-        [editorFontSize, filePath],
+        [backendId, editorFontSize, filePath],
     );
 
     // react-markdown parses and transforms the whole document on every render

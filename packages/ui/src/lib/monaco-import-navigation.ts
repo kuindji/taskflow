@@ -1,9 +1,10 @@
 import * as monaco from "monaco-editor";
 import { MSG } from "@taskflow/shared";
 import type { TsResolveTsconfigResponse, TsResolveImportResponse } from "@taskflow/shared";
-import { sendRequest } from "@/hooks/useWebSocket";
 import { sendRequest as sendRequestTo } from "@/lib/connection-registry";
+import { getLanguage } from "@/lib/editor-language";
 import { registerBackendReset } from "@/stores/store-reset";
+import { backendFromModelUri, modelUriFor, pathFromModelUri } from "@/components/panes/editor-uri";
 
 const TS_LANGUAGES = new Set(["typescript", "javascript"]);
 
@@ -162,13 +163,16 @@ function extractImportSpecifier(lineContent: string): ImportSpecifierMatch | nul
 function ensureModel(fileUri: monaco.Uri): void {
     if (!monaco.editor.getModel(fileUri)) {
         // Create a placeholder model. It will be replaced with real
-        // content if/when the user actually opens the file.
-        monaco.editor.createModel("", undefined, fileUri);
+        // content if/when the user actually opens the file. The language
+        // comes from the path: a model URI carries no extension Monaco could
+        // infer it from, and the pane reuses this model as it finds it.
+        const filePath = pathFromModelUri(fileUri);
+        monaco.editor.createModel("", getLanguage(filePath), fileUri);
     }
 }
 
-/** Open a resolved file path in a new editor tab */
-type OpenFileCallback = (filePath: string) => void;
+/** Open a resolved file path, on the machine it was resolved on, in a new editor tab */
+type OpenFileCallback = (backendId: string, filePath: string) => void;
 
 const registeredDisposables: monaco.IDisposable[] = [];
 
@@ -188,7 +192,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
     registeredDisposables.push(
         monaco.editor.registerEditorOpener({
             openCodeEditor(_source, resource) {
-                openFile(resource.path);
+                // The path lives in the fragment; `resource.path` is "/".
+                const backendId = backendFromModelUri(resource);
+                if (backendId === null) return false;
+                openFile(backendId, pathFromModelUri(resource));
                 return true;
             },
         }),
@@ -203,7 +210,9 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
             if (!TS_LANGUAGES.has(language)) return null;
 
             const uri = model.uri;
-            const filePath = uri.path;
+            const backendId = backendFromModelUri(uri);
+            if (backendId === null) return null;
+            const filePath = pathFromModelUri(uri);
 
             // For import statements, always use backend resolution.
             // The Monaco TS worker doesn't have filesystem access so it can't
@@ -212,14 +221,14 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
             const importMatch = extractImportSpecifier(lineContent);
             if (importMatch) {
                 try {
-                    // TODO(remote-projects): primary until Task 15 gives models a
-                    // machine-scoped URI this provider can read the machine from.
-                    const result = await sendRequest<TsResolveImportResponse>(
+                    const result = await sendRequestTo<TsResolveImportResponse>(
+                        backendId,
                         MSG.TS_RESOLVE_IMPORT,
                         { sourceFilePath: filePath, importSpecifier: importMatch.specifier },
                     );
                     if (result.resolvedPath) {
-                        const targetUri = monaco.Uri.file(result.resolvedPath);
+                        // A definition never crosses machines.
+                        const targetUri = modelUriFor(backendId, result.resolvedPath);
                         ensureModel(targetUri);
                         const line = position.lineNumber;
                         const link: monaco.languages.LocationLink = {
@@ -263,7 +272,10 @@ function registerImportNavigation(openFile: OpenFileCallback): void {
                     const defUri = monaco.Uri.parse(def.fileName);
 
                     // Same-file definition: navigate within the editor
-                    if (defUri.path === filePath) {
+                    if (
+                        backendFromModelUri(defUri) === backendId &&
+                        pathFromModelUri(defUri) === filePath
+                    ) {
                         const startPos = model.getPositionAt(def.textSpan.start);
                         const endPos = model.getPositionAt(
                             def.textSpan.start + def.textSpan.length,

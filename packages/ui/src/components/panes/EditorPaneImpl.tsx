@@ -19,6 +19,7 @@ import {
     getTaskWorkspaceKey,
     getProjectWorkspaceKey,
     MASTER_WORKSPACE_KEY,
+    workspaceBackendId,
 } from "@/hooks/useActiveWorkspace";
 
 interface EditorPaneImplProps {
@@ -27,7 +28,15 @@ interface EditorPaneImplProps {
 
 import { getLanguage } from "@/lib/editor-language";
 
-import { dirtyModels, viewStates, consumePendingLine } from "./editor-dirty-state";
+import {
+    isEditorDirty,
+    setEditorDirty,
+    clearEditorDirty,
+    getViewState,
+    saveViewState,
+    consumePendingLine,
+} from "./editor-dirty-state";
+import { modelUriFor } from "./editor-uri";
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
@@ -53,7 +62,7 @@ monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 // Register Cmd+click import navigation.
 // The provider is registered once globally; the openFile callback reads
 // current workspace context at call time via store.getState().
-registerImportNavigation((filePath: string) => {
+registerImportNavigation((backendId: string, filePath: string) => {
     const { masterWorkspaceActive, activeProjectId } = useUIStore.getState();
     const { activeTaskId } = useTaskStore.getState();
     const { projects } = useProjectStore.getState();
@@ -69,6 +78,9 @@ registerImportNavigation((filePath: string) => {
     }
 
     if (!workspaceKey) return;
+    // A definition never crosses machines: the path is only meaningful in a
+    // workspace on the machine it was resolved on.
+    if (workspaceBackendId(workspaceKey) !== backendId) return;
     void openFileInApp(filePath, workspaceKey);
 });
 
@@ -91,13 +103,10 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const editorWordWrapRef = useRef(editorWordWrap);
     const { readFile, writeFile } = useFileStore();
     const backendId = useWorkspaceBackend();
-    const backendIdRef = useRef(backendId);
     const [loading, setLoading] = useState(true);
-    const [dirty, setDirty] = useState(() => dirtyModels.get(filePath) ?? false);
-
-    useEffect(() => {
-        backendIdRef.current = backendId;
-    }, [backendId]);
+    const [dirty, setDirty] = useState(
+        () => backendId !== null && isEditorDirty(backendId, filePath),
+    );
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -106,14 +115,16 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     }, [editorFontFamily, editorFontSize, editorWordWrap]);
 
     useEffect(() => {
-        if (!containerRef.current) return;
+        // The model's identity includes its machine, so there is no model to
+        // show until the workspace names one.
+        if (!containerRef.current || backendId === null) return;
         const loadRequestId = ++loadRequestIdRef.current;
         editorReadyRef.current = false;
 
-        const uri = monaco.Uri.file(filePath);
+        const uri = modelUriFor(backendId, filePath);
         const existingModel = monaco.editor.getModel(uri);
         const model = existingModel ?? monaco.editor.createModel("", getLanguage(filePath), uri);
-        const isDirty = existingModel != null && (dirtyModels.get(filePath) ?? false);
+        const isDirty = existingModel != null && isEditorDirty(backendId, filePath);
 
         setLoading(!isDirty);
         setDirty(isDirty);
@@ -134,19 +145,19 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         // Sync TypeScript compiler options with nearest tsconfig
         const language = getLanguage(filePath);
-        if ((language === "typescript" || language === "javascript") && backendIdRef.current) {
-            void syncCompilerOptions(backendIdRef.current, filePath);
+        if (language === "typescript" || language === "javascript") {
+            void syncCompilerOptions(backendId, filePath);
         }
 
         const restoreViewState = () => {
-            const savedViewState = viewStates.get(filePath);
+            const savedViewState = getViewState(backendId, filePath);
             if (savedViewState) {
                 editor.restoreViewState(savedViewState);
             }
         };
 
         const navigateToPendingLine = () => {
-            const pendingLine = consumePendingLine(filePath);
+            const pendingLine = consumePendingLine(backendId, filePath);
             if (pendingLine !== undefined) {
                 editor.revealLineInCenter(pendingLine);
                 editor.setPosition({ lineNumber: pendingLine, column: 1 });
@@ -182,7 +193,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         const changeDisposable = editor.onDidChangeModelContent(() => {
             if (!editorReadyRef.current) return;
-            dirtyModels.set(filePath, true);
+            setEditorDirty(backendId, filePath, true);
             setDirty(true);
         });
 
@@ -190,7 +201,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             if (!editorReadyRef.current) return;
             void writeFile(filePath, editor.getValue())
                 .then(() => {
-                    dirtyModels.set(filePath, false);
+                    setEditorDirty(backendId, filePath, false);
                     setDirty(false);
                 })
                 .catch((err: unknown) => {
@@ -202,19 +213,20 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             editorReadyRef.current = false;
             const state = editor.saveViewState();
             if (state) {
-                viewStates.set(filePath, state);
+                saveViewState(backendId, filePath, state);
             }
             if (editorRef.current === editor) {
                 editorRef.current = null;
             }
             changeDisposable.dispose();
             editor.dispose();
-            if (!dirtyModels.get(filePath)) {
-                model.dispose();
-                dirtyModels.delete(filePath);
+            if (!isEditorDirty(backendId, filePath)) {
+                // The machine's reset may already have disposed it.
+                if (!model.isDisposed()) model.dispose();
+                clearEditorDirty(backendId, filePath);
             }
         };
-    }, [filePath, readFile, writeFile]);
+    }, [backendId, filePath, readFile, writeFile]);
 
     // Listen for line-navigation requests from search results or other sources
     useEffect(() => {
@@ -254,10 +266,11 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                     className="absolute top-2 right-2 z-10"
                     disabled={loading}
                     onClick={async () => {
-                        if (!editorRef.current || !editorReadyRef.current) return;
+                        if (!editorRef.current || !editorReadyRef.current || backendId === null)
+                            return;
                         try {
                             await writeFile(filePath, editorRef.current.getValue());
-                            dirtyModels.set(filePath, false);
+                            setEditorDirty(backendId, filePath, false);
                             setDirty(false);
                         } catch (err: unknown) {
                             console.error("Failed to save file:", err);
