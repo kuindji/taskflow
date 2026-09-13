@@ -344,6 +344,25 @@ describe("hard switch", () => {
         }
     });
 
+    test("an unsaved buffer on the machine a target turns out to be an alias of does not refuse the switch", async () => {
+        await launch("b-uid", "desktop.local:main");
+        startMachine("b-uid", "b-uid");
+        startMachine("desktop.local:main", "b-uid");
+        expect(await store.getState().attach("b-uid")).toBe("b-uid");
+        main.confirmBackend = (id, info) =>
+            Promise.resolve({ id: info.backendUid, merged: id !== info.backendUid });
+        setEditorDirty("b-uid", "/repo/a.ts", true);
+        try {
+            expect(await store.getState().workAs("desktop.local:main")).toEqual({ ok: true });
+        } finally {
+            clearEditorDirty("b-uid", "/repo/a.ts");
+        }
+
+        expect(store.getState().primaryId).toBe("b-uid");
+        expect(row("b-uid")?.state).toBe("attached");
+        expect(row("local")?.state).toBe("offline");
+    });
+
     test("a second switch started during the first is refused as busy", async () => {
         await launch("b", "c");
         startMachine("b", "b");

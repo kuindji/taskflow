@@ -498,16 +498,18 @@ function refusedAsDirty(target: string): SwitchResult | null {
 
 /** Only `workAs` calls this, inside its guard. */
 async function runSwitch(id: string): Promise<SwitchResult> {
-    const dirty = refusedAsDirty(id);
-    if (dirty) return dirty;
-
     // Prepare the target first and never tear it down. Reuse it as-is if it
     // is already attached, which is the likely case. Otherwise address it by
     // the id `attach` hands back: a first handshake renames a provisional
     // record onto its uid, and by the id we were given it no longer exists.
     let target = id;
     const machines = () => useBackendStore.getState().machines;
-    if (!machines().some((m) => m.id === id && m.state === "attached")) {
+    if (machines().some((m) => m.id === id && m.state === "attached")) {
+        const dirty = refusedAsDirty(id);
+        if (dirty) return dirty;
+    } else {
+        // No dirty check before attaching: until the handshake the target may be
+        // an alias of an attached machine, whose buffers the switch keeps.
         // A refusal must leave the attached set as it found it, so a target
         // attached only for this switch is detached again. One the user already
         // wanted keeps the attach: that is what they asked for anyway. Judged by
@@ -534,7 +536,6 @@ async function runSwitch(id: string): Promise<SwitchResult> {
             return refuse({ ok: false, reason: "unreachable", failure }, attached ?? id);
         }
         target = attached;
-        // A buffer may have been edited while the target attached.
         const dirtyNow = refusedAsDirty(target);
         if (dirtyNow) return refuse(dirtyNow, target);
     }
