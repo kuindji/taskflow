@@ -35,7 +35,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
-| 21 | The hard switch | implemented | `840ca15c` | `3530513e` | |
+| 21 | The hard switch | in-review round 1 done | `840ca15c` | `3530513e`, `26dd8d0d` | R1: 2 fixed (Codex), 1 rejected |
 | 22 | End-to-end verification on two machines | pending | | | |
 
 ## Review round results
@@ -1190,6 +1190,31 @@ absolute file path) and detach pruning in the tray and poller maps. It ran `noti
 `artifact-download.test.ts` + `flow-artifact-raw.test.ts` (12 pass). My own read of `artifact-download.ts`,
 `notification-poller.ts`, the tray diff and the raw route found nothing either. Task 20 is clear.
 
+### Task 21, round 1 (Codex gpt-5.5, prompted review of `840ca15c..3530513e`, packages/ui)
+
+Three findings; two confirmed and fixed in `26dd8d0d`, one rejected.
+
+1. **A refused switch left a target attached only for it — confirmed, fixed.** Local primary, `b` offline and not
+   wanted; a local buffer goes dirty while `attach("b")` runs → `{ reason: "dirty" }`, but `b` stays attached with
+   `keepAttached: true` (persisted by main). Same for the bootstrap-offline `unreachable` (tunnel open, intent
+   persisted). Test "a refusal after attaching a target nobody wanted detaches it again" (red on `3530513e`: row still
+   attached). Fix: `runSwitch` records the target row's `keepAttached` before attaching; on any refusal after the
+   attach, a target nobody wanted is detached again. Guard test "a refusal leaves a target the user already wanted
+   attached" (a wanted-but-offline machine keeps the attach: it is what the user asked for).
+2. **A detach whose IPC rejects aborted the switch halfway — confirmed, fixed.** Main's `detachBackend` awaits
+   `persist()`, which can reject. `detach` had already closed the socket but left the row `attached`; inside
+   `runSwitch` the throw came after promotion, leaving later machines attached, no `shellKey` bump, and a "switch
+   failed" dialog. Test "a machine main fails to detach still goes offline and the switch completes" (red: `error:
+   disk full`). Fix: `detach` patches the row offline in `finally` (still rejects, so the menu reports it); the switch
+   loop swallows a per-machine detach rejection and finishes. Fake bridge gained a settable `main.detachBackend`.
+3. **Rejected: target dropped during the detach loop still returns `ok: true`.** The end state (target row offline,
+   registry primary cleared, store `primaryId` kept, beacon retry) is identical to a drop one moment after a successful
+   switch, and a primary drop clears the registry the same way outside a switch. Rolling back is impossible (other
+   machines already detached) and reporting failure would be false (primary did move).
+
+The handshake-failure test's `main.detached` assertion is now `not.toContain("local")`: the unwanted target is
+detached again on refusal, which is the fix.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1787,8 +1812,17 @@ absolute file path) and detach pruning in the tray and poller maps. It ran `noti
   `aggregation.test.ts`'s settings test. The shared module installs one bridge object and restores the previous one
   in `afterAll`.
 - Task 21 not run: the Electron app (Task 22).
+- Task 21 R1: a refused switch detaches a target it attached only when the row was not `keepAttached` beforehand; a
+  switch whose per-machine detach rejects still completes and returns `ok: true` (primary already moved, sockets
+  closed, rows offline; only main's persisted intent may be stale). A target drop mid-switch is treated as an ordinary
+  drop, not a switch failure.
 
 ## Validation baseline
+
+After Task 21 R1 fix (`26dd8d0d`): `hard-switch.test.ts` 13 pass (2 new tests red on `3530513e`); `backend-store` +
+`hard-switch` 28 pass in both orders; `aggregation` + `hard-switch` 29 pass; `MachinesMenu.test.tsx` 11 pass;
+`bun test packages/ui` 315 pass, 9 fail (the known nine); `bun run typecheck` clean; eslint and prettier clean on the
+three changed files.
 
 After Task 21 (`3530513e`): `hard-switch.test.ts` 10 pass (red first: `workAs` missing); mutations each turn exactly
 one test red — no busy guard, target keeps the passed id (provisional), no already-attached reuse, no bootstrap-offline
@@ -2097,6 +2131,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 21 review round 1 — Codex gpt-5.5 prompted review of `840ca15c..3530513e` (packages/ui). Task 21 is
-implemented (`3530513e`); see its decisions for the deltas from the plan (promote before detach, target-excluded dirty
-check, bootstrap-offline refusal, dialog refusals, shared fake bridge).
+Next step: Task 21 review round 2 — Codex gpt-5.5 prompted review of `840ca15c..26dd8d0d` (packages/ui). R1 fixed two
+findings in `26dd8d0d` (refusal detaches an unwanted target again; failed detach no longer aborts the switch) and
+rejected one (drop mid-switch); tell Codex about the rejection so it is not re-raised without new evidence.
