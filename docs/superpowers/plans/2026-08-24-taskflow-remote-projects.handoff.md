@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 5 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing) |
+| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 6 | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex) |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -689,6 +689,25 @@ Two findings; one confirmed and fixed in `550558d`, one rejected:
 
 Codex ran the scope, aggregation and backend-store tests (31 pass) and typecheck (clean).
 
+### Task 11, round 5 (Codex gpt-5.5, prompted review of `d4b6004..550558d`, packages/ui + `task-order.ts`)
+
+One finding, confirmed and fixed in `993805f`:
+
+1. **"Add subtask" on another machine's task goes to the wrong machine — confirmed, fixed.** Machine a holds the active
+   task or project, machine b a task; right-click b's task → Add subtask. `requestNewSubtask` clears
+   `preferredProjectId`, so the dialog's `projectId` defaults to a's project; `TaskCreationDialogHost.handleCreateTask`
+   routed by that project and sent `TASK_CREATE` with b's `parentId` to a, which rejects "Parent task not found" (no
+   subtask). New in Task 11: the backend takes a subtask's project from its parent (`packages/backend/src/handlers/task.ts`
+   ~86-97) and ignores the dialog's, so at `d4b6004` it could not misroute. The same routing also threw "Unknown project"
+   for a subtask whose dialog `projectId` was empty. The machine choice is now `taskCreationBackend` in
+   `task-creation-store.ts` (a subtask goes to its parent task's `backendId`, a task to its project's), used by the host.
+   Test in `task-creation-store.test.ts`: "is the parent task's machine for a subtask, whatever project is selected"
+   (red with the host's previous logic in the helper: Received "a", expected "b"; green after).
+
+Codex otherwise checked `backend-scope.ts`, both stores, `backend-store.ts`, the changed call sites and the R1-R4
+exclusions; it reran scope, aggregation and backend-store tests (32 pass) and typecheck (clean). My own reread of
+`backend-scope.ts`, `task-store.ts` and `project-store.ts` found nothing new.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -908,6 +927,10 @@ Codex ran the scope, aggregation and backend-store tests (31 pass) and typecheck
 
 ## Validation baseline
 
+After Task 11 R5 fix (`993805f`): `task-creation-store.test.ts` 8 pass (3 runs; new test red first); `bun test
+packages/ui` 221 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the three
+changed files.
+
 After Task 11 R4 fix (`550558d`): aggregation + scope tests 18 pass (3 runs; new test red first); backend-store +
 store-reset + task-creation-store 23 pass, 1 todo; `bun test packages/ui` 219 pass, 1 todo, 10 fail (the known ten);
 `bun run typecheck` clean; eslint and prettier clean on the two changed files.
@@ -1074,10 +1097,11 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 5 — one gpt-5.5 review via the codex-review skill over `d4b6004..550558d` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R4
+Next step: Task 11 review round 6 — one gpt-5.5 review via the codex-review skill over `d4b6004..993805f` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1-R5
 fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected), the `loading` single flag, that `activeProjectId` on
-detach is Task 14's (R3 decision), and that archive/unarchive broadcasts not moving tasks between lists is pre-existing
-(R4 #2), so it does not re-raise them. Round 5 is the point to question further rounds: if it finds only marginal
-issues, mark Task 11 clear.
+detach is Task 14's (R3 decision), that archive/unarchive broadcasts not moving tasks between lists is pre-existing
+(R4 #2), and that a stale list is rebased rather than discarded, so it does not re-raise them. Ask it to sweep the other
+changed call sites for the R5 pattern (routing by a dialog/UI-selected id rather than the acted-on record's
+`backendId`). Past round 5: if round 6 finds only marginal issues, mark Task 11 clear.
 `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
