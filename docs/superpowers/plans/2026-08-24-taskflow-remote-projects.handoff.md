@@ -35,7 +35,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
-| 21 | The hard switch | in-review round 3 done | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7`, `8d60a842` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex) |
+| 21 | The hard switch | in-review round 4 done | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7`, `8d60a842`, `b6e0004b` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
 | 22 | End-to-end verification on two machines | pending | | | |
 
 ## Review round results
@@ -1243,6 +1243,20 @@ pass):
    the up-front dirty check runs only when the target is already attached (its id is then canonical); an unattached
    target is checked once, after `attach` answers its live id.
 
+### Task 21, round 4 (Codex gpt-5.5, prompted review of `840ca15c..8d60a842`, packages/ui)
+
+One finding, confirmed and fixed in `b6e0004b`. Codex found nothing else, did not re-raise earlier decisions, and ran
+`hard-switch.test.ts` (15 pass), `backend-store.test.ts` (15), `MachinesMenu.test.tsx` (11), combined both orders (41):
+
+1. **A buffer edited while main persists an earlier detach was disposed without refusal — confirmed, fixed.** `local`,
+   `b`, `c` attached, switch to `b`: the loop awaited `detach("local")` (main's `persist()`) before even closing `c`,
+   so `c` stayed open and editable after the last dirty check; `detach("c")` then ran `resetBackend("c")`, dropping
+   the new dirty buffer, and the switch returned `ok: true`. Test "every machine being detached is closed before main
+   answers any detach" (red on `8d60a842`: `c` still answered a ping while local's detach was pending). Fix: all
+   detaches are started synchronously (each closes its socket and resets its state before its first await) and awaited
+   with `Promise.allSettled`. Main's `detachBackend` is `serializeCanonical` per id with a chained `persist`, so
+   concurrent detaches are safe there.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1849,8 +1863,15 @@ pass):
 - Task 21 R3: no dirty check before attaching an unattached target (it may be an alias of an attached machine).
   Consequence taken: with unsaved buffers on a machine being detached, a switch to an unattached target dials and
   handshakes first, then refuses as `dirty` and detaches the target again if nobody wanted it.
+- Task 21 R4: the switch's detaches run concurrently (`Promise.allSettled`), not one after another, so no machine
+  outlives the dirty check by an IPC round-trip.
 
 ## Validation baseline
+
+After Task 21 R4 fix (`b6e0004b`): `hard-switch.test.ts` 16 pass (new test red on `8d60a842`); `backend-store` +
+`hard-switch` 31 pass in both orders; `aggregation` + `hard-switch` 32 pass; `MachinesMenu.test.tsx` 11 pass;
+`bun run typecheck` clean; eslint and prettier clean on the two changed files. Full `bun test packages/ui` not rerun
+(loop change inside `runSwitch`, covered by the store suites above).
 
 After Task 21 R3 fix (`8d60a842`): `hard-switch.test.ts` 15 pass (new test red on `6d504ac7`); `backend-store` +
 `hard-switch` 30 pass in both orders; `aggregation` + `hard-switch` 31 pass; `MachinesMenu.test.tsx` 11 pass;
@@ -2174,7 +2195,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 21 review round 4 — Codex gpt-5.5 prompted review of `840ca15c..8d60a842` (packages/ui). R3 fixed one
-finding in `8d60a842` (the dirty check no longer runs before an unattached target's alias is resolved). Tell Codex
-about the R1 rejection (drop mid-switch) and the recorded R1/R2/R3 decisions so they are not re-raised without new
-evidence.
+Next step: Task 21 review round 5 — Codex gpt-5.5 prompted review of `840ca15c..b6e0004b` (packages/ui). R4 fixed one
+finding in `b6e0004b` (the switch's detaches now start together, so none outlives the dirty check). Tell Codex about
+the R1 rejection (drop mid-switch) and the recorded R1–R4 decisions so they are not re-raised without new evidence.
+Rounds are now at 4 findings in a row, one each and narrowing; if R5 only raises further timing races of the same
+shape, weigh them against the "questioning whether another round is needed" guidance before fixing.
