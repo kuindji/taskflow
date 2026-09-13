@@ -27,7 +27,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
-| 13 | Session state per backend | pending | | | |
+| 13 | Session state per backend | implemented | `92b43e2` | `2995b40` | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
@@ -1037,8 +1037,45 @@ so the unguarded `fetchSettings` write is safe. **Task 12 is clear.**
 - Task 12 R1, not fixed (Task 19 Step 4 owns the manager): `FlowEditor`'s project picker still offers every machine's
   projects, so a new flow (saved to primary) could be given another machine's `projectId`. Not reproduced; Task 19 points
   the manager at primary's data.
+- Task 13: a sync's `ownedWorkspaceKeys` is **the keys that machine's previous sync held plus its current ones**
+  (`claimWorkspaceKeys` in `session-store.ts`, module map `workspaceKeysByBackend`), not the plan's "built from that
+  backend's own records". With current keys only, a task deleted on its machine is never in the owned set, so its tabs
+  are carried over forever. Test: "a machine's list prunes its own vanished task and keeps the other machine's" (red
+  with the plan's current-keys-only set). A `:right` key is owned when its base key is (`baseWorkspaceKey`, new in
+  `session-helpers.ts`, shared by the sync and the reset); the plan's carry-over snippet would otherwise keep a dead right
+  pane. Test: "an owned workspace whose session is gone loses its right pane too".
+- Task 13 `useSidebarData`: the per-backend sync effects cover machine rows ∪ `primaryId` ∪ every `backendId` in the
+  records (the dev renderer has no machine rows; a machine whose last task is gone still needs its tabs pruned). The
+  `connected` effect now calls `bootstrapBackend(primary)` (projects, tasks, flows, actions, notifications, schedules,
+  settings), which also replaces the separate notifications effect. Primary's settings are still awaited before
+  `fetchThemes` there (themes read `appearance.theme`), so settings are fetched twice on connect. Master sessions are
+  requested from primary through the registry.
+- Task 13: `syncWithMasterSessions(backendId, sessions)` gained the id so the reset knows whose master tabs they are
+  (`masterBackendId`). `MASTER_SESSIONS_LIST` and a `master` `BROWSER_OPEN` apply only from primary; task/project
+  `BROWSER_OPEN` from any machine (UUID keys).
+- Task 13 session ownership: `session-activity.ts` notes each session's machine from `TERMINAL_OUTPUT`/`SESSION_STATUS`
+  (the only sources of status) and exports `sessionsOwnedBy`, `noteSessionBackend`, `forgetSession` (timer + interaction +
+  owner; used on `SESSION_EXITED`). `clearInteraction` is no longer exported. The `session-store` reset drops the machine's
+  workspace keys (+ right panes, + master when it held it), `sessionStatus` for sessions it owned or had tabs for, and
+  calls `forgetSession` for them, so timer clearing is done by both resets (mutation: removing either alone stays green,
+  removing both turns the debounce test red).
+- Task 13, **not converted, and no later task names it**: session requests in `session-store.ts` (`SESSION_CREATE`,
+  `SESSION_CLOSE`, `SESSION_RESUME`, `SESSION_INPUT`, `TERMINAL_RESIZE`, `SESSION_RENAME`) still go through the shim to
+  primary, and `refetchPrimaryRecords` stays. The plan's Task 13 steps cover only sync, reset, activity and subscriptions.
+  Until routed, a remote machine's terminal tab shows its output and status but input and new sessions go to primary.
+  Task 19 Step 5 (delete the shim, resolve each remaining call site with the record's own backend) is where it must land
+  at the latest; Task 18's implementer should check first.
 
 ## Validation baseline
+
+After Task 13 (`2995b40`): `session-sync.backend.test.ts` 6 pass (the plan's test red first: desktop's entry
+`undefined`); `session-sync.test.ts` 9 pass. Mutation checks, each restored by checksum: owned set = current keys only
+(prune test red); no `session-store` reset (detach + debounce tests red); no timer clearing in either reset (debounce test
+red: status came back); master guard removed (master test red — the first version of that test stayed green because a's
+later list overwrote b's; it now waits on a probe from b). `bun test packages/ui` 237 pass, 1 todo, 10 fail (the known
+ten); `bun run typecheck` clean; eslint and prettier clean on the eight changed files. Run UI tests from the repo root:
+from `packages/ui/src/stores` the root `bunfig.toml` preload is skipped and session-store import fails with
+`window is not defined`. Not run: the Electron app.
 
 After Task 12 R3 (clean, no code change): `aggregation.test.ts` 15 pass.
 
@@ -1227,5 +1264,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 13 (Session state per backend), plan section starting at line 3846. Record current HEAD as its
-base commit first.
+Next step: Task 13 review round 1 — one Codex gpt-5.5 prompted review of `92b43e2..2995b40` (packages/ui), against plan
+lines 3846-3993 and the Task 13 decisions above.
