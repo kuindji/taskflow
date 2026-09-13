@@ -16,7 +16,7 @@ export interface TestServer {
 /**
  * A minimal backend for tests that need real sockets. Each request is answered
  * with `respond(type, payload)`, by default `{ from: label }` — enough to tell
- * which server a request reached.
+ * which server a request reached. A promise holds the answer back until it settles.
  */
 export function startTestServer(
     label: string,
@@ -43,13 +43,17 @@ export function startTestServer(
                 };
                 if (!request.correlationId) return;
                 received.push({ type: request.type, payload: request.payload });
-                ws.send(
-                    JSON.stringify({
-                        correlationId: request.correlationId,
-                        type: request.type,
-                        payload: respond(request.type, request.payload),
-                    }),
-                );
+                const answer = respond(request.type, request.payload);
+                const reply = (payload: unknown) =>
+                    ws.send(
+                        JSON.stringify({
+                            correlationId: request.correlationId,
+                            type: request.type,
+                            payload,
+                        }),
+                    );
+                if (answer instanceof Promise) void answer.then(reply);
+                else reply(answer);
             },
         },
     });

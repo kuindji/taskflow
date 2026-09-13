@@ -39,12 +39,10 @@ function HighlightedLine({
 function MatchLine({
     match,
     filePath,
-    rootPath,
     onFileClick,
 }: {
     match: SearchMatch;
     filePath: string;
-    rootPath: string;
     onFileClick: (path: string, line: number) => void;
 }) {
     const replaceMatch = useSearchStore((s) => s.replaceMatch);
@@ -53,9 +51,9 @@ function MatchLine({
     const handleReplace = useCallback(
         (e: React.MouseEvent) => {
             e.stopPropagation();
-            void replaceMatch(rootPath, filePath, match);
+            void replaceMatch(filePath, match);
         },
-        [replaceMatch, rootPath, filePath, match],
+        [replaceMatch, filePath, match],
     );
 
     const handleDismiss = useCallback(
@@ -135,9 +133,9 @@ function FileGroup({
     const handleReplaceInFile = useCallback(
         (e: React.MouseEvent) => {
             e.stopPropagation();
-            void replaceInFile(rootPath, file.path);
+            void replaceInFile(file.path);
         },
-        [replaceInFile, rootPath, file.path],
+        [replaceInFile, file.path],
     );
 
     const handleDismissFile = useCallback(
@@ -195,7 +193,6 @@ function FileGroup({
                         key={`${match.line}:${match.column}:${idx}`}
                         match={match}
                         filePath={file.path}
-                        rootPath={rootPath}
                         onFileClick={onFileClick}
                     />
                 ))}

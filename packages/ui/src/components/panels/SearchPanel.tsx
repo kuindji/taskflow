@@ -29,6 +29,7 @@ function SearchPanel() {
     const excludePattern = useSearchStore((s) => s.excludePattern);
     const results = useSearchStore((s) => s.results);
     const totalMatches = useSearchStore((s) => s.totalMatches);
+    const searchRoot = useSearchStore((s) => s.searchRoot);
     const searching = useSearchStore((s) => s.searching);
     const error = useSearchStore((s) => s.error);
 
@@ -111,10 +112,10 @@ function SearchPanel() {
         [results.length, query, clear, toggleSearchPanel],
     );
 
+    // Acts on the shown results, on the machine and root they came from.
     const handleReplaceAll = useCallback(() => {
-        if (!workingDir) return;
-        void replaceAll(workingDir);
-    }, [workingDir, replaceAll]);
+        void replaceAll();
+    }, [replaceAll]);
 
     const handleFileClick = useCallback(
         (path: string, line: number) => {
@@ -244,7 +245,7 @@ function SearchPanel() {
             <div className="flex-1 overflow-x-auto overflow-y-auto">
                 {workingDir && (
                     <SearchResults
-                        rootPath={workingDir}
+                        rootPath={searchRoot ?? workingDir}
                         results={results}
                         totalMatches={totalMatches}
                         onFileClick={handleFileClick}

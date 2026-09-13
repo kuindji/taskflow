@@ -7,19 +7,22 @@ import { resetBackend } from "./store-reset";
 
 const servers: TestServer[] = [];
 
-/** A machine whose searches all get the id `search-<id>` and one matching file. */
-async function attach(backendId: string): Promise<TestServer> {
-    const server = startTestServer(backendId, (type) =>
-        type === MSG.SEARCH_QUERY
-            ? {
-                  result: {
-                      searchId: `search-${backendId}`,
-                      totalMatches: 1,
-                      files: [{ path: `/repo/${backendId}.ts`, matches: [] }],
-                  },
-              }
-            : {},
-    );
+/**
+ * A machine whose searches all get the id `search-<id>` and one matching file.
+ * With `hold`, search answers wait for it.
+ */
+async function attach(backendId: string, hold?: Promise<void>): Promise<TestServer> {
+    const server = startTestServer(backendId, (type) => {
+        if (type !== MSG.SEARCH_QUERY) return {};
+        const answer = {
+            result: {
+                searchId: `search-${backendId}`,
+                totalMatches: 1,
+                files: [{ path: `/repo/${backendId}.ts`, matches: [] }],
+            },
+        };
+        return hold ? hold.then(() => answer) : answer;
+    });
     servers.push(server);
     await openConnection(backendId, server.origin);
     return server;
@@ -58,10 +61,55 @@ describe("search-store across machines", () => {
         useSearchStore.getState().setQuery("needle");
         await useSearchStore.getState().search("a", "/repo");
 
-        await useSearchStore.getState().replaceInFile("/repo", "/repo/a.ts");
+        await useSearchStore.getState().replaceInFile("/repo/a.ts");
 
         expect(requests(desktop, MSG.SEARCH_REPLACE_ALL)).toHaveLength(1);
         expect(requests(laptop, MSG.SEARCH_REPLACE_ALL)).toEqual([]);
+    });
+
+    test("a replace in results still shown while a search on another machine runs acts on the results' machine and root", async () => {
+        let release = () => {};
+        const hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const desktop = await attach("a");
+        const laptop = await attach("b", hold);
+        useSearchStore.getState().setQuery("needle");
+        await useSearchStore.getState().search("a", "/repo-a");
+
+        const pending = useSearchStore.getState().search("b", "/repo-b");
+        while (requests(laptop, MSG.SEARCH_QUERY).length === 0) await Bun.sleep(5);
+        await useSearchStore.getState().replaceInFile("/repo/a.ts");
+
+        expect(requests(laptop, MSG.SEARCH_REPLACE_ALL)).toEqual([]);
+        expect(requests(desktop, MSG.SEARCH_REPLACE_ALL)).toEqual([
+            expect.objectContaining({ path: "/repo-a", filePath: "/repo/a.ts" }),
+        ]);
+        release();
+        await pending;
+        expect(useSearchStore.getState().searchId).toBe("search-b");
+    });
+
+    test("detaching the machine a running search asked drops its late answer", async () => {
+        let release = () => {};
+        const hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await attach("a");
+        const laptop = await attach("b", hold);
+        useSearchStore.getState().setQuery("needle");
+        await useSearchStore.getState().search("a", "/repo");
+
+        const pending = useSearchStore.getState().search("b", "/repo");
+        while (requests(laptop, MSG.SEARCH_QUERY).length === 0) await Bun.sleep(5);
+        resetBackend("b");
+        release();
+        await pending;
+
+        // The new search cancelled a's id; a's results stay shown, b's answer never lands.
+        expect(useSearchStore.getState().results.map((f) => f.path)).toEqual(["/repo/a.ts"]);
+        expect(useSearchStore.getState().searchBackendId).toBe("a");
+        expect(useSearchStore.getState().searching).toBe(false);
     });
 
     test("detaching the searched machine drops its results and keeps the query", async () => {

@@ -124,6 +124,12 @@ let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
 /** Bumped by every watch, unwatch and detach: a watch that lands late is not recorded. */
 let watchGeneration = 0;
+/** The newest watch asked for and not since unwatched or detached, landed or not. */
+let requestedWatch: WatchedPath | null = null;
+
+function isWatchOf(watch: WatchedPath | null, backendId: string, path: string): boolean {
+    return watch?.backendId === backendId && watch.path === path;
+}
 let gitStatusRequestId = 0;
 
 const emptyLoadingDirs = new Set<string>();
@@ -212,8 +218,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async watchPath(backendId, path) {
         const previous = get().watched;
-        if (previous?.backendId === backendId && previous.path === path) return;
+        if (isWatchOf(previous, backendId, path)) return;
         const generation = ++watchGeneration;
+        requestedWatch = { backendId, path };
         if (!fileChangeSubscriptionReady) {
             fileChangeSubscriptionReady = true;
             onEventFrom(MSG.FILE_CHANGED, (payload, fromBackendId) => {
@@ -272,13 +279,28 @@ export const useFileStore = create<FileStore>((set, get) => ({
             }
         });
         await sendRequestTo(backendId, MSG.FILE_WATCH, { path });
-        if (generation !== watchGeneration) return;
+        if (generation !== watchGeneration) {
+            // The backend holds this watch for us now. Release it unless a newer
+            // request wants the same one: the backend keeps one per client and path.
+            if (!isWatchOf(requestedWatch, backendId, path)) {
+                await sendRequestTo(backendId, MSG.FILE_UNWATCH, { path }).catch(() => {});
+            }
+            return;
+        }
         set({ watched: { backendId, path } });
     },
     async unwatchPath(backendId, path) {
         const watched = get().watched;
-        if (watched?.backendId !== backendId || watched.path !== path) return;
+        if (!isWatchOf(watched, backendId, path)) {
+            // Still on its way: let it land stale, and be released then.
+            if (isWatchOf(requestedWatch, backendId, path)) {
+                watchGeneration++;
+                requestedWatch = null;
+            }
+            return;
+        }
         watchGeneration++;
+        if (isWatchOf(requestedWatch, backendId, path)) requestedWatch = null;
         if (diffStoreUnsubscribe) {
             diffStoreUnsubscribe();
             diffStoreUnsubscribe = null;
@@ -414,6 +436,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
 }));
 
 registerBackendReset("file-store", (backendId) => {
+    if (requestedWatch?.backendId === backendId) {
+        // Its connection is gone: a watch still on its way lands on nothing.
+        watchGeneration++;
+        requestedWatch = null;
+    }
     if (useFileStore.getState().watched?.backendId !== backendId) return;
     // The connection is gone and its watches with it, so there is nothing to
     // unwatch; the tree it listed belongs to a workspace that no longer exists.

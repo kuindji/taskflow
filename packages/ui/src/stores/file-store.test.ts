@@ -56,7 +56,29 @@ const tree: FileNode = {
 
 // Two machines, each holding the same repository at the same path.
 const desktop = startTestServer("desktop");
-const laptop = startTestServer("laptop");
+/** While set, laptop's FILE_WATCH answers wait for it. */
+let laptopWatchHold: Promise<void> | null = null;
+const laptop = startTestServer("laptop", (type) =>
+    type === MSG.FILE_WATCH && laptopWatchHold
+        ? laptopWatchHold.then(() => ({ from: "laptop" }))
+        : { from: "laptop" },
+);
+
+/** Holds laptop's watch answers until the returned function is called. */
+function holdLaptopWatch(): () => void {
+    let release = () => {};
+    laptopWatchHold = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    return () => {
+        laptopWatchHold = null;
+        release();
+    };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+    while (!condition()) await Bun.sleep(5);
+}
 
 async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -151,6 +173,43 @@ describe("file-store across machines", () => {
         expect(watchRequests(laptop, MSG.FILE_WATCH)).toEqual([{ path: root }]);
         expect(watchRequests(desktop, MSG.FILE_UNWATCH)).toEqual([{ path: root }]);
         expect(useFileStore.getState().watched).toEqual({ backendId: "laptop", path: root });
+    });
+
+    test("a watch that lands after the pane moved to another machine is released where it landed", async () => {
+        useFileStore.setState({ watched: null });
+        desktop.received.length = 0;
+        laptop.received.length = 0;
+        const release = holdLaptopWatch();
+
+        const late = useFileStore.getState().watchPath("laptop", root);
+        await until(() => watchRequests(laptop, MSG.FILE_WATCH).length === 1);
+        await useFileStore.getState().unwatchPath("laptop", root);
+        await useFileStore.getState().watchPath("desktop", `${root}-other`);
+        release();
+        await late;
+        await until(() => watchRequests(laptop, MSG.FILE_UNWATCH).length > 0);
+
+        expect(watchRequests(laptop, MSG.FILE_UNWATCH)).toEqual([{ path: root }]);
+        expect(useFileStore.getState().watched).toEqual({
+            backendId: "desktop",
+            path: `${root}-other`,
+        });
+    });
+
+    test("a watch unwatched before it lands is released and not recorded", async () => {
+        useFileStore.setState({ watched: null });
+        laptop.received.length = 0;
+        const release = holdLaptopWatch();
+
+        const late = useFileStore.getState().watchPath("laptop", root);
+        await until(() => watchRequests(laptop, MSG.FILE_WATCH).length === 1);
+        await useFileStore.getState().unwatchPath("laptop", root);
+        release();
+        await late;
+        await until(() => watchRequests(laptop, MSG.FILE_UNWATCH).length > 0);
+
+        expect(watchRequests(laptop, MSG.FILE_UNWATCH)).toEqual([{ path: root }]);
+        expect(useFileStore.getState().watched).toBeNull();
     });
 
     test("detaching the watched machine forgets its watch, and only that machine's", () => {
