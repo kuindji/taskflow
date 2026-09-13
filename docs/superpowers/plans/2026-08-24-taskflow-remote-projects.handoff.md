@@ -21,7 +21,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
-| 7 | The tunnel manager | implemented | `6467088` | `d040521` | |
+| 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
@@ -366,6 +366,25 @@ Codex otherwise checked the base spec + delta, Task 7/9 consumer names, exports,
 keyscan, IPv6 argv, leading-dash hosts and classifier ordering; it reran the tests and typecheck. My own read
 of the full diff found nothing either. **Task 6 is clear.**
 
+### Task 7, round 1 (Codex gpt-5.5, prompted review of `6467088..d040521`)
+
+Clean: no findings. Codex checked same-id concurrent opens (dedupe on `pendingOpens`, resolve only after
+readiness), `closeTunnel` during a pending or probing open (context cancelled, registered child killed, newer
+entries untouched), `rekeyTunnel` moving live and pending entries and closing whatever held the target id, exit
+reporting under the current id, the quit flag set before the sweep, the host-key options in `readRemotePort`,
+`trustHostKey` (alias rewrite, comments dropped, `0o700` dir), `as any` usage, and names/signatures against Task 9
+and Task 20. It reran the tunnel tests (26 pass) and `bun run typecheck` (pass). My own read of the full diff and
+Task 9's `attachBackend`/`confirmBackend` consumers found nothing substantive.
+
+Suspicions, not filed:
+- `readRemotePort` takes `Number.parseInt(stdout)`, so `"123abc"` reads as 123 and `70000` passes, where the
+  shared `isValidPort` would refuse them. Not reachable: the only writer of that file is the backend, which writes
+  a valid port via temp file + rename (Task 1). The worst case is an ssh forwarding error.
+- The open dedupe ignores `backendPort`: an established tunnel for an id is handed back even when a later
+  `openTunnel` names a different backend port. That matters only if a caller re-attaches without detaching after
+  the remote backend changes port. Task 9's `detachBackend` closes the tunnel first; whoever implements Task 9/10
+  retry should keep it that way (detach, then attach). **Task 7 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -468,6 +487,8 @@ of the full diff found nothing either. **Task 6 is clear.**
 
 ## Validation baseline
 
+After Task 7 R1 (clean, no code change): tunnel tests rerun, 26 pass.
+
 After Task 7 (`d040521`): `bun test electron/src/tunnel-manager.test.ts electron/src/tunnel-args.test.ts`
 26 pass (3 runs); `bun run typecheck` clean (all packages); eslint and prettier clean on the three files.
 New module with no consumers yet, so the full suite was not rerun.
@@ -559,8 +580,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 7 review round 1 — Codex gpt-5.5 prompted review of `6467088..d040521`
-(`electron/src/tunnel-manager.ts`, its test, and the `hostKeyOptions` extraction in `tunnel-args.ts`)
-against the superseded plan's Task 6 and this plan's Task 7 deltas (plus the Task 6 delta pieces:
-`readRemotePort` host-key options, `trustHostKey` → `KNOWN_HOSTS_FILE` under the alias). Focus areas:
-open/close/rekey interleavings, quit-time orphan windows, exit reporting after rekey.
+Next step: implement Task 8 — "One connection per backend" (plan section `### Task 8`, line ~1366).
+Record HEAD as its base commit first.
