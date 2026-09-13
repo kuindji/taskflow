@@ -1,4 +1,8 @@
-import { DISCOVERY_MAX_DATAGRAM_BYTES, DISCOVERY_STALE_AFTER_MS } from "../constants";
+import {
+    DISCOVERY_MAX_DATAGRAM_BYTES,
+    DISCOVERY_MAX_DISPLAY_NAME,
+    DISCOVERY_STALE_AFTER_MS,
+} from "../constants";
 import type { BeaconAnnounce, BeaconProbe } from "../types/backend";
 
 const encoder = new TextEncoder();
@@ -59,10 +63,16 @@ function parseDatagram(bytes: Uint8Array): BeaconAnnounce | BeaconProbe | null {
 
     const { protocolVersion, instanceId, hostname, displayName, port, appVersion, os, backendUid } =
         parsed;
-    if (typeof protocolVersion !== "number") return null;
+    if (typeof protocolVersion !== "number" || !Number.isInteger(protocolVersion)) return null;
     if (typeof instanceId !== "string" || !isSafeLabel(instanceId)) return null;
     if (typeof hostname !== "string" || !isSafeLabel(hostname)) return null;
-    if (typeof displayName !== "string" || displayName.length === 0) return null;
+    if (
+        typeof displayName !== "string" ||
+        displayName.length === 0 ||
+        displayName.length > DISCOVERY_MAX_DISPLAY_NAME
+    ) {
+        return null;
+    }
     if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) {
         return null;
     }

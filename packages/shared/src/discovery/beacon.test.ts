@@ -56,6 +56,29 @@ describe("parseDatagram", () => {
         expect(parseDatagram(bytes)).toBeNull();
     });
 
+    test("returns null for a protocolVersion that is not an integer", () => {
+        // 1e309 is valid JSON and parses to Infinity.
+        for (const protocolVersion of ["1e309", "1.5", "-1e309"]) {
+            const json = JSON.stringify({ ...announce, protocolVersion: 0 }).replace(
+                '"protocolVersion":0',
+                `"protocolVersion":${protocolVersion}`,
+            );
+            expect(parseDatagram(new TextEncoder().encode(json))).toBeNull();
+        }
+    });
+
+    // The advertiser clamps the name to this length, so a longer one did not
+    // come from a Taskflow backend.
+    test("returns null for a displayName longer than the cap", () => {
+        const bytes = new TextEncoder().encode(
+            JSON.stringify({
+                ...announce,
+                displayName: "x".repeat(DISCOVERY_MAX_DISPLAY_NAME + 1),
+            }),
+        );
+        expect(parseDatagram(bytes)).toBeNull();
+    });
+
     test("returns null for an instanceId that is not a plain identifier", () => {
         // `instanceId` reaches a remote shell in the port lookup and is part of
         // the persisted record id. Anyone on the LAN can send one, so the codec
