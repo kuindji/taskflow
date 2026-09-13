@@ -41,11 +41,12 @@ export function normalizeRecords(parsed: unknown): BackendRecord[] {
                 ? entry.backendUid
                 : null;
         const storedId = typeof entry.id === "string" && entry.id ? entry.id : null;
-        // A confirmed record is keyed by its uid whatever id the file holds, so
-        // `adoptUid` finds it by id. Of hand-edited duplicates, the one already
-        // saved under that id wins (it is what the registry last wrote);
-        // otherwise the first does.
-        const id = backendUid ?? storedId ?? backendIdFor(host, instanceId);
+        // A record is keyed by its uid, or by host and instance until it has
+        // one, whatever id the file holds: a hand-edited id could otherwise
+        // spell another machine's uid and be merged into it by `adoptUid`. Of
+        // duplicates, the one already saved under that id wins (it is what the
+        // registry last wrote); otherwise the first does.
+        const id = backendUid ?? backendIdFor(host, instanceId);
         const exact = storedId === id;
         const slot = slots.get(id);
         if (slot && (slot.exact || !exact)) continue;

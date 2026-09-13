@@ -164,6 +164,19 @@ describe("normalizeRecords and adoptUid on a hand-edited file", () => {
         expect(parsed[0].backendUid).toBeNull();
     });
 
+    test("a provisional record is keyed by host and instance, whatever id the file holds", () => {
+        const parsed = normalizeRecords([
+            { id: "abc123", backendUid: null, host: "other.local", instanceId: "dev" },
+            { id: "abc123", backendUid: "abc123", host: "desktop.local", instanceId: "main" },
+        ]);
+        expect(parsed.map((r) => r.id)).toEqual(["other.local:dev", "abc123"]);
+
+        const laptop = { id: "laptop.local:main", host: "laptop.local", instanceId: "main" };
+        const next = adoptUid(normalizeRecords([laptop, parsed[0]]), "laptop.local:main", "abc123");
+        expect(next.map((r) => r.id)).toEqual(["abc123", "other.local:dev"]);
+        expect(next[0].instanceId).toBe("main");
+    });
+
     test("ports outside 1-65535 fall back to their defaults", () => {
         const [parsed] = normalizeRecords([
             { host: "desktop.local", instanceId: "main", sshPort: 0, lastKnownPort: -1 },
