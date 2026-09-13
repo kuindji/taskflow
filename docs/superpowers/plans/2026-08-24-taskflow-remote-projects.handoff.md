@@ -23,7 +23,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
-| 9 | The registry, the attached set, and the IPC surface | pending | | | |
+| 9 | The registry, the attached set, and the IPC surface | implemented | `6baa200` | `a0ad09d` | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
@@ -583,8 +583,48 @@ the waiting listeners "disconnected" and then replays the moved socket's status.
   (`onStatusChange: () => () => {}`). Not committed, to keep the baseline failure list at ten; the shim
   is gone by Task 10/19. The plan-review repro `plan-review/shim-status-before-primary.test.ts` covers the
   plan text, not this code.
+- Task 9 carry-overs (Task 5 R1 #4, R3): `confirmBackend` **refuses by rejecting**, touching no tunnel,
+  origin or record, when the uid fails `isSafeLabel`, when no record sits under the id (removed mid-handshake),
+  and when the record is already confirmed under a different uid (a different backend on that host/port). The
+  plan's return type has no failure branch, so rejection is the signal; a note was added to plan Task 10's
+  `attach` (at the `confirmBackend` call) to catch it, close the connection and mark the row offline. Tests:
+  the three "refuse/refused" tests (mutation check: all three red with the guards removed, green with them).
+- Task 9: `MenuEntry` moved from `electron/src/backend-records.ts` to `packages/shared/src/types/backend.ts`,
+  because `packages/ui/src/env.d.ts` must type `listBackends()` and cannot import from electron.
+- Task 9: the registry takes three more deps than the plan — `fetchHostKeyFingerprint`, `trustHostKey`,
+  `forgetScannedHostKey` — and owns `getHostFingerprint(id)`/`trustBackendHost(id)` (look up the record, report
+  a thrown error as `reason`). `updateBackend` and `removeBackend` call `forgetScannedHostKey`, as the tunnel
+  manager's comment expects; so does a confirm (the scan is filed under the old id).
+- Task 9: added `registry.attached()` (live origins, feeds `getAttached`) and `registry.tunnelExited(id)`
+  (serialized; drops the origin, keeps the persisted `attached` intent). The IPC layer wires the tunnel
+  manager's single `onTunnelExit` to both `tunnelExited` and the `backend-dropped` push.
+- Task 9 hardening beyond the plan: `addBackend` and `addDiscoveredBackend` are serialized per id and return the
+  existing record when that id is already saved (the plan's unserialized upsert would clobber a record, e.g. its
+  `attached` flag, while its attach was in flight); `addBackend` trims the host and rejects an empty host, an
+  `instanceId` outside `isSafeLabel`, and ports failing `isValidPort`; `updateBackend` copies only the three named
+  fields (an IPC patch spread whole could rewrite `id`/`backendUid`) and refuses an invalid `sshPort`;
+  `persist()` writes `backends.json.tmp` then renames (a torn file loads as no machines, and the next write makes
+  that permanent).
+- Task 9: the registry is created at module level in `main.ts` (so `registerIpcHandlers` can take it) and
+  `init()` runs in `whenReady` after `setBackendPort`, before `createWindow`. `app.getPath("userData")` is final
+  there (dev mode sets it earlier). The listener's `start()` never rejects, so awaiting `init()` cannot fail
+  startup. `registry.stop()` + `closeAllTunnels()` run before `killBackendProcess()` on both quit paths, after
+  the confirm dialog.
+- Task 9: IPC channel names follow the file's kebab style (`list-backends`, `get-attached-backends`,
+  `attach-backend`, …; pushes `backends-changed`, `backend-dropped` `{id, failure}`, `backend-seen` `{id}`).
+  `getAttached` omits local while the local backend port is still null, and `attachBackend("local")` then answers
+  a `no-backend` failure. `confirmBackend` with a reported uid of `"local"` is rejected in the IPC layer, so a
+  remote backend cannot be refiled onto the renderer's local row.
+- Task 9: the plan's test file is taken as written except `await expect(...).rejects.toThrow` (eslint
+  `await-thenable`, same as Task 8) → a `rejectionOf` helper; 8 tests added (19 total).
 
 ## Validation baseline
+
+After Task 9 (`a0ad09d`): `bun test electron/src/backend-registry.test.ts` 19 pass (3 runs; red first: module
+missing); `bun test electron/src packages/shared` 198 pass, 0 fail; `bun run typecheck` clean (all packages, incl.
+electron's Bun-less `tsconfig.src.json`); eslint and prettier clean on the eight changed files; `electron`
+`bun run build` ok (`dist/preload.js` requires only `electron`). UI and backend changes are type-only
+(`env.d.ts`, the moved `MenuEntry`), so their test suites were not rerun. Not run: launching the Electron app.
 
 After Task 8 R3 fix (`22dbeb9`): registry + shim tests 10 pass (3 runs; both new tests red first);
 `bun test packages/ui` 184 pass, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean
@@ -698,8 +738,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 9 — "The registry, the attached set, and the IPC surface" (plan line ~2018). Record current
-HEAD as its base commit first. Carry-overs for Task 9 recorded above: Task 5 R1 #4 and R3 (in `confirmBackend`, decide
-refuse-vs-adopt when a confirmed record would be rekeyed onto a different uid, and reject a uid outside `isSafeLabel`
-before moving origins/tunnels; test both); Task 5 R1 (`addDiscoveredBackend` takes `backendIdFor(address, instanceId)`);
-Task 7 (detach closes the tunnel before any re-attach; `rekeyTunnel` closes whatever is filed under the target id).
+Next step: Task 9 review round 1 — one standard gpt-5.5 review (codex-review skill) of `6baa200..a0ad09d`, the
+Task 9 implementation (electron registry, IPC, preload, main wiring, `env.d.ts`, the `MenuEntry` move). Point the
+reviewer at the "Task 9" entries under Decisions taken, since several deliberately go beyond the plan's code.
+Verify findings yourself before fixing.
