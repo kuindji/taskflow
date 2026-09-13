@@ -26,7 +26,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
-| 12 | The remaining aggregating stores | in-review round 1 done (fixes landed; round 2 due) | `c4d1729` | `fb0f041`, `21bfdc8` | R1: 2 fixed (Codex) |
+| 12 | The remaining aggregating stores | in-review round 2 done (fix landed; round 3 due) | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex) |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
@@ -742,6 +742,23 @@ locally), both confirmed and fixed in `21bfdc8`. Both are new in Task 12: before
 
 Codex also reran `aggregation.test.ts` (14 pass) and typecheck (clean).
 
+### Task 12, round 2 (Codex gpt-5.5, prompted review of `c4d1729..21bfdc8`, packages/ui)
+
+One finding, confirmed and fixed in `5d8b515`; it was the Task 12 "suspicion, not verified" below.
+
+1. **Another machine's master flow run shows in primary's master workspace — confirmed, fixed.** `activeRuns` is keyed by
+   owner id and `MASTER_OWNER_ID` is the same constant on every machine. The backend broadcasts `FLOW_RUN_UPDATED` to all
+   its clients (`flow-runner.ts` `broadcastUpdate`), and since Task 12 the store listens on every machine, so b's master
+   run landed in `activeRuns["__master__"]`, which primary's master workspace reads (`useSessionSync`). New in Task 12
+   (flows were primary-only before). Fix: `applyRunUpdate` ignores `{ master: true }` runs from any machine but primary.
+   Test in `aggregation.test.ts`: "another machine's master run does not show in primary's master workspace" (red on
+   `21bfdc8`: received b's master run; green after).
+
+Codex found the R1 class otherwise clean: `useRunMenu`, `ScheduleForm`/`ScheduleManagementDialog`, `FlowPanel`,
+`Workspace` flow start, `NotificationPopover`, `CommandPaletteDialog`, `AgentOptionsPanel`, New Task flows, FlowEditor
+library. My own check: an edited schedule cannot change project (`ScheduleForm` renders the picker only on create), so
+updates cannot carry another machine's `projectId`.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -991,8 +1008,10 @@ Codex also reran `aggregation.test.ts` (14 pass) and typecheck (clean).
   `TaskSidebar`'s native notification click finds the record by id (UUID) before `markAsRead`; Task 20 reworks the poller.
 - Task 12: `backend-store.test.ts`'s fake bridge gained a no-op `sendTrayState`: the bootstrap now imports the flow store,
   which pulls in `session-store`, whose subscriptions report the tray at import.
-- Task 12 suspicion, not verified: `activeRuns` is keyed by owner id, and the master owner id is the same constant on every
-  machine, so master-workspace flow runs on two machines would share one key. The master workspace addresses primary.
+- Task 12 R2 (was a suspicion, confirmed): master runs from non-primary machines are dropped in `applyRunUpdate` rather than
+  re-keying `activeRuns` by (machine, owner). The master workspace addresses primary, and task/project owner ids are
+  UUIDs, so only the master key collided; re-keying would touch `App.tsx`, `useSessionSync`, `useRunMenu` and `FlowPanel`.
+  If primary changes while a master run is live, the old primary's run stays in the map until a fetch replaces it.
 - Task 12 R1: `NewTaskDialog`'s `flows` prop became `flowsFor(projectId)` (the dialog's project is internal state; a subtask
   needs the parent task, which only the host has). The dialog is not component-tested for this: Radix `Select` options do
   not render under happy-dom without opening, and no test in the repo drives one; the pure helper carries the test.
@@ -1001,6 +1020,9 @@ Codex also reran `aggregation.test.ts` (14 pass) and typecheck (clean).
   the manager at primary's data.
 
 ## Validation baseline
+
+After Task 12 R2 fix (`5d8b515`): `aggregation.test.ts` 15 pass (3 runs; new test red first); `bun test packages/ui`
+232 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
 After Task 12 R1 fix (`21bfdc8`): `FlowEditor.library` 1, `task-creation-store` 11, `FlowEditor.loop` 5,
 `NewTaskDialog.prefill` 4, `aggregation` 14 pass (each file alone; new tests red first, mutation check above); `bun test
@@ -1184,9 +1206,9 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 12 review round 2 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..21bfdc8`, packages/ui
+Next step: Task 12 review round 3 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..5d8b515`, packages/ui
 only, against plan lines 3632-3845 and the Task 12 decisions above (settings `settings` kept as primary's mirror, the
 non-blocking bootstrap legs, the notification clear write, the launch-default call sites converted and those left for
-Tasks 14/18, R1's `flowsFor` and the deferred `FlowEditor` project picker). Ask it to sweep for the R1 class: any other
-picker or list that shows merged definitions/records and sends the choice to a single machine. Verify each finding with a
-failing test before fixing.
+Tasks 14/18, R1's `flowsFor`, the deferred `FlowEditor` project picker, R2's primary-only master runs). Ask it to sweep
+for the R2 class: state keyed by an id that is not unique across machines (constants such as `MASTER_OWNER_ID`, or
+anything not a UUID) in the Task 12 stores. Verify each finding with a failing test before fixing.
