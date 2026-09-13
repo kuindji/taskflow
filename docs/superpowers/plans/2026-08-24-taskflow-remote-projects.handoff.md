@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | implemented | `cfe462d` | `be34c1b` | |
+| 5 | The backend record list, keyed by uid | in-review round 1 done | `cfe462d` | `be34c1b`, `d9c59ab` | R1: 3 fixed, 1 deferred to Task 9 |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -209,6 +209,34 @@ package export split; it reran `bun test packages/shared/src/discovery` (20 pass
 `settings-store.test.ts` (20 pass) and `bun run typecheck` (pass). My own read of the full diff
 found nothing substantive either (see the display-name decision below). **Task 4 is clear.**
 
+### Task 5, round 1 (Codex gpt-5.5, prompted review of `cfe462d..be34c1b`)
+
+Four findings; three reproduced with failing tests (red on `be34c1b`, 3 fail / 7 pass) and
+fixed in `d9c59ab`, one deferred:
+
+1. **Confirmed record under a stale id duplicates on adoption — confirmed, fixed.** A
+   hand-edited `backends.json` entry `{id:"desktop.local:main", backendUid:"abc123"}` kept
+   its id, so `adoptUid(…, "192.168.1.20:main", "abc123")` left two records with uid
+   `abc123`. `normalizeRecords` now keys confirmed records by uid and drops duplicate ids.
+   Test: "a confirmed record saved under a stale id is keyed by its uid, and adopting that
+   uid merges into it".
+2. **Persisted ports unvalidated — confirmed, fixed.** `sshPort: 0`, `lastKnownPort: -1`
+   (and `22.5`, `70000`) were accepted; Task 9 would try port -1. Now `isValidPort`,
+   extracted from `parseDatagram`'s inline check into `packages/shared/src/discovery/beacon.ts`
+   and reused. Test: "ports outside 1-65535 fall back to their defaults".
+3. **Unsaved menu rows keyed by announced uid collide — confirmed, fixed.** Two live beacons
+   sharing a uid (spoofed, or a cloned config dir) gave two rows with id `abc123`, and Task 9's
+   `addDiscoveredBackend` would save whichever came first. Rows are now keyed by
+   `backendIdFor(address, instanceId)` — the id `recordFromDiscovered` saves under. The plan's
+   Task 9 interface text, its test call and its lookup were amended to match. Test: "two
+   unsaved machines announcing one uid get distinct rows, keyed as they would be saved".
+4. **`adoptUid` rekeys an already-confirmed record onto a different uid — deferred to Task 9.**
+   True of the function (`adoptUid([{id:"abc123",backendUid:"abc123"}], "abc123", "def456")`
+   yields id `def456`), but plan-faithful, and the only caller is Task 9's `confirmBackend`,
+   which also moves tunnels and origins by id. Guarding inside `adoptUid` alone would leave that
+   caller inconsistent. A note was added to the plan's `confirmBackend` code telling the Task 9
+   implementer to decide refuse-vs-adopt there and test it.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -268,8 +296,17 @@ found nothing substantive either (see the display-name decision below). **Task 4
   plan's interface specifies, though nothing consumes them until Task 9. The plan's test file
   covers only `adoptUid`, `recordFromDiscovered`, `normalizeRecords` and `upsertRecord`; it was
   taken as written.
+- Task 5 R1: `MenuEntry.id` for an unsaved discovered row changed from the announced uid to
+  `backendIdFor(address, instanceId)`; plan Task 9 (`addDiscoveredBackend` interface, test,
+  lookup) amended in `d9c59ab`. Task 17 must pass that id to `addDiscoveredBackend`.
+- Task 5 R1: `adoptUid` still merges only against `record.id === backendUid`; with
+  `normalizeRecords` canonicalizing confirmed ids, a `backendUid` lookup there would be redundant.
 
 ## Validation baseline
+
+After Task 5 R1 fix (`d9c59ab`): `bun test electron/src/backend-records.test.ts
+packages/shared/src/discovery/beacon.test.ts` 25 pass (records 10); `bun run typecheck` clean;
+eslint and prettier clean on the three changed source files.
 
 After Task 5 (`be34c1b`): `bun test electron/src/backend-records.test.ts` 7 pass (red first:
 module missing); `bun run typecheck` clean (incl. electron's Bun-less `tsconfig.src.json`);
@@ -331,5 +368,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 5 review round 1 — Codex gpt-5.5 prompted review of `cfe462d..be34c1b`
-(plan Task 5, line ~834). Review the task's implementation, not the docs commits.
+Next step: Task 5 review round 2 — Codex gpt-5.5 prompted review of `cfe462d..d9c59ab`
+(plan Task 5, line ~834; code files only: `electron/src/backend-records*.ts`,
+`packages/shared/src/types/backend.ts`, `packages/shared/src/discovery/beacon.ts`,
+`electron/package.json`). Tell the reviewer finding 4 of R1 is deliberately deferred to Task 9.
