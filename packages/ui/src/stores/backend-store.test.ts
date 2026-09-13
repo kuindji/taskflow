@@ -82,7 +82,10 @@ const bridge: Pick<
     | "onBackendsChanged"
     | "onBackendDropped"
     | "onBackendSeen"
+    | "sendTrayState"
 > = {
+    // Session state reports the tray on import; the bootstrap's flow store pulls it in.
+    sendTrayState: () => {},
     attachBackend: (id) => main.attachBackend(id),
     confirmBackend: (id, info) => {
         main.confirmed.push(id);

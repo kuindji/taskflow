@@ -24,6 +24,7 @@ import {
 import { Trash2 } from "lucide-react";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { filterByProject } from "@/stores/flow-store";
+import type { Scoped } from "@/lib/backend-scope";
 import {
     computeNextRunPreview,
     normalizeTimeout,
@@ -33,8 +34,8 @@ import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 
 interface ScheduleFormProps {
     schedule: Schedule | null;
-    projects: Project[];
-    actions: ActionDefinition[];
+    projects: Scoped<Project>[];
+    actions: Scoped<ActionDefinition>[];
     defaultProjectId?: string;
     onSave: (payload: ScheduleCreatePayload | ScheduleUpdatePayload) => Promise<void>;
     onCancel: () => void;
@@ -72,9 +73,16 @@ function ScheduleForm({
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [resetCounter, setResetCounter] = useState(0);
 
+    // A schedule runs on its project's machine, so only that machine's actions apply.
+    const projectBackendId = projects.find((p) => p.id === projectId)?.backendId;
     const availableActions = useMemo(
-        () => filterByProject(actions, projectId).filter((action) => action.standalone),
-        [actions, projectId],
+        () =>
+            projectBackendId
+                ? filterByProject(actions, projectId, projectBackendId).filter(
+                      (action) => action.standalone,
+                  )
+                : [],
+        [actions, projectId, projectBackendId],
     );
     const selectedAction = useMemo(
         () => (actionId ? actions.find((a) => a.id === actionId) : undefined),
@@ -407,6 +415,7 @@ function ScheduleForm({
                     <div className="border-border rounded-md border p-3">
                         <AgentOptionsPanel
                             key={`${schedule?.id ?? "new"}-${agentType}-${resetCounter}`}
+                            backendId={projectBackendId}
                             agentType={agentType}
                             value={agentOptions}
                             emitOnMount

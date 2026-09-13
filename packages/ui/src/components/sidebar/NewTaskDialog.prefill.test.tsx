@@ -39,7 +39,7 @@ function render(open: boolean, prefill?: DroppedTask | null) {
             <NewTaskDialog
                 open={open}
                 onOpenChange={() => {}}
-                projects={[project("web")]}
+                projects={[{ ...project("web"), backendId: "local" }]}
                 flows={[]}
                 defaultProjectId="web"
                 prefill={prefill}

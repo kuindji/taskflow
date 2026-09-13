@@ -284,7 +284,10 @@ export function TaskSidebar() {
     useEffect(() => {
         const cleanup = window.taskflow?.onNotificationClicked?.((payload) => {
             if (!payload.id) return;
-            void useNotificationStore.getState().markAsRead(payload.id);
+            const store = useNotificationStore.getState();
+            // Notification ids are UUIDs, so the id alone names one machine's record.
+            const notification = store.notifications.find((n) => n.id === payload.id);
+            if (notification) void store.markAsRead(notification);
             useNotificationStore.getState().setSelectedNotificationId(payload.id);
         });
         return cleanup;

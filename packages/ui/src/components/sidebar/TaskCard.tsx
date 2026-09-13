@@ -124,6 +124,7 @@ export function TaskCard({
     const hasWorktree = task.worktree.enabled && !!task.worktree.path;
     const nativeMenus = supportsNativeMenus();
     const runMenu = useRunMenu({
+        backendId: task.backendId,
         projectId,
         projectPath,
         taskId: task.id,
@@ -465,6 +466,7 @@ export function TaskCard({
             )}
             <AgentOptionsDialog
                 open={runMenu.runOptionsAgent !== null}
+                backendId={task.backendId}
                 title={
                     runMenu.runOptionsAgent
                         ? `Run ${AGENT_DISPLAY_NAMES[runMenu.runOptionsAgent]} with options`

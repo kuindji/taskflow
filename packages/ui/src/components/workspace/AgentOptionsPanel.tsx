@@ -22,6 +22,11 @@ import { KimiOptions } from "@/components/shared/KimiOptions";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 
 interface AgentOptionsPanelProps {
+    /**
+     * The machine that will run the agent, whose defaults prefill the options.
+     * Omitted where the options are saved rather than launched: primary's.
+     */
+    backendId?: string;
     agentType: AgentType;
     value?: AgentLaunchOptions;
     emitOnMount?: boolean;
@@ -31,6 +36,7 @@ interface AgentOptionsPanelProps {
 }
 
 function AgentOptionsPanel({
+    backendId,
     agentType,
     value,
     emitOnMount = false,
@@ -38,11 +44,14 @@ function AgentOptionsPanel({
     onChange,
     onReset,
 }: AgentOptionsPanelProps) {
-    const claudeSettings = useSettingsStore((s) => s.settings?.claude);
-    const codexSettings = useSettingsStore((s) => s.settings?.codex);
-    const opencodeSettings = useSettingsStore((s) => s.settings?.opencode);
-    const piSettings = useSettingsStore((s) => s.settings?.pi);
-    const kimiSettings = useSettingsStore((s) => s.settings?.kimi);
+    const settings = useSettingsStore((s) =>
+        backendId ? (s.byBackend[backendId] ?? null) : s.settings,
+    );
+    const claudeSettings = settings?.claude;
+    const codexSettings = settings?.codex;
+    const opencodeSettings = settings?.opencode;
+    const piSettings = settings?.pi;
+    const kimiSettings = settings?.kimi;
     const agents = useAgentAvailability();
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);

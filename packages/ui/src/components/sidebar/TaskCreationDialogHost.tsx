@@ -81,7 +81,7 @@ export function TaskCreationDialogHost() {
                 pendingFlowRef.current = null;
                 void useFlowStore
                     .getState()
-                    .startFlow({ taskId: pendingFlow.taskId, flowId: pendingFlow.flowId });
+                    .startFlow(task.backendId, { taskId: task.id, flowId: pendingFlow.flowId });
             }
         }
     }, [tasks, createSession]);
@@ -123,9 +123,10 @@ export function TaskCreationDialogHost() {
                             flowId: data.startWithFlowId,
                         };
                     } else {
-                        void useFlowStore
-                            .getState()
-                            .startFlow({ taskId: task.id, flowId: data.startWithFlowId });
+                        void useFlowStore.getState().startFlow(task.backendId, {
+                            taskId: task.id,
+                            flowId: data.startWithFlowId,
+                        });
                     }
                 } else if (data.startWith) {
                     if (data.worktree && !data.parentId) {

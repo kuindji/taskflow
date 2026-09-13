@@ -103,6 +103,7 @@ export function ProjectGroup({
     const removeProject = useProjectStore((s) => s.removeProject);
     const nativeMenus = supportsNativeMenus();
     const runMenu = useRunMenu({
+        backendId: project.backendId,
         projectId: project.id,
         projectPath: project.path,
         showAgentOptions: false,

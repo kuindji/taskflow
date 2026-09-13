@@ -4,6 +4,8 @@ import { AgentOptionsPanel } from "./AgentOptionsPanel";
 
 interface AgentOptionsDialogProps {
     open: boolean;
+    /** The machine that will run the agent. */
+    backendId?: string;
     title: string;
     agentType: AgentType | null;
     onOpenChange: (open: boolean) => void;
@@ -12,6 +14,7 @@ interface AgentOptionsDialogProps {
 
 function AgentOptionsDialog({
     open,
+    backendId,
     title,
     agentType,
     onOpenChange,
@@ -26,6 +29,7 @@ function AgentOptionsDialog({
                 {agentType && (
                     <AgentOptionsPanel
                         key={agentType}
+                        backendId={backendId}
                         agentType={agentType}
                         onRun={(options) => {
                             onRun(agentType, options);

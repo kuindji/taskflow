@@ -6,85 +6,105 @@ import type {
     ScheduleListResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest, onEvent } from "../hooks/useWebSocket";
+import { createSlices, type Scoped } from "@/lib/backend-scope";
+import { onEvent, sendRequest } from "@/lib/connection-registry";
+import { registerBackendReset } from "./store-reset";
 
+/**
+ * Every schedule belongs to a project, so its machine is its project's machine.
+ * Mutations take the record and go to its `backendId`; creation names the
+ * project's machine.
+ */
 interface ScheduleStore {
-    schedules: Schedule[];
+    schedules: Scoped<Schedule>[];
     loading: boolean;
 
-    fetchSchedules(projectId?: string): Promise<void>;
-    createSchedule(payload: ScheduleCreatePayload): Promise<Schedule>;
-    updateSchedule(payload: ScheduleUpdatePayload): Promise<Schedule>;
-    deleteSchedule(id: string): Promise<void>;
-    triggerSchedule(id: string): Promise<void>;
+    fetchSchedules(backendId: string): Promise<void>;
+    createSchedule(backendId: string, payload: ScheduleCreatePayload): Promise<Scoped<Schedule>>;
+    updateSchedule(
+        schedule: Scoped<Schedule>,
+        changes: Omit<ScheduleUpdatePayload, "id">,
+    ): Promise<Scoped<Schedule>>;
+    deleteSchedule(schedule: Scoped<Schedule>): Promise<void>;
+    triggerSchedule(schedule: Scoped<Schedule>): Promise<void>;
+}
 
-    applyUpdate(schedule: Schedule): void;
+const slices = createSlices<Schedule>();
+
+function publish(): void {
+    useScheduleStore.setState({ schedules: slices.read() });
+}
+
+function upsert(backendId: string, schedule: Schedule): Scoped<Schedule> {
+    const scoped = { ...schedule, backendId };
+    slices.apply(backendId, (items) =>
+        items.some((sc) => sc.id === schedule.id)
+            ? items.map((sc) => (sc.id === schedule.id ? scoped : sc))
+            : [...items, scoped],
+    );
+    publish();
+    return scoped;
 }
 
 const useScheduleStore = create<ScheduleStore>((set) => ({
     schedules: [],
     loading: false,
 
-    async fetchSchedules(projectId) {
+    async fetchSchedules(backendId) {
         set({ loading: true });
         try {
-            const { schedules } = await sendRequest<ScheduleListResponse>(MSG.SCHEDULE_LIST, {
-                projectId,
+            const landed = await slices.load(backendId, async () => {
+                const { schedules } = await sendRequest<ScheduleListResponse>(
+                    backendId,
+                    MSG.SCHEDULE_LIST,
+                    {},
+                );
+                return schedules;
             });
-            set({ schedules });
+            if (landed) publish();
         } finally {
             set({ loading: false });
         }
     },
 
-    async createSchedule(payload) {
-        const schedule = await sendRequest<Schedule>(MSG.SCHEDULE_CREATE, payload);
-        set((s) => {
-            const exists = s.schedules.some((sc) => sc.id === schedule.id);
-            if (exists) {
-                return {
-                    schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)),
-                };
-            }
-            return { schedules: [...s.schedules, schedule] };
+    async createSchedule(backendId, payload) {
+        const schedule = await sendRequest<Schedule>(backendId, MSG.SCHEDULE_CREATE, payload);
+        // SCHEDULE_UPDATED may have landed first.
+        return upsert(backendId, schedule);
+    },
+
+    async updateSchedule(schedule, changes) {
+        const updated = await sendRequest<Schedule>(schedule.backendId, MSG.SCHEDULE_UPDATE, {
+            ...changes,
+            id: schedule.id,
         });
-        return schedule;
+        const scoped = { ...updated, backendId: schedule.backendId };
+        slices.apply(schedule.backendId, (items) =>
+            items.map((sc) => (sc.id === updated.id ? scoped : sc)),
+        );
+        publish();
+        return scoped;
     },
 
-    async updateSchedule(payload) {
-        const updated = await sendRequest<Schedule>(MSG.SCHEDULE_UPDATE, payload);
-        set((s) => ({
-            schedules: s.schedules.map((sc) => (sc.id === updated.id ? updated : sc)),
-        }));
-        return updated;
+    async deleteSchedule(schedule) {
+        await sendRequest(schedule.backendId, MSG.SCHEDULE_DELETE, { id: schedule.id });
+        slices.apply(schedule.backendId, (items) => items.filter((sc) => sc.id !== schedule.id));
+        publish();
     },
 
-    async deleteSchedule(id) {
-        await sendRequest(MSG.SCHEDULE_DELETE, { id });
-        set((s) => ({ schedules: s.schedules.filter((sc) => sc.id !== id) }));
-    },
-
-    async triggerSchedule(id) {
-        await sendRequest(MSG.SCHEDULE_TRIGGER, { id });
-    },
-
-    applyUpdate(schedule) {
-        set((s) => {
-            const exists = s.schedules.some((sc) => sc.id === schedule.id);
-            if (exists) {
-                return {
-                    schedules: s.schedules.map((sc) => (sc.id === schedule.id ? schedule : sc)),
-                };
-            }
-            return { schedules: [...s.schedules, schedule] };
-        });
+    async triggerSchedule(schedule) {
+        await sendRequest(schedule.backendId, MSG.SCHEDULE_TRIGGER, { id: schedule.id });
     },
 }));
 
-// Module-level event listener for schedule updates (same pattern as flow-store.ts)
-const _unsubScheduleUpdated = onEvent(MSG.SCHEDULE_UPDATED, (payload) => {
+registerBackendReset("schedule-store", (backendId) => {
+    slices.drop(backendId);
+    publish();
+});
+
+const _unsubScheduleUpdated = onEvent(MSG.SCHEDULE_UPDATED, (payload, backendId) => {
     if (payload && typeof payload === "object" && "id" in payload) {
-        useScheduleStore.getState().applyUpdate(payload as Schedule);
+        upsert(backendId, payload as Schedule);
     }
 });
 

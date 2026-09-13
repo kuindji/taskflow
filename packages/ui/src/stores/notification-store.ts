@@ -7,18 +7,26 @@ import type {
     NotificationListResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { sendRequest, onEvent } from "../hooks/useWebSocket";
+import { createSlices, type Scoped } from "@/lib/backend-scope";
+import { onEvent, sendRequest } from "@/lib/connection-registry";
+import { registerBackendReset } from "./store-reset";
 
 interface NotificationStoreState {
-    notifications: Notification[];
+    notifications: Scoped<Notification>[];
     loading: boolean;
     selectedNotificationId: string | null;
 
-    fetchNotifications(): Promise<void>;
-    markAsRead(id: string): Promise<void>;
-    deleteNotification(id: string): Promise<void>;
+    fetchNotifications(backendId: string): Promise<void>;
+    markAsRead(notification: Scoped<Notification>): Promise<void>;
+    deleteNotification(notification: Scoped<Notification>): Promise<void>;
     deleteAll(): Promise<void>;
     setSelectedNotificationId(id: string | null): void;
+}
+
+const slices = createSlices<Notification>();
+
+function publish(): void {
+    useNotificationStore.setState({ notifications: slices.read() });
 }
 
 const useNotificationStore = create<NotificationStoreState>((set) => ({
@@ -26,29 +34,46 @@ const useNotificationStore = create<NotificationStoreState>((set) => ({
     loading: false,
     selectedNotificationId: null,
 
-    async fetchNotifications() {
+    async fetchNotifications(backendId) {
         set({ loading: true });
         try {
-            const { notifications } = await sendRequest<NotificationListResponse>(
-                MSG.NOTIFICATION_LIST,
-                {},
-            );
-            set({ notifications });
+            const landed = await slices.load(backendId, async () => {
+                const { notifications } = await sendRequest<NotificationListResponse>(
+                    backendId,
+                    MSG.NOTIFICATION_LIST,
+                    {},
+                );
+                return notifications;
+            });
+            if (landed) publish();
         } finally {
             set({ loading: false });
         }
     },
 
-    async markAsRead(id) {
-        await sendRequest(MSG.NOTIFICATION_UPDATED, { id });
+    async markAsRead(notification) {
+        await sendRequest(notification.backendId, MSG.NOTIFICATION_UPDATED, {
+            id: notification.id,
+        });
     },
 
-    async deleteNotification(id) {
-        await sendRequest(MSG.NOTIFICATION_DELETED, { id });
+    async deleteNotification(notification) {
+        await sendRequest(notification.backendId, MSG.NOTIFICATION_DELETED, {
+            id: notification.id,
+        });
     },
 
     async deleteAll() {
-        await sendRequest(MSG.NOTIFICATION_DELETED, { all: true });
+        // The list shows every attached machine's notifications, so clearing it
+        // must clear every attached machine. Sending { all: true } to one
+        // backend would present a merged list and empty one slice of it.
+        await Promise.allSettled(
+            slices
+                .backends()
+                .map((backendId) =>
+                    sendRequest(backendId, MSG.NOTIFICATION_DELETED, { all: true }),
+                ),
+        );
     },
 
     setSelectedNotificationId(id) {
@@ -56,37 +81,50 @@ const useNotificationStore = create<NotificationStoreState>((set) => ({
     },
 }));
 
-// Module-level event listeners (same pattern as schedule-store.ts)
-const _unsubNotificationCreated = onEvent(MSG.NOTIFICATION_CREATED, (payload) => {
+registerBackendReset("notification-store", (backendId) => {
+    slices.drop(backendId);
+    publish();
+});
+
+const _unsubNotificationCreated = onEvent(MSG.NOTIFICATION_CREATED, (payload, backendId) => {
     const event = payload as NotificationCreatedEvent;
-    if (event.notification) {
-        useNotificationStore.setState((s) => ({
-            notifications: [...s.notifications, event.notification],
-        }));
-    }
+    const created = event.notification;
+    if (!created) return;
+    // Inside the write: a list response may already hold it when this is replayed.
+    slices.apply(backendId, (items) =>
+        items.some((n) => n.id === created.id) ? items : [...items, { ...created, backendId }],
+    );
+    publish();
 });
 
-const _unsubNotificationUpdated = onEvent(MSG.NOTIFICATION_UPDATED, (payload) => {
+const _unsubNotificationUpdated = onEvent(MSG.NOTIFICATION_UPDATED, (payload, backendId) => {
     const event = payload as NotificationUpdatedEvent;
-    if (event.notification) {
-        useNotificationStore.setState((s) => ({
-            notifications: s.notifications.map((n) =>
-                n.id === event.notification.id ? event.notification : n,
-            ),
-        }));
-    }
+    const updated = event.notification;
+    if (!updated) return;
+    slices.apply(backendId, (items) =>
+        items.map((n) => (n.id === updated.id ? { ...updated, backendId } : n)),
+    );
+    publish();
 });
 
-const _unsubNotificationDeleted = onEvent(MSG.NOTIFICATION_DELETED, (payload) => {
+const _unsubNotificationDeleted = onEvent(MSG.NOTIFICATION_DELETED, (payload, backendId) => {
     const event = payload as NotificationDeletedEvent;
     if (event.all) {
-        useNotificationStore.setState({ notifications: [] });
+        // Remove what the machine held when it cleared, not everything: replayed
+        // over a list answered after the clear, `() => []` would also erase the
+        // notifications created since.
+        const cleared = new Set(
+            slices
+                .read()
+                .filter((n) => n.backendId === backendId)
+                .map((n) => n.id),
+        );
+        slices.apply(backendId, (items) => items.filter((n) => !cleared.has(n.id)));
     } else if (event.id) {
         const deletedId = event.id;
-        useNotificationStore.setState((s) => ({
-            notifications: s.notifications.filter((n) => n.id !== deletedId),
-        }));
+        slices.apply(backendId, (items) => items.filter((n) => n.id !== deletedId));
     }
+    publish();
 });
 
 export { useNotificationStore };

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import type { Scoped } from "@/lib/backend-scope";
 import { isAgentType } from "@taskflow/shared";
 import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
@@ -32,7 +33,7 @@ import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 interface NewTaskDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    projects: Project[];
+    projects: Scoped<Project>[];
     flows: FlowDefinition[];
     defaultProjectId?: string;
     parentId?: string | null;
@@ -375,6 +376,9 @@ export function NewTaskDialog({
                             <CollapsibleContent>
                                 <div className="border-border mt-1.5 rounded-md border p-3">
                                     <AgentOptionsPanel
+                                        backendId={
+                                            projects.find((p) => p.id === projectId)?.backendId
+                                        }
                                         agentType={startWith}
                                         onChange={setAgentOptions}
                                     />

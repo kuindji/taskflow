@@ -23,6 +23,8 @@ import { useScheduleStore } from "@/stores/schedule-store";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useProjectStore } from "@/stores/project-store";
 import { useFlowStore } from "@/stores/flow-store";
+import type { Scoped } from "@/lib/backend-scope";
+import { getPrimary } from "@/lib/connection-registry";
 import { ScheduleForm } from "./ScheduleForm";
 import { cn } from "@/lib/utils";
 import { selectableProjects } from "@/lib/project-visibility";
@@ -78,8 +80,12 @@ function ScheduleManagementDialog() {
 
     useEffect(() => {
         if (!open) return;
-        void useScheduleStore.getState().fetchSchedules();
-        void useFlowStore.getState().fetchActions();
+        // The app-level view addresses primary; other machines' schedules and
+        // actions arrive with their bootstrap and stay current through events.
+        const primary = getPrimary();
+        if (!primary) return;
+        void useScheduleStore.getState().fetchSchedules(primary);
+        void useFlowStore.getState().fetchActions(primary);
     }, [open]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
@@ -117,11 +123,20 @@ function ScheduleManagementDialog() {
 
     const handleSave = useCallback(
         async (payload: ScheduleCreatePayload | ScheduleUpdatePayload) => {
+            const store = useScheduleStore.getState();
             if ("id" in payload) {
-                const updated = await useScheduleStore.getState().updateSchedule(payload);
+                const { id, ...changes } = payload;
+                const schedule = store.schedules.find((sc) => sc.id === id);
+                if (!schedule) throw new Error("Schedule not found");
+                const updated = await store.updateSchedule(schedule, changes);
                 setSelectedId(updated.id);
             } else {
-                const created = await useScheduleStore.getState().createSchedule(payload);
+                // A schedule runs on its project's machine.
+                const project = useProjectStore
+                    .getState()
+                    .projects.find((p) => p.id === payload.projectId);
+                if (!project) throw new Error("Unknown project");
+                const created = await store.createSchedule(project.backendId, payload);
                 setSelectedId(created.id);
             }
             setCreating(false);
@@ -130,20 +145,23 @@ function ScheduleManagementDialog() {
     );
 
     const handleDelete = useCallback(async (id: string) => {
-        await useScheduleStore.getState().deleteSchedule(id);
+        const store = useScheduleStore.getState();
+        const schedule = store.schedules.find((sc) => sc.id === id);
+        if (schedule) await store.deleteSchedule(schedule);
         setSelectedId(null);
         setCreating(false);
     }, []);
 
-    const handleToggleEnabled = useCallback(async (schedule: Schedule) => {
-        await useScheduleStore.getState().updateSchedule({
-            id: schedule.id,
+    const handleToggleEnabled = useCallback(async (schedule: Scoped<Schedule>) => {
+        await useScheduleStore.getState().updateSchedule(schedule, {
             enabled: !schedule.enabled,
         });
     }, []);
 
     const handleTrigger = useCallback(async (id: string) => {
-        await useScheduleStore.getState().triggerSchedule(id);
+        const store = useScheduleStore.getState();
+        const schedule = store.schedules.find((sc) => sc.id === id);
+        if (schedule) await store.triggerSchedule(schedule);
     }, []);
 
     const startCreating = useCallback(() => {

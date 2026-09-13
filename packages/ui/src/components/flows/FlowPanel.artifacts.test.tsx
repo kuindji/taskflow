@@ -11,6 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // Seeds the real flow store rather than mocking the module, for the reasons
 // spelled out in FlowPanel.loop.test.tsx.
 const OWNER = "task-1";
+const BACKEND = "local";
 
 const flowDef: FlowDefinition = {
     id: "flow-1",
@@ -43,12 +44,16 @@ let container: HTMLDivElement;
 let root: Root | null = null;
 
 function mount(run: FlowRun) {
-    useFlowStore.setState({ flows: [flowDef], actions: [], activeRuns: { [OWNER]: run } });
+    useFlowStore.setState({
+        flows: [{ ...flowDef, backendId: BACKEND }],
+        actions: [],
+        activeRuns: { [OWNER]: { ...run, backendId: BACKEND } },
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     act(() => {
-        root?.render(<FlowPanel ownerId={OWNER} onClose={() => {}} />);
+        root?.render(<FlowPanel ownerId={OWNER} backendId={BACKEND} onClose={() => {}} />);
     });
 }
 

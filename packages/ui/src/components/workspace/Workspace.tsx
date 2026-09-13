@@ -59,11 +59,8 @@ export function Workspace() {
         flowName: string;
         inputs: FlowInputDefinition[];
         owner: { taskId?: string; projectId?: string; flowId: string };
+        backendId: string;
     } | null>(null);
-    const configuredShell = useSettingsStore(
-        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
-    );
-    const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
 
     const {
         scripts,
@@ -74,7 +71,17 @@ export function Workspace() {
         standaloneActions,
         activeFlowRun,
         hasScripts,
+        backendId,
     } = useSessionSync(workspace);
+    // Launch defaults are the workspace machine's: that machine runs the session.
+    const configuredShell = useSettingsStore(
+        (s) =>
+            (backendId ? s.byBackend[backendId] : undefined)?.terminal.defaultShell ??
+            DEFAULT_TERMINAL_SHELL,
+    );
+    const defaultRuntime = useSettingsStore(
+        (s) => (backendId ? s.byBackend[backendId] : undefined)?.general.defaultRuntime ?? "bun",
+    );
 
     const {
         handleCloseActiveTab,
@@ -278,20 +285,23 @@ export function Workspace() {
               : workspace.scope === "master"
                 ? { master: true as const, flowId }
                 : null;
-        if (!owner) return;
+        if (!owner || !backendId) return;
 
-        const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
+        const flow = useFlowStore
+            .getState()
+            .flows.find((f) => f.backendId === backendId && f.id === flowId);
         if (flow?.inputs && flow.inputs.length > 0) {
             setFlowInputState({
                 flowId,
                 flowName: flow.name,
                 inputs: flow.inputs,
                 owner,
+                backendId,
             });
             return;
         }
 
-        void useFlowStore.getState().startFlow(owner);
+        void useFlowStore.getState().startFlow(backendId, owner);
     };
 
     if (workspace.scope === "master") {
@@ -374,7 +384,7 @@ export function Workspace() {
 
     const handleFlowInputSubmit = (values: Record<string, string>) => {
         if (!flowInputState) return;
-        void useFlowStore.getState().startFlow({
+        void useFlowStore.getState().startFlow(flowInputState.backendId, {
             ...flowInputState.owner,
             inputValues: values,
         });

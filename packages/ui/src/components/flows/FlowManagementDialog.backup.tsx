@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
-import { useFlowStore } from "@/stores/flow-store";
+import { getPrimary } from "@/lib/connection-registry";
+import { definitionBackend, useFlowStore } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
 import { FlowEditor } from "./FlowEditor";
 import { ActionEditor } from "./ActionEditor";
@@ -33,9 +34,13 @@ function FlowManagementDialog() {
 
     useEffect(() => {
         if (!open) return;
+        // The app-level manager addresses primary; other machines' definitions
+        // arrive with their bootstrap.
+        const primary = getPrimary();
+        if (!primary) return;
         const { fetchFlows, fetchActions } = useFlowStore.getState();
-        void fetchFlows();
-        void fetchActions();
+        void fetchFlows(primary);
+        void fetchActions(primary);
     }, [open]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
@@ -83,25 +88,31 @@ function FlowManagementDialog() {
     );
 
     const handleSaveFlow = useCallback(async (flow: FlowDefinition) => {
-        await useFlowStore.getState().saveFlow(flow);
+        const store = useFlowStore.getState();
+        await store.saveFlow(definitionBackend(store.flows, flow.id), flow);
         setSelectedId(flow.id);
         setCreating(false);
     }, []);
 
     const handleSaveAction = useCallback(async (action: ActionDefinition) => {
-        await useFlowStore.getState().saveAction(action);
+        const store = useFlowStore.getState();
+        await store.saveAction(definitionBackend(store.actions, action.id), action);
         setSelectedId(action.id);
         setCreating(false);
     }, []);
 
     const handleDeleteFlow = useCallback(async (flowId: string) => {
-        await useFlowStore.getState().deleteFlow(flowId);
+        const store = useFlowStore.getState();
+        const flow = store.flows.find((f) => f.id === flowId);
+        if (flow) await store.deleteFlow(flow);
         setSelectedId(null);
         setCreating(false);
     }, []);
 
     const handleDeleteAction = useCallback(async (actionId: string) => {
-        await useFlowStore.getState().deleteAction(actionId);
+        const store = useFlowStore.getState();
+        const action = store.actions.find((a) => a.id === actionId);
+        if (action) await store.deleteAction(action);
         setSelectedId(null);
         setCreating(false);
     }, []);

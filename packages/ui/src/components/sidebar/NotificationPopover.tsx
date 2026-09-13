@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Notification } from "@taskflow/shared";
 import { useNotificationStore } from "../../stores/notification-store";
 import { useProjectStore } from "../../stores/project-store";
+import type { Scoped } from "@/lib/backend-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import {
     Dialog,
@@ -61,25 +62,25 @@ function NotificationPopover({
         return projects.find((p) => p.id === projectId)?.name ?? projectId;
     }
 
-    function handleItemClick(notification: Notification) {
+    function handleItemClick(notification: Scoped<Notification>) {
         if (!notification.read) {
-            void markAsRead(notification.id);
+            void markAsRead(notification);
         }
         setSelectedNotificationId(notification.id);
     }
 
-    function handleNavigate(e: React.MouseEvent, notification: Notification) {
+    function handleNavigate(e: React.MouseEvent, notification: Scoped<Notification>) {
         e.stopPropagation();
         if (!notification.read) {
-            void markAsRead(notification.id);
+            void markAsRead(notification);
         }
         onNavigate(notification);
         onOpenChange(false);
     }
 
-    function handleDelete(e: React.MouseEvent, notification: Notification) {
+    function handleDelete(e: React.MouseEvent, notification: Scoped<Notification>) {
         e.stopPropagation();
-        void deleteNotification(notification.id);
+        void deleteNotification(notification);
     }
 
     function handleDismissAll() {
@@ -100,7 +101,7 @@ function NotificationPopover({
 
     function handleDialogDismiss() {
         if (selectedNotification) {
-            void deleteNotification(selectedNotification.id);
+            void deleteNotification(selectedNotification);
             setSelectedNotificationId(null);
         }
     }

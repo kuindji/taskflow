@@ -15,6 +15,7 @@ import type { Tab } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { resolveTerminalShellPath } from "@/lib/terminal-shells";
+import { getPrimary } from "@/lib/connection-registry";
 
 const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
@@ -34,6 +35,8 @@ interface SessionSyncResult {
     standaloneActions: ActionDefinition[];
     activeFlowRun: ReturnType<typeof useFlowStore.getState>["activeRuns"][string] | undefined;
     ownerId: string | undefined;
+    /** The workspace's machine; the master workspace is primary's. */
+    backendId: string | null;
     hasScripts: boolean;
 }
 
@@ -53,8 +56,14 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
     const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
     const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
 
+    const backendId =
+        workspace.task?.backendId ??
+        workspace.project?.backendId ??
+        (workspace.scope === "master" ? getPrimary() : null);
     const configuredShell = useSettingsStore(
-        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+        (s) =>
+            (backendId ? s.byBackend[backendId] : undefined)?.terminal.defaultShell ??
+            DEFAULT_TERMINAL_SHELL,
     );
 
     const taskId = workspace.scope === "task" ? workspace.task?.id : undefined;
@@ -67,24 +76,30 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
     const allActions = useFlowStore((s) => s.actions);
     const currentProjectId = workspace.project?.id ?? null;
     const flowDefinitions = useMemo(
-        () => filterByProject(allFlows, currentProjectId),
-        [allFlows, currentProjectId],
+        () => (backendId ? filterByProject(allFlows, currentProjectId, backendId) : []),
+        [allFlows, currentProjectId, backendId],
     );
     const standaloneActions = useMemo(
-        () => filterByProject(allActions, currentProjectId).filter((a) => a.standalone),
-        [allActions, currentProjectId],
+        () =>
+            backendId
+                ? filterByProject(allActions, currentProjectId, backendId).filter(
+                      (a) => a.standalone,
+                  )
+                : [],
+        [allActions, currentProjectId, backendId],
     );
 
     // Fetch flow/action definitions so the Run menu can show them
     useEffect(() => {
+        if (!backendId) return;
         const store = useFlowStore.getState();
-        void store.fetchFlows();
-        void store.fetchActions();
-    }, [workspace.project?.id]);
+        void store.fetchFlows(backendId);
+        void store.fetchActions(backendId);
+    }, [workspace.project?.id, backendId]);
 
     // Hydrate flow runs for current owner
     useEffect(() => {
-        if (!ownerId) {
+        if (!ownerId || !backendId) {
             setFlowRunsHydratedOwnerId(null);
             return;
         }
@@ -93,7 +108,7 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         setFlowRunsHydratedOwnerId(null);
         void useFlowStore
             .getState()
-            .fetchFlowRuns(ownerId)
+            .fetchFlowRuns(backendId, ownerId)
             .then(() => {
                 if (!cancelled) {
                     setFlowRunsHydratedOwnerId(ownerId);
@@ -106,7 +121,7 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         return () => {
             cancelled = true;
         };
-    }, [ownerId]);
+    }, [ownerId, backendId]);
 
     // Fetch scripts
     useEffect(() => {
@@ -187,6 +202,7 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
         standaloneActions,
         activeFlowRun,
         ownerId,
+        backendId,
         hasScripts,
     };
 }

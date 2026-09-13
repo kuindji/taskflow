@@ -8,22 +8,39 @@ import type {
     FlowRunsListResponse,
 } from "@taskflow/shared";
 import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
-import { sendRequest, onEvent } from "../hooks/useWebSocket";
+import { createSlices, type Scoped } from "@/lib/backend-scope";
+import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
+import { registerBackendReset } from "./store-reset";
 import { useSessionStore } from "./session-store";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
 import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
 
 /**
- * Returns global items (no projectId) when projectId is nullish,
- * or global + matching-project items when projectId is provided.
+ * Global definitions (no projectId) belong to a machine like any other. A
+ * project's menu offers its own machine's globals plus its own definitions, and
+ * never another machine's, because FLOW_START resolves ids locally.
  */
 function filterByProject<T extends { projectId?: string }>(
-    items: T[],
+    items: Scoped<T>[],
     projectId: string | null | undefined,
-): T[] {
-    if (!projectId) return items.filter((item) => !item.projectId);
-    return items.filter((item) => !item.projectId || item.projectId === projectId);
+    backendId: string,
+): Scoped<T>[] {
+    const mine = items.filter((item) => item.backendId === backendId);
+    if (!projectId) return mine.filter((item) => !item.projectId);
+    return mine.filter((item) => !item.projectId || item.projectId === projectId);
+}
+
+/**
+ * Where a saved definition goes: the machine already holding it, or primary for
+ * a new one, since the app-level manager addresses primary.
+ */
+function definitionBackend(items: Scoped<{ id: string }>[], id: string): string {
+    const existing = items.find((item) => item.id === id);
+    if (existing) return existing.backendId;
+    const primary = getPrimary();
+    if (!primary) throw new Error("Not connected to a backend");
+    return primary;
 }
 
 interface FlowStartParams {
@@ -34,29 +51,81 @@ interface FlowStartParams {
     inputValues?: Record<string, string>;
 }
 
+/**
+ * A flow runs on the machine that owns its project; nothing here crosses
+ * machines. Run controls name that machine first.
+ */
 interface FlowStore {
-    flows: FlowDefinition[];
-    actions: ActionDefinition[];
+    flows: Scoped<FlowDefinition>[];
+    actions: Scoped<ActionDefinition>[];
     loadingDefinitions: boolean;
     definitionLoadCount: number;
-    activeRuns: Record<string, FlowRun>;
+    /** Keyed by owner id. The value carries its machine: nothing else knows it. */
+    activeRuns: Record<string, Scoped<FlowRun>>;
 
-    fetchFlows(): Promise<void>;
-    fetchActions(): Promise<void>;
-    saveFlow(flow: FlowDefinition): Promise<void>;
-    saveAction(action: ActionDefinition): Promise<void>;
-    deleteFlow(id: string): Promise<void>;
-    deleteAction(id: string): Promise<void>;
+    fetchFlows(backendId: string): Promise<void>;
+    fetchActions(backendId: string): Promise<void>;
+    saveFlow(backendId: string, flow: FlowDefinition): Promise<void>;
+    saveAction(backendId: string, action: ActionDefinition): Promise<void>;
+    deleteFlow(flow: Scoped<FlowDefinition>): Promise<void>;
+    deleteAction(action: Scoped<ActionDefinition>): Promise<void>;
 
-    startFlow(params: FlowStartParams): Promise<FlowRun>;
-    stopFlow(ownerId: string, flowId: string): Promise<void>;
-    pauseFlow(ownerId: string, flowId: string): Promise<void>;
-    resumeFlow(ownerId: string, flowId: string): Promise<void>;
-    skipAction(ownerId: string, flowId: string): Promise<void>;
-    jumpToAction(ownerId: string, flowId: string, actionIndex: number): Promise<void>;
-    fetchFlowRuns(ownerId: string): Promise<void>;
+    startFlow(backendId: string, params: FlowStartParams): Promise<FlowRun>;
+    stopFlow(backendId: string, ownerId: string, flowId: string): Promise<void>;
+    pauseFlow(backendId: string, ownerId: string, flowId: string): Promise<void>;
+    resumeFlow(backendId: string, ownerId: string, flowId: string): Promise<void>;
+    skipAction(backendId: string, ownerId: string, flowId: string): Promise<void>;
+    jumpToAction(
+        backendId: string,
+        ownerId: string,
+        flowId: string,
+        actionIndex: number,
+    ): Promise<void>;
+    fetchFlowRuns(backendId: string, ownerId: string): Promise<void>;
+}
 
-    applyRunUpdate(run: FlowRun): void;
+const slices = createSlices<FlowDefinition>();
+const actionSlices = createSlices<ActionDefinition>();
+
+function publishDefinitions(): void {
+    useFlowStore.setState({ flows: slices.read(), actions: actionSlices.read() });
+}
+
+function upsertById<T extends { id: string }>(items: Scoped<T>[], record: Scoped<T>): Scoped<T>[] {
+    return items.some((item) => item.id === record.id)
+        ? items.map((item) => (item.id === record.id ? record : item))
+        : [...items, record];
+}
+
+/** Count a definition load for the duration of `load`. */
+async function trackDefinitionLoad(load: () => Promise<boolean>): Promise<void> {
+    useFlowStore.setState((state) => ({
+        definitionLoadCount: state.definitionLoadCount + 1,
+        loadingDefinitions: true,
+    }));
+    try {
+        if (await load()) publishDefinitions();
+    } finally {
+        useFlowStore.setState((state) => {
+            const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
+            return {
+                definitionLoadCount,
+                loadingDefinitions: definitionLoadCount > 0,
+            };
+        });
+    }
+}
+
+function applyRunUpdate(backendId: string, run: FlowRun): void {
+    useFlowStore.setState((s) => {
+        const ownerId = getFlowRunOwnerId(run);
+        // Only update if we're already tracking this owner's run
+        // (don't add completed runs we weren't watching)
+        if (run.status === "running" || run.status === "paused" || s.activeRuns[ownerId]) {
+            return { activeRuns: { ...s.activeRuns, [ownerId]: { ...run, backendId } } };
+        }
+        return s;
+    });
 }
 
 const useFlowStore = create<FlowStore>((set) => ({
@@ -66,136 +135,118 @@ const useFlowStore = create<FlowStore>((set) => ({
     definitionLoadCount: 0,
     activeRuns: {},
 
-    async fetchFlows() {
-        set((state) => ({
-            definitionLoadCount: state.definitionLoadCount + 1,
-            loadingDefinitions: true,
-        }));
-        try {
-            const { flows } = await sendRequest<FlowDefinitionsListResponse>(
-                MSG.FLOW_DEFINITIONS_LIST,
-            );
-            set({ flows });
-        } finally {
-            set((state) => {
-                const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
-                return {
-                    definitionLoadCount,
-                    loadingDefinitions: definitionLoadCount > 0,
-                };
-            });
-        }
+    async fetchFlows(backendId) {
+        await trackDefinitionLoad(() =>
+            slices.load(backendId, async () => {
+                const { flows } = await sendRequest<FlowDefinitionsListResponse>(
+                    backendId,
+                    MSG.FLOW_DEFINITIONS_LIST,
+                );
+                return flows;
+            }),
+        );
     },
 
-    async fetchActions() {
-        set((state) => ({
-            definitionLoadCount: state.definitionLoadCount + 1,
-            loadingDefinitions: true,
-        }));
-        try {
-            const { actions } = await sendRequest<FlowActionsListResponse>(MSG.FLOW_ACTIONS_LIST);
-            set({ actions });
-        } finally {
-            set((state) => {
-                const definitionLoadCount = Math.max(0, state.definitionLoadCount - 1);
-                return {
-                    definitionLoadCount,
-                    loadingDefinitions: definitionLoadCount > 0,
-                };
-            });
-        }
+    async fetchActions(backendId) {
+        await trackDefinitionLoad(() =>
+            actionSlices.load(backendId, async () => {
+                const { actions } = await sendRequest<FlowActionsListResponse>(
+                    backendId,
+                    MSG.FLOW_ACTIONS_LIST,
+                );
+                return actions;
+            }),
+        );
     },
 
-    async saveFlow(flow) {
-        await sendRequest(MSG.FLOW_DEFINITION_SAVE, flow);
-        set((s) => {
-            const index = s.flows.findIndex((f) => f.id === flow.id);
-            const flows =
-                index >= 0 ? s.flows.map((f) => (f.id === flow.id ? flow : f)) : [...s.flows, flow];
-            return { flows };
-        });
+    async saveFlow(backendId, flow) {
+        await sendRequest(backendId, MSG.FLOW_DEFINITION_SAVE, flow);
+        slices.apply(backendId, (items) => upsertById(items, { ...flow, backendId }));
+        publishDefinitions();
     },
 
-    async saveAction(action) {
-        await sendRequest(MSG.FLOW_ACTION_SAVE, action);
-        set((s) => {
-            const index = s.actions.findIndex((a) => a.id === action.id);
-            const actions =
-                index >= 0
-                    ? s.actions.map((a) => (a.id === action.id ? action : a))
-                    : [...s.actions, action];
-            return { actions };
-        });
+    async saveAction(backendId, action) {
+        await sendRequest(backendId, MSG.FLOW_ACTION_SAVE, action);
+        actionSlices.apply(backendId, (items) => upsertById(items, { ...action, backendId }));
+        publishDefinitions();
     },
 
-    async deleteFlow(id) {
-        await sendRequest(MSG.FLOW_DEFINITION_DELETE, { id });
-        set((s) => ({ flows: s.flows.filter((f) => f.id !== id) }));
+    async deleteFlow(flow) {
+        await sendRequest(flow.backendId, MSG.FLOW_DEFINITION_DELETE, { id: flow.id });
+        slices.apply(flow.backendId, (items) => items.filter((f) => f.id !== flow.id));
+        publishDefinitions();
     },
 
-    async deleteAction(id) {
-        await sendRequest(MSG.FLOW_ACTION_DELETE, { id });
-        set((s) => ({ actions: s.actions.filter((a) => a.id !== id) }));
+    async deleteAction(action) {
+        await sendRequest(action.backendId, MSG.FLOW_ACTION_DELETE, { id: action.id });
+        actionSlices.apply(action.backendId, (items) => items.filter((a) => a.id !== action.id));
+        publishDefinitions();
     },
 
-    async startFlow(params) {
-        const run = await sendRequest<FlowRun>(MSG.FLOW_START, params);
+    async startFlow(backendId, params) {
+        const run = await sendRequest<FlowRun>(backendId, MSG.FLOW_START, params);
         const ownerId = getFlowRunOwnerId(run);
-        set((s) => ({ activeRuns: { ...s.activeRuns, [ownerId]: run } }));
+        set((s) => ({ activeRuns: { ...s.activeRuns, [ownerId]: { ...run, backendId } } }));
         return run;
     },
 
-    async stopFlow(ownerId, flowId) {
-        await sendRequest(MSG.FLOW_STOP, { ownerId, flowId });
+    async stopFlow(backendId, ownerId, flowId) {
+        await sendRequest(backendId, MSG.FLOW_STOP, { ownerId, flowId });
     },
 
-    async pauseFlow(ownerId, flowId) {
-        await sendRequest(MSG.FLOW_PAUSE, { ownerId, flowId });
+    async pauseFlow(backendId, ownerId, flowId) {
+        await sendRequest(backendId, MSG.FLOW_PAUSE, { ownerId, flowId });
     },
 
-    async resumeFlow(ownerId, flowId) {
-        await sendRequest(MSG.FLOW_RESUME, { ownerId, flowId });
+    async resumeFlow(backendId, ownerId, flowId) {
+        await sendRequest(backendId, MSG.FLOW_RESUME, { ownerId, flowId });
     },
 
-    async skipAction(ownerId, flowId) {
-        await sendRequest(MSG.FLOW_SKIP_ACTION, { ownerId, flowId });
+    async skipAction(backendId, ownerId, flowId) {
+        await sendRequest(backendId, MSG.FLOW_SKIP_ACTION, { ownerId, flowId });
     },
 
-    async jumpToAction(ownerId, flowId, actionIndex) {
-        await sendRequest(MSG.FLOW_JUMP_TO_ACTION, { ownerId, flowId, actionIndex });
+    async jumpToAction(backendId, ownerId, flowId, actionIndex) {
+        await sendRequest(backendId, MSG.FLOW_JUMP_TO_ACTION, { ownerId, flowId, actionIndex });
     },
 
-    async fetchFlowRuns(ownerId) {
-        const { runs } = await sendRequest<FlowRunsListResponse>(MSG.FLOW_RUNS_LIST, { ownerId });
+    async fetchFlowRuns(backendId, ownerId) {
+        const { runs } = await sendRequest<FlowRunsListResponse>(backendId, MSG.FLOW_RUNS_LIST, {
+            ownerId,
+        });
         const activeRun = runs.find((r) => r.status === "running" || r.status === "paused");
         set((s) => {
             if (activeRun) {
-                return { activeRuns: { ...s.activeRuns, [ownerId]: activeRun } };
+                return { activeRuns: { ...s.activeRuns, [ownerId]: { ...activeRun, backendId } } };
             }
+            // Another machine's run under this owner is not this answer's to clear.
+            if (s.activeRuns[ownerId]?.backendId !== backendId) return s;
             const { [ownerId]: _removed, ...remaining } = s.activeRuns;
             return { activeRuns: remaining };
         });
     },
-
-    applyRunUpdate(run) {
-        set((s) => {
-            const ownerId = getFlowRunOwnerId(run);
-            // Only update if we're already tracking this owner's run
-            // (don't add completed runs we weren't watching)
-            if (run.status === "running" || run.status === "paused" || s.activeRuns[ownerId]) {
-                return { activeRuns: { ...s.activeRuns, [ownerId]: run } };
-            }
-            return s;
-        });
-    },
 }));
+
+registerBackendReset("flow-store", (backendId) => {
+    slices.drop(backendId);
+    actionSlices.drop(backendId);
+    // A detached machine's runs go with it, or the panel keeps offering
+    // controls for a machine that is no longer attached.
+    useFlowStore.setState((s) => ({
+        flows: slices.read(),
+        actions: actionSlices.read(),
+        activeRuns: Object.fromEntries(
+            Object.entries(s.activeRuns).filter(([, run]) => run.backendId !== backendId),
+        ),
+    }));
+});
 
 // Module-level event listener for flow run updates.
 // Singleton store — registered once on import.
-const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload) => {
+const _unsubFlowRunUpdated = onEvent(MSG.FLOW_RUN_UPDATED, (payload, backendId) => {
     if (payload && typeof payload === "object" && "flowId" in payload) {
         const run = payload as FlowRun;
-        useFlowStore.getState().applyRunUpdate(run);
+        applyRunUpdate(backendId, run);
         focusRunningActionTab(run);
     }
 });
@@ -235,4 +286,4 @@ if (import.meta.hot) {
     });
 }
 
-export { useFlowStore, filterByProject };
+export { useFlowStore, filterByProject, definitionBackend };

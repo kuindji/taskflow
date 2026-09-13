@@ -12,6 +12,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // at import time (`onEvent` only registers a listener), so seeding it with
 // setState is both narrower and safer than a process-wide `mock.module`.
 const OWNER = "task-1";
+const BACKEND = "local";
 
 const flowDef: FlowDefinition = {
     id: "flow-1",
@@ -52,12 +53,16 @@ let prevRoot: Root | null = null;
 let prevContainer: HTMLDivElement | null = null;
 
 function mount(run: FlowRun) {
-    useFlowStore.setState({ flows: [flowDef], actions: [], activeRuns: { [OWNER]: run } });
+    useFlowStore.setState({
+        flows: [{ ...flowDef, backendId: BACKEND }],
+        actions: [],
+        activeRuns: { [OWNER]: { ...run, backendId: BACKEND } },
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     act(() => {
-        root?.render(<FlowPanel ownerId={OWNER} onClose={() => {}} />);
+        root?.render(<FlowPanel ownerId={OWNER} backendId={BACKEND} onClose={() => {}} />);
     });
     prevRoot = root;
     prevContainer = container;

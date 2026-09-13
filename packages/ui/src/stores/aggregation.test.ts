@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { MSG } from "@taskflow/shared";
-import type { Project, Task } from "@taskflow/shared";
-import { closeConnection, openConnection } from "@/lib/connection-registry";
+import type {
+    ActionDefinition,
+    FlowDefinition,
+    Notification,
+    Project,
+    Task,
+} from "@taskflow/shared";
+import { closeConnection, openConnection, setPrimary } from "@/lib/connection-registry";
 import { startTestServer, type TestServer } from "@/lib/test-ws-server";
+import { useDiffStore } from "./diff-store";
+import { filterByProject, useFlowStore } from "./flow-store";
+import { useNotificationStore } from "./notification-store";
 import { useProjectStore } from "./project-store";
+import { settingsFor, useSettingsStore } from "./settings-store";
 import { resetBackend } from "./store-reset";
 import { useTaskStore } from "./task-store";
 
@@ -221,5 +231,180 @@ describe("task store across backends", () => {
         expect(useTaskStore.getState().archivedTasks.map((t) => `${t.backendId}:${t.id}`)).toEqual([
             "b:archived-b",
         ]);
+    });
+});
+
+async function openTwo(
+    respondA: (type: string, payload: unknown) => unknown,
+    respondB: (type: string, payload: unknown) => unknown,
+): Promise<[TestServer, TestServer]> {
+    const serverA = startTestServer("A", respondA);
+    const serverB = startTestServer("B", respondB);
+    servers.push(serverA, serverB);
+    await openConnection("a", serverA.origin);
+    await openConnection("b", serverB.origin);
+    return [serverA, serverB];
+}
+
+function notification(id: string): Notification {
+    return {
+        id,
+        projectId: "1",
+        sessionId: "s1",
+        message: id,
+        read: false,
+        createdAt: "2026-09-13T00:00:00.000Z",
+    };
+}
+
+describe("the stores the sidebar reads, across backends", () => {
+    test("dismissing all notifications clears every attached machine", async () => {
+        const [serverA, serverB] = await openTwo(
+            (type) =>
+                type === MSG.NOTIFICATION_LIST ? { notifications: [notification("na")] } : {},
+            (type) =>
+                type === MSG.NOTIFICATION_LIST ? { notifications: [notification("nb")] } : {},
+        );
+        await useNotificationStore.getState().fetchNotifications("a");
+        await useNotificationStore.getState().fetchNotifications("b");
+
+        await useNotificationStore.getState().deleteAll();
+
+        const clears = (server: TestServer) =>
+            server.received.filter((r) => r.type === MSG.NOTIFICATION_DELETED);
+        expect(clears(serverA).map((r) => r.payload)).toEqual([{ all: true }]);
+        expect(clears(serverB).map((r) => r.payload)).toEqual([{ all: true }]);
+    });
+
+    test("a clear replayed over a list answered after it keeps the notifications created since", async () => {
+        let lists = 0;
+        const server: TestServer = startTestServer("A", (type) => {
+            if (type !== MSG.NOTIFICATION_LIST) return {};
+            lists++;
+            if (lists === 1) return { notifications: [notification("old")] };
+            // The machine clears, broadcasts that, and a new one arrives before it answers.
+            server.broadcast(MSG.NOTIFICATION_DELETED, { all: true });
+            return { notifications: [notification("new")] };
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+        await useNotificationStore.getState().fetchNotifications("a");
+
+        await useNotificationStore.getState().fetchNotifications("a");
+
+        expect(useNotificationStore.getState().notifications.map((n) => n.id)).toEqual(["new"]);
+    });
+
+    test("detaching a machine drops only its diff badges", async () => {
+        const [serverA, serverB] = await openTwo(
+            () => ({}),
+            () => ({}),
+        );
+        const stats = {
+            additions: 3,
+            deletions: 1,
+            diffDisabled: false,
+            commitDisabled: false,
+            hasChanges: true,
+            branch: "main",
+            ahead: 0,
+            behind: 2,
+        };
+        serverA.broadcast(MSG.GIT_CHANGE_STATS, { targetId: "project-a", stats });
+        serverB.broadcast(MSG.GIT_CHANGE_STATS, { targetId: "project-b", stats });
+        await until(() => Object.keys(useDiffStore.getState().behindByProject).length === 2);
+
+        closeConnection("a", "detach");
+        resetBackend("a");
+
+        const state = useDiffStore.getState();
+        expect(Object.keys(state.statsByProject)).toEqual(["project-b"]);
+        expect(state.behindByProject).toEqual({ "project-b": 2 });
+        expect(state.branchByProject).toEqual({ "project-b": "main" });
+    });
+
+    test("a project's run menu offers none of another machine's global flows", async () => {
+        const flow = (id: string, projectId?: string): FlowDefinition => ({
+            id,
+            name: id,
+            description: "",
+            actions: [],
+            createdAt: "2026-09-13T00:00:00.000Z",
+            updatedAt: "2026-09-13T00:00:00.000Z",
+            ...(projectId ? { projectId } : {}),
+        });
+        await openTwo(
+            (type) => (type === MSG.FLOW_DEFINITIONS_LIST ? { flows: [flow("global-a")] } : {}),
+            (type) =>
+                type === MSG.FLOW_DEFINITIONS_LIST
+                    ? { flows: [flow("global-b"), flow("own-b", "project-b")] }
+                    : {},
+        );
+        await useFlowStore.getState().fetchFlows("a");
+        await useFlowStore.getState().fetchFlows("b");
+
+        const offered = filterByProject(useFlowStore.getState().flows, "project-b", "b");
+
+        expect(offered.map((f) => f.id).sort()).toEqual(["global-b", "own-b"]);
+    });
+
+    test("each machine's settings are read as its own, and writes go only to primary", async () => {
+        const settings = (mode: string) => ({
+            general: { confirmBeforeExit: false },
+            claude: { permissionMode: mode },
+        });
+        const [serverA, serverB] = await openTwo(
+            (type) =>
+                type === MSG.SETTINGS_GET || type === MSG.SETTINGS_UPDATE
+                    ? settings("default")
+                    : {},
+            (type) => (type === MSG.SETTINGS_GET ? settings("plan") : {}),
+        );
+        setPrimary("a");
+        await useSettingsStore.getState().fetchSettings("a");
+        await useSettingsStore.getState().fetchSettings("b");
+
+        expect(settingsFor("b")?.claude.permissionMode).toBe("plan");
+        expect(useSettingsStore.getState().settings?.claude.permissionMode).toBe("default");
+
+        await useSettingsStore.getState().updateSettings({ editor: { wordWrap: false } });
+
+        expect(serverA.received.map((r) => r.type)).toContain(MSG.SETTINGS_UPDATE);
+        expect(serverB.received.map((r) => r.type)).not.toContain(MSG.SETTINGS_UPDATE);
+    });
+
+    test("pausing another machine's run reaches that machine and no other", async () => {
+        const action = (id: string): ActionDefinition => ({
+            id,
+            name: id,
+            prompt: "",
+            sessionType: "claude",
+            createdAt: "2026-09-13T00:00:00.000Z",
+            updatedAt: "2026-09-13T00:00:00.000Z",
+        });
+        const [serverA, serverB] = await openTwo(
+            (type) => (type === MSG.FLOW_ACTIONS_LIST ? { actions: [action("x")] } : {}),
+            (type) =>
+                type === MSG.FLOW_START
+                    ? {
+                          taskId: "task-b",
+                          flowId: "flow-b",
+                          status: "running",
+                          currentActionIndex: 0,
+                          actions: [],
+                          artifacts: [],
+                          startedAt: "2026-09-13T00:00:00.000Z",
+                      }
+                    : {},
+        );
+        await useFlowStore.getState().startFlow("b", { taskId: "task-b", flowId: "flow-b" });
+        const run = useFlowStore.getState().activeRuns["task-b"];
+        if (!run) throw new Error("b's run is missing");
+
+        await useFlowStore.getState().pauseFlow(run.backendId, "task-b", run.flowId);
+
+        expect(run.backendId).toBe("b");
+        expect(serverB.received.map((r) => r.type)).toContain(MSG.FLOW_PAUSE);
+        expect(serverA.received.map((r) => r.type)).not.toContain(MSG.FLOW_PAUSE);
     });
 });

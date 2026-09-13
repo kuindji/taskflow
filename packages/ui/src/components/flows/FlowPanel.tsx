@@ -32,10 +32,12 @@ import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWo
 
 interface FlowPanelProps {
     ownerId: string;
+    /** The machine the run is on; every control goes there. */
+    backendId: string;
     onClose: () => void;
 }
 
-function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
+function FlowPanel({ ownerId, backendId, onClose }: FlowPanelProps) {
     const run = useFlowStore((s) => s.activeRuns[ownerId]);
     const flows = useFlowStore((s) => s.flows);
     const actions = useFlowStore((s) => s.actions);
@@ -43,26 +45,26 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
 
     const handlePause = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().pauseFlow(ownerId, run.flowId);
-    }, [ownerId, run]);
+        void useFlowStore.getState().pauseFlow(backendId, ownerId, run.flowId);
+    }, [backendId, ownerId, run]);
 
     const handleResume = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().resumeFlow(ownerId, run.flowId);
-    }, [ownerId, run]);
+        void useFlowStore.getState().resumeFlow(backendId, ownerId, run.flowId);
+    }, [backendId, ownerId, run]);
 
     const handleStop = useCallback(() => {
         if (!run) return;
-        void useFlowStore.getState().stopFlow(ownerId, run.flowId);
-    }, [ownerId, run]);
+        void useFlowStore.getState().stopFlow(backendId, ownerId, run.flowId);
+    }, [backendId, ownerId, run]);
 
     const handleSkip = useCallback(
         (e: React.MouseEvent) => {
             if (!run) return;
             e.stopPropagation();
-            void useFlowStore.getState().skipAction(ownerId, run.flowId);
+            void useFlowStore.getState().skipAction(backendId, ownerId, run.flowId);
         },
-        [ownerId, run],
+        [backendId, ownerId, run],
     );
 
     if (!run) return null;
@@ -122,7 +124,9 @@ function FlowPanel({ ownerId, onClose }: FlowPanelProps) {
 
     const confirmRerun = () => {
         if (!rerunConfirm) return;
-        void useFlowStore.getState().jumpToAction(ownerId, run.flowId, rerunConfirm.index);
+        void useFlowStore
+            .getState()
+            .jumpToAction(backendId, ownerId, run.flowId, rerunConfirm.index);
         setRerunConfirm(null);
     };
 

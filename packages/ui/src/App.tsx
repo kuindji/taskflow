@@ -152,6 +152,7 @@ export function App() {
                             flowPanelOpen && activeFlowRun && activeOwnerId ? (
                                 <FlowPanel
                                     ownerId={activeOwnerId}
+                                    backendId={activeFlowRun.backendId}
                                     onClose={() => useUIStore.getState().setFlowPanelOpen(false)}
                                 />
                             ) : undefined

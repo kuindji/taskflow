@@ -9,7 +9,11 @@ import {
     sendRequest,
     setPrimary,
 } from "@/lib/connection-registry";
+import { useFlowStore } from "./flow-store";
+import { useNotificationStore } from "./notification-store";
 import { useProjectStore } from "./project-store";
+import { useScheduleStore } from "./schedule-store";
+import { useSettingsStore } from "./settings-store";
 import { resetBackend } from "./store-reset";
 import { useTaskStore } from "./task-store";
 
@@ -316,6 +320,15 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
 
     async bootstrapBackend(id) {
         const attempt = attempts.get(id);
+        // The sidebar and launch payloads need these too, but without them the
+        // machine's projects and tasks still work: they never take it offline.
+        void Promise.allSettled([
+            useNotificationStore.getState().fetchNotifications(id),
+            useScheduleStore.getState().fetchSchedules(id),
+            useFlowStore.getState().fetchFlows(id),
+            useFlowStore.getState().fetchActions(id),
+            useSettingsStore.getState().fetchSettings(id),
+        ]);
         const legs = await Promise.allSettled([
             useProjectStore.getState().fetchProjects(id),
             useTaskStore.getState().fetchTasks(id),

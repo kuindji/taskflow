@@ -40,14 +40,14 @@ function useSidebarData(connected: boolean) {
         if (primary) {
             fetchProjects(primary).catch(() => {});
             fetchTasks(primary).catch(() => {});
+            void useFlowStore.getState().fetchFlows(primary);
+            void useFlowStore.getState().fetchActions(primary);
         }
-        void useFlowStore.getState().fetchFlows();
-        void useFlowStore.getState().fetchActions();
         prefetchHomedir();
 
         void (async () => {
             try {
-                await fetchSettings();
+                if (primary) await fetchSettings(primary);
             } catch {
                 // Keep existing defaults if settings are temporarily unavailable.
             }
@@ -126,7 +126,8 @@ function useSidebarData(connected: boolean) {
     // Fetch notifications
     useEffect(() => {
         if (!connected) return;
-        void fetchNotifications();
+        const primary = getPrimary();
+        if (primary) void fetchNotifications(primary);
     }, [connected, fetchNotifications]);
 
     const displayTasks = showArchive ? archivedTasks : tasks;

@@ -23,6 +23,8 @@ const emptyScripts: Record<string, string> = {};
 const emptyAgentCommands: AgentCommand[] = [];
 
 interface UseRunMenuOptions {
+    /** The row's machine: its flows, defaults and runs are that machine's. */
+    backendId: string;
     projectId: string;
     projectPath: string;
     taskId?: string;
@@ -50,6 +52,7 @@ interface UseRunMenuResult {
 }
 
 function useRunMenu({
+    backendId,
     projectId,
     projectPath,
     taskId,
@@ -63,9 +66,11 @@ function useRunMenu({
 
     const agents = useAgentAvailability();
     const online = useConnectivity();
-    const defaultRuntime = useSettingsStore((s) => s.settings?.general.defaultRuntime ?? "bun");
+    const defaultRuntime = useSettingsStore(
+        (s) => s.byBackend[backendId]?.general.defaultRuntime ?? "bun",
+    );
     const configuredShell = useSettingsStore(
-        (s) => s.settings?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
+        (s) => s.byBackend[backendId]?.terminal.defaultShell ?? DEFAULT_TERMINAL_SHELL,
     );
 
     const ownerId = taskId ?? projectId;
@@ -74,12 +79,12 @@ function useRunMenu({
     const allActions = useFlowStore((s) => s.actions);
 
     const flowDefinitions = useMemo(
-        () => filterByProject(allFlows, projectId),
-        [allFlows, projectId],
+        () => filterByProject(allFlows, projectId, backendId),
+        [allFlows, projectId, backendId],
     );
     const standaloneActions = useMemo(
-        () => filterByProject(allActions, projectId).filter((a) => a.standalone),
-        [allActions, projectId],
+        () => filterByProject(allActions, projectId, backendId).filter((a) => a.standalone),
+        [allActions, projectId, backendId],
     );
 
     // Fetch scripts and agent commands lazily when context menu opens
@@ -112,10 +117,11 @@ function useRunMenu({
 
     // Ensure flow/action definitions are loaded
     useEffect(() => {
+        if (!backendId) return;
         const store = useFlowStore.getState();
-        void store.fetchFlows();
-        void store.fetchActions();
-    }, [projectId]);
+        void store.fetchFlows(backendId);
+        void store.fetchActions(backendId);
+    }, [projectId, backendId]);
 
     const data: RunMenuData = useMemo(
         () => ({
@@ -208,7 +214,9 @@ function useRunMenu({
 
     const onStartFlow = useCallback(
         (flowId: string) => {
-            const flow = useFlowStore.getState().flows.find((f) => f.id === flowId);
+            const flow = useFlowStore
+                .getState()
+                .flows.find((f) => f.backendId === backendId && f.id === flowId);
             const flowOwner = taskId ? { taskId, flowId } : { projectId, flowId };
 
             if (flow?.inputs && flow.inputs.length > 0) {
@@ -222,9 +230,9 @@ function useRunMenu({
             }
 
             navigate(true);
-            void useFlowStore.getState().startFlow(flowOwner);
+            void useFlowStore.getState().startFlow(backendId, flowOwner);
         },
-        [navigate, taskId, projectId],
+        [navigate, taskId, projectId, backendId],
     );
 
     const onRunTab = useCallback(
@@ -250,13 +258,13 @@ function useRunMenu({
         (values: Record<string, string>) => {
             if (!flowInputState) return;
             navigate(true);
-            void useFlowStore.getState().startFlow({
+            void useFlowStore.getState().startFlow(backendId, {
                 ...flowInputState.owner,
                 inputValues: values,
             });
             setFlowInputState(null);
         },
-        [flowInputState, navigate],
+        [flowInputState, navigate, backendId],
     );
 
     const onFlowInputCancel = useCallback(() => {

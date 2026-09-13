@@ -59,6 +59,7 @@ function CommandPaletteDialog() {
     const hasContext = workspace.scope === "task" || workspace.scope === "project";
 
     const { data, callbacks } = useRunMenu({
+        backendId: workspace.project?.backendId ?? "",
         projectId: workspace.project?.id ?? "",
         projectPath: workspace.workingDir ?? "",
         taskId: workspace.task?.id,
