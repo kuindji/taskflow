@@ -3,6 +3,7 @@ import type { FlowActionState } from "@taskflow/shared";
 import { latestArtifactsByType } from "@taskflow/shared";
 import { useFlowStore } from "@/stores/flow-store";
 import { useSessionStore } from "@/stores/session-store";
+import { originFor } from "@/lib/connection-registry";
 import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import {
@@ -306,13 +307,23 @@ function FlowPanel({ ownerId, backendId, onClose }: FlowPanelProps) {
                                     tooltip="Download"
                                     tooltipSide="left"
                                     onClick={() => {
-                                        const defaultName = a.path
-                                            ? (a.path.split("/").pop() ?? a.type)
-                                            : `${a.type}.txt`;
+                                        if (a.path === undefined) {
+                                            void window.taskflow?.saveArtifact({
+                                                text: a.text,
+                                                defaultName: `${a.type}.txt`,
+                                            });
+                                            return;
+                                        }
+                                        // The file is on the run's machine: fetch it from
+                                        // that backend, not from this machine's disk.
+                                        const origin = originFor(backendId);
+                                        if (!origin) return;
+                                        const segments = [ownerId, run.flowId, a.type]
+                                            .map(encodeURIComponent)
+                                            .join("/");
                                         void window.taskflow?.saveArtifact({
-                                            path: a.path,
-                                            text: a.text,
-                                            defaultName,
+                                            url: `${origin}/api/flow/artifact/${segments}/raw`,
+                                            defaultName: a.path.split("/").pop() || a.type,
                                         });
                                     }}>
                                     <Download className="h-2.5 w-2.5" />

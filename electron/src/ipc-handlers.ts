@@ -1,20 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile } from "child_process";
-import { copyFile, writeFile } from "fs/promises";
+import { writeFile } from "fs/promises";
 import { join } from "path";
 import type { TunnelFailure } from "@taskflow/shared";
+import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import type { BackendRegistry } from "./backend-registry";
 import { backendOrigin } from "./backend-url";
 import type { TrayState } from "./tray-manager";
 import { onTunnelExit } from "./tunnel-manager";
-
-/**
- * The backend this app started. It is not a saved record, so the backend IPC
- * channels answer for it here and the renderer attaches, detaches and handshakes
- * it through the same calls as any other machine.
- */
-const LOCAL_BACKEND_ID = "local";
 
 interface IpcHandlersDeps {
     getMainWindow: () => BrowserWindow | null;
@@ -81,6 +75,21 @@ function buildNativeMenuTemplate(
 }
 
 function registerIpcHandlers(deps: IpcHandlersDeps): void {
+    function isArtifactUrl(value: string): boolean {
+        let url: URL;
+        try {
+            url = new URL(value);
+        } catch {
+            return false;
+        }
+        return (
+            url.pathname.startsWith("/api/flow/artifact/") &&
+            listAttachedBackends(deps.getBackendPort(), deps.registry.attached()).some(
+                (entry) => new URL(entry.origin).origin === url.origin,
+            )
+        );
+    }
+
     ipcMain.handle("get-backend-port", () => deps.getBackendPort());
 
     ipcMain.handle("open-external-url", (_event, url: string) => {
@@ -113,8 +122,13 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         "save-artifact",
         async (
             _event,
-            opts: { path?: string; text?: string; defaultName?: string },
+            opts: { url?: string; text?: string; defaultName?: string },
         ): Promise<{ success: boolean; error?: string }> => {
+            // A file artifact lives on the machine that ran the flow, so its bytes come
+            // from that backend's raw-artifact route; only attached origins are fetched.
+            if (typeof opts.url === "string" && !isArtifactUrl(opts.url)) {
+                return { success: false, error: "Invalid artifact URL" };
+            }
             const defaultPath = opts.defaultName
                 ? join(app.getPath("downloads"), opts.defaultName)
                 : undefined;
@@ -125,10 +139,12 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
                 : await dialog.showSaveDialog({ defaultPath });
             if (result.canceled || !result.filePath) return { success: false };
             try {
-                if (typeof opts.path === "string") {
-                    if (!opts.path.startsWith("/") || opts.path.includes(".."))
-                        return { success: false, error: "Invalid source path" };
-                    await copyFile(opts.path, result.filePath);
+                if (typeof opts.url === "string") {
+                    const response = await fetch(opts.url);
+                    if (!response.ok) {
+                        throw new Error((await response.text()) || `HTTP ${response.status}`);
+                    }
+                    await writeFile(result.filePath, Buffer.from(await response.arrayBuffer()));
                 } else if (typeof opts.text === "string") {
                     await writeFile(result.filePath, opts.text, "utf-8");
                 } else {
@@ -308,11 +324,9 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
 
     ipcMain.handle("list-backends", () => registry.listBackends());
 
-    ipcMain.handle("get-attached-backends", () => {
-        const origin = localOrigin();
-        const local = origin === null ? [] : [{ id: LOCAL_BACKEND_ID, origin, isLocal: true }];
-        return [...local, ...registry.attached().map((entry) => ({ ...entry, isLocal: false }))];
-    });
+    ipcMain.handle("get-attached-backends", () =>
+        listAttachedBackends(deps.getBackendPort(), registry.attached()),
+    );
 
     ipcMain.handle("attach-backend", (_event, id: string) => {
         if (id !== LOCAL_BACKEND_ID) return registry.attachBackend(id);

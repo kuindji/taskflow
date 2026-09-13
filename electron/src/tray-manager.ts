@@ -1,12 +1,12 @@
 import { BrowserWindow, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { join } from "path";
-import { backendOrigin } from "./backend-url";
+import type { AttachedBackend } from "./attached-backends";
 
 type TrayState = "working" | "attention" | null;
 
 interface TrayManagerDeps {
     getMainWindow: () => BrowserWindow | null;
-    getBackendPort: () => number | null;
+    getAttachedBackends: () => AttachedBackend[];
     showMainWindow: () => Promise<void>;
     getDevBranch: () => string | null;
     quit: () => void;
@@ -16,6 +16,7 @@ let menuBarTray: Tray | null = null;
 let rendererTrayState: TrayState = null;
 let rendererTrayStateSynced = false;
 let backgroundTrayState: TrayState = null;
+const originTrayStates = new Map<string, TrayState>();
 let trayStatePollTimer: ReturnType<typeof setInterval> | null = null;
 let deps: TrayManagerDeps;
 
@@ -158,34 +159,51 @@ function setupMenuBarTray(): void {
     updateTrayIcon();
 }
 
-async function refreshBackgroundTrayState(): Promise<void> {
-    const port = deps.getBackendPort();
-    if (!port) return;
-
+async function fetchTrayState(origin: string): Promise<void> {
     try {
-        const response = await fetch(`${backendOrigin(port)}/api/tray-state`, {
+        const response = await fetch(`${origin}/api/tray-state`, {
             signal: AbortSignal.timeout(1000),
         });
         if (!response.ok) return;
 
         const payload = (await response.json()) as { status?: unknown };
-        const nextState: TrayState =
-            payload.status === "working" || payload.status === "attention" ? payload.status : null;
-        if (nextState === backgroundTrayState) return;
-
-        backgroundTrayState = nextState;
-        const mainWindow = deps.getMainWindow();
-        if (!mainWindow || !rendererTrayStateSynced) {
-            updateTrayIcon();
-        }
+        originTrayStates.set(
+            origin,
+            payload.status === "working" || payload.status === "attention" ? payload.status : null,
+        );
     } catch {
-        // Ignore transient backend polling failures; the next poll will resync.
+        // Ignore transient backend polling failures; that origin keeps its last state
+        // until the next poll resyncs it.
+    }
+}
+
+/** Polls every attached backend; the icon shows the most urgent state among them. */
+async function refreshBackgroundTrayState(): Promise<void> {
+    const origins = new Set(deps.getAttachedBackends().map((entry) => entry.origin));
+    for (const origin of originTrayStates.keys()) {
+        if (!origins.has(origin)) originTrayStates.delete(origin);
+    }
+    await Promise.all([...origins].map((origin) => fetchTrayState(origin)));
+
+    const states = [...originTrayStates]
+        .filter(([origin]) => origins.has(origin))
+        .map(([, state]) => state);
+    const nextState: TrayState = states.includes("attention")
+        ? "attention"
+        : states.includes("working")
+          ? "working"
+          : null;
+    if (nextState === backgroundTrayState) return;
+
+    backgroundTrayState = nextState;
+    const mainWindow = deps.getMainWindow();
+    if (!mainWindow || !rendererTrayStateSynced) {
+        updateTrayIcon();
     }
 }
 
 function startTrayStatePolling(): void {
-    const port = deps.getBackendPort();
-    if (trayStatePollTimer || !port) return;
+    if (trayStatePollTimer) return;
     void refreshBackgroundTrayState();
     trayStatePollTimer = setInterval(() => {
         void refreshBackgroundTrayState();

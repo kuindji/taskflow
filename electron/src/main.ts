@@ -1,4 +1,4 @@
-import { app, dialog, nativeTheme } from "electron";
+import { app, dialog, nativeTheme, Notification } from "electron";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 
@@ -58,12 +58,9 @@ import {
     setWordWrapChecked,
 } from "./app-menu";
 import { initAutoUpdater, clearUpdaterCache, setupAutoUpdater } from "./auto-updater";
-import {
-    initNotificationPoller,
-    startNotificationPolling,
-    stopNotificationPolling,
-} from "./notification-poller";
+import { createNotificationPoller, fetchBackendNotifications } from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
+import { listAttachedBackends } from "./attached-backends";
 
 declare const BUILD_GIT_BRANCH: string;
 
@@ -112,7 +109,7 @@ initWindowManager({
 
 initTrayManager({
     getMainWindow,
-    getBackendPort,
+    getAttachedBackends,
     showMainWindow,
     getDevBranch: () => devBranch,
     quit: () => app.quit(),
@@ -134,11 +131,6 @@ initAutoUpdater({
     setDownloadingVersion,
 });
 
-initNotificationPoller({
-    getMainWindow,
-    getBackendPort,
-});
-
 // Created here so the IPC handlers can hold it; nothing is read or bound until
 // `init()` runs in `whenReady`. `userData` is final by now (dev mode sets it above).
 const registry = createRegistry({
@@ -151,6 +143,38 @@ const registry = createRegistry({
     fetchHostKeyFingerprint,
     trustHostKey,
     forgetScannedHostKey,
+});
+
+function getAttachedBackends() {
+    return listAttachedBackends(getBackendPort(), registry.attached());
+}
+
+const notificationPoller = createNotificationPoller({
+    getAttachedBackends,
+    fetchNotifications: fetchBackendNotifications,
+    notify: (notification, backendId) => {
+        const desktopNotification = new Notification({
+            title: "Taskflow",
+            body: notification.message,
+        });
+        desktopNotification.on("click", () => {
+            const mainWindow = getMainWindow();
+            if (!mainWindow) return;
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+            // Project, task and session ids do not say which machine to navigate on.
+            const id = backendId();
+            if (id === null) return;
+            mainWindow.webContents.send("notification-clicked", {
+                id: notification.id,
+                backendId: id,
+                projectId: notification.projectId,
+                sessionId: notification.sessionId,
+                taskId: notification.taskId,
+            });
+        });
+        desktopNotification.show();
+    },
 });
 
 registerIpcHandlers({
@@ -184,7 +208,7 @@ void app.whenReady().then(async () => {
         // `attachedRecordIds()`, because only it can finish the handshake.
         await registry.init();
         startTrayStatePolling();
-        startNotificationPolling();
+        notificationPoller.start();
         await createWindow();
         buildAppMenu();
         setupMenuBarTray();
@@ -241,7 +265,7 @@ app.on("before-quit", (e) => {
         exitConfirmed = true;
     }
     stopTrayStatePolling();
-    stopNotificationPolling();
+    notificationPoller.stop();
     const savePromise = getWindowSavePromise();
     if (savePromise) {
         quitting = true;

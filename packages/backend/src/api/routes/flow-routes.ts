@@ -1,3 +1,5 @@
+import { stat } from "fs/promises";
+import { isAbsolute } from "path";
 import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
 import type { FlowStore } from "../../services/flow-store";
@@ -172,6 +174,54 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
         if (artifacts.length === 0) return errorResponse("Artifact not found", 404);
         return jsonResponse(artifacts[0]);
     });
+
+    /**
+     * The bytes of a file artifact, for a client that may be on another machine.
+     * Authorised by "this path was registered as an artifact of this run", not by
+     * workspace containment: an agent may save an artifact anywhere, e.g. `/tmp`.
+     * Params are decoded here because the router matches them raw.
+     */
+    apiRouter.register(
+        "GET",
+        "/api/flow/artifact/:ownerId/:flowId/:type/raw",
+        async (_req, params) => {
+            let ownerId: string, flowId: string, type: string;
+            try {
+                ownerId = decodeURIComponent(params.ownerId);
+                flowId = decodeURIComponent(params.flowId);
+                type = decodeURIComponent(params.type);
+            } catch {
+                return errorResponse("Malformed artifact address", 400);
+            }
+
+            const run = await flowStore.getFlowRun(ownerId, flowId);
+            if (!run) return errorResponse("Flow run not found", 404);
+            const [artifact] = flowRunner.getArtifacts(run, type);
+            if (!artifact) return errorResponse("Artifact not found", 404);
+            if (artifact.path === undefined) return errorResponse("Artifact is not a file", 404);
+            // A relative path names no file without the saving session's directory.
+            if (!isAbsolute(artifact.path)) {
+                return errorResponse("Artifact path is not absolute", 404);
+            }
+
+            try {
+                if (!(await stat(artifact.path)).isFile()) {
+                    return errorResponse("Artifact is not a file", 404);
+                }
+            } catch {
+                return errorResponse("Artifact file not found", 404);
+            }
+
+            return new Response(Bun.file(artifact.path), {
+                headers: {
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": "attachment",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cache-Control": "no-cache",
+                },
+            });
+        },
+    );
 
     // --- Flow input values ---
 

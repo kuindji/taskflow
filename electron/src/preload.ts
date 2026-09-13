@@ -226,11 +226,12 @@ contextBridge.exposeInMainWorld("taskflow", {
         ipcRenderer.send("tray-state-changed", status);
     },
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
-    saveArtifact: (opts: { path?: string; text?: string; defaultName?: string }) =>
+    saveArtifact: (opts: { url?: string; text?: string; defaultName?: string }) =>
         ipcRenderer.invoke("save-artifact", opts) as Promise<{ success: boolean; error?: string }>,
     onNotificationClicked: (
         callback: (payload: {
             id: string;
+            backendId: string;
             projectId: string;
             sessionId: string;
             taskId?: string;
@@ -238,7 +239,13 @@ contextBridge.exposeInMainWorld("taskflow", {
     ) => {
         const listener = (
             _event: Electron.IpcRendererEvent,
-            payload: { id: string; projectId: string; sessionId: string; taskId?: string },
+            payload: {
+                id: string;
+                backendId: string;
+                projectId: string;
+                sessionId: string;
+                taskId?: string;
+            },
         ) => callback(payload);
         ipcRenderer.on("notification-clicked", listener);
         return () => {

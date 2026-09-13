@@ -1,18 +1,4 @@
-import { BrowserWindow, Notification } from "electron";
-import { backendOrigin } from "./backend-url";
-
-interface NotificationPollerDeps {
-    getMainWindow: () => BrowserWindow | null;
-    getBackendPort: () => number | null;
-}
-
-let lastNotificationCheck: string | null = null;
-let notificationPollTimer: ReturnType<typeof setInterval> | null = null;
-let deps: NotificationPollerDeps;
-
-function initNotificationPoller(d: NotificationPollerDeps): void {
-    deps = d;
-}
+import type { AttachedBackend } from "./attached-backends";
 
 interface BackendNotification {
     id: string;
@@ -24,69 +10,111 @@ interface BackendNotification {
     createdAt: string;
 }
 
-async function checkNewNotifications(): Promise<void> {
-    const port = deps.getBackendPort();
-    if (!port) return;
+interface NotificationPollerDeps {
+    getAttachedBackends: () => AttachedBackend[];
+    fetchNotifications: (origin: string) => Promise<BackendNotification[]>;
+    /**
+     * Shows one notification. `backendId` names its machine when called, not when
+     * shown: a record renamed at its first handshake keeps its origin, so the id is
+     * looked up from the origin at click time. Null once that machine is gone.
+     */
+    notify: (notification: BackendNotification, backendId: () => string | null) => void;
+}
 
-    try {
-        const response = await fetch(`${backendOrigin(port)}/api/notifications`, {
-            signal: AbortSignal.timeout(2000),
-        });
-        if (!response.ok) return;
+const POLL_INTERVAL_MS = 3000;
 
-        const { notifications } = (await response.json()) as {
-            notifications: BackendNotification[];
-        };
+function fetchBackendNotifications(origin: string): Promise<BackendNotification[]> {
+    return fetch(`${origin}/api/notifications`, { signal: AbortSignal.timeout(2000) }).then(
+        async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const { notifications } = (await response.json()) as {
+                notifications: BackendNotification[];
+            };
+            return notifications;
+        },
+    );
+}
 
-        let newestShown = lastNotificationCheck;
+function createNotificationPoller(deps: NotificationPollerDeps) {
+    /**
+     * The newest `createdAt` delivered per origin, compared only with that origin's
+     * own stamps: machines' clocks differ, and one shared watermark dropped a
+     * machine's notification whenever another machine had delivered a newer one.
+     * Keyed by origin, not record id, because the id changes at the first handshake
+     * while the tunnel and its origin stay. `null` means seen, nothing yet.
+     */
+    const watermarks = new Map<string, string | null>();
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let polling = false;
 
-        for (const n of notifications) {
-            if (!n.read && (!lastNotificationCheck || n.createdAt > lastNotificationCheck)) {
-                const desktopNotification = new Notification({
-                    title: "Taskflow",
-                    body: n.message,
-                });
-                desktopNotification.on("click", () => {
-                    const mainWindow = deps.getMainWindow();
-                    if (mainWindow) {
-                        if (!mainWindow.isVisible()) mainWindow.show();
-                        mainWindow.focus();
-                        mainWindow.webContents.send("notification-clicked", {
-                            id: n.id,
-                            projectId: n.projectId,
-                            sessionId: n.sessionId,
-                            taskId: n.taskId,
-                        });
-                    }
-                });
-                desktopNotification.show();
-
-                if (!newestShown || n.createdAt > newestShown) {
-                    newestShown = n.createdAt;
-                }
-            }
-        }
-
-        if (newestShown) {
-            lastNotificationCheck = newestShown;
-        }
-    } catch {
-        // Ignore transient failures
+    function backendIdFor(origin: string): string | null {
+        return deps.getAttachedBackends().find((entry) => entry.origin === origin)?.id ?? null;
     }
+
+    async function pollOrigin(origin: string): Promise<void> {
+        let notifications: BackendNotification[];
+        try {
+            notifications = await deps.fetchNotifications(origin);
+        } catch {
+            // Transient failure; the next poll retries from the same watermark.
+            return;
+        }
+        // Detached while the request was out: its watermark is gone, so do not revive it.
+        if (!deps.getAttachedBackends().some((entry) => entry.origin === origin)) return;
+
+        const newest = (list: BackendNotification[], from: string | null) =>
+            list.reduce<string | null>(
+                (acc, n) => (!acc || n.createdAt > acc ? n.createdAt : acc),
+                from,
+            );
+
+        if (!watermarks.has(origin)) {
+            // First answer from this origin: what it already holds is not new.
+            watermarks.set(origin, newest(notifications, null));
+            return;
+        }
+
+        const watermark = watermarks.get(origin) ?? null;
+        const fresh = notifications.filter(
+            (n) => !n.read && (!watermark || n.createdAt > watermark),
+        );
+        for (const n of fresh) {
+            deps.notify(n, () => backendIdFor(origin));
+        }
+        watermarks.set(origin, newest(fresh, watermark));
+    }
+
+    async function poll(): Promise<void> {
+        if (polling) return;
+        polling = true;
+        try {
+            const origins = new Set(deps.getAttachedBackends().map((entry) => entry.origin));
+            // A tunnel's local port can be reused by another machine later.
+            for (const origin of watermarks.keys()) {
+                if (!origins.has(origin)) watermarks.delete(origin);
+            }
+            await Promise.all([...origins].map((origin) => pollOrigin(origin)));
+        } finally {
+            polling = false;
+        }
+    }
+
+    return {
+        poll,
+        start(): void {
+            if (timer) return;
+            void poll();
+            timer = setInterval(() => {
+                void poll();
+            }, POLL_INTERVAL_MS);
+        },
+        stop(): void {
+            if (!timer) return;
+            clearInterval(timer);
+            timer = null;
+        },
+    };
 }
 
-function startNotificationPolling(): void {
-    if (notificationPollTimer) return;
-    lastNotificationCheck = new Date().toISOString();
-    notificationPollTimer = setInterval(() => {
-        void checkNewNotifications();
-    }, 3000);
-}
-
-function stopNotificationPolling(): void {
-    if (!notificationPollTimer) return;
-    clearInterval(notificationPollTimer);
-    notificationPollTimer = null;
-}
-
-export { initNotificationPoller, startNotificationPolling, stopNotificationPolling };
+export { createNotificationPoller, fetchBackendNotifications };
+export type { BackendNotification };

@@ -63,8 +63,9 @@ interface TaskflowBridge {
     quitAndInstallUpdate(): void;
     sendTrayState(status: string | null): void;
     getPathForFile(file: File): string;
+    /** `url` is a file artifact's raw route on the backend that owns the run. */
     saveArtifact(opts: {
-        path?: string;
+        url?: string;
         text?: string;
         defaultName?: string;
     }): Promise<{ success: boolean; error?: string }>;
@@ -72,6 +73,8 @@ interface TaskflowBridge {
     onNotificationClicked(
         callback: (payload: {
             id: string;
+            /** The machine that raised the notification. */
+            backendId: string;
             projectId: string;
             sessionId: string;
             taskId?: string;
