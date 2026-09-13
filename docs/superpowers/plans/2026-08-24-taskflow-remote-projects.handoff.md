@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
+| 10 | The renderer's attached set — backend-store, handshake, detach | implemented | `76a0746` | `4abc696` | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -663,8 +663,42 @@ tunnel. **Task 9 is clear.**
   remote backend cannot be refiled onto the renderer's local row.
 - Task 9: the plan's test file is taken as written except `await expect(...).rejects.toThrow` (eslint
   `await-thenable`, same as Task 8) → a `rejectionOf` helper; 8 tests added (19 total).
+- Task 10: the enumeration test is written but `test.todo` (plan says so); Task 19 turns it on. Its scan roots are
+  relative to `packages/ui/src` (`import.meta.dir/..`), not the plan's `join(UI_SRC, "..", "src/stores")`.
+- Task 10: `attach` wraps `confirmBackend` (carry-over): a rejection drops the connection, marks the row offline with
+  main's error message, returns null. The protocol check stays before `confirmBackend` (Task 9 R2) — both live in one
+  `handshake(id)` helper shared by `attach` and `rehandshake` (the plan's "extract the tail").
+- Task 10 beyond the plan: a per-id attempt counter (`attempts`), bumped by `attach`, `detach`, `retry`. `attach`
+  gives up (no side effects) after any await once it moved, so unticking a machine mid-attach cannot resurrect an
+  "attached" row. Test: "a detach while the tunnel is opening wins over the attach".
+- Task 10: `retry` (carry-over "detach then attach", Task 7 R1) closes the renderer connection, then calls main's
+  `detachBackend` **only when `getAttached()` still lists a live non-local tunnel for the id**, then `attach`. Reason:
+  main's detach also clears the persisted `attached` intent, so detaching unconditionally would make a machine whose
+  tunnel already died (the common retry and `onBackendSeen` case) stop redialling at next launch if the retry fails.
+  Residual: when a live tunnel is detached and the re-attach then fails, that intent is lost. Not tested (needs the
+  tunnel-alive-socket-dead case).
+- Task 10: `onBackendDropped` also drops the renderer connection (stops the socket reconnecting to a dead forwarded
+  port); `rehandshake` on a changed uid runs `detach` then records "A different backend answered on this port".
+- Task 10: a first-handshake rename removes a row already listed under the uid (a `backends-changed` refresh can land
+  before `confirmBackend` resolves) and does nothing when the provisional row is already gone. `refresh` keeps a
+  previous `isLocal` row that `getAttached()` omits (local port momentarily null) and carries `backendUid` forward —
+  `rehandshake` reads it.
+- Task 10: the shim's `connectWebSocket` (and `primaryOrThrow`, `openConnection`/`setPrimary` imports) were removed —
+  the provider no longer calls it. Test `mock.module` factories listing it are harmless. The dev (non-Electron)
+  renderer opens `local` directly and seeds no machine row, as the plan says. A local attach failure surfaces as the
+  provider's `error` with the row's failure message. The local id is a provider-local constant (`"local"`), mirroring
+  `electron/src/ipc-handlers.ts`; no shared constant exists.
+- Task 10: added `packages/ui/src/stores/backend-store.test.ts` (7 tests: rename, refused confirm, protocol mismatch,
+  merge, detach-during-attach, rehandshake uid change, refresh's local row) with a fake bridge and a real `Bun.serve`
+  WS backend. Not run: launching the Electron app.
 
 ## Validation baseline
+
+After Task 10 (`4abc696`): `store-reset.test.ts` + `backend-store.test.ts` 10 pass, 1 todo (red first: modules
+missing); mutation check — removing the post-tunnel attempt check turns "a detach while the tunnel is opening" red,
+rethrowing in the confirm catch turns "a refused confirm" red; `bun test packages/ui` 194 pass, 1 todo, 10 fail (the
+known ten); `bun run typecheck` clean (all packages); eslint and prettier clean on the six changed files;
+`bun run build:ui` ok.
 
 After Task 9 R1 fix (`3591f54`): `bun test electron/src/backend-registry.test.ts` 22 pass (the two race tests red
 against `a0ad09d`'s registry); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
@@ -787,6 +821,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 10 (The renderer's attached set — backend-store, handshake, detach). Record HEAD as its
-base commit first. Carry-overs: wrap `confirmBackend` (it rejects; see the plan note at the call), keep the
-protocol-version check before `confirmBackend` (Task 9 R2), and detach-then-attach on retry (Task 7 R1 note).
+Next step: Task 10 review round 1 — standard gpt-5.5 review via codex-review over `76a0746..4abc696`
+(packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
+`hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above (attempt counter, conditional detach in
+`retry`, rename-row dedupe) and plan Task 10 (plan lines 2810-3330).
