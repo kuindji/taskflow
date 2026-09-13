@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { MSG } from "@taskflow/shared";
-import type { Project } from "@taskflow/shared";
+import type { Project, Task } from "@taskflow/shared";
 import { closeConnection, openConnection } from "@/lib/connection-registry";
 import { startTestServer, type TestServer } from "@/lib/test-ws-server";
 import { useProjectStore } from "./project-store";
 import { resetBackend } from "./store-reset";
+import { useTaskStore } from "./task-store";
 
 function project(id: string, name: string): Project {
     return {
@@ -128,5 +129,41 @@ describe("project store across two backends", () => {
         expect(serverA.received.map((r) => r.type)).not.toContain(MSG.PROJECT_UPDATE);
         expect(recordOn("b", "same")?.name).toBe("Only on B");
         expect(recordOn("a", "same")?.name).toBe("Repo");
+    });
+});
+
+function task(id: string): Task {
+    return {
+        id,
+        projectId: "1",
+        title: id,
+        description: "",
+        notes: "",
+        worktree: { enabled: false, path: null, branch: null, pr: null },
+        sessions: [],
+        attributes: [],
+        createdAt: "2026-09-13T00:00:00.000Z",
+        status: "active",
+        archivedAt: null,
+        pinned: false,
+    };
+}
+
+describe("task store across backends", () => {
+    test("a task created while the task list is in flight is listed once", async () => {
+        // The machine creates the task, broadcasts TASK_CREATED, then answers a
+        // list that already holds it.
+        const created = task("t1");
+        const server: TestServer = startTestServer("A", (type) => {
+            if (type !== MSG.TASK_LIST) return {};
+            server.broadcast(MSG.TASK_CREATED, created);
+            return { tasks: [created] };
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+
+        await useTaskStore.getState().fetchTasks("a");
+
+        expect(useTaskStore.getState().tasks.map((t) => t.id)).toEqual(["t1"]);
     });
 });

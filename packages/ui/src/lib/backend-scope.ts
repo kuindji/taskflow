@@ -74,7 +74,9 @@ export function createSlices<T>() {
          * that broadcast an update mid-list without its records until the next
          * attach. Every store write is a function of the items it is given
          * (upsert, replace by id, filter, reorder), so a replay keeps the newer
-         * state and the snapshot's records both.
+         * state and the snapshot's records both. The response may already hold
+         * a write's effect, so a write must also be safe to repeat: an insert
+         * checks for the id inside the write, not before calling `apply`.
          *
          * Whether the response landed; false when a later request superseded it
          * or its machine was dropped.

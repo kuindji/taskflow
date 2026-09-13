@@ -116,17 +116,10 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
     async createTask(backendId, payload) {
         const task = await sendRequest<Task>(backendId, MSG.TASK_CREATE, payload);
-        const scoped = { ...task, backendId };
         // TASK_CREATE does not broadcast to its sender, so this response is the
         // only write. Going through `apply` is what makes a TASK_LIST already
         // in flight land with it replayed rather than erase it.
-        live.apply(backendId, (items) =>
-            items.some((t) => t.id === task.id)
-                ? items
-                : sortTasksByCreatedAtDesc([...items, scoped]),
-        );
-        publish();
-        return scoped;
+        return insertTask(backendId, task);
     },
     async updateTask(task, updates) {
         const updated = await sendRequest<Task>(task.backendId, MSG.TASK_UPDATE, {
@@ -193,6 +186,20 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
 }));
 
+/**
+ * Adds a task unless the slice already holds it. The check sits inside the
+ * write because a replay over a list response that already lists the task
+ * must not add it a second time.
+ */
+function insertTask(backendId: string, task: Task): Scoped<Task> {
+    const scoped = { ...task, backendId };
+    live.apply(backendId, (items) =>
+        items.some((t) => t.id === task.id) ? items : sortTasksByCreatedAtDesc([...items, scoped]),
+    );
+    publish();
+    return scoped;
+}
+
 function applyTaskUpdate(backendId: string, task: Task): void {
     live.apply(backendId, (items) =>
         sortTasksByCreatedAtDesc(items.map((t) => (t.id === task.id ? { ...task, backendId } : t))),
@@ -228,12 +235,7 @@ const _unsubTaskUpdated = onEvent(MSG.TASK_UPDATED, (payload, backendId) => {
 });
 
 const _unsubTaskCreated = onEvent(MSG.TASK_CREATED, (payload, backendId) => {
-    if (!isTask(payload)) return;
-    const task = payload;
-    // Avoid duplicates (e.g., if the current client created the task via WS)
-    if (live.read().some((t) => t.backendId === backendId && t.id === task.id)) return;
-    live.apply(backendId, (items) => sortTasksByCreatedAtDesc([...items, { ...task, backendId }]));
-    publish();
+    if (isTask(payload)) insertTask(backendId, payload);
 });
 
 // Task ids are UUIDs, so a log entry cannot land on another machine's task.
