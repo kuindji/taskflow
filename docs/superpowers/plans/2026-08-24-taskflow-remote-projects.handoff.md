@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 4 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
+| 20 | Electron main across several backends | in-review round 5 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1134,6 +1134,22 @@ and reviewed R3's fetch-time recheck without objection:
 Own read of the poller and tray found nothing: an in-flight tray fetch for a detached origin is filtered out by
 `origins.has`, a failed poll for a detached origin leaves `failedSince` that the next sweep drops.
 
+### Task 20, round 5 (Codex gpt-5.5, prompted review of `5f0ec24..6c2e364`)
+
+One finding, confirmed and fixed in `0949f63`; Codex found nothing else across the Task 20 diff:
+
+1. **A failed artifact save deletes the file the user chose to replace — confirmed, fixed.** R4's `downloadArtifact`
+   streamed straight into the save-dialog path and `rm`'d that path on any error. Codex's sequence: an existing file
+   picked as destination, then the body breaks off mid-download → the old file is truncated, then removed. My own
+   repro, found independently in the same session: a read-only existing destination → `EACCES` on open → the `catch`
+   still `rm`s it, file gone (the old `copyFile` failed without touching it). Fix: stream into
+   `.<name>.<uuid>.part` beside the destination, `rename` over it on success, `rm` only the `.part` on failure. Test
+   "a failed download leaves the file the user chose to replace untouched" (red on `6c2e364`). The streaming test
+   now reads the in-progress `.part` file and asserts none is left afterwards.
+   While writing it: R4's break-off test body errored before the response headers, so `fetch` rejected before any
+   file was opened and the cleanup path was never exercised (the new test passed on `6c2e364` until
+   `breakingBody` errored 100 ms after its first chunk). Both break-off tests use that body now.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1689,9 +1705,16 @@ Own read of the poller and tray found nothing: an in-flight tray fetch for a det
   dialog is open, but needs preload/renderer changes for a case that again rests on ephemeral-port reuse (R1 #3).
 - Task 20 R4: artifact saves stream to disk; the non-OK error body is still read whole (backend error strings are
   short), and the partial-file cleanup was not mutation-checked.
+- Task 20 R5: artifact saves write `.<name>.<uuid>.part` beside the destination and `rename` over it when complete,
+  so a failure never touches the chosen path. Consequence taken: replacing an existing read-only file now succeeds
+  (rename needs only a writable directory, and the user confirmed the replace in the dialog), and the replaced file's
+  permissions are not carried over.
 
 ## Validation baseline
 
+After Task 20 R5 fix (`0949f63`): `artifact-download.test.ts` 7 pass (3 runs; new replace test and updated streaming
+test red on `6c2e364`); `bun test electron/src` 79 pass (7 files); `bun run typecheck` clean; eslint and prettier
+clean on the two touched files; `electron` `bun run build` ok; scratch read-only-destination repro now saves.
 After Task 20 R4 fix (`6c2e364`): `artifact-download.test.ts` 6 pass (3 runs; streaming test red with a buffering
 implementation); `bun test electron/src` 78 pass; `bun run typecheck` clean; eslint and prettier clean on the three
 touched files; `electron` `bun run build` ok.
@@ -1983,10 +2006,11 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 5 — Codex gpt-5.5 prompted review of `5f0ec24..6c2e364` (electron/src incl.
-`artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and its test,
-`FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and
-the tunnel-port-reuse race, R2's failed-first-poll baseline was fixed in `4a77b3c`, R3's fetch-time attached-set
-recheck landed in `4509c26` with backend-id binding deliberately not taken, and R4's streaming download with
-partial-file cleanup landed in `6c2e364` (review that fix: stream errors, cancellation, cleanup). If R5 is clean,
-Task 20 is clear and Task 21 (the hard switch) is next.
+Next step: Task 20 review round 6 — Codex gpt-5.5 prompted review of `5f0ec24..0949f63` (same file set as R5:
+electron/src incl. `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and
+its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID
+premise) and the tunnel-port-reuse race, R2 fixed the failed-first-poll baseline, R3 added the fetch-time
+attached-set recheck (backend-id binding deliberately not taken), R4 made the download stream, and R5 (`0949f63`)
+moved it to a `.part` file renamed into place (review that: rename failure, cleanup, the deliberate read-only replace
+consequence in Decisions). This is round 6 of the 10 cap; unless R6 finds a concrete defect, Task 20 is clear and Task
+21 (the hard switch) is next.
