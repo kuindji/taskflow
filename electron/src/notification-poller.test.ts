@@ -100,6 +100,30 @@ test("a notification raised while a machine's first poll was failing still arriv
     expect(delivered.map((d) => d.id)).toEqual(["b-1"]);
 });
 
+test("a machine with a clock behind, no Date header and a failed first poll still gets its notification shown", async () => {
+    // B's clock runs five minutes behind this machine's, and B's answers carry no `Date`.
+    const at = (time: string) => Date.parse(`2026-09-13T${time}.000Z`);
+    emit(B, notification("before-the-failure", "09:59:59"));
+    let failing = true;
+    const poller = createNotificationPoller({
+        getAttachedBackends: () => backends,
+        fetchNotifications: (origin) =>
+            failing
+                ? Promise.reject(new Error("timeout"))
+                : Promise.resolve({ notifications: lists.get(origin) ?? [], serverTime: null }),
+        notify: (n, backendId) => delivered.push({ id: n.id, backendId }),
+        now: () => at("10:05:00"),
+    });
+    await poller.poll();
+
+    failing = false;
+    await poller.poll();
+    emit(B, notification("b-1", "10:00:01"));
+    await poller.poll();
+
+    expect(delivered.map((d) => d.id)).toEqual(["b-1"]);
+});
+
 test("a notification raised while a machine's first poll is under way still arrives", async () => {
     const at = (time: string) => Date.parse(`2026-09-13T${time}.000Z`);
     emit(B, notification("old", "09:00:00"));
