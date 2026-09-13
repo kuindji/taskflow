@@ -118,6 +118,29 @@ describe("normalizeRecords and adoptUid on a hand-edited file", () => {
         expect(next.map((r) => r.id)).toEqual(["abc123"]);
     });
 
+    test("a record already saved under its uid wins over a stale-id duplicate listed before it", () => {
+        const parsed = normalizeRecords([
+            {
+                id: "desktop.local:main",
+                backendUid: "abc123",
+                host: "desktop.local",
+                instanceId: "main",
+            },
+            {
+                id: "abc123",
+                backendUid: "abc123",
+                host: "192.168.1.20",
+                instanceId: "main",
+                sshPort: 2222,
+                attached: true,
+            },
+        ]);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].host).toBe("192.168.1.20");
+        expect(parsed[0].sshPort).toBe(2222);
+        expect(parsed[0].attached).toBe(true);
+    });
+
     test("ports outside 1-65535 fall back to their defaults", () => {
         const [parsed] = normalizeRecords([
             { host: "desktop.local", instanceId: "main", sshPort: 0, lastKnownPort: -1 },

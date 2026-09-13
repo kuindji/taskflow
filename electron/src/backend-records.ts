@@ -26,7 +26,9 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
 export function normalizeRecords(parsed: unknown): BackendRecord[] {
     if (!Array.isArray(parsed)) return [];
     const records: BackendRecord[] = [];
-    const ids = new Set<string>();
+    // Per id: where it sits in `records`, and whether the file already saved it
+    // under that id.
+    const slots = new Map<string, { index: number; exact: boolean }>();
     for (const entry of parsed) {
         if (!isRecordLike(entry)) continue;
         const host = typeof entry.host === "string" ? entry.host : null;
@@ -34,14 +36,18 @@ export function normalizeRecords(parsed: unknown): BackendRecord[] {
         if (!host || !instanceId) continue;
         const backendUid =
             typeof entry.backendUid === "string" && entry.backendUid ? entry.backendUid : null;
+        const storedId = typeof entry.id === "string" && entry.id ? entry.id : null;
         // A confirmed record is keyed by its uid whatever id the file holds, so
-        // `adoptUid` finds it by id; a hand-edited duplicate keeps the first.
-        const id =
-            backendUid ??
-            (typeof entry.id === "string" && entry.id ? entry.id : backendIdFor(host, instanceId));
-        if (ids.has(id)) continue;
-        ids.add(id);
-        records.push({
+        // `adoptUid` finds it by id. Of hand-edited duplicates, the one already
+        // saved under that id wins (it is what the registry last wrote);
+        // otherwise the first does.
+        const id = backendUid ?? storedId ?? backendIdFor(host, instanceId);
+        const exact = storedId === id;
+        const slot = slots.get(id);
+        if (slot && (slot.exact || !exact)) continue;
+        const index = slot ? slot.index : records.length;
+        slots.set(id, { index, exact });
+        records[index] = {
             id,
             backendUid,
             host,
@@ -52,7 +58,7 @@ export function normalizeRecords(parsed: unknown): BackendRecord[] {
             lastKnownPort: isValidPort(entry.lastKnownPort) ? entry.lastKnownPort : null,
             attached: entry.attached === true,
             addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date(0).toISOString(),
-        });
+        };
     }
     return records;
 }
