@@ -29,7 +29,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
-| 15 | Editor identity across machines | in-review round 1 | `57a78e8` | `065a4cc`, `bdb378d` | R1: 1 fixed (Codex), 1 rejected |
+| 15 | Editor identity across machines | in-review round 2 | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
@@ -934,6 +934,21 @@ Two findings; one reproduced with failing tests and fixed in `bdb378d`, one reje
 Own sweep: no `Uri.file(` / `.uri.path` / `resource.path` readers left in packages/ui; the only other `createModel`
 calls are `MonacoDiffViewer`'s in-memory models; no `TODO(remote-projects)` markers remain in packages/ui.
 
+### Task 15, round 2 (Codex gpt-5.5, prompted review of `57a78e8..bdb378d`, packages/ui)
+
+Codex: no findings. It judged the R1 fix complete, reran `editor-uri.test.ts` + `EditorPaneImpl.machine.test.tsx`
+and `bun run typecheck` (all passing), and confirmed the new pane test does not cause the MarkdownPaneImpl
+`mock.module` leak (it runs clean before `MarkdownPaneImpl.anchors.test.tsx`).
+
+One own finding, fixed in `67300d3`:
+
+1. **`modelKey` exported for its test only — confirmed, fixed.** `grep -rn "modelKey" packages` found no
+   production caller of `editor-uri.ts`'s `modelKey` (the other hits are `PiModelSelect`'s unrelated local
+   function), which breaks the project's "don't export until necessary" rule. It is removed; the test defines the
+   same `modelUriFor(...).toString()` locally. A test comment still said the dirty-state reset parses map keys back
+   into URIs (true of the plan's string keys, not the nested maps we built); it now names the real string→URI trip
+   (TS worker file names). No behaviour change.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1323,6 +1338,10 @@ calls are `MonacoDiffViewer`'s in-memory models; no `TODO(remote-projects)` mark
 
 ## Validation baseline
 
+After Task 15 R2 fix (`67300d3`): `editor-uri.test.ts` + `EditorPaneImpl.machine.test.tsx` 10 pass; `bun run
+typecheck` clean; eslint and prettier clean on the two changed files. Full `bun test packages/ui` not rerun
+(test-only export removal).
+
 After Task 15 R1 fix (`bdb378d`): `EditorPaneImpl.machine.test.tsx` 2 pass (both red on `065a4cc` first) +
 `editor-uri` 8 pass; `bun test packages/ui` 271 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run typecheck`
 clean; eslint and prettier clean on the two changed files.
@@ -1552,4 +1571,4 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 15 review round 2 — Codex gpt-5.5 prompted review of `57a78e8..bdb378d` (packages/ui), against plan Task 15 (line ~4235), the Task 15 Decisions entries, and R1's rejected finding (do not re-raise the path-only `editor-navigate` event unless it shows two mounted editors on different machines).
+Next step: Task 15 review round 3 — Codex gpt-5.5 prompted review of `57a78e8..67300d3` (packages/ui), against plan Task 15 (line ~4235), the Task 15 Decisions entries, and R1's rejected finding (do not re-raise the path-only `editor-navigate` event unless it shows two mounted editors on different machines). R2 was Codex-clean with only a test-only export removal fixed; if R3 is clean too, Task 15 is clear and Task 16 is next.
