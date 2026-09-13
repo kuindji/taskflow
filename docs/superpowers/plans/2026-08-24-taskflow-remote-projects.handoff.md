@@ -25,7 +25,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 2 | `d4b6004` | `2856082`, `702378f` | R1: 1 fixed (Codex + own), 2 rejected |
+| 11 | Per-backend slices, revision guards, and the project and task stores | in-review round 3 | `d4b6004` | `2856082`, `702378f`, `92c91a9` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
@@ -626,6 +626,25 @@ Three findings; one confirmed and fixed in `702378f`, two rejected:
    Caveat, not filed: two machines sharing one synced data dir (e.g. Dropbox) would hold identical ids and break this
    premise plan-wide, not only here.
 
+### Task 11, round 2 (Codex gpt-5.5, prompted review of `d4b6004..702378f`, packages/ui + `task-order.ts`)
+
+Codex: clean (checked `backend-scope.ts`, both stores, `bootstrapBackend`, component call sites, session-store deferrals and
+the tests; reran scope, aggregation and backend-store tests and typecheck). My own read found one, reproduced with a failing
+test before fixing in `92c91a9`:
+
+1. **A task created while a machine's task list is in flight is listed twice — confirmed, fixed.** Introduced by R1's rebase.
+   The `TASK_CREATED` handler checked for the task with `live.read()` and then applied a plain append. A machine that creates
+   a task, broadcasts `TASK_CREATED`, then answers a `TASK_LIST` already holding it had the append replayed over that
+   response, giving `["t1","t1"]` (a duplicate sidebar card). The duplicate check now sits inside the write (`insertTask`,
+   shared with `createTask`), and `backend-scope.ts`'s `replace` doc says writes must be safe to repeat. Test in
+   `aggregation.test.ts`: "a task created while the task list is in flight is listed once" (red: Received `["t1","t1"]`;
+   green after). Every other write was checked for the same problem: project `upsert`, `replaceExisting`, the filters,
+   `orderProjectsByIds`, `applyTaskUpdate` and `createTask` each give the same result when replayed over a response that
+   already holds their effect.
+
+Not filed: `loading` in both stores is one flag across machines, so the first of two concurrent fetches to settle clears it.
+Same as before Task 11 in effect (single flag); no visible symptom found.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -842,6 +861,10 @@ Three findings; one confirmed and fixed in `702378f`, two rejected:
 
 ## Validation baseline
 
+After Task 11 R2 fix (`92c91a9`): `aggregation.test.ts` + `backend-scope.test.ts` 15 pass (new test red first);
+`bun test packages/ui` 216 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on
+the three changed files.
+
 After Task 11 R1 fix (`702378f`): scope + aggregation + backend-store + task-creation-store + store-reset tests 37 pass,
 1 todo (3 runs; the aggregation race test red on `2856082` first); `bun test packages/ui` 215 pass, 1 todo, 10 fail (the
 known ten); `bun run typecheck` clean; eslint and prettier clean on the five changed files.
@@ -996,7 +1019,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 11 review round 2 — one gpt-5.5 review via the codex-review skill over `d4b6004..702378f` (packages/ui
-and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1
-rebase fix above. Tell Codex the UUID premise (R1 #2/#3 rejected) so it does not re-raise id collisions.
+Next step: Task 11 review round 3 — one gpt-5.5 review via the codex-review skill over `d4b6004..92c91a9` (packages/ui
+and `packages/shared/src/utils/task-order.ts`), checked against plan lines 3334-3630, the Task 11 decisions and the R1/R2
+fixes above. Tell Codex the UUID premise (R1 #2/#3 rejected) so it does not re-raise id collisions, and ask it to check
+every `apply` write is safe to replay over a response that already holds its effect.
 `store-reset.ts`'s enumeration test stays `test.todo` until Task 19.
