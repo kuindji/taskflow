@@ -97,6 +97,41 @@ describe("createServer", () => {
         first.close();
     });
 
+    test("releases what a request acquired after its socket had already closed", async () => {
+        // A FILE_WATCH still validating its path when the client drops registers the
+        // watch after `close` has fired; without a second disconnect it runs forever.
+        const router = new Router();
+        const held = new Set<string>();
+        let openGate: () => void = () => {};
+        const gate = new Promise<void>((resolve) => {
+            openGate = resolve;
+        });
+        let received: () => void = () => {};
+        const requestArrived = new Promise<void>((resolve) => {
+            received = resolve;
+        });
+        router.register("acquire", async (_payload, ctx) => {
+            received();
+            await gate;
+            held.add(ctx.clientId);
+            return { ok: true };
+        });
+        const server = createServer(router, 0);
+        server.onDisconnect((clientId) => held.delete(clientId));
+        const started = await server.start();
+        stop = started.stop;
+
+        const ws = await connect(started.port);
+        ws.send(JSON.stringify({ type: "acquire", payload: {}, correlationId: "1" }));
+        await requestArrived;
+        ws.close();
+        await Bun.sleep(50);
+
+        openGate();
+        await Bun.sleep(50);
+        expect(held.size).toBe(0);
+    });
+
     test("refuses to start on a host that is not loopback", async () => {
         // TASKFLOW_HOST is an escape hatch for `localhost` resolving to `::1` only.
         // It must not double as a way to publish the unauthenticated backend, so a

@@ -121,6 +121,11 @@ export function createServer(
                             error: err instanceof Error ? err.message : "Unknown error",
                         };
                         ws.send(JSON.stringify(response));
+                    } finally {
+                        // The socket can close while a request is still running. What that
+                        // request acquired for the client came after `close` fired and would
+                        // never be released, so report the disconnect again now it has settled.
+                        if (!clients.has(ws)) disconnectCallback?.(ws.data.clientId);
                     }
                 },
             },
