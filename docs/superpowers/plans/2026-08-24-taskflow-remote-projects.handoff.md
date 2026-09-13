@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 1 done | `5f0ec24` | `f7438e4`, `930a4bb` | R1: 1 fixed (Codex), 2 rejected |
+| 20 | Electron main across several backends | in-review round 2 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1079,6 +1079,26 @@ Own read that found nothing else: `getArtifacts` in production is `latestArtifac
 panel row shows; `FlowPanel`'s `backendId` is a required string; the renderer's tray state (`session-subscriptions.ts`)
 already aggregates every session status, so main's background aggregate only matters with no synced window.
 
+### Task 20, round 2 (Codex gpt-5.5, prompted review of `5f0ec24..930a4bb`)
+
+One finding, confirmed and fixed in `4a77b3c`:
+
+1. **A notification raised after a machine's failed first poll is never shown — confirmed, fixed.** `pollOrigin` took
+   an origin's first *successful* answer as "what it already held" and set the watermark to its newest stamp. A first
+   poll that failed (2 s timeout, backend still starting), then a notification, then a successful poll → dropped. The
+   pre-Task-20 code baselined at the client time polling started, so this was a regression. Test "a notification raised
+   while a machine's first poll was failing still arrives" (red on `930a4bb`: Received `[]`). Fix: `failedSince`
+   records the client time of an unbaselined origin's first failure; on its first success that time is moved onto the
+   origin's clock (skew from the response `Date` header, `fetchBackendNotifications` now returns
+   `{ notifications, serverTime }`; whole-second resolution errs early, i.e. shows rather than drops) and used as the
+   watermark. An origin whose first poll succeeds keeps the old baseline. Detach clears `failedSince` with the
+   watermarks. The test puts B's clock 5 min behind; mutation (skew forced to 0) turns it red.
+
+Own read found nothing else: the renderer's local connection in Electron comes from main's `attach-backend`
+(`backendOrigin`), so `isArtifactUrl`'s exact origin match holds (the `localhost` origin in `WebSocketProvider` is
+the non-Electron dev renderer, which has no `saveArtifact`); relative artifact paths were refused by the old `copyFile`
+guard too.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1760,6 +1780,10 @@ After Task 11 R2 fix (`92c91a9`): `aggregation.test.ts` + `backend-scope.test.ts
 `bun test packages/ui` 216 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on
 the three changed files.
 
+After Task 20 R2 fix (`4a77b3c`): `notification-poller` + `artifact-download` tests 8 pass (3 runs; new test red
+first, and red again under the skew-to-0 mutation); `flow-artifact-raw` 4 pass; `bun run typecheck` clean (all
+packages); eslint and prettier clean on the two changed files.
+
 After Task 11 R1 fix (`702378f`): scope + aggregation + backend-store + task-creation-store + store-reset tests 37 pass,
 1 todo (3 runs; the aggregation race test red on `2856082` first); `bun test packages/ui` 215 pass, 1 todo, 10 fail (the
 known ten); `bun run typecheck` clean; eslint and prettier clean on the five changed files.
@@ -1914,6 +1938,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 2 — Codex gpt-5.5 prompted review of `5f0ec24..930a4bb` (electron/src incl. new
-`artifact-download.ts`, the `flow-routes.ts` raw-artifact route and its test, `FlowPanel.tsx`, `TaskSidebar.tsx`,
-`env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and the tunnel-port-reuse race.
+Next step: Task 20 review round 3 — Codex gpt-5.5 prompted review of `5f0ec24..4a77b3c` (electron/src incl.
+`artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and its test,
+`FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID premise) and
+the tunnel-port-reuse race, and that R2's failed-first-poll baseline was fixed in `4a77b3c` (review that fix).
