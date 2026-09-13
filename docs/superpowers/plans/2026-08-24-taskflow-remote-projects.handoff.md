@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 5 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own) |
+| 20 | Electron main across several backends | in-review round 6 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1150,6 +1150,23 @@ One finding, confirmed and fixed in `0949f63`; Codex found nothing else across t
    file was opened and the cleanup path was never exercised (the new test passed on `6c2e364` until
    `breakingBody` errored 100 ms after its first chunk). Both break-off tests use that body now.
 
+### Task 20, round 6 (Codex gpt-5.5, prompted review of `5f0ec24..0949f63`)
+
+Two findings, both confirmed with tests red on `0949f63` and fixed in `ebe46fb`; Codex found R5's `.part` cleanup
+sound (pipeline and rename failures remove only the `.part`; beside the destination, so no cross-device rename):
+
+1. **A notification raised while a machine's first poll is in flight is never shown — confirmed, fixed.** The first
+   successful answer seeded the watermark with the newest stamp it returned, so a notification created after the
+   request left but before the answer counted as "already held". Pre-Task-20 code baselined at polling start, so this
+   is a regression (window = request latency, up to the 2 s timeout). Test "a notification raised while a machine's
+   first poll is under way still arrives". Fix: an unbaselined origin's cutoff is `failedSince ?? startedAt` moved onto
+   the origin's clock via the `Date` header (the R2 path, now shared); only with no `Date` header does the old
+   seed-with-newest remain. First version of the test was wrong: A's fake fetch advanced the shared clock before B's
+   poll took `startedAt` (both polled in one `Promise.all`).
+2. **A destination name near NAME_MAX cannot be saved — confirmed, fixed.** `.<name>.<uuid>.part` adds 43 bytes; a
+   250-char name failed with `ENAMETOOLONG`. The partial is now `.taskflow-<uuid>.part`. Test "a destination name as
+   long as the filesystem allows can be saved".
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1709,8 +1726,16 @@ One finding, confirmed and fixed in `0949f63`; Codex found nothing else across t
   so a failure never touches the chosen path. Consequence taken: replacing an existing read-only file now succeeds
   (rename needs only a writable directory, and the user confirmed the replace in the dialog), and the replaced file's
   permissions are not carried over.
+- Task 20 R6: the partial file is `.taskflow-<uuid>.part` (not named after the destination). A machine's first
+  successful poll baselines at the time that poll left (on the machine's clock). Consequence taken: since `Date` is
+  whole-second and latency pushes the cutoff earlier, a notification raised up to ~1 s before the first poll can be
+  shown natively at start/attach (shows rather than drops, like R2).
 
 ## Validation baseline
+
+After Task 20 R6 fix (`ebe46fb`): `bun test electron/src` 81 pass (3 runs); both new tests red against `0949f63`'s
+modules (scratch copies); `bun run typecheck` clean; eslint and prettier clean on the four touched files; `electron`
+`bun run build` ok.
 
 After Task 20 R5 fix (`0949f63`): `artifact-download.test.ts` 7 pass (3 runs; new replace test and updated streaming
 test red on `6c2e364`); `bun test electron/src` 79 pass (7 files); `bun run typecheck` clean; eslint and prettier
@@ -2006,11 +2031,11 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 6 — Codex gpt-5.5 prompted review of `5f0ec24..0949f63` (same file set as R5:
+Next step: Task 20 review round 7 — Codex gpt-5.5 prompted review of `5f0ec24..ebe46fb` (same file set as R6:
 electron/src incl. `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and
-its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex that R1 rejected the bare-id activation (UUID
-premise) and the tunnel-port-reuse race, R2 fixed the failed-first-poll baseline, R3 added the fetch-time
-attached-set recheck (backend-id binding deliberately not taken), R4 made the download stream, and R5 (`0949f63`)
-moved it to a `.part` file renamed into place (review that: rename failure, cleanup, the deliberate read-only replace
-consequence in Decisions). This is round 6 of the 10 cap; unless R6 finds a concrete defect, Task 20 is clear and Task
-21 (the hard switch) is next.
+its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex the R1–R6 history (R1 rejected bare-id
+activation and tunnel-port reuse; R2 failed-first-poll baseline; R3 fetch-time attached-set recheck, backend-id
+binding not taken; R4 streaming; R5 `.part` + rename; R6 (`ebe46fb`) first-poll cutoff at `startedAt` on the origin's
+clock and `.taskflow-<uuid>.part`) and ask it to focus on R6's baseline change (skew, no-`Date` fallback, the ~1 s
+early-cutoff consequence in Decisions). Round 7 of the 10 cap; R4–R6 each found only narrow edge cases, so unless R7
+finds a concrete defect, Task 20 is clear and Task 21 (the hard switch) is next.
