@@ -26,7 +26,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
 | 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
-| 12 | The remaining aggregating stores | implemented | `c4d1729` | `fb0f041` | |
+| 12 | The remaining aggregating stores | in-review round 1 done (fixes landed; round 2 due) | `c4d1729` | `fb0f041`, `21bfdc8` | R1: 2 fixed (Codex) |
 | 13 | Session state per backend | pending | | | |
 | 14 | Per-machine caches and path-keyed stores | pending | | | |
 | 15 | Editor identity across machines | pending | | | |
@@ -720,6 +720,28 @@ parent up only in live tasks, but "Add subtask" is offered only for non-archived
 `TaskHeader.tsx:142`). The remaining primary-routed shim calls in those components (`GIT_PULL` in `TaskHeader`,
 `FILE_STAT` in `Workspace`) are unchanged lines, owned by Tasks 14/18. **Task 11 is clear.**
 
+### Task 12, round 1 (Codex gpt-5.5, prompted review of `c4d1729..fb0f041`, packages/ui)
+
+Two findings, both the same class (a picker lists merged definitions, the result goes to one machine that resolves ids
+locally), both confirmed and fixed in `21bfdc8`. Both are new in Task 12: before it, flows and actions were primary-only.
+
+1. **New Task offers another machine's flows — confirmed, fixed.** Machine a has global flow `global-a`; open New Task on
+   b's project, Start with → Flow lists `global-a`; submit → `TaskCreationDialogHost` sends `FLOW_START` to b (the task's
+   machine), which cannot find the id. The dialog listed `useFlowStore.flows` unfiltered (not even by project). New
+   `taskCreationFlows(request, projects, tasks, flows)` in `task-creation-store.ts` (next to `taskCreationBackend`; a
+   subtask uses its parent's machine and project) = `filterByProject` for the target; the host passes `flowsFor(projectId)`
+   and `NewTaskDialog` derives its list per selected project, dropping a flow choice (or the "flow" start choice) the
+   project change put out of reach. Tests in `task-creation-store.test.ts`: "offers a task only its machine's flows for its
+   project", "offers a subtask its parent's machine and project flows…", "offers no flows before a project is chosen"
+   (red first: export missing; mutation check — the helper filtering by project but not machine turns the first two red).
+2. **Flow editor library offers another machine's actions — confirmed, fixed.** Flow manager → b's flow → the action
+   library listed a's global actions; adding one saves an `actionId` into b's flow that b cannot resolve. `FlowEditor` now
+   takes `backendId` (the flow's machine; primary for a new flow, where `definitionBackend` saves it) and filters its
+   library with `filterByProject`. Test: `FlowEditor.library.test.tsx` "a flow's action library offers only its own
+   machine's actions" (red on `fb0f041`: received `global-a`, `global-b`).
+
+Codex also reran `aggregation.test.ts` (14 pass) and typecheck (clean).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -971,8 +993,19 @@ parent up only in live tasks, but "Add subtask" is offered only for non-archived
   which pulls in `session-store`, whose subscriptions report the tray at import.
 - Task 12 suspicion, not verified: `activeRuns` is keyed by owner id, and the master owner id is the same constant on every
   machine, so master-workspace flow runs on two machines would share one key. The master workspace addresses primary.
+- Task 12 R1: `NewTaskDialog`'s `flows` prop became `flowsFor(projectId)` (the dialog's project is internal state; a subtask
+  needs the parent task, which only the host has). The dialog is not component-tested for this: Radix `Select` options do
+  not render under happy-dom without opening, and no test in the repo drives one; the pure helper carries the test.
+- Task 12 R1, not fixed (Task 19 Step 4 owns the manager): `FlowEditor`'s project picker still offers every machine's
+  projects, so a new flow (saved to primary) could be given another machine's `projectId`. Not reproduced; Task 19 points
+  the manager at primary's data.
 
 ## Validation baseline
+
+After Task 12 R1 fix (`21bfdc8`): `FlowEditor.library` 1, `task-creation-store` 11, `FlowEditor.loop` 5,
+`NewTaskDialog.prefill` 4, `aggregation` 14 pass (each file alone; new tests red first, mutation check above); `bun test
+packages/ui` 231 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the ten
+changed files.
 
 After Task 12 (`fb0f041`): `aggregation.test.ts` 14 pass (6 new). Mutation checks, each turning exactly its test red and
 restored by checksum: the notification clear written as `() => []`; the diff-store reset unregistered; `filterByProject`
@@ -1151,7 +1184,9 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 12 review round 1 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..fb0f041`, packages/ui
+Next step: Task 12 review round 2 — one standard gpt-5.5 review (codex-review skill) of `c4d1729..21bfdc8`, packages/ui
 only, against plan lines 3632-3845 and the Task 12 decisions above (settings `settings` kept as primary's mirror, the
 non-blocking bootstrap legs, the notification clear write, the launch-default call sites converted and those left for
-Tasks 14/18). Verify each finding with a failing test before fixing.
+Tasks 14/18, R1's `flowsFor` and the deferred `FlowEditor` project picker). Ask it to sweep for the R1 class: any other
+picker or list that shows merged definitions/records and sends the choice to a single machine. Verify each finding with a
+failing test before fixing.
