@@ -93,6 +93,13 @@ export const useTaskStore = create<TaskStore>((set) => ({
                 tasks: live.read(),
                 activeTaskId: vanished ? null : activeTaskId,
             });
+            // A machine attached while the archive is shown joins the archive view too.
+            if (useTaskStore.getState().showArchive && !archived.backends().includes(backendId)) {
+                useTaskStore
+                    .getState()
+                    .fetchArchivedTasks(backendId)
+                    .catch(() => {});
+            }
         } finally {
             set({ loading: false });
         }

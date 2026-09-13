@@ -197,4 +197,29 @@ describe("task store across backends", () => {
         resetBackend("a");
         expect(useTaskStore.getState().activeTaskId).toBeNull();
     });
+
+    test("a machine attached while the archive is shown lists its archived tasks", async () => {
+        const serverA = startTestServer("A", (type) =>
+            type === MSG.TASK_LIST ? { tasks: [task("ta")] } : { tasks: [] },
+        );
+        const serverB = startTestServer("B", (type) =>
+            type === MSG.TASK_LIST ? { tasks: [task("tb")] } : { tasks: [task("archived-b")] },
+        );
+        servers.push(serverA, serverB);
+        await openConnection("a", serverA.origin);
+        await useTaskStore.getState().fetchTasks("a");
+        useTaskStore.getState().setShowArchive(true);
+
+        await openConnection("b", serverB.origin);
+        await useTaskStore.getState().fetchTasks("b");
+
+        try {
+            await until(() => useTaskStore.getState().archivedTasks.length === 1);
+        } finally {
+            useTaskStore.getState().setShowArchive(false);
+        }
+        expect(useTaskStore.getState().archivedTasks.map((t) => `${t.backendId}:${t.id}`)).toEqual([
+            "b:archived-b",
+        ]);
+    });
 });
