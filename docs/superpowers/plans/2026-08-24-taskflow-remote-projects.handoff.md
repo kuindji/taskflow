@@ -15,7 +15,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
-| 1 | Backend prerequisites — protocol version, stable port file, backend uid | in-review round 2 done (fixes landed) | `6978606` | `e7a226c`, `c192cdb`, R2 fix (see git log) | R1: 3 fixed, 1 rejected; R2: 2 fixed |
+| 1 | Backend prerequisites — protocol version, stable port file, backend uid | in-review round 3 done (fix landed) | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed |
 | 2 | Per-client file watcher ownership | pending | | | |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
@@ -78,6 +78,19 @@ Two findings, both reproduced before fixing:
    (`<file>.lock`, taken over after 10 s as stale) and re-reads under the lock.
    Test: "backends repairing a corrupt uid file at the same moment agree on one uid".
 
+### Task 1, round 3 (Codex gpt-5.5, prompted review of `6978606..586a138`)
+
+One finding, reproduced before fixing:
+
+1. **Port file lost when a backend starts while another shuts down — confirmed,
+   fixed in `6e3673b`.** Startup wrote the stable port file in place, so its write
+   could land in the inode the shutting-down backend had just renamed aside and
+   deleted. The 300-iteration unit test missed it (0/30 runs failed); a
+   20000-iteration scratch stress of remover vs plain `writeFile` lost the file
+   in 2/60000. New `writeInstancePortFile` (temp file + rename) is used by
+   `index.ts`, and the race test now drives that production writer. Stress with
+   the writer: 0/100000. No other substantive findings from Codex.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -93,6 +106,7 @@ Two findings, both reproduced before fixing:
 
 ## Validation baseline
 
+Full `bun test` after Task 1 R3 fix (`6e3673b`): 1251 pass, 10 fail (same ten).
 Full `bun test` after Task 1 R2 fixes: 1251 pass, 10 fail (same ten; +2 new tests).
 Full `bun test` at `c192cdb`: 1249 pass, 10 fail (same ten as below; +6 new tests).
 Full `bun test` at `e7a226c`: 1243 pass, 10 fail. All ten are the known
@@ -103,6 +117,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: review round 3 of Task 1 — review the task's implementation as it now
+Next step: review round 4 of Task 1 — review the task's implementation as it now
 stands, code only: `git diff 6978606..HEAD -- packages/` (excludes the handoff doc).
-Rounds 1–2 fixes are listed above; tell the reviewer so it does not re-report them.
+Rounds 1–3 fixes are listed above; tell the reviewer so it does not re-report them.
+Findings are shrinking (4 → 2 → 1, all narrow concurrency edges); if round 4 is
+clean, Task 1 is clear and Task 2 is next.
