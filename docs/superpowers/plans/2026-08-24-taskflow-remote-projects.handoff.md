@@ -28,7 +28,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 11 | Per-backend slices, revision guards, and the project and task stores | clear | `d4b6004` | `2856082`, `702378f`, `92c91a9`, `cfc5960`, `550558d`, `993805f` | R1: 1 fixed (Codex + own), 2 rejected; R2: Codex clean, 1 own finding fixed; R3: 2 fixed (Codex; 1 partly deferred to Task 14); R4: 1 fixed, 1 rejected (pre-existing); R5: 1 fixed (Codex); R6: clean |
 | 12 | The remaining aggregating stores | clear | `c4d1729` | `fb0f041`, `21bfdc8`, `5d8b515` | R1: 2 fixed (Codex); R2: 1 fixed (Codex); R3: 1 rejected (clean) |
 | 13 | Session state per backend | clear | `92b43e2` | `2995b40` | R1: 2 rejected (clean) |
-| 14 | Per-machine caches and path-keyed stores | in-review round 2 | `f03c740` | `fba0011`, `5bae8ff` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected |
+| 14 | Per-machine caches and path-keyed stores | in-review round 3 | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19 |
 | 15 | Editor identity across machines | pending | | | |
 | 16 | Machine sections in the sidebar | pending | | | |
 | 17 | The machines menu and its dialogs | pending | | | |
@@ -840,6 +840,37 @@ Own read of the full diff otherwise found nothing: `createPerBackendCache` drops
 caches a failure; the wiki and tsconfig in-flight identity checks hold across a reset and refetch;
 `forgetRecords` gets the ids before the slices drop; `initConnectivity` has only local callers.
 
+### Task 14, round 2 (Codex gpt-5.5, prompted review of `f03c740..5bae8ff`, packages/ui)
+
+Three findings; two reproduced with failing tests and fixed in `a93ad4d`, one deferred:
+
+1. **A slow unwatch forgets the watch that replaced it — confirmed, fixed.** `unwatchPath` cleared `watched`
+   unconditionally after its `FILE_UNWATCH` answer. Watch desktop `/repo`, close the pane (`unwatchPath`, answer
+   held), open it on laptop (`watchPath("laptop", "/repo")` lands), then desktop answers: `watched` became `null`, so
+   laptop's `FILE_CHANGED` was ignored and a later switch never released laptop's watch. Reachable with the real
+   backend: its `FILE_UNWATCH` handler awaits `assertWorkspacePath` and `fileWatcher.release`, so two unwatches of one
+   path can finish out of order. Now it clears only while `watched` is still that watch. Test in `file-store.test.ts`:
+   "an unwatch answered after the next watch landed does not forget that watch" (red: Received `null`).
+2. **A late shell list offers another machine's shells — confirmed, fixed.** Introduced by Task 14 routing
+   `AgentDropdownMenu`'s `SHELLS_LIST` to the workspace machine without a cancellation guard. `<Workspace />` is not
+   keyed (`App.tsx:160`) and `TabBar` always renders the menu, so it stays mounted across workspace switches: desktop's
+   held list landing after laptop's replaced it, and the terminal button opened `/bin/desktop-zsh` in a laptop
+   workspace. Now a `cancelled` flag like `useRunMenu`'s. New `AgentDropdownMenu.shells.test.tsx` (real registry, two
+   test servers; red on `5bae8ff`: Received `["/bin/desktop-zsh"]`). A first version mocked `@/components/ui/button`
+   and the dropdown menu; those mocks leaked into `FlowPanel.loop.test.tsx` (3 extra fails in the full run), so the
+   test uses the real components.
+3. **`useSessionSync` scripts, agent commands and default shell still ask primary — deferred.** True
+   (`useSessionSync.ts:133,153,170` use the shim, effects keyed on path/scope only), but not in Task 14's diff or plan
+   section: run-menu routing is Task 18 (its routing test names `SCRIPTS_LIST`/`AGENT_COMMANDS_LIST`) and remaining
+   shim callers are Task 19 Step 5. Recorded under Decisions so Task 18 converts `useSessionSync` alongside `useRunMenu`
+   (registry `sendRequest(backendId, …)`, `backendId` in the effect deps, a cancel guard on the shell effect).
+
+Codex reran the Task 14 store tests and typecheck (pass). My own read of `search-store.ts`, `file-store.ts`, the
+wiki store, `per-backend-cache`, connectivity, theme store and `useActiveWorkspace` found nothing new. One race noted,
+not filed: `unwatchPath` then an immediate `watchPath` of the *same* machine and path returns early (the watch is still
+recorded) and the unwatch then clears it, leaving no watch. Pre-existing: `f03c740`'s `watchPath`/`unwatchPath` behave
+the same.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1187,8 +1218,18 @@ caches a failure; the wiki and tsconfig in-flight identity checks hold across a 
 - Task 14 R1: a file watch that lands stale is released on its machine unless the newest request is the same
   watch. Not fixed (pre-existing, same-machine too): `watchPath` returns early when `watched` already equals the
   target even if a newer watch for another target is still in flight.
+- Task 14 R2: `unwatchPath` clears `watched` only if it still names the unwatched machine and path after the answer.
+  `AgentDropdownMenu`'s shell-list effect drops a late answer (cancel flag).
+- Task 14 R2 deferral → **Task 18**: convert `useSessionSync`'s `SCRIPTS_LIST`, `AGENT_COMMANDS_LIST` and
+  `SHELLS_LIST` (`useSessionSync.ts:133,153,170`) to the registry with the workspace `backendId`, add `backendId` to
+  those effects' deps, and guard the shell effect against late answers. Until then a remote workspace's run menu shows
+  primary's scripts/commands.
 
 ## Validation baseline
+
+After Task 14 R2 fix (`a93ad4d`): `file-store` 10 pass and `AgentDropdownMenu.shells` 1 pass (each alone, 3 runs; both
+new tests red first, the shells test also red with only the component fix reverted); `bun test packages/ui` 261 pass,
+9 fail (the known MarkdownPaneImpl nine); `bun run typecheck` clean; eslint and prettier clean on the four changed files.
 
 After Task 14 R1 fix (`5bae8ff`): `search-store` 5 pass, `file-store` 9 pass (each alone, 3 runs; the four new tests
 red on `fba0011` first); `bun test packages/ui` 259 pass, 9 fail (the known MarkdownPaneImpl nine); `bun run
@@ -1402,6 +1443,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 14 review round 2 — one gpt-5.5 review of `f03c740..5bae8ff` (packages/ui). Check especially the
-R1 fixes (`searchRoot`/`pendingSearchBackendId` in `search-store.ts`, `requestedWatch` release in `file-store.ts`),
-and the rejected R1 finding 3 need not be re-raised.
+Next step: Task 14 review round 3 — one gpt-5.5 review of `f03c740..a93ad4d` (packages/ui). Check especially the
+R2 fixes (`unwatchPath`'s conditional clear in `file-store.ts`, the shell-list cancel flag in `AgentDropdownMenu.tsx`).
+Do not re-raise: R1 finding 3 (queued refresh timer), R2 finding 3 (`useSessionSync` still primary-routed, deferred to
+Task 18), the pre-existing same-target unwatch/rewatch race.
