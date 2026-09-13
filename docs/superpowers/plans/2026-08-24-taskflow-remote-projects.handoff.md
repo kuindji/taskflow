@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | in-review round 6 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex) |
+| 20 | Electron main across several backends | in-review round 7 done | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend) |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1167,6 +1167,20 @@ sound (pipeline and rename failures remove only the `.part`; beside the destinat
    250-char name failed with `ENAMETOOLONG`. The partial is now `.taskflow-<uuid>.part`. Test "a destination name as
    long as the filesystem allows can be saved".
 
+### Task 20, round 7 (Codex gpt-5.5, prompted review of `5f0ec24..ebe46fb`)
+
+One finding, confirmed at unit level and fixed in `40aecede`; Codex found nothing else across the diff and confirmed
+the ISO string compare is sound (backend stamps `createdAt` with `new Date().toISOString()`, `notification-store.ts:65`):
+
+1. **A machine whose first poll failed and whose answers have no `Date` header gets a watermark on this machine's
+   clock — confirmed, fixed.** `failedSince` (client time) was used with skew 0 when `serverTime` was null, so a
+   machine with a clock 5 min behind dropped even notifications raised after its first successful answer. Test "a
+   machine with a clock behind, no Date header and a failed first poll still gets its notification shown" (red on
+   `ebe46fb`: Received `[]`). Fix: with no `Date` header the first answer seeds the watermark (the existing no-clock
+   rule), and `failedSince` is dropped either way. Reachability: none with the real backend — a scratch `Bun.serve`
+   check showed Bun always sends `Date`, and the SSH tunnel forwards bytes unchanged; this only makes the fallback
+   branch coherent.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -1730,8 +1744,14 @@ sound (pipeline and rename failures remove only the `.part`; beside the destinat
   successful poll baselines at the time that poll left (on the machine's clock). Consequence taken: since `Date` is
   whole-second and latency pushes the cutoff earlier, a notification raised up to ~1 s before the first poll can be
   shown natively at start/attach (shows rather than drops, like R2).
+- Task 20 R7: with no `Date` header, an origin's first successful answer always seeds its watermark with the newest
+  `createdAt` it holds, even after failed polls; notifications raised during those failures are then not shown
+  natively (in-app list still has them). Client time is never compared with a machine's stamps.
 
 ## Validation baseline
+
+After Task 20 R7 fix (`40aecede`): `bun test electron/src` 82 pass (3 runs); new poller test red on `ebe46fb`;
+`bun run typecheck` clean; eslint and prettier clean on the two touched files.
 
 After Task 20 R6 fix (`ebe46fb`): `bun test electron/src` 81 pass (3 runs); both new tests red against `0949f63`'s
 modules (scratch copies); `bun run typecheck` clean; eslint and prettier clean on the four touched files; `electron`
@@ -2031,11 +2051,12 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 20 review round 7 — Codex gpt-5.5 prompted review of `5f0ec24..ebe46fb` (same file set as R6:
+Next step: Task 20 review round 8 — Codex gpt-5.5 prompted review of `5f0ec24..40aecede` (same file set as R7:
 electron/src incl. `artifact-download.ts` and `notification-poller.ts`, the `flow-routes.ts` raw-artifact route and
-its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex the R1–R6 history (R1 rejected bare-id
+its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`). Tell Codex the R1–R7 history (R1 rejected bare-id
 activation and tunnel-port reuse; R2 failed-first-poll baseline; R3 fetch-time attached-set recheck, backend-id
-binding not taken; R4 streaming; R5 `.part` + rename; R6 (`ebe46fb`) first-poll cutoff at `startedAt` on the origin's
-clock and `.taskflow-<uuid>.part`) and ask it to focus on R6's baseline change (skew, no-`Date` fallback, the ~1 s
-early-cutoff consequence in Decisions). Round 7 of the 10 cap; R4–R6 each found only narrow edge cases, so unless R7
-finds a concrete defect, Task 20 is clear and Task 21 (the hard switch) is next.
+binding not taken; R4 streaming; R5 `.part` + rename; R6 first-poll cutoff at `startedAt` on the origin's clock and
+`.taskflow-<uuid>.part`; R7 (`40aecede`) no-`Date` answers always seed, never compare client time) and ask it to
+confirm R7's branch and report only defects reachable with the real Bun backend. Round 8 of the 10 cap; R4–R7 found
+only narrow edge cases (R7 unreachable in practice), so any R8 finding that is not reachable with the real backend
+should be recorded and rejected, and Task 20 marked clear; Task 21 (the hard switch) is next.
