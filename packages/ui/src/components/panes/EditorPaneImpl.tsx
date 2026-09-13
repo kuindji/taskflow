@@ -117,8 +117,15 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     useEffect(() => {
         // The model's identity includes its machine, so there is no model to
         // show until the workspace names one.
-        if (!containerRef.current || backendId === null) return;
+        if (!containerRef.current) return;
+        if (backendId === null) {
+            setLoading(true);
+            setDirty(false);
+            return;
+        }
         const loadRequestId = ++loadRequestIdRef.current;
+        // A read still in flight at cleanup belongs to the editor it disposes.
+        let cancelled = false;
         editorReadyRef.current = false;
 
         const uri = modelUriFor(backendId, filePath);
@@ -175,7 +182,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         } else {
             void readFile(filePath)
                 .then((content) => {
-                    if (loadRequestId !== loadRequestIdRef.current) return;
+                    if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     editor.setValue(content);
                     editorReadyRef.current = true;
                     restoreViewState();
@@ -184,7 +191,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                     setLoading(false);
                 })
                 .catch((err: unknown) => {
-                    if (loadRequestId !== loadRequestIdRef.current) return;
+                    if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     console.error("Failed to read file:", err);
                     editorReadyRef.current = true;
                     setLoading(false);
@@ -210,6 +217,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         });
 
         return () => {
+            cancelled = true;
             editorReadyRef.current = false;
             const state = editor.saveViewState();
             if (state) {
