@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 4 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex) |
+| 10 | The renderer's attached set — backend-store, handshake, detach | clear | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b`, `c1ea517` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -591,6 +591,14 @@ Own checks that found nothing: every exported symbol in `store-reset.ts` and `ba
 (main answers `merged: false` only when no other record holds the uid); a `detach` racing a fresh `attach` of the same id
 only flickers the row (IPC answers arrive in order, so the attach's later awaits patch it last).
 
+### Task 10, round 5 (Codex gpt-5.5, prompted review of `76a0746..c1ea517`, packages/ui)
+
+Codex: clean. It checked plan lines 2810-3330, the Task 10 decisions and the R1-R4 fixes, the IPC/preload contracts
+(`listBackends`, `getAttached`, `attachBackend`, `detachBackend`, `confirmBackend`, pushes, `attachedRecordIds`), provider
+startup order, the dev renderer path, the reset registry, removed `connectWebSocket` usages, `as any` and exports; it reran
+the store tests, `useWebSocket.test.ts` and typecheck (pass). My own reread of `backend-store.ts`, the provider, the shim
+and `store-reset.ts` found nothing new. **Task 10 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -772,6 +780,8 @@ only flickers the row (IPC answers arrive in order, so the attach's later awaits
 
 ## Validation baseline
 
+After Task 10 R5 (clean, no code change): `backend-store.test.ts` + `store-reset.test.ts` 16 pass, 1 todo.
+
 After Task 10 R4 fix (`c1ea517`): `backend-store.test.ts` 13 pass (3 runs; new test red first); `bun test packages/ui`
 200 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
@@ -912,10 +922,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 10 review round 5 — standard gpt-5.5 review via codex-review over `76a0746..c1ea517`
-(packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
-`hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above, the R1 merged-branch fix, the R2 fixes
-(`handshake(id, current)` staleness guard; `onBackendSeen` gated on the persisted `attached` intent), the R3 fix
-(`backend-dropped` bumps the attempt counter), the R4 fix (`onBackendSeen` bails when the attempt counter moved while
-`listBackends()` was pending) and plan Task 10 (plan lines 2810-3330). Round 5 of 10: each of R3 and R4 found one
-narrow async race; if R5 finds only similar edge races, weigh accepting them as residuals.
+Next step: implement Task 11 — "Per-backend slices, revision guards, and the project and task stores". Record current
+HEAD as its base commit first. Task 10's `bootstrapBackend(id)` body is a stub for Task 11 to fill, and `store-reset.ts`'s
+enumeration test stays `test.todo` until Task 19.
