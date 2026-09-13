@@ -34,7 +34,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 17 | The machines menu and its dialogs | clear | `111a004` | `30a434e`, `3884b1f` | R1: 2 fixed (Codex); R2: 1 rejected (clean) |
 | 18 | Routing for sidebar rows and background work | clear | `c586fef` | `ae16a8a` | R1: 2 rejected (id-collision premise) (clean) |
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
-| 20 | Electron main across several backends | pending | | | |
+| 20 | Electron main across several backends | implemented | `5f0ec24` | `f7438e4` | |
 | 21 | The hard switch | pending | | | |
 | 22 | End-to-end verification on two machines | pending | | | |
 
@@ -1574,7 +1574,42 @@ Decisions). **Task 19 is clear.**
 - Task 19 R1: the own fix (`63c4b71`) only changes two menu labels and adds a string constant, so it skips review per
   the flow's trivial-change rule; Task 19 is marked clear after R1.
 
+- Task 20: new `electron/src/attached-backends.ts` (`LOCAL_BACKEND_ID`, moved from `ipc-handlers.ts`, and
+  `listAttachedBackends(localPort, registry.attached())`) is the one list of reachable backends, used by
+  `get-attached-backends`, the poller, the tray and the `save-artifact` origin check.
+- Task 20 poller: `notification-poller.ts` no longer imports electron (so its test imports it without mocks):
+  `createNotificationPoller({ getAttachedBackends, fetchNotifications, notify })` returns `poll/start/stop`; `main.ts`
+  builds the Electron `Notification` in `notify`. Watermarks are keyed by origin. **An origin's first answer only
+  seeds its watermark** (newest `createdAt` it holds, `null` if none) instead of the old "app start time on this
+  machine's clock": a remote clock may differ, so a local timestamp says nothing about its stamps. Origins no longer
+  attached are dropped (a tunnel port can later be reused by another machine); a re-attached machine reseeds, so
+  notifications raised while it was detached are not shown natively (the in-app list still has them). A poll is
+  skipped while the previous one runs. `notify` gets `backendId: () => string | null`, looked up from the origin at
+  click time; `main.ts` sends `notification-clicked` (now with `backendId`) only when it resolves, and still
+  shows/focuses the window when it does not. `TaskSidebar` matches `backendId` + id.
+- Task 20 tray: per-origin last state (a failed fetch keeps that origin's previous state), pruned like the
+  watermarks; the icon shows `attention` over `working` over none. `startTrayStatePolling` no longer needs the local
+  port up front. Not tested (the module imports electron).
+- Task 20 artifacts: `save-artifact` takes `{ url?, text?, defaultName? }` (the `path` + `copyFile` branch is gone).
+  Main refuses a `url` whose origin is not attached or whose path is outside `/api/flow/artifact/`, **before** the save
+  dialog; after it, main fetches the URL and writes the bytes (a non-OK answer's body becomes the error dialog text).
+  `FlowPanel` builds the URL from `originFor(backendId)` + encoded `ownerId/flowId/type` (does nothing without an
+  origin). The route decodes its params (the router matches them raw), serves the **newest artifact of that type**
+  (what the panel row shows; a newer save between render and click downloads the newer one), and answers 404 for no
+  run / no artifact / text artifact / relative path / missing file / directory. Relative paths were already refused
+  by the old client (`Invalid source path`). Response: `application/octet-stream`, `Content-Disposition: attachment`,
+  `nosniff`, `no-cache`. Test: `packages/backend/tests/api/flow-artifact-raw.test.ts` (4 tests; the plan names no
+  route test).
+- Task 20 not run: the Electron app (native notifications, tray, save dialog against a remote machine; Task 22).
+
 ## Validation baseline
+
+After Task 20 (`f7438e4`): `notification-poller.test.ts` 4 pass; mutation check (one watermark shared by every origin, run
+on a scratch copy) turns exactly "a machine's notification older than another machine's newest still arrives" red.
+`flow-artifact-raw.test.ts` 4 + `routes.test.ts` = 21 pass; `FlowPanel.artifacts` 2 pass. Suites run one after another:
+`bun test electron/src` 71 pass; `bun test packages/backend` 676 pass, 2 skip, 0 fail; `bun test packages/ui` 297 pass,
+9 fail (the known nine). `bun run typecheck` clean (incl. electron's Bun-less `tsconfig.src.json`); eslint and prettier
+clean on the twelve changed files; `electron` `bun run build` ok. Not run: the Electron app (Task 22).
 
 After Task 19 R1 fix (`63c4b71`): `bun run typecheck` clean; eslint and prettier clean on the three changed files;
 `useIsLocalBackend` 4 pass.
@@ -1847,4 +1882,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 20 (Electron main across several backends) — record HEAD as its base commit first.
+Next step: Task 20 review round 1 — Codex gpt-5.5 prompted review of `5f0ec24..f7438e4` (electron/src, the
+`flow-routes.ts` raw-artifact route and its test, `FlowPanel.tsx`, `TaskSidebar.tsx`, `env.d.ts`).
