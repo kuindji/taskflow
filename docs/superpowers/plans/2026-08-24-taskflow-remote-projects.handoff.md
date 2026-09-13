@@ -31,7 +31,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 14 | Per-machine caches and path-keyed stores | clear | `f03c740` | `fba0011`, `5bae8ff`, `a93ad4d`, `6c65295` | R1: 2 fixed (Codex; 1 also own suspicion), 1 rejected; R2: 2 fixed (Codex), 1 deferred to Task 18/19; R3: 1 fixed (Codex), 2 rejected (already deferred to Task 19); R4: 2 rejected (recorded race; Task 19) (clean) |
 | 15 | Editor identity across machines | clear | `57a78e8` | `065a4cc`, `bdb378d`, `67300d3` | R1: 1 fixed (Codex), 1 rejected; R2: Codex clean, 1 own finding fixed; R3: clean |
 | 16 | Machine sections in the sidebar | clear | `39abd35` | `c17d813` | R1: 1 rejected (clean) |
-| 17 | The machines menu and its dialogs | pending | `111a004` | | |
+| 17 | The machines menu and its dialogs | implemented | `111a004` | `30a434e` | |
 | 18 | Routing for sidebar rows and background work | pending | | | |
 | 19 | Primary-only managers, gating, and removing the shim | pending | | | |
 | 20 | Electron main across several backends | pending | | | |
@@ -1392,7 +1392,54 @@ attaching/failed state or `refresh` keeps a local `keepAttached: true` while an 
 - Task 16 not run: the Electron app (no second machine; Task 22). The "pixel-identical when nothing else is
   attached" claim holds by construction (local list is the same markup, same badge numbers), not by screenshot.
 
+- Task 17: the menu follows `AgentDropdownMenu`'s two branches — a native menu when `supportsNativeMenus()`, Radix
+  otherwise — from one `buildRows`. Native items fold the status into the label (`Laptop — attached`). Radix checkbox
+  rows keep the menu open (`preventDefault`) so several machines can be ticked at once. The Monitor button now opens
+  the menu; Master Workspace is its first (checkbox) item. `aria-label` is "Machines".
+- Task 17: checkboxes read `keepAttached` (Task 16 decision). **Primary's row is disabled**: detaching primary would
+  leave the app-level surfaces addressing nothing; leaving it is Task 21's hard switch.
+- Task 17: "Work as…" is a submenu listing every non-primary machine, **all items disabled** with a
+  `TODO(remote-projects)` for Task 21 (no `workAs` exists yet). Task 21 enables them.
+- Task 17: instance shown in labels when `instanceId !== "main"` (`Desktop · dev-x`), not MachineSection's
+  "host runs another instance" rule; the menu also lists unsaved entries that rule does not see.
+- Task 17: row statuses: local none; `connecting`, `attached`, `needs update`; offline shows the failure message,
+  else `offline` when kept attached, else `seen` / `saved, not seen` (from `listBackends()`'s `seen`). An unsaved
+  discovered entry is an "Add <name>" item: `addDiscoveredBackend(entry.id)` → `refresh()` → `attach(record.id)`.
+  Bridge errors from menu actions show as a destructive label at the top of the menu (cleared by the next action).
+- Task 17: opening the menu calls `probeBackends()`, `listBackends()` and the store's `refresh()`; a
+  `backends-changed` subscription keeps the entry list fresh while mounted. Icon: spinner while any kept-attached
+  machine is attaching; `text-destructive` when a kept-attached remote machine is offline/incompatible (wins over
+  master's accent); a `bg-success` corner dot while any remote machine is attached.
+- Task 17 trust: no `pendingTrust` state. `MachinesMenu` mounts `TrustHostKeyDialog` (keyed by machine id) for the first
+  machine whose `failure.kind` is `unknown-host-key` or `changed-host-key` and whose failure object was not dismissed
+  (a set of dismissed `TunnelFailure` objects; a new failure is a new object, so it opens again). So a persisted-attached
+  machine failing on its host key at launch opens the dialog unprompted. The unknown-key dialog scans on mount
+  (`getHostFingerprint`), parses `ssh-keygen -lf` lines into type + fingerprint, enables "Trust and connect" only with
+  keys shown, then `trustBackendHost` → `attach`; a refusal clears the keys and offers "Check again". The changed-key
+  dialog shows `failure.message` and the stderr lines starting `Offending`, with only Close.
+- Task 17: `MenuEntry` gained optional `user` and `sshPort` (set by `mergeForMenu` for saved rows) so Manage can prefill
+  the fields. Manage: blank name/user refused; blank ssh port = unchanged; Save disabled until a field changes;
+  Remove disabled on primary's row and runs the store's `detach` first (closes the socket, resets the machine's
+  slices) when the machine has a row, then `removeBackend`. Refreshes come from `backends-changed`.
+- Task 17: Connect: host, ssh user, ssh port, backend port (blank = resolved over ssh); `addBackend` → `refresh()` →
+  close → `void attach(record.id)`. Port parsing and the Electron "Error invoking remote method" prefix stripping live in
+  new `components/sidebar/backend-fields.ts` (`parsePort`, `ipcErrorMessage`), shared by the three dialogs/menu.
+  `isValidPort` from `@taskflow/shared/discovery` was not reused: that barrel pulls in the dgram sockets.
+- Task 17, Task 16 R1 suspicion **fixed**: `refresh` keeps `keepAttached: true` for a row whose state is `attaching`,
+  so a `backends-changed` landing before main persists `attached: true` no longer drops the section. Test: "a refresh
+  while the user's attach opens the tunnel keeps the machine wanted" (red with the line reverted). Not changed: a
+  **failed** attach of a detached machine keeps `keepAttached: true` (section with the failure and Retry) until the next
+  refresh copies main's `false`; the menu row still shows the failure message.
+- Task 17 not run: the Electron app (native menu branch, dialogs against a real ssh host; Task 22). Native menu items
+  use `type: "label"` and `type: "submenu"` from `NativeMenuItem`; not exercised in a test.
+
 ## Validation baseline
+
+After Task 17 (`30a434e`): `MachinesMenu.test.tsx` 6 pass (checkbox state + primary disabled, attach/detach toggles,
+discovered "Add" without a checkbox, "Work as…" a submenu trigger, fingerprint → trust → attach, changed key never
+trusted); `MachineSection`, `machine-groups`, `backend-store` (+1 refresh test), `backend-records` (+1 `mergeForMenu`
+test): 47 pass across the five files. `bun test packages/ui` 289 pass, 9 fail (the known nine). `bun run typecheck`
+clean; eslint and prettier clean on the twelve changed files.
 
 After Task 16 R1 (clean, no code change): `MachineSection.test.tsx` + `machine-groups.test.ts` + `backend-store.test.ts`
 25 pass.
@@ -1637,5 +1684,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 17 (The machines menu and its dialogs) — record HEAD as its base commit first; read the
-Task 16 decisions (`keepAttached` for checkboxes) and the Task 16 R1 suspicion about attach/refresh.
+Next step: Task 17 review round 1 — one Codex gpt-5.5 prompted review of `111a004..30a434e` (packages/ui, plus
+`packages/shared/src/types/backend.ts` and `electron/src/backend-records.ts`); read the Task 17 decisions first.
