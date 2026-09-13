@@ -16,4 +16,13 @@ export interface SystemInfo {
     editors: EditorInfo[];
     homedir: string;
     schedulerEnabled: boolean;
+    /** The backend machine's hostname. What the network name setting falls back
+     *  to, and the only way the renderer can name the machine it is talking to. */
+    hostname: string;
+    /** Absent on a backend older than this feature. Treat as incompatible. */
+    protocolVersion?: number;
+    /** Stable backend identity, confirmed by handshake. The registry rekeys a
+     *  provisional record onto this and merges duplicates. Absent on an older
+     *  backend, which is refused on protocolVersion first. */
+    backendUid?: string;
 }

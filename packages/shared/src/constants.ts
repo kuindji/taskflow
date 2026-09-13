@@ -1,5 +1,13 @@
 import type { MarkdownWidth } from "./types/settings";
 
+/**
+ * Bumped only when a protocol change is NOT backward compatible. A client
+ * refuses to attach to a backend reporting a different value, so a bump breaks
+ * cross-machine attachment until both sides update. Do not bump for additive
+ * changes.
+ */
+export const PROTOCOL_VERSION = 1;
+
 // WebSocket message types
 export const MSG = {
     // Projects

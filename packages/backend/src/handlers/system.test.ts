@@ -24,6 +24,9 @@ describe("system handlers", () => {
             editors,
             homedir: "/home/tester",
             schedulerEnabled,
+            hostname: "test-host",
+            protocolVersion: 1,
+            backendUid: "0123456789abcdef0123456789abcdef",
         });
 
         const result = (await router.handle(MSG.SYSTEM_INFO, {})) as SystemInfo;
@@ -32,6 +35,9 @@ describe("system handlers", () => {
             editors,
             homedir: "/home/tester",
             schedulerEnabled,
+            hostname: "test-host",
+            protocolVersion: 1,
+            backendUid: "0123456789abcdef0123456789abcdef",
         });
     });
 });

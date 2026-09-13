@@ -1,10 +1,10 @@
 import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { getConfigBaseDir } from "./services/platform";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 
 const BASE_DIR = getConfigBaseDir();
 const DATA_LOCATION_FILE = join(BASE_DIR, "data-location.json");
@@ -64,7 +64,41 @@ function getDevBranch(): string | null {
 const devBranch = getDevBranch();
 
 const initialDataDir = readDataDir();
-const instanceId = devBranch ? `dev-${devBranch}` : "main";
+
+/**
+ * The instance id names a file, is announced on the LAN, and is interpolated
+ * into a remote command, so it is reduced to one safe label at the point it is
+ * derived. Must stay in step with `isSafeLabel` in the beacon codec.
+ */
+function toSafeLabel(value: string): string {
+    const cleaned = value.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "");
+    return cleaned.slice(0, 64) || "unknown";
+}
+
+const instanceId = devBranch ? toSafeLabel(`dev-${devBranch}`) : "main";
+
+/**
+ * A backend's stable identity, minted once per install and per instance. Host
+ * names and IP addresses are how you *reach* a backend; this is what one *is*,
+ * so the client cannot attach the same backend twice under two aliases.
+ *
+ * Keyed by instance because `main` and `dev-*` share BASE_DIR and the data
+ * directory; one uid between them would merge them into one record.
+ *
+ * Synchronous on purpose: `config` is built at module load and everything
+ * downstream expects a plain string, not a promise.
+ */
+export function readOrCreateBackendUid(baseDir: string, instanceId: string): string {
+    const file = join(baseDir, `backend-uid-${instanceId}`);
+    if (existsSync(file)) {
+        const existing = readFileSync(file, "utf-8").trim();
+        if (/^[0-9a-f]{32}$/.test(existing)) return existing;
+    }
+    mkdirSync(baseDir, { recursive: true });
+    const minted = randomBytes(16).toString("hex");
+    writeFileSync(file, minted, { mode: 0o600 });
+    return minted;
+}
 
 export const config = {
     baseDir: BASE_DIR,
@@ -72,6 +106,10 @@ export const config = {
     dataLocationFile: DATA_LOCATION_FILE,
     settingsFile: join(BASE_DIR, "settings.json"),
     portFile: process.env.TASKFLOW_PORT_FILE ?? join(tmpdir(), `.taskflow-port-${process.pid}`),
+    /** Stable, spawner-independent port file. Read over ssh when multicast is unavailable. */
+    instancePortFile: join(BASE_DIR, `${instanceId}.port`),
+    /** Stable backend identity. See readOrCreateBackendUid. */
+    backendUid: readOrCreateBackendUid(BASE_DIR, instanceId),
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
     instanceId,
     bootId: randomUUID(),

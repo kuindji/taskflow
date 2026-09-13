@@ -1,4 +1,4 @@
-import { MSG, isAgentType } from "@taskflow/shared";
+import { MSG, PROTOCOL_VERSION, isAgentType } from "@taskflow/shared";
 import type { BrowserOpenPayload, SystemClientsEvent } from "@taskflow/shared";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
@@ -54,8 +54,8 @@ import { registerSearchHandlers } from "./handlers/search";
 import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
 import { registerSystemHandlers } from "./handlers/system";
-import { writeFile } from "fs/promises";
-import { homedir } from "os";
+import { rm, writeFile } from "fs/promises";
+import { homedir, hostname } from "os";
 
 async function main() {
     await ensureDirectories();
@@ -421,6 +421,9 @@ async function main() {
             editors,
             homedir: homedir(),
             schedulerEnabled: config.instanceId === "main",
+            hostname: hostname(),
+            protocolVersion: PROTOCOL_VERSION,
+            backendUid: config.backendUid,
         });
         // Broadcast on every connect and disconnect as well, but a client
         // cannot hear the broadcast announcing its own arrival, so it asks
@@ -482,6 +485,7 @@ async function main() {
         stop = startedServer.stop;
 
         await writeFile(config.portFile, String(startedServer.port));
+        await writeFile(config.instancePortFile, String(startedServer.port));
         console.log(`Taskflow backend running on port ${startedServer.port}`);
         console.log(`Detected editors: ${editors.map((e) => e.name).join(", ") || "none"}`);
 
@@ -524,6 +528,7 @@ async function main() {
             ptyManager.closeAll();
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
             stop?.();
+            await rm(config.instancePortFile, { force: true });
             process.exit(0);
         };
         process.on("SIGINT", () => void shutdown());
