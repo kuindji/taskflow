@@ -20,7 +20,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
-| 6 | SSH argument construction and failure classification | in-review round 1 | `e4787f4` | `7c7c421`, `65c25ad` | R1: 1 fixed |
+| 6 | SSH argument construction and failure classification | in-review round 2 | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
@@ -323,6 +323,31 @@ My own suspicion, not filed: `UserKnownHostsFile` accepts whitespace-separated f
 so a home directory containing a space or `%` could break `KNOWN_HOSTS_FILE`. `ssh -G` cannot show
 the split, and a macOS short user name (hence home dir) cannot contain either.
 
+### Task 6, round 2 (Codex gpt-5.5, prompted review of `e4787f4..65c25ad`)
+
+Two findings, both reproduced with failing tests (red on `65c25ad`: 2 fail / 21 pass), fixed in `f126113`:
+
+1. **A macOS connect timeout is classified `unknown` — confirmed, fixed.** A real
+   `ssh -o ConnectTimeout=2 -- 10.255.255.1` on this Mac prints
+   `ssh: connect to host 10.255.255.1 port 22: Operation timed out` (Darwin's ETIMEDOUT text), which
+   matched none of the `no-route` substrings. That is what a sleeping or off-LAN machine gives. The
+   branch now also matches `Operation timed out` and `Network is unreachable` (ENETUNREACH; not
+   observed live, `2001:db8::1` and `0.0.0.1` both gave `No route to host`). Test: "no route, in the
+   operating system's own words".
+2. **The alias can carry known_hosts pattern syntax — confirmed at function level, fixed as
+   hardening.** The alias is the first field of the line Task 7's `trustHostKey` writes, where `*`/`?`
+   are wildcards, `!` negates and `,` separates. `ssh-keygen -F taskflow-192.168.1.20-22` against a file
+   holding `taskflow-*-22 <key>` finds that line. Not reachable today: `ssh-keyscan` and `dns.lookup` fail
+   on `*`, `localhost*`, `127.0.0.?`, `local?ost`, so no key line can be scanned for such a host, and ssh
+   rejects `a,b` as an invalid host name. Fixed anyway because the fix is one character set in
+   `encodeAliasChar` and ordinary hosts (IPs, DNS names, IPv6) are unchanged. Test: "the alias holds no
+   known_hosts pattern syntax".
+
+My own probes of the round-1 fix with `ssh -F /dev/null -G`: `#`, `=`, `[a]` and `%h` in the alias parse as
+one token with no `%` expansion; NBSP and U+3000 give `hostname contains invalid characters`, which
+classifies as `bad-destination`. Codex otherwise checked the spec + delta, consumer names, exports, `as any`,
+IPv6, leading dash and classifier ordering; it reran the tests (21 pass) and typecheck.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -401,6 +426,9 @@ the split, and a macOS short user name (hence home dir) cannot contain either.
   the command-line `-o` values for all four.
 
 ## Validation baseline
+
+After Task 6 R2 fix (`f126113`): `bun test electron/src/tunnel-args.test.ts` 23 pass (both new tests red
+first); `bun run typecheck` clean; eslint and prettier clean on both files.
 
 After Task 6 R1 fix (`65c25ad`): `bun test electron/src/tunnel-args.test.ts` 21 pass (2 of the 3 new
 tests red first); `bun run typecheck` clean; eslint and prettier clean on both files (control-char
@@ -486,6 +514,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 6 review round 2 — Codex gpt-5.5 prompted review of `e4787f4..65c25ad`
+Next step: Task 6 review round 3 — Codex gpt-5.5 prompted review of `e4787f4..f126113`
 (`electron/src/tunnel-args.ts` + test) against the superseded plan's Task 5 and this plan's Task 6 delta.
 Task 7's `trustHostKey` must write the scanned line under `hostKeyAlias(record)` (now encoded).
