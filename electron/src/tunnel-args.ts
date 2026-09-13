@@ -93,14 +93,7 @@ export function buildTunnelArgs(
         String(record.sshPort),
         "-o",
         "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
-        "-o",
-        "GlobalKnownHostsFile=/dev/null",
-        "-o",
-        `HostKeyAlias=${hostKeyAlias(record)}`,
+        ...hostKeyOptions(record),
         "-o",
         "ExitOnForwardFailure=yes",
         "-o",
@@ -111,6 +104,22 @@ export function buildTunnelArgs(
         record.user,
         "--",
         record.host,
+    ];
+}
+
+/** `StrictHostKeyChecking=yes` and the three options that pin where the key is
+ *  looked up. Every ssh invocation that connects to a record passes these; see
+ *  `buildTunnelArgs` for why each one is there. */
+export function hostKeyOptions(record: BackendRecord): string[] {
+    return [
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
+        "-o",
+        "GlobalKnownHostsFile=/dev/null",
+        "-o",
+        `HostKeyAlias=${hostKeyAlias(record)}`,
     ];
 }
 
