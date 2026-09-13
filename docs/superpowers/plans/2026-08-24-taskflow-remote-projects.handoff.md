@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | in-review round 2 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed |
+| 5 | The backend record list, keyed by uid | in-review round 3 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -256,6 +256,25 @@ two hostnames (e.g. a machine renamed while running, for up to 15 s) yields two 
 with the same id. `addDiscoveredBackend` would save the same record from either row; the only
 effect is a duplicate row/React key for Task 17 to tolerate.
 
+### Task 5, round 3 (Codex gpt-5.5, prompted review of `cfe462d..4ec0bcd`)
+
+One finding, reproduced with two failing tests before fixing:
+
+1. **An unvalidated uid can name a provisional record and merge two machines — confirmed,
+   fixed in `39447ae`.** `adoptUid` and `normalizeRecords` accepted any non-empty string as a
+   uid, but provisional ids are `host:instance`. `adoptUid([desktop.local:main, 192.168.1.20:main],
+   "desktop.local:main", "192.168.1.20:main")` returned one record (id `192.168.1.20:main`, host
+   `desktop.local`), losing the other machine. Reachable on the planned path: Task 10's handshake
+   only checks `if (info.backendUid)`. Now both functions hold uids to `isSafeLabel` (`:` is outside
+   it): `normalizeRecords` reads an unsafe uid as provisional, `adoptUid` returns the list unchanged.
+   A note in the plan's Task 9 `confirmBackend` tells the implementer to reject such a uid before
+   moving origins/tunnels. Tests: "refuses a uid outside the safe label set, which could name a
+   provisional record" and "a uid outside the safe label set is read as provisional and cannot take
+   another record's id" (2 fail / 11 pass on `28eae4c`, 13 pass after).
+
+Codex otherwise checked the Task 5 contract, Task 9/17 consumer expectations, `as any` usage and the
+duplicate-row policy, and reran the tests and typecheck (pass).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -322,6 +341,10 @@ effect is a duplicate row/React key for Task 17 to tolerate.
   `normalizeRecords` canonicalizing confirmed ids, a `backendUid` lookup there would be redundant.
 
 ## Validation baseline
+
+After Task 5 R3 fix (`39447ae`): `bun test electron/src/backend-records.test.ts
+packages/shared/src/discovery/beacon.test.ts` 28 pass (records 13); `bun run typecheck` clean;
+eslint and prettier clean on the changed files.
 
 After Task 5 R2 fix (`4ec0bcd`): `bun test electron/src/backend-records.test.ts
 packages/shared/src/discovery/beacon.test.ts` 26 pass (records 11); `bun run typecheck` clean;
@@ -391,9 +414,11 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 5 review round 3 — Codex gpt-5.5 prompted review of `cfe462d..4ec0bcd`
+Next step: Task 5 review round 4 — Codex gpt-5.5 prompted review of `cfe462d..39447ae`
 (plan Task 5, line ~834; code files only: `electron/src/backend-records*.ts`,
 `packages/shared/src/types/backend.ts`, `packages/shared/src/discovery/beacon.ts`,
-`electron/package.json`). Tell the reviewer R1 finding 4 is deliberately deferred to Task 9, and
-that duplicate rows in a hand-edited `backends.json` are resolved by "saved-under-canonical-id wins,
-else first" with no field merging (R2), so it doesn't re-raise merge policy.
+`electron/package.json`). Tell the reviewer: R1 finding 4 is deliberately deferred to Task 9;
+duplicate rows in a hand-edited `backends.json` resolve by "saved-under-canonical-id wins, else
+first" with no field merging (R2); uids are held to `isSafeLabel` and `adoptUid` silently returns
+the list unchanged for an unsafe uid, with rejection left to Task 9's `confirmBackend` (R3). If this
+round is clean, Task 5 is clear and the next step is implementing Task 6.
