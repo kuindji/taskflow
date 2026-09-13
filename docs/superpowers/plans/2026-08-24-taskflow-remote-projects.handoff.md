@@ -22,7 +22,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | clear | `e4787f4` | `7c7c421`, `65c25ad`, `f126113` | R1: 1 fixed; R2: 2 fixed; R3: 1 rejected (clean) |
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
-| 8 | One connection per backend | pending | | | |
+| 8 | One connection per backend | implemented | `17aebdd` | `dff8dc2` | |
 | 9 | The registry, the attached set, and the IPC surface | pending | | | |
 | 10 | The renderer's attached set — backend-store, handshake, detach | pending | | | |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
@@ -484,8 +484,29 @@ Suspicions, not filed:
   `-L`, then answers "Taskflow backend" on the local port after 500 ms. A third test checks a rekeyed
   child's exit is reported under the new id. The concurrency test was red against the plan's "WRONG"
   `existing?.localPort` shortcut.
+- Task 8: `ConnectionHooks` is not exported, and the shim does not keep `getBackendOrigin()`: nothing
+  outside their modules uses either (project rule: do not export until needed). `getBackendPort()` is
+  gone from the shim as the plan says; the test `mock.module` factories that still list it are harmless.
+- Task 8: the plan's `await expect(pending).rejects.toThrow(/detach/i)` fails eslint
+  `await-thenable` (bun types `rejects.toThrow` as void). The test awaits the rejection and asserts
+  `toBeInstanceOf(BackendDetachedError)`, which is stricter.
+- Task 8: the only `rawFileUrl` caller is `MarkdownPaneImpl.tsx` (image `src`); it passes `getPrimary()`
+  with the `TODO(remote-projects)` comment and falls back to the no-src `<img>` when there is no primary.
+- Task 8: a real test of the shim (status subscriber registered before any primary, then
+  `connectWebSocket`, sees `connected: true` and a request resolves) passed alone but failed in
+  `bun test packages/ui`: other files' global `mock.module("@/hooks/useWebSocket")` replaced the shim
+  (`onStatusChange: () => () => {}`). Not committed, to keep the baseline failure list at ten; the shim
+  is gone by Task 10/19. The plan-review repro `plan-review/shim-status-before-primary.test.ts` covers the
+  plan text, not this code.
 
 ## Validation baseline
+
+After Task 8 (`dff8dc2`): `bun test packages/ui/src/lib/connection-registry.test.ts` 4 pass (3 runs; red
+first: module missing). `bun test packages/ui` 178 pass, 10 fail — the known ten (wiki-backend-collision 1,
+MarkdownPaneImpl anchors 3 / checkbox 5 / rerender 1); each of those files, plus `file-store`, `wiki-store`
+and `CommitDialog` tests (which mock `useWebSocket`), passes run alone. `bun run typecheck` clean;
+`bun run build:ui` ok; eslint and prettier clean on the changed files. The backend and electron are
+untouched, so their suites were not rerun.
 
 After Task 7 R1 (clean, no code change): tunnel tests rerun, 26 pass.
 
@@ -580,5 +601,7 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: implement Task 8 — "One connection per backend" (plan section `### Task 8`, line ~1366).
-Record HEAD as its base commit first.
+Next step: Task 8 review round 1 — Codex gpt-5.5 prompted review of `17aebdd..dff8dc2` against plan
+section `### Task 8` (line ~1366). Check especially the shim's status following across primary changes,
+reconnect epochs, `rekeyConnection` moving status listeners and primary, and that the app still connects
+through `WebSocketProvider` before Task 10.
