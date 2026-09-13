@@ -19,7 +19,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
 | 4 | The advertiser and listener, and the backend that runs one | clear | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed; R3: clean |
-| 5 | The backend record list, keyed by uid | in-review round 4 done | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed |
+| 5 | The backend record list, keyed by uid | clear | `cfe462d` | `be34c1b`, `d9c59ab`, `4ec0bcd`, `39447ae`, `a25f3b5` | R1: 3 fixed, 1 deferred to Task 9; R2: 1 fixed; R3: 1 fixed; R4: Codex clean, 1 own finding fixed; R5: clean |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
 | 8 | One connection per backend | pending | | | |
@@ -291,6 +291,15 @@ typecheck). My own read found one, reproduced with a failing test before fixing:
    duplicate policy. Test: "a provisional record is keyed by host and instance, whatever id the
    file holds" (1 fail / 13 pass on `39447ae`, 14 pass after).
 
+### Task 5, round 5 (Codex gpt-5.5, prompted review of `cfe462d..a25f3b5`)
+
+Clean: no findings. Codex checked the Task 5 contract, the Task 9 consumers (`confirmBackend`,
+`addDiscoveredBackend`, `attachedRecordIds`, `mergeForMenu`, `matchesDiscovered`), Task 17's menu
+expectations, the export surface and `as any` usage; it reran the records + beacon tests (29 pass)
+and `bun run typecheck` (pass). My own read of the full diff found nothing either: the duplicate-slot
+logic in `normalizeRecords` replaces in place only when a later row is exact and the held one is not,
+and `adoptUid`'s merge keeps the existing record's position. **Task 5 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -434,13 +443,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 5 review round 5 — Codex gpt-5.5 prompted review of `cfe462d..a25f3b5`
-(plan Task 5, line ~834; code files only: `electron/src/backend-records*.ts`,
-`packages/shared/src/types/backend.ts`, `packages/shared/src/discovery/beacon.ts`,
-`electron/package.json`). Tell the reviewer: R1 finding 4 is deliberately deferred to Task 9;
-duplicate rows in a hand-edited `backends.json` resolve by "saved-under-canonical-id wins, else
-first" with no field merging (R2); uids are held to `isSafeLabel` and `adoptUid` silently returns
-the list unchanged for an unsafe uid, with rejection left to Task 9's `confirmBackend` (R3); a
-provisional record's id is always `backendIdFor(host, instanceId)`, the saved id is ignored (R4). R4's
-Codex pass was clean and only an own finding was fixed, so after 5 rounds on a small module: if this
-round is clean or finds only hand-edit trivia, Task 5 is clear and the next step is implementing Task 6.
+Next step: implement Task 6 — SSH argument construction and failure classification (plan line ~1196;
+executed from the superseded plan's Task 5 with this plan's deltas). Record HEAD as its base commit first.
