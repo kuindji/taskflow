@@ -18,7 +18,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
 | 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | clear | `f32c53f` | `a0a0907`, `cd0fc47` | R1: 2 fixed; R2: clean |
-| 4 | The advertiser and listener, and the backend that runs one | in-review round 1 (fixed) | `443a0cd` | `a64af14`, `235d583` | R1: 1 fixed |
+| 4 | The advertiser and listener, and the backend that runs one | in-review round 2 (fixed) | `443a0cd` | `a64af14`, `235d583`, `d5ac582` | R1: 1 fixed; R2: 1 fixed |
 | 5 | The backend record list, keyed by uid | pending | | | |
 | 6 | SSH argument construction and failure classification | pending | | | |
 | 7 | The tunnel manager | pending | | | |
@@ -185,6 +185,22 @@ My own suspicion that an async send failure emits `error` and permanently kills 
 tested and rejected: sends to 0.0.0.1 / 240.0.0.1 / broadcast and a 70 KB datagram produced
 neither an `error` event nor a throw in Bun or Node.
 
+### Task 4, round 2 (Codex gpt-5.5, prompted review of `443a0cd..235d583`, packages + `electron/package.json`)
+
+One finding, which I had found independently and fixed (`d5ac582`) before the report landed:
+
+1. **Hand-edited `network` values of the wrong type crash the backend — confirmed, fixed.**
+   `SettingsStore.get()` spread `parsed.network` without type checks, so
+   `{"network":{"discoverable":"no","displayName":5}}` started the advertiser (truthy string)
+   and its payload called `displayName.trim()` inside the bind callback. The backend has no
+   `uncaughtException` handler; a scratch script confirmed a throwing timer callback exits Bun
+   with code 1. New `normalizeNetworkSettings` (same shape as `normalizeRemoteAgentSettings`).
+   Test: "replaces hand-edited network values of the wrong type with defaults" (red before, green after).
+
+Codex otherwise found socket start/stop idempotence, bind-stop settlement, stale expiry freeing
+capped slots, membership refresh, shutdown wiring, `backendUid` in the payload, and hostile
+datagram parsing sound; it reran `bun test packages/shared/src/discovery` (20 pass) and typecheck.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -236,6 +252,9 @@ neither an `error` event nor a throw in Bun or Node.
   `packages/tui/src/opentui/app.test.ts`.
 
 ## Validation baseline
+
+After Task 4 R2 fix (`d5ac582`): `settings-store.test.ts` 20 pass; `bun run typecheck` clean;
+eslint and prettier clean on the two changed files.
 
 After Task 4 R1 fix (`235d583`): `bun test packages/shared/src/discovery` 20 pass, 5/5
 repeated runs; `bun run typecheck` clean; eslint and prettier clean on the three changed files.
@@ -289,5 +308,5 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 4 review round 2 — Codex gpt-5.5 prompted review of `443a0cd..235d583`
+Next step: Task 4 review round 3 — Codex gpt-5.5 prompted review of `443a0cd..d5ac582`
 (packages + `electron/package.json`), against superseded plan Task 3 and this plan's Task 4 delta.
