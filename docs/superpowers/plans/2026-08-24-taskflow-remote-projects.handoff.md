@@ -24,7 +24,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 7 | The tunnel manager | clear | `6467088` | `d040521` | R1: clean |
 | 8 | One connection per backend | clear | `17aebdd` | `dff8dc2`, `4f32c14`, `b34625a`, `22dbeb9` | R1: 3 fixed (1 own, 2 Codex); R2: 1 fixed (Codex + own); R3: 2 fixed (Codex); R4: clean |
 | 9 | The registry, the attached set, and the IPC surface | clear | `6baa200` | `a0ad09d`, `3591f54` | R1: 1 fixed (Codex); R2: 1 rejected (clean) |
-| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 2 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed |
+| 10 | The renderer's attached set — backend-store, handshake, detach | in-review round 3 | `76a0746` | `4abc696`, `f1b70e0`, `4b40bbf`, `4c6b03b` | R1: 1 fixed (Codex + own); R2: Codex clean, 2 own findings fixed; R3: 1 fixed (Codex) |
 | 11 | Per-backend slices, revision guards, and the project and task stores | pending | | | |
 | 12 | The remaining aggregating stores | pending | | | |
 | 13 | Session state per backend | pending | | | |
@@ -559,6 +559,22 @@ reran store tests and typecheck). My own read found two, each reproduced with a 
    machine the user detached does not dial it" (red: 1 dial) and "a beacon from an attached machine that went offline
    dials it again" (guards over-restriction).
 
+### Task 10, round 3 (Codex gpt-5.5, prompted review of `76a0746..4b40bbf`, packages/ui)
+
+One finding, reproduced with a failing test before fixing in `4c6b03b`:
+
+1. **A tunnel that drops while main confirms still reports the attach as successful — confirmed, fixed.** The
+   `backend-dropped` handler dropped the socket and marked the row offline with the failure, but did not bump the
+   attempt counter. An `attach` suspended in `confirmBackend` then passed `current()`, patched the row `attached` (clearing
+   the drop's failure), followed a missing connection (whose replayed "disconnected" set it offline with no reason) and
+   resolved the id. Fix: the handler calls `nextAttempt(id)` before `drop(id)`, so any attach or rehandshake awaiting over
+   that tunnel goes stale. Test: "a tunnel that drops while main confirms fails the attach and keeps the drop's reason"
+   (red on `4b40bbf`: attach Received "abc123"; green after).
+
+Own checks that found nothing: a deliberate `closeTunnel` (retry, detach) never emits `backend-dropped` — it removes the
+child's `close` listener before killing it (`electron/src/tunnel-manager.ts:449`) — so a retry's own close cannot cut off
+its new attach; `WebSocketProvider` startup order (primary, refresh, local attach, then persisted records) matches the plan.
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -734,8 +750,14 @@ reran store tests and typecheck). My own read found two, each reproduced with a 
 - Task 10: added `packages/ui/src/stores/backend-store.test.ts` (7 tests: rename, refused confirm, protocol mismatch,
   merge, detach-during-attach, rehandshake uid change, refresh's local row) with a fake bridge and a real `Bun.serve`
   WS backend. Not run: launching the Electron app.
+- Task 10 R3: `backend-dropped` bumps the attempt counter. Accepted residual: if the user starts an attach in the instant
+  between a tunnel dying in main and the drop push reaching the renderer, main may open a fresh tunnel that this push then
+  invalidates; the row ends offline with the drop's reason and the next beacon or retry dials again. No false "attached".
 
 ## Validation baseline
+
+After Task 10 R3 fix (`4c6b03b`): `backend-store.test.ts` 12 pass (3 runs; new test red first); `bun test packages/ui`
+199 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier clean on the two changed files.
 
 After Task 10 R2 fixes (`4b40bbf`): `backend-store.test.ts` 11 pass (3 runs; the race and detached-beacon tests red
 first); `bun test packages/ui` 198 pass, 1 todo, 10 fail (the known ten); `bun run typecheck` clean; eslint and prettier
@@ -871,8 +893,8 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 10 review round 3 — standard gpt-5.5 review via codex-review over `76a0746..4b40bbf`
+Next step: Task 10 review round 4 — standard gpt-5.5 review via codex-review over `76a0746..4c6b03b`
 (packages/ui: `stores/backend-store.ts`, `stores/store-reset.ts`, their tests, `providers/WebSocketProvider.tsx`,
 `hooks/useWebSocket.ts`). Point the reviewer at the Task 10 decisions above, the R1 merged-branch fix, the R2 fixes
-(`handshake(id, current)` staleness guard; `onBackendSeen` gated on the persisted `attached` intent) and plan Task 10
-(plan lines 2810-3330).
+(`handshake(id, current)` staleness guard; `onBackendSeen` gated on the persisted `attached` intent), the R3 fix
+(`backend-dropped` bumps the attempt counter) and plan Task 10 (plan lines 2810-3330).
