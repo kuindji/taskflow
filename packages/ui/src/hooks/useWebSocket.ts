@@ -40,8 +40,14 @@ export function sendFireAndForget(type: string, payload: unknown = {}): void {
     if (id) sendFireAndForgetRouted(id, type, payload);
 }
 
+/**
+ * Only primary's events: a caller here cannot tell machines apart, so another
+ * attached backend's event would be applied as if primary had sent it.
+ */
 export function onEvent(type: string, handler: (payload: unknown) => void): () => void {
-    return onEventRouted(type, (payload) => handler(payload));
+    return onEventRouted(type, (payload, backendId) => {
+        if (backendId === getPrimary()) handler(payload);
+    });
 }
 
 /**

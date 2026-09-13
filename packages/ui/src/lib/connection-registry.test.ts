@@ -154,4 +154,19 @@ describe("connection registry", () => {
         // then its close.
         expect(seen).toEqual([false, true, false]);
     });
+
+    test("unsubscribing after a rekey stops the status updates", async () => {
+        const a = startServer("A");
+        servers.push(a);
+        await openConnection("a", a.origin);
+
+        const seen: boolean[] = [];
+        const off = onStatusChange("a", (status) => seen.push(status.connected));
+        rekeyConnection("a", "a-uid");
+        off();
+        closeConnection("a-uid", "detach");
+
+        // Only the status replayed on subscribe.
+        expect(seen).toEqual([true]);
+    });
 });

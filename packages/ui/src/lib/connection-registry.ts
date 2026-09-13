@@ -19,7 +19,12 @@ export class BackendSwitchedError extends Error {
 const connections = new Map<string, Connection>();
 /** Keyed by message type, shared by every connection. */
 const eventListeners = new Map<string, Set<(payload: unknown, backendId: string) => void>>();
-const statusListeners = new Map<string, Set<(status: ConnectionStatus) => void>>();
+/** One object per subscription, so its unsubscribe still finds it after a rekey
+ *  has moved it under another id. */
+interface StatusSubscription {
+    handler: (status: ConnectionStatus) => void;
+}
+const statusListeners = new Map<string, Set<StatusSubscription>>();
 let primaryId: string | null = null;
 const primaryListeners = new Set<(id: string | null) => void>();
 
@@ -63,7 +68,7 @@ export function openConnection(backendId: string, origin: string): Promise<void>
         onStatus(status) {
             const listeners = statusListeners.get(connection.backendId);
             if (!listeners) return;
-            for (const listener of listeners) listener(status);
+            for (const listener of listeners) listener.handler(status);
         },
     });
     connections.set(backendId, connection);
@@ -114,7 +119,7 @@ export function rekeyConnection(fromId: string, toId: string): void {
     }
     if (waiting) {
         const status = connection.getStatus();
-        for (const listener of [...waiting]) listener(status);
+        for (const listener of [...waiting]) listener.handler(status);
         if (listeners) for (const listener of listeners) waiting.add(listener);
     }
     if (primaryId === fromId) {
@@ -168,10 +173,11 @@ export function onStatusChange(
         listeners = new Set();
         statusListeners.set(backendId, listeners);
     }
-    listeners.add(handler);
+    const subscription: StatusSubscription = { handler };
+    listeners.add(subscription);
     handler(connections.get(backendId)?.getStatus() ?? { connected: false, reconnecting: false });
     return () => {
-        statusListeners.get(backendId)?.delete(handler);
+        for (const set of statusListeners.values()) set.delete(subscription);
     };
 }
 

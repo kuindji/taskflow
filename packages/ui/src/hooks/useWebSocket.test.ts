@@ -41,6 +41,51 @@ test("a request before any backend is primary rejects instead of throwing", () =
     });
 });
 
+test("an event subscribed through the shim comes only from primary", async () => {
+    // A child process, for the same mock.module leak as above.
+    const script = `
+        const { onEvent } = await import("./src/hooks/useWebSocket.ts");
+        const { openConnection, closeConnection, setPrimary } = await import("./src/lib/connection-registry.ts");
+        function serve(label) {
+            const sockets = new Set();
+            const server = Bun.serve({
+                port: 0,
+                hostname: "127.0.0.1",
+                fetch: (req, s) => (s.upgrade(req) ? undefined : new Response("ok")),
+                websocket: { open: (ws) => sockets.add(ws), message() {} },
+            });
+            return {
+                origin: "http://127.0.0.1:" + server.port,
+                broadcast: () => { for (const ws of sockets) ws.send(JSON.stringify({ type: "thing", payload: label })); },
+                stop: () => server.stop(true),
+            };
+        }
+        const a = serve("A");
+        const b = serve("B");
+        await openConnection("a", a.origin);
+        await openConnection("b", b.origin);
+        setPrimary("a");
+        const seen = [];
+        onEvent("thing", (payload) => seen.push(payload));
+        b.broadcast();
+        a.broadcast();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        closeConnection("a", "detach");
+        closeConnection("b", "detach");
+        a.stop();
+        b.stop();
+        console.log(JSON.stringify(seen));
+    `;
+    const child = Bun.spawn(["bun", "-e", script], {
+        cwd: new URL("../..", import.meta.url).pathname,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    await child.exited;
+    expect(await new Response(child.stderr).text()).toBe("");
+    expect(JSON.parse(await new Response(child.stdout).text()) as unknown).toEqual(["A"]);
+});
+
 test("a component fetching the home directory on mount does not crash before connect", () => {
     const uncaught: unknown[] = [];
     function Probe() {
