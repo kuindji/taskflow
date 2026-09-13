@@ -16,7 +16,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | # | Task | Status | Base commit | Commits | Review rounds |
 |---|---|---|---|---|---|
 | 1 | Backend prerequisites — protocol version, stable port file, backend uid | clear | `6978606` | `e7a226c`, `c192cdb`, `586a138`, `6e3673b`, `de96b4e` | R1: 3 fixed, 1 rejected; R2: 2 fixed; R3: 1 fixed; R4: 1 fixed; R5: clean |
-| 2 | Per-client file watcher ownership | in-review round 1 | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed |
+| 2 | Per-client file watcher ownership | clear | `43d1a49` | `ea8574a`, `ea2000e` | R1: 1 fixed; R2: clean |
 | 3 | Shared discovery types and the pure beacon codec | pending | | | |
 | 4 | The advertiser and listener, and the backend that runs one | pending | | | |
 | 5 | The backend record list, keyed by uid | pending | | | |
@@ -126,6 +126,16 @@ One finding, reproduced before fixing (I had found the same one independently):
    `packages/backend/src/ws/server.test.ts`: "releases what a request acquired after its
    socket had already closed" (red on `ea8574a`, green after). No other findings.
 
+### Task 2, round 2 (Codex gpt-5.5, prompted review of `43d1a49..ea2000e`, packages only)
+
+Clean: no findings. Codex checked owner-set interleavings (watch/unwatch/close order,
+several clients on one path, unwatch of an unowned path), broadcast semantics, client id
+minting and the R1 re-disconnect in `ws/server.ts`; it reran
+`file-watcher-ownership.test.ts` + `ws/server.test.ts` (8 pass) and the backend typecheck
+(pass). My own read found nothing either. The one sharp edge, `onError` forgetting the entry
+and its owners so the next `FILE_WATCH` recreates it with only that client, is the behaviour
+the plan's Step 3 explicitly accepts. **Task 2 is clear.**
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -184,6 +194,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 2 review round 2 — Codex gpt-5.5 review of the Task 2 implementation
-`43d1a49..ea2000e` (per-client file watcher ownership, including the R1 re-disconnect in
-`ws/server.ts`).
+Next step: implement Task 3 — shared discovery types and the pure beacon codec (executed
+from the superseded multi-backend plan's Task 2 with the deltas this plan lists). Record HEAD
+as its base commit first.
