@@ -270,6 +270,19 @@ describe("backend registry", () => {
         expect(await reg.addDiscoveredBackend("nobody")).toBeNull();
     });
 
+    test("this machine's own announcement is neither listed nor saved once local's uid is known", async () => {
+        const { reg } = await registry();
+        reg.__setDiscoveredForTest([
+            discovered({ backendUid: "self-uid", address: "192.168.1.5" }),
+            discovered({ backendUid: "abc123", address: "192.168.1.20" }),
+        ]);
+
+        reg.setLocalUid("self-uid");
+
+        expect((await reg.listBackends()).map((e) => e.id)).toEqual(["192.168.1.20:main"]);
+        expect(await reg.addDiscoveredBackend("192.168.1.5:main")).toBeNull();
+    });
+
     test("refuses a uid outside the safe label set before touching tunnels or origins", async () => {
         // Such a uid could spell a provisional id ("host:instance") and merge
         // two machines. adoptUid leaves the records alone; the tunnel and the

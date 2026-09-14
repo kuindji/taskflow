@@ -61,6 +61,9 @@ function errorMessage(error: unknown): string {
 function createRegistry(deps: RegistryDeps) {
     let records: BackendRecord[] = [];
     let discovered: DiscoveredBackend[] = [];
+    /** This machine's own backend, which hears its own announcements. Learnt
+     *  from local's handshake; until then its announcement is listed. */
+    let localUid: string | null = null;
     let listener: DiscoveryListener | null = null;
     const origins = new Map<string, string>();
     const changeHandlers = new Set<() => void>();
@@ -68,6 +71,11 @@ function createRegistry(deps: RegistryDeps) {
 
     function notifyChanged(): void {
         for (const handler of changeHandlers) handler();
+    }
+
+    /** Announcements from other backends: local is not a machine to add. */
+    function remoteDiscovered(): DiscoveredBackend[] {
+        return discovered.filter((entry) => entry.backendUid !== localUid);
     }
 
     function findRecord(id: string): BackendRecord | undefined {
@@ -197,7 +205,13 @@ function createRegistry(deps: RegistryDeps) {
         },
 
         listBackends(): Promise<MenuEntry[]> {
-            return Promise.resolve(mergeForMenu(records, discovered, Date.now()));
+            return Promise.resolve(mergeForMenu(records, remoteDiscovered(), Date.now()));
+        },
+
+        setLocalUid(uid: string): void {
+            if (localUid === uid) return;
+            localUid = uid;
+            notifyChanged();
         },
 
         /** Records whose attached flag was persisted. The renderer dials these at
@@ -256,7 +270,7 @@ function createRegistry(deps: RegistryDeps) {
         addDiscoveredBackend(entryId: string): Promise<BackendRecord | null> {
             return serialize(entryId, async () => {
                 const now = Date.now();
-                const live = discovered.find(
+                const live = remoteDiscovered().find(
                     (entry) =>
                         backendIdFor(entry.address, entry.instanceId) === entryId &&
                         !isStale(entry.lastSeenAt, now),

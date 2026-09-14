@@ -236,6 +236,27 @@ test("choosing a machine under Work as… runs the hard switch for it", async ()
     expect(targets).toEqual(["laptop-uid"]);
 });
 
+test("after a real refresh a discovered machine is still only offered to add, and never to work as", async () => {
+    setup([local], [discovered]);
+    const bridge = window.taskflow;
+    if (!bridge) throw new Error("no bridge");
+    bridge.getAttached = () =>
+        Promise.resolve([{ id: "local", origin: "http://127.0.0.1:1", isLocal: true }]);
+    // Opening the menu refreshes the store from main's list, unsaved entries included.
+    useBackendStore.setState({ refresh: original.refresh });
+    await render();
+    await openMenu();
+    await openWorkAs();
+
+    expect(checkboxNamed("Studio")).toBeUndefined();
+    const studioItems = [...document.querySelectorAll<HTMLElement>("[role='menuitem']")]
+        .map((item) => item.textContent ?? "")
+        .filter((text) => text.includes("Studio"));
+    // The add row's text carries its "seen" status after the label.
+    expect(studioItems).toHaveLength(1);
+    expect(studioItems[0]).toStartWith("Add Studio");
+});
+
 test("a refused switch names the unsaved files in a dialog", async () => {
     setup([local, laptop], []);
     stubWorkAs({ ok: false, reason: "dirty", files: ["/repo/a.ts"] });

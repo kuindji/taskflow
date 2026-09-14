@@ -336,7 +336,11 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
         (_event, id: string, info: { backendUid: string; protocolVersion: number }) => {
             // Local is not a record. Letting the registry answer would report a
             // rename onto local's uid, and the renderer would refile its local row.
-            if (id === LOCAL_BACKEND_ID) return { id: LOCAL_BACKEND_ID, merged: false };
+            if (id === LOCAL_BACKEND_ID) {
+                // Local's uid is how the registry recognises this machine's own beacon.
+                registry.setLocalUid(info.backendUid);
+                return { id: LOCAL_BACKEND_ID, merged: false };
+            }
             // A remote backend reporting "local" as its uid would be refiled onto
             // the local row's id.
             if (info.backendUid === LOCAL_BACKEND_ID) {

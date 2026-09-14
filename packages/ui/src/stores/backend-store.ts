@@ -349,14 +349,18 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         }
 
         useBackendStore.setState((state) => {
-            const rows = entries.map((entry) =>
-                rowFor(state, entry.id, {
-                    displayName: entry.displayName,
-                    host: entry.host,
-                    instanceId: entry.instanceId,
-                    keepAttached: entry.attached,
-                }),
-            );
+            // A discovered machine that is not saved is not a machine yet: the
+            // menu offers to add it, and attaching or switching to it has no record.
+            const rows = entries
+                .filter((entry) => entry.saved)
+                .map((entry) =>
+                    rowFor(state, entry.id, {
+                        displayName: entry.displayName,
+                        host: entry.host,
+                        instanceId: entry.instanceId,
+                        keepAttached: entry.attached,
+                    }),
+                );
             // Local is not a saved record, so `listBackends()` cannot return it,
             // but `getAttached()` does and every attached id needs a row. Without
             // it a purely local user has no "local" machine at all.

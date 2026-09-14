@@ -429,6 +429,37 @@ describe("backend store refresh", () => {
         ]);
     });
 
+    test("a discovered machine that is not saved gets no row", async () => {
+        store.setState({ machines: [] });
+        const original = bridge.listBackends;
+        bridge.listBackends = () =>
+            Promise.resolve([
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    attached: false,
+                    saved: true,
+                    seen: true,
+                },
+                {
+                    id: "192.168.1.66:main",
+                    displayName: "Studio",
+                    host: "192.168.1.66",
+                    instanceId: "main",
+                    attached: false,
+                    saved: false,
+                    seen: true,
+                },
+            ]);
+        cleanups.push(() => (bridge.listBackends = original));
+
+        await store.getState().refresh();
+
+        expect(store.getState().machines.map((m) => m.id)).toEqual(["abc123"]);
+    });
+
     test("a refresh while the user's attach opens the tunnel keeps the machine wanted", async () => {
         seedRow("abc123");
         store.setState((state) => ({
