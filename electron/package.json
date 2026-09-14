@@ -15,7 +15,8 @@
         "dist:win-arm64": "electron-builder --win --arm64",
         "dist:win:portable": "electron-builder --win portable --x64",
         "dist:win-arm64:portable": "electron-builder --win portable --arm64",
-        "publish": "electron-builder --publish always"
+        "publish": "electron-builder --publish always",
+        "publish:mac-all": "electron-builder --mac --x64 --arm64 --publish always"
     },
     "build": {
         "appId": "com.taskflow.app",
@@ -43,6 +44,7 @@
         "afterSign": "scripts/notarize.js",
         "mac": {
             "category": "public.app-category.developer-tools",
+            "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
             "identity": "Ivan Kuindzhi (9SX8S58CA8)",
             "hardenedRuntime": true,
             "gatekeeperAssess": false,
@@ -57,7 +59,7 @@
             ],
             "extraResources": [
                 {
-                    "from": "../packages/backend/dist/taskflow-backend",
+                    "from": "../packages/backend/dist/${arch}/taskflow-backend",
                     "to": "backend/taskflow-backend"
                 }
             ]
