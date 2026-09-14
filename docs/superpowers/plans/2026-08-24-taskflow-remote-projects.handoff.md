@@ -1289,7 +1289,13 @@ Results:
 - Packaged-build checks (multicast under `bun build --compile`, macOS local-network prompt): not run; dev builds
   cannot reach them.
 
-Bugs found (traced in code, no tests written yet; fix deferred by the user):
+Bugs found, all three **fixed in `7e979b14`** with tests red before and green after:
+`backend-registry.test.ts` "this machine's own announcement is neither listed nor saved once local's uid is known",
+`backend-store.test.ts` "a discovered machine that is not saved gets no row", `MachinesMenu.test.tsx` "after a real
+refresh a discovered machine is still only offered to add, and never to work as". Fix: `refresh()` keeps only saved
+entries; the registry learns local's uid from `confirmBackend("local")` (`setLocalUid`) and drops announcements
+carrying it. Until local's handshake lands at launch, its own beacon can still be listed. Not yet re-checked in the
+app. Original traces:
 
 1. The machines menu lists this machine's own beacon as a network machine. Nothing filters it:
    `packages/shared/src/discovery/socket.ts:328-330` keeps every parsable announce and
