@@ -36,7 +36,7 @@ with the deltas listed in this plan. Delete in-tree repros as listed in the plan
 | 19 | Primary-only managers, gating, and removing the shim | clear | `015186c` | `3ce63bc`, `63c4b71` | R1: Codex clean, 1 own finding fixed (label text; no further round) |
 | 20 | Electron main across several backends | clear (round 8) | `5f0ec24` | `f7438e4`, `930a4bb`, `4a77b3c`, `4509c26`, `6c2e364`, `0949f63`, `ebe46fb`, `40aecede` | R1: 1 fixed (Codex), 2 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: 1 fixed (Codex + own); R6: 2 fixed (Codex); R7: 1 fixed (Codex; not reachable with Bun's backend); R8: clear |
 | 21 | The hard switch | clear | `840ca15c` | `3530513e`, `26dd8d0d`, `6d504ac7`, `8d60a842`, `b6e0004b` | R1: 2 fixed (Codex), 1 rejected; R2: 1 fixed (Codex); R3: 1 fixed (Codex); R4: 1 fixed (Codex); R5: clean |
-| 22 | End-to-end verification on two machines | pending | | | |
+| 22 | End-to-end verification on two machines | in progress (session 1: Steps 1–4, 6, 7, part of 8 ok; 3 menu bugs found) | | | |
 
 ## Review round results
 
@@ -1263,6 +1263,46 @@ Clean. Codex found no findings, did not re-raise the recorded R1–R4 decisions,
 `backend-store.test.ts`, `MachinesMenu.test.tsx`, the three combined, and `bun run typecheck` (all pass). Task 21 is
 clear.
 
+### Task 22, session 1 (2026-09-14, manual, two machines, dev builds)
+
+Setup: both machines on this branch via `bun run dev:electron` (instance `dev-task-implement-remote-backend-services`).
+Remote = IKMax.local (192.168.10.200); client = the user's other laptop. Discovery worked: each saw the other.
+
+Connecting needed, on the remote: Remote Login enabled and the client's key installed (`ssh-copy-id`); then
+**Connect to backend…** with host IP, user and the dev port typed by hand. The dialog has no instance field, so a
+manual add is saved as `main` and the ssh port-file fallback reads `main.port`, which a dev build does not write.
+Typing the port avoids the fallback. Dev-build-only limitation; a restarted dev backend gets a new port.
+
+Results:
+
+- Step 1 (attach and see): ok, via Connect to backend.
+- Step 2 (work remotely): ok.
+- Step 3 (two clients, one backend): ok, including after detaching from the laptop; terminal sessions visible on
+  both. Observation: on the laptop, an open remote file only showed the disk change after switching tabs away and
+  back. Not investigated; not yet known whether a local file behaves the same.
+- Step 4 (duplicate checkout, package script): ok.
+- Step 5 (sleep, wake): not run — remote machine busy with other agents.
+- Step 6 (aliases, IP then `IKMax.local`): ok.
+- Step 7 (notifications, via `taskflow-cli notify` from a remote task terminal): ok.
+- Step 8 (hard switch): theme, dirty-editor refusal, Return to local ok; settings/master workspace not reported.
+- Step 9, 9a: not run — deferred to a session without other agents running.
+- Packaged-build checks (multicast under `bun build --compile`, macOS local-network prompt): not run; dev builds
+  cannot reach them.
+
+Bugs found (traced in code, no tests written yet; fix deferred by the user):
+
+1. The machines menu lists this machine's own beacon as a network machine. Nothing filters it:
+   `packages/shared/src/discovery/socket.ts:328-330` keeps every parsable announce and
+   `electron/src/backend-records.ts` `mergeForMenu` adds every unsaved live entry. Clicking it would ssh to itself.
+   Fix direction: drop entries whose `backendUid` is local's.
+2. "Work as…" offers discovered machines that were never saved. `backend-store.ts` `refresh()` (`:352-358`) maps
+   every `listBackends()` entry, unsaved ones included, into `machines`; `MachinesMenu.tsx` `workAsTargets` is
+   `machines` minus primary.
+3. Clicking a discovered (unsaved) row fails with "No such backend" and the message then disappears. Same root as
+   2: the row is in `machines`, so `buildRows` gives it `checked: false` instead of `null`, `toggle` calls
+   `store.attach` without `addDiscoveredBackend`, and `attachBackend` finds no record
+   (`electron/src/backend-registry.ts:282`).
+
 ## Decisions taken
 
 - Commits follow the project CLAUDE.md: no Co-Authored-By trailer.
@@ -2204,6 +2244,6 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: Task 22 (end-to-end verification on two machines) — manual by the plan, needs two machines and a person.
-Tasks 1–21 are clear. On 2026-09-13 the user asked to push the branch and end the loop flow, continuing in a later
-session. Resume by walking Task 22's Steps 1–9a with the user and recording results (Step 10) here.
+Next step: finish Task 22 with the user — Steps 5, 9 and 9a, plus Step 8's settings/master workspace check, when
+the remote machine has no other agents running. See "Task 22, session 1" for what passed and the three menu bugs
+found; the user deferred fixing those. Tasks 1–21 are clear.
