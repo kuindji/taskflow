@@ -145,6 +145,8 @@ class MachineSession {
     private connecting = false;
     private shutdownPromise: Promise<void> | null = null;
     private reattach: Reattach | null = null;
+    /** The machine `switchTo` is opening, and a tunnel exit that arrived meanwhile. */
+    private opening: { machineId: string; exit: TunnelFailure | null } | null = null;
 
     constructor(private readonly deps: MachineSessionDeps) {
         deps.machines.tunnels.onTunnelExit((id, failure) => this.onTunnelExit(id, failure));
@@ -168,6 +170,9 @@ class MachineSession {
             await this.release(target);
             return { ok: false, message: "Taskflow is quitting." };
         }
+        // No machine is current until the workspace opens; a tunnel exit in
+        // between is kept here and applied then.
+        this.opening = { machineId: target.machineId, exit: null };
 
         const { state } = this.deps;
         if (previous !== null) {
@@ -185,8 +190,8 @@ class MachineSession {
         let opened: CurrentMachine | null = null;
         // Subscribed before the workspace, whose app reloads everything on
         // reconnect: listeners run in order, so the guard is open by then.
-        const unsubscribeStatus = target.net.onStatusChange(({ connected }) => {
-            if (opened !== null) this.onSocketStatus(opened, connected);
+        const unsubscribeStatus = target.net.onStatusChange(() => {
+            if (opened !== null) this.reconcile(opened);
         });
         let workspace: SessionWorkspace;
         try {
@@ -201,10 +206,13 @@ class MachineSession {
                 },
             });
         } catch (error) {
+            this.opening = null;
             unsubscribeStatus();
             await this.release(target);
             throw error;
         }
+        const exit = this.opening?.machineId === target.machineId ? this.opening.exit : null;
+        this.opening = null;
         opened = {
             machineId: target.machineId,
             local: target.local,
@@ -215,6 +223,8 @@ class MachineSession {
             unsubscribeStatus,
         };
         this.current = opened;
+        // The socket or the tunnel may have dropped while the workspace was opening.
+        this.reconcile(opened, exit);
         const selection = state.selections[target.machineId];
         if (selection) workspace.restoreSelection(selection);
         state.lastMachineId = target.machineId;
@@ -344,19 +354,30 @@ class MachineSession {
     private onTunnelExit(id: string, failure: TunnelFailure): void {
         // The origin points at nothing now, whichever machine it belonged to.
         void this.deps.machines.registry.tunnelExited(id).catch(() => undefined);
+        if (this.opening?.machineId === id) {
+            this.opening.exit = failure;
+            return;
+        }
         const machine = this.current;
-        if (machine === null || machine.local || machine.machineId !== id) return;
-        this.setStatus(machine, { state: "offline", reason: failure.message });
-        if (this.reattach === null) this.scheduleReattach(machine, 0);
+        if (machine !== null && machine.machineId === id) this.reconcile(machine, failure);
     }
 
     /**
-     * The local client redials on its own. So does a remote one, which covers a
-     * dropped socket over a live tunnel. A dead tunnel is `onTunnelExit`'s.
+     * Bring the status and guard in line with the connection. Runs on every
+     * socket status change, on a tunnel exit (`exit`), and once when a
+     * workspace opens, since either may have changed while it was opening.
+     *
+     * A dead tunnel takes a re-attach. A dropped socket over a live tunnel does
+     * not: the client (local or remote) redials on its own.
      */
-    private onSocketStatus(machine: CurrentMachine, connected: boolean): void {
+    private reconcile(machine: CurrentMachine, exit: TunnelFailure | null = null): void {
         if (this.current !== machine) return;
-        if (connected) {
+        if (exit !== null && !machine.local) {
+            this.setStatus(machine, { state: "offline", reason: exit.message });
+            if (this.reattach === null) this.scheduleReattach(machine, 0);
+            return;
+        }
+        if (machine.net.isConnected()) {
             if (machine.status.state !== "online") this.setStatus(machine, { state: "online" });
             return;
         }

@@ -128,6 +128,11 @@ class WsClient implements NetLike {
         });
     }
 
+    /** The status last reported to `onStatusChange` listeners. */
+    isConnected(): boolean {
+        return this.connected;
+    }
+
     onStatusChange(listener: (status: { connected: boolean }) => void): () => void {
         this.statusListeners.add(listener);
         return () => {

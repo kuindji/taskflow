@@ -13,6 +13,8 @@ type RegistryPort = Pick<BackendRegistry, "attachBackend" | "detachBackend" | "c
  */
 interface MachineClient extends NetLike {
     connect(): Promise<void>;
+    /** Whether the socket is open right now, for state that changed while nobody listened. */
+    isConnected(): boolean;
     retarget(port: number, host: string | null): void;
     close(): void;
 }

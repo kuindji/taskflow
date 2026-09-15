@@ -44,6 +44,8 @@ const LOCAL_ROW: PickerRow = { kind: "local" };
 
 class FakeClient implements MachineClient {
     private readonly statusListeners = new Set<(status: { connected: boolean }) => void>();
+    /** Changed silently with `setConnected`, or with a notification by `emitStatus`. */
+    private connected = true;
 
     constructor(
         private readonly name: string,
@@ -68,7 +70,14 @@ class FakeClient implements MachineClient {
     close(): void {
         this.log.push(`close(${this.name})`);
     }
+    isConnected(): boolean {
+        return this.connected;
+    }
+    setConnected(connected: boolean): void {
+        this.connected = connected;
+    }
     emitStatus(connected: boolean): void {
+        this.connected = connected;
         for (const listener of this.statusListeners) listener({ connected });
     }
 }
@@ -100,6 +109,17 @@ interface Harness {
     attaches: AttachResult[];
     exitTunnel(id: string, failure: TunnelFailure): void;
     writeState: { override: ((state: TuiState) => Promise<void>) | null };
+    /** While `wait` is set, the fake `openWorkspace` resolves only after it does. */
+    openGate: { wait: Promise<void> | null };
+}
+
+/** Hold the next workspace open until the returned release is called. */
+function holdOpen(h: Harness): () => void {
+    let release = (): void => undefined;
+    h.openGate.wait = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    return release;
 }
 
 /** Run every armed timer, then let the attempts they started settle. */
@@ -137,6 +157,7 @@ describe("MachineSession", () => {
         const timers: FakeTimer[] = [];
         const attaches: AttachResult[] = [];
         const writeState: Harness["writeState"] = { override: null };
+        const openGate: Harness["openGate"] = { wait: null };
         let exitHandler: ((id: string, failure: TunnelFailure) => void) | null = null;
         const client = (name: string): FakeClient => {
             const created = new FakeClient(name, log);
@@ -223,11 +244,14 @@ describe("MachineSession", () => {
                 localPorts.push(port);
                 return client("local");
             },
-            openWorkspace: (net, context) => {
+            openWorkspace: async (net, context) => {
                 contexts.push(context);
                 nets.push(net);
                 log.push(`open(${context.machineId})`);
-                return Promise.resolve(workspace(context.machineId));
+                const wait = openGate.wait;
+                openGate.wait = null;
+                if (wait !== null) await wait;
+                return workspace(context.machineId);
             },
             schedule: (run, delay) => {
                 const timer: FakeTimer = { delay, run, cancelled: false };
@@ -276,6 +300,7 @@ describe("MachineSession", () => {
             attaches,
             exitTunnel: (id, exit) => exitHandler?.(id, exit),
             writeState,
+            openGate,
         };
     }
 
@@ -408,6 +433,56 @@ describe("MachineSession", () => {
         local?.emitStatus(true);
         expect(statesOf(h)).toEqual(["local:offline:Connection lost", "local:online"]);
         expect(h.log.filter((line) => line === "resetResizes(local)")).toHaveLength(1);
+        expect(armed(h)).toEqual([]);
+    });
+
+    it("applies a socket drop reported while the workspace was opening", async () => {
+        const h = await harness();
+        const release = holdOpen(h);
+        const switching = h.session.switchTo(machineRow("alpha"));
+        await waitFor(() => h.nets.length === 1);
+
+        h.clients.get("alpha")?.emitStatus(false);
+        release();
+        expect(await switching).toEqual({ ok: true });
+
+        expect(statesOf(h)).toEqual(["alpha:offline:Connection lost"]);
+        expect(
+            await h.nets[0].request(MSG.TASK_CREATE).catch((error: unknown) => error),
+        ).toBeInstanceOf(MachineOfflineError);
+    });
+
+    it("applies a tunnel exit that arrived while the workspace was opening", async () => {
+        const h = await harness();
+        const release = holdOpen(h);
+        const switching = h.session.switchTo(machineRow("alpha"));
+        await waitFor(() => h.nets.length === 1);
+
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        release();
+        expect(await switching).toEqual({ ok: true });
+
+        expect(statesOf(h)).toEqual(["alpha:offline:ssh exited"]);
+        expect(armed(h)).toEqual([1000]);
+        expect(
+            await h.nets[0].request(MSG.TASK_CREATE).catch((error: unknown) => error),
+        ).toBeInstanceOf(MachineOfflineError);
+    });
+
+    it("applies a client that is already disconnected when the workspace opens", async () => {
+        const h = await harness();
+        const release = holdOpen(h);
+        const switching = h.session.switchTo(LOCAL_ROW);
+        await waitFor(() => h.nets.length === 1);
+
+        h.clients.get("local")?.setConnected(false);
+        release();
+        await switching;
+
+        expect(statesOf(h)).toEqual(["local:offline:Connection lost"]);
+        expect(
+            await h.nets[0].request(MSG.TASK_CREATE).catch((error: unknown) => error),
+        ).toBeInstanceOf(MachineOfflineError);
         expect(armed(h)).toEqual([]);
     });
 

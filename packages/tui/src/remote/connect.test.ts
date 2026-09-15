@@ -50,6 +50,10 @@ class FakeClient implements MachineClient {
         return () => {};
     }
 
+    isConnected(): boolean {
+        return true;
+    }
+
     retarget(): void {}
 
     closeError: Error | null = null;
