@@ -49,6 +49,24 @@ TASKFLOW_DEV_BRANCH=stage3-smoke \
 bun run dev:tui
 ```
 
+### Installing the TUI on Linux
+
+From a checkout of this repository, with `bun`, `git` and `ssh` installed:
+
+```sh
+bun run linux-setup
+```
+
+The script installs dependencies from the lockfile, builds `taskflow-tui` and
+`taskflow-backend`, and puts both in `~/.local/bin` (set `PREFIX` to use
+`$PREFIX/bin` instead). If that directory is not on `PATH`, it prints the line
+to add. To update, run `git pull` and the same command again.
+
+The TUI runs the backend installed next to it. `TASKFLOW_BACKEND_BIN` overrides
+that, and without either it uses `taskflow-backend` from `PATH`. To use another
+machine's backend you only need the TUI: it connects over SSH, so that machine
+must accept your SSH key.
+
 ### TUI machines
 
 `taskflow-tui` opens a machine picker: This machine, saved machines, backends

@@ -11,6 +11,7 @@
         "dev:ui": "TASKFLOW_DEV=1 cd packages/ui && bun run dev",
         "dev:electron": "TASKFLOW_DEV=1 cd electron && bun run dev",
         "dev:tui": "bun run build:backend:bin && bun packages/tui/src/dev.ts",
+        "linux-setup": "sh scripts/linux-setup.sh",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",

@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { TextRenderable, type CliRenderer } from "@opentui/core";
 import type { MenuEntry } from "@taskflow/shared";
+import { resolveBackendBinary } from "../backend/binary";
 import { startBackend } from "../backend/manager";
 import { parseArgs } from "../cli";
 import { WsClient } from "../net/client";
@@ -105,7 +106,7 @@ async function main(): Promise<void> {
             connect: (id) => connectMachine(machines, id),
             startBackend: (onSpawn) =>
                 startBackend({
-                    binary: process.env.TASKFLOW_BACKEND_BIN ?? "taskflow-backend",
+                    binary: resolveBackendBinary(process.env, process.execPath, process.platform),
                     args: [],
                     devBranch: process.env.TASKFLOW_DEV_BRANCH ?? null,
                     onSpawn,
