@@ -10,6 +10,7 @@ type Responder = (payload: unknown) => unknown;
 
 function fakeNet(projects: Project[], tasks: Task[]) {
     const requests: Array<{ type: string; payload: unknown }> = [];
+    const listeners = new Map<string, Set<(payload: unknown) => void>>();
     const responders = new Map<string, Responder>([
         [MSG.PROJECT_LIST, () => ({ projects })],
         [MSG.TASK_LIST, () => ({ tasks })],
@@ -22,12 +23,42 @@ function fakeNet(projects: Project[], tasks: Task[]) {
             if (!responder) return Promise.reject(new Error(`no stub for ${type}`));
             return Promise.resolve().then(() => responder(payload) as T);
         },
-        on: () => () => undefined,
+        on(type, handler) {
+            const set = listeners.get(type) ?? new Set();
+            set.add(handler);
+            listeners.set(type, set);
+            return () => set.delete(handler);
+        },
         onStatusChange: () => () => undefined,
+    };
+    const emit = (type: string, payload: unknown): void => {
+        for (const handler of listeners.get(type) ?? []) handler(payload);
     };
     const sent = (type: string) =>
         requests.filter((request) => request.type === type).map((request) => request.payload);
-    return { net, responders, sent };
+    return { net, responders, sent, emit };
+}
+
+/** One reorder request per call, each settled by the test. */
+function heldReorders(responders: Map<string, Responder>) {
+    const rejects: Array<(error: Error) => void> = [];
+    responders.set(
+        MSG.PROJECT_REORDER,
+        () =>
+            new Promise<never>((_resolve, reject) => {
+                rejects.push(reject);
+            }),
+    );
+    return {
+        reject: (index: number) => rejects[index]?.(new Error("reorder failed")),
+    };
+}
+
+async function settled(work: Promise<void>): Promise<unknown> {
+    return work.then(
+        () => null,
+        (error: unknown) => error,
+    );
 }
 
 async function setup(projects: Project[], tasks: Task[] = []) {
@@ -111,6 +142,44 @@ describe("ProjectStore", () => {
         expect(failure).toBeInstanceOf(Error);
         expect(store.projects.map((p) => p.id)).toEqual(["p1", "p2"]);
         expect(store.projectOrder).toEqual(["p1", "h", "p2"]);
+    });
+
+    test("a failed reorder keeps an order another client broadcast meanwhile", async () => {
+        const { store, projectStore, responders, emit } = await setup([
+            project("p1", "One"),
+            project("p2", "Two"),
+            project("p3", "Three"),
+        ]);
+        const held = heldReorders(responders);
+
+        const reorder = projectStore.reorder(["p2", "p1", "p3"]);
+        await Bun.sleep(0);
+        emit(MSG.PROJECT_REORDERED, { orderedIds: ["p3", "p2", "p1"] });
+        held.reject(0);
+
+        expect(await settled(reorder)).toBeInstanceOf(Error);
+        expect(store.projectOrder).toEqual(["p3", "p2", "p1"]);
+    });
+
+    test("a failed reorder keeps a later optimistic reorder", async () => {
+        const { store, projectStore, responders } = await setup([
+            project("p1", "One"),
+            project("p2", "Two"),
+            project("p3", "Three"),
+        ]);
+        const held = heldReorders(responders);
+
+        const first = projectStore.reorder(["p2", "p1", "p3"]);
+        const second = projectStore.reorder(["p2", "p3", "p1"]);
+        await Bun.sleep(0);
+        held.reject(0);
+
+        expect(await settled(first)).toBeInstanceOf(Error);
+        expect(store.projectOrder).toEqual(["p2", "p3", "p1"]);
+
+        held.reject(1);
+        expect(await settled(second)).toBeInstanceOf(Error);
+        expect(store.projectOrder).toEqual(["p2", "p1", "p3"]);
     });
 
     test("setLinks sends only the id and the links", async () => {

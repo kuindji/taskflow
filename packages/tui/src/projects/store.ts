@@ -40,6 +40,10 @@ class ProjectStore {
      * Applies the new order at once and restores the previous one if the request
      * fails. `orderedIds` may list only the visible projects: hidden ones keep
      * their positions in the order that is sent.
+     *
+     * The rollback only undoes this call's own change. If the order moved on
+     * while the request was in flight (another client's broadcast, or a later
+     * reorder from here), that newer order is left in place.
      */
     async reorder(orderedIds: string[]): Promise<void> {
         const previous = this.store.projectOrder;
@@ -49,7 +53,7 @@ class ProjectStore {
         try {
             await this.net.request(MSG.PROJECT_REORDER, payload);
         } catch (error) {
-            this.store.setProjectOrder(previous);
+            if (sameOrder(this.store.projectOrder, next)) this.store.setProjectOrder(previous);
             throw error;
         }
     }
@@ -63,6 +67,10 @@ class ProjectStore {
         this.store.applyProject(project);
         return project;
     }
+}
+
+function sameOrder(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
 export { ProjectStore };
