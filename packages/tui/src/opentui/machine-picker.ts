@@ -422,3 +422,4 @@ function askTrust(renderer: CliRenderer, fingerprint: string, host: string): Pro
 }
 
 export { askTrust, MachinePicker };
+export type { MachinePickerDeps };

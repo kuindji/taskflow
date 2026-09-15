@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { KeyEvent } from "@opentui/core";
+import { createTestRenderer } from "@opentui/core/testing";
+import { GROUP_ORDER, Help } from "./help";
 import { COMMAND_METADATA, KeyRouter, prepareForEmbeddedTerminal } from "./keys";
 
 function key(
@@ -124,6 +126,33 @@ describe("KeyRouter", () => {
             command: { kind: "help" },
             before: undefined,
         });
+        expect(router.route("ui", key("m"))).toEqual({
+            kind: "command",
+            command: { kind: "machines" },
+            before: undefined,
+        });
+        expect(router.route("session", key("m"))).toEqual({ kind: "pass", before: undefined });
+    });
+
+    it("lists the machines command under Machines in help", async () => {
+        const test = await createTestRenderer({ width: 80, height: 60 });
+        const help = new Help({ renderer: test.renderer, onClose: () => undefined });
+        test.renderer.root.add(help.renderable);
+        try {
+            await test.renderOnce();
+            const lines = test.captureCharFrame().split("\n");
+            // Each line ends with the scroll bar, so match the group name at the start.
+            const group = lines.findIndex((line) => /^ Machines\s/.test(line));
+            expect(group).toBeGreaterThan(-1);
+            const command = COMMAND_METADATA.find((candidate) => candidate.kind === "machines");
+            expect(command).toMatchObject({ keys: "m", label: "Machines", group: "Machines" });
+            expect(lines[group + 1]).toContain("m");
+            expect(lines[group + 1]).toContain(command?.description ?? "missing");
+            expect(GROUP_ORDER).toContain("Machines");
+        } finally {
+            help.destroy();
+            test.renderer.destroy();
+        }
     });
 
     it("keeps routed global commands in one-to-one help metadata", () => {
@@ -146,6 +175,7 @@ describe("KeyRouter", () => {
             key("1", { shift: true, sequence: "!" }),
             key("/"),
             key("/", { shift: true, sequence: "?" }),
+            key("m"),
         ];
         const routedKinds = events.flatMap((event) => {
             const route = router.route("ui", event);

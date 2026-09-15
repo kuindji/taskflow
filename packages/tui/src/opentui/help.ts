@@ -1,4 +1,9 @@
-import { ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+    ScrollBoxRenderable,
+    TextRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import { COMMAND_METADATA, type CommandGroup, type CommandMetadata } from "./keys";
 
 interface HelpDeps {
@@ -10,6 +15,7 @@ interface HelpDeps {
 
 const GROUP_ORDER: readonly CommandGroup[] = [
     "General",
+    "Machines",
     "Sessions",
     "Tasks",
     "Flows",

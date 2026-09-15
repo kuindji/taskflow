@@ -33,7 +33,7 @@ import {
     serializeSchedule,
 } from "../editor/records";
 import { defaultExternalEditorDeps, editRecord } from "../editor/external-editor";
-import { OpenTuiApp } from "./app";
+import { OpenTuiApp, type KeyOverlay, type OverlayHandle } from "./app";
 import { SessionBridge } from "./session-bridge";
 
 interface WorkspaceContext {
@@ -42,7 +42,8 @@ interface WorkspaceContext {
     machineLabel: string;
     local: boolean;
     onQuit(): void;
-    onSwitchMachine(): void;
+    /** Absent when there is nothing to switch to, e.g. a hand-opened `--connect` tunnel. */
+    onSwitchMachine?: () => void;
 }
 
 type WorkspaceSelection = { projectId: string | null; taskId: string | null };
@@ -54,6 +55,7 @@ interface Workspace {
     hasOpenEditor(): boolean;
     selection(): WorkspaceSelection;
     restoreSelection(selection: WorkspaceSelection): void;
+    showOverlay(overlay: KeyOverlay): OverlayHandle;
     dispose(): void;
 }
 
@@ -274,6 +276,8 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
             onEditTaskText: editTaskText,
             onFocusSession: (sessionId) => controller.focusKnown(sessionId),
             onQuit: () => context.onQuit(),
+            machineLabel: context.machineLabel,
+            onSwitchMachine: context.onSwitchMachine,
         });
         app = createdApp;
         await createdApp.init();
@@ -305,6 +309,7 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
                     createdApp.selectOwner({ kind: "project", projectId: selection.projectId });
                 }
             },
+            showOverlay: (overlay) => createdApp.showOverlay(overlay),
             dispose,
         };
     } catch (error) {

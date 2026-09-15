@@ -19,11 +19,13 @@ type UiCommand =
     | { kind: "settings" }
     | { kind: "notifications" }
     | { kind: "filter" }
+    | { kind: "machines" }
     | { kind: "help" };
 
 type UiCommandKind = UiCommand["kind"];
 type CommandGroup =
     | "General"
+    | "Machines"
     | "Sessions"
     | "Tasks"
     | "Flows"
@@ -197,6 +199,14 @@ const COMMAND_METADATA: readonly CommandMetadata[] = [
         label: "Filter",
         description: "Filter projects and tasks by name",
         route: exactTextRoute("filter", "/"),
+    },
+    {
+        kind: "machines",
+        group: "Machines",
+        keys: "m",
+        label: "Machines",
+        description: "Switch to another machine",
+        route: exactTextRoute("machines", "m"),
     },
     {
         kind: "help",

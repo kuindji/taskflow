@@ -16,7 +16,14 @@ import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
 import { NotificationStore } from "../notifications/store";
 import type { SessionOwner } from "../sessions/owner";
-import { OpenTuiApp, buildRows, cleanLabel, type SessionBridgeLike, type StoreLike } from "./app";
+import {
+    OpenTuiApp,
+    buildRows,
+    cleanLabel,
+    type OpenTuiAppDeps,
+    type SessionBridgeLike,
+    type StoreLike,
+} from "./app";
 import { FakeNet, fullSettings, project, task } from "./test-helpers";
 
 class FakeStore implements StoreLike {
@@ -80,6 +87,7 @@ describe("OpenTuiApp", () => {
         onCreate?: (owner: SessionOwner, payload: SessionCreatePayload) => Promise<string>,
         onClose?: (sessionId: string) => Promise<void>,
         onResume?: (sessionId: string, cols: number, rows: number) => Promise<void>,
+        extra: Partial<OpenTuiAppDeps> = {},
     ) {
         const test = await createTestRenderer({ width, height, kittyKeyboard: true });
         const net = new FakeNet();
@@ -129,6 +137,7 @@ describe("OpenTuiApp", () => {
             onCreate,
             onClose,
             onResume,
+            ...extra,
         });
         await app.init();
         await test.renderOnce();
@@ -138,6 +147,70 @@ describe("OpenTuiApp", () => {
         );
         return { test, net, store, sessions, app };
     }
+
+    it("shows the machine label and opens the machine switcher with m", async () => {
+        let switches = 0;
+        const { test } = await setup(100, 24, false, undefined, undefined, undefined, {
+            machineLabel: "Studio Mac",
+            onSwitchMachine: () => switches++,
+        });
+        const lines = test.captureCharFrame().split("\n");
+        expect(lines[0]).toContain("Studio Mac");
+        expect(lines[23]).toContain("m Machines");
+
+        test.mockInput.pressKey("m");
+        expect(switches).toBe(1);
+    });
+
+    it("does not open the machine switcher from a product screen", async () => {
+        let switches = 0;
+        const { test } = await setup(100, 24, false, undefined, undefined, undefined, {
+            onSwitchMachine: () => switches++,
+        });
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Project: Project");
+
+        test.mockInput.pressKey("m");
+        expect(switches).toBe(0);
+    });
+
+    it("gives an external overlay the keys and the footer until it closes", async () => {
+        const { test, app } = await setup(100, 24);
+        const keys: string[] = [];
+        let hints = " Overlay hints";
+        const handle = app.showOverlay({
+            get keyHints() {
+                return hints;
+            },
+            handleKey: (event) => {
+                if (event.eventType === "press") keys.push(event.name);
+            },
+        });
+        await test.renderOnce();
+        expect(test.captureCharFrame().split("\n")[23]).toContain("Overlay hints");
+
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        await test.renderOnce();
+        expect(keys).toEqual(["down", "t"]);
+        expect(test.captureCharFrame()).not.toContain("Project: Project");
+
+        hints = " Connecting";
+        handle.refresh();
+        await test.renderOnce();
+        expect(test.captureCharFrame().split("\n")[23]).toContain("Connecting");
+
+        handle.close();
+        await test.renderOnce();
+        expect(test.captureCharFrame().split("\n")[23]).toContain("? Help");
+        test.mockInput.pressKey("?");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Taskflow keyboard help");
+        expect(keys).toEqual(["down", "t"]);
+    });
 
     it("renders the 80x24 sidebar with truthful badges", async () => {
         const { test } = await setup();

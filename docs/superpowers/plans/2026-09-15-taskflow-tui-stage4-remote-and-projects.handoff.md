@@ -181,3 +181,27 @@ Deviations:
 - The state dir, registry and state file are set up only on the non-`--connect` path, so `--connect` behaves exactly as before.
 - The local backend now starts after the renderer exists (on pick), so a start failure shows in the picker.
 - No automated test covers `entry.ts`, as in Task 3. It was checked by hand for the unknown-name exit (2) and the two-positional usage error.
+
+### Task 6 — switching machines and the local backend lifecycle
+
+Status: DONE_WITH_CONCERNS. Commit: `feat(tui): switch machines without leaving the terminal`.
+
+- `opentui/machine-session.ts`: `MachineSession` owns the current `{workspace, net, machineId, local}`, the local backend it started, and the machine picker. `switchTo(row)` checks for an open editor, connects first, saves the old selection, disposes the old workspace, closes its net, detaches if it was remote (the local backend keeps running), then opens, restores the selection and writes `lastMachineId`. `alreadyAttached` for the current id is a no-op success. For any other id it runs `detach(stale)` and then `connect(stale)`. `openPicker()` shows the picker in `launch` mode when no workspace is open (Esc quits, keys come from `keyInput`) and in `switch` mode otherwise (Esc closes, keys go through the app overlay). Discovery starts on open and stops on close. `shutdown()` runs once: picker, workspace, net, `closeAllTunnels`, local backend stop, `stopDiscovery`. Every step runs even if an earlier one throws. All I/O comes through `MachineSessionDeps`, which `entry.ts` wires.
+- `runtime.ts`: `setShutdownHook(hook)`, awaited before `renderer.destroy()`. A rejection is reported and cleanup continues.
+- `keys.ts`/`help.ts`: the `machines` command (`m`, group `Machines`, placed after General in `GROUP_ORDER`).
+- `app.ts`: `machineLabel` is the main panel's border title. `onSwitchMachine` handles `m` and shows the `m Machines` hint when set. `showOverlay(overlay: KeyOverlay): OverlayHandle` gives an outside dialog the keys and footer ahead of every app overlay.
+- `workspace.ts`: passes `machineLabel`/`onSwitchMachine` through, and adds `showOverlay`. `WorkspaceContext.onSwitchMachine` is now optional, and `--connect` omits it.
+- `entry.ts`: builds `MachineSession`, registers `session.shutdown` as the runtime hook, and no longer calls `ownSocket`/`ownBackend` for machine connections. `--connect` registers a hook that disposes its workspace.
+- Carried from Task 5: rejections from `addBackend`/`updateBackend`/`removeBackend` show on the picker through `showFailure` and are never unhandled.
+
+Test counts: `bun test packages/tui` went from 340 to 356 across 55 files (+10 machine-session, +2 runtime, +1 keys, +3 app). `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: `machine-session.test.ts` failed with `Cannot find module './machine-session'`. The runtime hook tests (2), the keys `m` route and help-group tests (2) and the app label and overlay tests (2) failed.
+
+Deviations:
+- `Workspace.showOverlay`/`OpenTuiApp.showOverlay` (new `KeyOverlay`/`OverlayHandle` types) let the switch picker take keys ahead of the app through the app's own `handleKey` chain.
+- Picking the row of the machine already open returns `{ok: true}` without connecting. Re-dialing it would reopen the tunnel that its live socket uses.
+- A declined host-key trust now shows `Not connected: the host key of <host> was not trusted.`, because `switchTo`'s result has no "backed out" case.
+- If `openWorkspace` throws after the old workspace is gone, the new connection is released and `switchTo` rejects. The picker then reports the error through `onFatal`, as launch did.
+- `MachinePickerDeps` is now an exported type. Task 5's `prompting` key guard is gone: the picker is pending during every connect, and a pending picker already ignores keys.
+- `entry.ts` has no automated test. The unknown-name exit (2) was re-checked by hand with a sandboxed HOME.

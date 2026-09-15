@@ -28,6 +28,7 @@ class OpenTuiRuntimeOwner {
     private renderer: OwnedRenderer | null = null;
     private socket: ClosableSocket | null = null;
     private backend: StoppableBackend | null = null;
+    private shutdownHook: (() => Promise<void>) | null = null;
     private shutdownPromise: Promise<void> | null = null;
     private destroyDone: Promise<void> = Promise.resolve();
     private resolveDestroy: (() => void) | null = null;
@@ -53,6 +54,15 @@ class OpenTuiRuntimeOwner {
 
     ownBackend(backend: StoppableBackend): void {
         this.backend = backend;
+    }
+
+    /**
+     * Cleanup that needs the renderer alive, such as disposing a workspace and
+     * its renderables. Every shutdown path awaits it before destroying the
+     * renderer. A rejection is reported and the rest of the cleanup still runs.
+     */
+    setShutdownHook(hook: () => Promise<void>): void {
+        this.shutdownHook = hook;
     }
 
     async create(): Promise<CliRenderer> {
@@ -127,6 +137,13 @@ class OpenTuiRuntimeOwner {
 
     private async shutdownOnce(): Promise<void> {
         this.removeProcessHandlers();
+        if (this.shutdownHook !== null) {
+            try {
+                await this.shutdownHook();
+            } catch (error) {
+                this.reportFatal(error);
+            }
+        }
         if (this.renderer !== null) {
             this.renderer.destroy();
             await this.destroyDone;

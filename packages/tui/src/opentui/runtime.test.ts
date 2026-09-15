@@ -84,4 +84,47 @@ describe("OpenTUI runtime", () => {
         await shutdown;
         expect(order).toEqual(["destroy", "socket", "backend"]);
     });
+
+    function hookedOwner(order: string[], hook: () => Promise<void>): OpenTuiRuntimeOwner {
+        const owner = new OpenTuiRuntimeOwner({
+            createRenderer: async (config) => ({
+                isDestroyed: false,
+                destroy: () => {
+                    order.push("renderer.destroy");
+                    config.onDestroy?.();
+                },
+            }),
+            exit: () => order.push("exit"),
+            reportFatal: (error) =>
+                order.push(`report:${error instanceof Error ? error.message : String(error)}`),
+        });
+        owner.setShutdownHook(hook);
+        return owner;
+    }
+
+    it("runs the shutdown hook before destroying the renderer on SIGTERM", async () => {
+        const order: string[] = [];
+        const owner = hookedOwner(order, async () => {
+            await Bun.sleep(1);
+            order.push("hook");
+        });
+        await owner.create();
+
+        process.emit("SIGTERM", "SIGTERM");
+        await owner.shutdown();
+        await Bun.sleep(1);
+        expect(order).toEqual(["hook", "renderer.destroy", "exit"]);
+    });
+
+    it("still destroys the renderer and exits when the hook rejects", async () => {
+        const order: string[] = [];
+        const owner = hookedOwner(order, () => Promise.reject(new Error("hook failed")));
+        owner.ownBackend({ stop: () => order.push("backend") });
+        await owner.create();
+
+        process.emit("SIGTERM", "SIGTERM");
+        await owner.shutdown();
+        await Bun.sleep(1);
+        expect(order).toEqual(["report:hook failed", "renderer.destroy", "backend", "exit"]);
+    });
 });

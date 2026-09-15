@@ -132,6 +132,25 @@ interface OpenTuiAppDeps {
     onFocusSession?: (sessionId: string) => boolean;
     onEditTaskText?: (task: Task, field: "description" | "notes") => Promise<Task | null>;
     onQuit?: () => void;
+    /** Shown as the main panel's title. */
+    machineLabel?: string;
+    onSwitchMachine?: () => void;
+}
+
+/**
+ * A dialog owned outside the app and drawn above it, such as the machine
+ * picker. While shown it reads keys before anything in the app, and its hints
+ * fill the footer.
+ */
+interface KeyOverlay {
+    readonly keyHints: string;
+    handleKey(event: KeyEvent): void;
+}
+
+interface OverlayHandle {
+    /** Redraw the footer after the overlay changed without a key press. */
+    refresh(): void;
+    close(): void;
 }
 
 interface SidebarRow {
@@ -261,6 +280,7 @@ class OpenTuiApp {
     private ownerFilterValue = "";
     private help: Help | null = null;
     private helpPreviousFocus: FocusTarget | null = null;
+    private overlay: KeyOverlay | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
     private schedulerEnabled = false;
     private pendingFlowOwnerKey: string | null = null;
@@ -308,6 +328,7 @@ class OpenTuiApp {
             flexGrow: 1,
             flexDirection: "column",
             border: true,
+            title: deps.machineLabel,
             overflow: "hidden",
         });
         this.tabStrip = new BoxRenderable(deps.renderer, {
@@ -693,6 +714,13 @@ class OpenTuiApp {
     }
 
     private handleKey(event: KeyEvent): void {
+        if (this.overlay) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.overlay.handleKey(event);
+            this.updateFooter();
+            return;
+        }
         if (this.productConfirm) {
             event.preventDefault();
             event.stopPropagation();
@@ -868,6 +896,9 @@ class OpenTuiApp {
             case "filter":
                 this.openOwnerFilter();
                 break;
+            case "machines":
+                this.deps.onSwitchMachine?.();
+                break;
             case "help":
                 this.openHelp();
                 break;
@@ -905,6 +936,26 @@ class OpenTuiApp {
         this.updateSessionVisibility();
         this.updateFooter();
         this.deps.renderer.requestRender();
+    }
+
+    showOverlay(overlay: KeyOverlay): OverlayHandle {
+        this.overlay = overlay;
+        const redraw = (): void => {
+            if (this.destroyed) return;
+            this.updateFooter();
+            this.deps.renderer.requestRender();
+        };
+        redraw();
+        return {
+            refresh: () => {
+                if (this.overlay === overlay) redraw();
+            },
+            close: () => {
+                if (this.overlay !== overlay) return;
+                this.overlay = null;
+                redraw();
+            },
+        };
     }
 
     private openHelp(): void {
@@ -1898,6 +1949,7 @@ class OpenTuiApp {
     }
 
     private currentKeyHints(): string {
+        if (this.overlay) return this.overlay.keyHints;
         if (this.productConfirm) return this.productConfirm.view.keyHints;
         if (this.confirm) return this.confirm.view.keyHints;
         if (this.picker) return this.picker.view.keyHints;
@@ -1953,6 +2005,7 @@ class OpenTuiApp {
             );
         }
         hints.push(commandHint("zoom"));
+        if (this.deps.onSwitchMachine) hints.push(commandHint("machines"));
         if (this.deps.onQuit) hints.push(commandHint("quit"));
         hints.push(commandHint("help"));
         return ` ${hints.join("  ")}`;
@@ -2103,6 +2156,7 @@ class OpenTuiApp {
         this.destroyed = true;
         if (this.escapeTimer !== null) clearTimeout(this.escapeTimer);
         this.keyRouter.clear();
+        this.overlay = null;
         this.picker?.view.destroy();
         this.picker = null;
         this.taskCreate?.destroy();
@@ -2136,4 +2190,11 @@ class OpenTuiApp {
 }
 
 export { OpenTuiApp, buildRows, cleanLabel };
-export type { InjectedSession, OpenTuiAppDeps, SessionBridgeLike, StoreLike };
+export type {
+    InjectedSession,
+    KeyOverlay,
+    OpenTuiAppDeps,
+    OverlayHandle,
+    SessionBridgeLike,
+    StoreLike,
+};
