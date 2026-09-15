@@ -6,18 +6,33 @@ import { backendUrl } from "./net/client";
 
 describe("parseArgs", () => {
     test("defaults to local mode", () => {
-        expect(parseArgs([])).toEqual({ connect: null });
+        expect(parseArgs([])).toEqual({ connect: null, machine: null });
+    });
+
+    test("a single positional argument names a saved machine", () => {
+        expect(parseArgs(["desk"])).toEqual({ connect: null, machine: "desk" });
+    });
+
+    test("rejects a machine name together with --connect", () => {
+        expect(() => parseArgs(["desk", "--connect", "127.0.0.1:7777"])).toThrow(/usage:/);
+        expect(() => parseArgs(["--connect=127.0.0.1:7777", "desk"])).toThrow(/usage:/);
+    });
+
+    test("rejects two machine names", () => {
+        expect(() => parseArgs(["desk", "laptop"])).toThrow(/usage:/);
     });
 
     test("parses host and port from --connect", () => {
         expect(parseArgs(["--connect", "127.0.0.1:7777"])).toEqual({
             connect: { host: "127.0.0.1", port: 7777 },
+            machine: null,
         });
     });
 
     test("accepts --connect=host:port", () => {
         expect(parseArgs(["--connect=desktop.local:9000"])).toEqual({
             connect: { host: "desktop.local", port: 9000 },
+            machine: null,
         });
     });
 
@@ -41,6 +56,7 @@ describe("parseArgs", () => {
     test("strips the brackets from an IPv6 target", () => {
         expect(parseArgs(["--connect", "[::1]:7777"])).toEqual({
             connect: { host: "::1", port: 7777 },
+            machine: null,
         });
     });
 
@@ -145,6 +161,7 @@ describe("parseArgs", () => {
         // class is what now decides it, and a URL takes it.
         expect(parseArgs(["--connect", "my_host:7777"])).toEqual({
             connect: { host: "my_host", port: 7777 },
+            machine: null,
         });
     });
 

@@ -162,5 +162,5 @@ class SessionPicker {
     }
 }
 
-export { SessionPicker };
+export { SessionPicker, singleLine };
 export type { SessionPickerDeps };

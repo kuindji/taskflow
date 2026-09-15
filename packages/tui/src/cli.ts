@@ -7,9 +7,12 @@ import { backendUrl } from "./net/client";
 interface CliOptions {
     /** Null in local mode, where the TUI spawns a backend of its own. */
     connect: { host: string; port: number } | null;
+    /** A saved machine's display name or id, which skips the machine picker. */
+    machine: string | null;
 }
 
-const USAGE = "usage: taskflow-tui [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)";
+const USAGE =
+    "usage: taskflow-tui [machine] [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)";
 
 /**
  * Whether the target carries whitespace or a C0/DEL control. Checked before the
@@ -97,6 +100,7 @@ function parseTarget(value: string): { host: string; port: number } {
 
 function parseArgs(argv: string[]): CliOptions {
     let connect: CliOptions["connect"] = null;
+    let machine: string | null = null;
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i] ?? "";
@@ -111,10 +115,18 @@ function parseArgs(argv: string[]): CliOptions {
             i++;
             continue;
         }
+        if (!arg.startsWith("-")) {
+            if (machine !== null) throw new Error(`Expected one machine name. ${USAGE}`);
+            machine = arg;
+            continue;
+        }
         throw new Error(`Unknown argument: ${arg}. ${USAGE}`);
     }
 
-    return { connect };
+    if (connect !== null && machine !== null) {
+        throw new Error(`A machine name and --connect can't be used together. ${USAGE}`);
+    }
+    return { connect, machine };
 }
 
 export { parseArgs };

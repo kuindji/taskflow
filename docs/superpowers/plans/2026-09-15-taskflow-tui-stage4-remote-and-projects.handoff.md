@@ -161,3 +161,23 @@ Deviations:
 - `deps.createClient` and the success variant's `net` use `MachineClient` (`NetLike` plus `connect`/`retarget`/`close`), which `WsClient` satisfies, instead of `WsClient` (controller ruling: a fake can't match private fields).
 - A backend whose `SYSTEM_INFO` has no `backendUid` skips `confirmBackend` and keeps the requested id, as the renderer's `backend-store.ts` does. The brief didn't cover this case.
 - Extra tests for an unparsable origin and the no-uid path.
+
+### Task 5 — machine picker and launch
+
+Status: DONE_WITH_CONCERNS. Commit: `feat(tui): open a machine picker at launch`.
+
+- `cli.ts`: `CliOptions` is `{ connect, machine }`. One positional sets `machine`. A second positional, or a positional together with `--connect`, is a usage error. `USAGE` is updated.
+- `opentui/machine-picker.ts`: `MachinePicker`, with the rows from `buildPickerRows` preselected by `initialIndex`. Keys: `↑↓/jk`, Enter (on the add row it opens the form), `a` for the add form (host, SSH user, SSH port, backend port; host required, ports 1–65535 or empty), `R` rename and `F` forget (with `Confirm`) only on saved rows, Esc (`onCancel`; the hints say Quit in `launch` and Close in `switch`). `showFailure` stays until the next key. Launch mode draws its own key-hint footer. `askTrust(renderer, fingerprint, host)` subscribes to `keyInput` itself.
+- `opentui/entry.ts`: `--connect` keeps the direct path and never touches the registry. Otherwise it resolves the state dir, then `createMachines`, `load`, `readTuiState`. An unknown name prints `Unknown machine "<name>". Saved: <names>` and exits 2. The pick and connect logic lives in `launchMachine` plus `connectRow`/`connectLocal`/`connectRemote`, ready for Task 6's `MachineSession`. Discovery runs only while the picker is shown. Quitting stops discovery and calls `tunnels.closeAllTunnels()` after the runtime shutdown.
+
+Test counts: `bun test packages/tui` went from 317 to 340 across 54 files. This task adds 18 (3 cli + 15 picker). The other 5 are from ad4f9c8b (Task 4 fix, another agent). `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: 6 cli tests failed (shape and positional), and `machine-picker.test.ts` failed with `Cannot find module './machine-picker'`.
+
+Deviations:
+- `MachinePicker.setPending(message | null)` was added, because the brief's interface has no way to show "Connecting…" or to block a second Enter while a connect runs.
+- `singleLine` is now exported from `session-picker.ts` and reused rather than duplicated.
+- An `alreadyAttached` result at launch shows "<name> is already connected." (controller ruling: treat it as a failure).
+- The state dir, registry and state file are set up only on the non-`--connect` path, so `--connect` behaves exactly as before.
+- The local backend now starts after the renderer exists (on pick), so a start failure shows in the picker.
+- No automated test covers `entry.ts`, as in Task 3. It was checked by hand for the unknown-name exit (2) and the two-positional usage error.
