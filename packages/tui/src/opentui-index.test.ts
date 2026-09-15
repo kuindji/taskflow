@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "fs/promises";
 import type { ActionDefinition } from "@taskflow/shared";
-import { editorActions } from "./opentui/entry";
+import { editorActions } from "./opentui/workspace";
 
 const timestamp = "2026-08-25T00:00:00.000Z";
 
@@ -35,7 +35,7 @@ describe("TUI entry point", () => {
     });
 
     it("wires the production entry through SessionController", async () => {
-        const source = await readFile(new URL("./opentui/entry.ts", import.meta.url), "utf-8");
+        const source = await readFile(new URL("./opentui/workspace.ts", import.meta.url), "utf-8");
         expect(source).toContain("new SessionController");
         expect(source).not.toContain("sessions: []");
     });

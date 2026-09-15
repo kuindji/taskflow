@@ -4,7 +4,7 @@ Plan: `docs/superpowers/plans/2026-09-15-taskflow-tui-stage4-remote-and-projects
 
 Spec: `docs/superpowers/specs/2026-09-15-taskflow-tui-stage4-remote-and-projects-design.md`
 
-Status: implementation in progress. Tasks 1 (move gate) and 2 (state dir/state file/registry) DONE. Next action: Task 3.
+Status: implementation in progress. Tasks 1 (move gate), 2 (state dir/state file/registry) and 3 (`openWorkspace` extraction) DONE. Next action: Task 4.
 
 ## Plan review
 

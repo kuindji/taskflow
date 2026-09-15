@@ -2022,6 +2022,12 @@ class OpenTuiApp {
         return this.selectedOwnerState;
     }
 
+    selectOwner(owner: SessionOwner): void {
+        if (this.destroyed) return;
+        this.selectedOwnerState = owner;
+        this.refreshRows(true);
+    }
+
     get selectedSessions(): readonly SessionRef[] {
         return sessionsForOwner(this.deps.store, this.selectedOwnerState);
     }
