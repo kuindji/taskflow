@@ -18,6 +18,7 @@ import { NotificationStore } from "../notifications/store";
 import { OfflineGuardNet } from "../net/offline-guard";
 import type { SessionOwner } from "../sessions/owner";
 import { SessionBridge } from "./session-bridge";
+import { COMMAND_METADATA } from "./keys";
 import {
     OpenTuiApp,
     buildRows,
@@ -133,6 +134,7 @@ describe("OpenTuiApp", () => {
             : [];
         const app = new OpenTuiApp({
             renderer: test.renderer,
+            local: true,
             net,
             store,
             sessions,
@@ -310,6 +312,7 @@ describe("OpenTuiApp", () => {
         const scheduleStore = new ScheduleStore(net);
         const app = new OpenTuiApp({
             renderer: test.renderer,
+            local: true,
             net,
             store,
             flowStore,
@@ -363,6 +366,7 @@ describe("OpenTuiApp", () => {
         const edits: string[] = [];
         const app = new OpenTuiApp({
             renderer: test.renderer,
+            local: true,
             net,
             store,
             flowStore,
@@ -412,6 +416,7 @@ describe("OpenTuiApp", () => {
         const scheduleStore = new ScheduleStore(net);
         const app = new OpenTuiApp({
             renderer: test.renderer,
+            local: true,
             net,
             store,
             flowStore,
@@ -600,7 +605,7 @@ describe("OpenTuiApp", () => {
             },
         ];
         const taskStore = new TaskDetailStore(net);
-        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, taskStore });
         await app.init();
         cleanups.push(
             () => app.destroy(),
@@ -630,7 +635,7 @@ describe("OpenTuiApp", () => {
         const store = new FakeStore();
         store.projects = [project("p1", "Project")];
         const taskStore = new TaskDetailStore(net);
-        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, taskStore });
         await app.init();
         cleanups.push(
             () => app.destroy(),
@@ -681,7 +686,7 @@ describe("OpenTuiApp", () => {
         store.projects = [project("p1", "Project")];
         store.tasks = [active];
         const taskStore = new TaskDetailStore(net);
-        const app = new OpenTuiApp({ renderer: test.renderer, net, store, taskStore });
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, taskStore });
         await app.init();
         cleanups.push(
             () => app.destroy(),
@@ -720,7 +725,7 @@ describe("OpenTuiApp", () => {
         store.projects = [project("p1", "Project")];
         store.tasks = [task("t1", "p1", "Task")];
         const gitStore = new GitStore(net);
-        const app = new OpenTuiApp({ renderer: test.renderer, net, store, gitStore });
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, gitStore });
         await app.init();
         cleanups.push(
             () => app.destroy(),
@@ -771,7 +776,13 @@ describe("OpenTuiApp", () => {
         store.projects = [project("p1", "Project")];
         store.tasks = [task("t1", "p1", "Hidden task")];
         const settingsStore = new SettingsStore(net);
-        const app = new OpenTuiApp({ renderer: test.renderer, net, store, settingsStore });
+        const app = new OpenTuiApp({
+            renderer: test.renderer,
+            local: true,
+            net,
+            store,
+            settingsStore,
+        });
         await app.init();
         cleanups.push(
             () => app.destroy(),
@@ -813,6 +824,7 @@ describe("OpenTuiApp", () => {
         const notificationStore = new NotificationStore(net);
         const app = new OpenTuiApp({
             renderer: test.renderer,
+            local: true,
             net,
             store,
             notificationStore,
@@ -1006,6 +1018,60 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Interrupted shell sessions cannot be resumed");
     });
 
+    describe("with a this-machine-only command", () => {
+        async function localOnlySetup(local: boolean) {
+            // No real command is this-machine-only yet, so mark Git as one for the test.
+            const git = COMMAND_METADATA.find((command) => command.kind === "git");
+            if (!git) throw new Error("git command metadata missing");
+            git.localOnly = true;
+            const test = await createTestRenderer({ width: 160, height: 24, kittyKeyboard: true });
+            const net = new FakeNet();
+            net.responses.set(MSG.GIT_STATUS, {
+                status: { branch: "main", ahead: 0, behind: 0, stagedFiles: [], unstagedFiles: [] },
+            });
+            const store = new FakeStore();
+            store.projects = [project("p1", "Project")];
+            const gitStore = new GitStore(net);
+            const app = new OpenTuiApp({ renderer: test.renderer, local, net, store, gitStore });
+            await app.init();
+            cleanups.push(
+                () => delete git.localOnly,
+                () => app.destroy(),
+                () => gitStore.dispose(),
+                () => test.renderer.destroy(),
+            );
+            test.mockInput.pressArrow("down");
+            await test.renderOnce();
+            const gitRequests = (): number =>
+                net.requests.filter((request) => request.type === MSG.GIT_STATUS).length;
+            return { test, gitRequests };
+        }
+
+        it("hides it from the footer on a remote machine and refuses to run it", async () => {
+            const { test, gitRequests } = await localOnlySetup(false);
+            const footer = (): string => test.captureCharFrame().split("\n")[23];
+            expect(footer()).toContain("z Zoom");
+            expect(footer()).not.toContain("g Git");
+
+            test.mockInput.pressKey("g");
+            await Bun.sleep(1);
+            await test.renderOnce();
+            expect(gitRequests()).toBe(0);
+            expect(footer()).toContain("Only available on this machine.");
+        });
+
+        it("shows and runs it on this machine", async () => {
+            const { test, gitRequests } = await localOnlySetup(true);
+            expect(test.captureCharFrame().split("\n")[23]).toContain("g Git");
+
+            test.mockInput.pressKey("g");
+            await Bun.sleep(1);
+            await test.renderOnce();
+            expect(gitRequests()).toBe(1);
+            expect(test.captureCharFrame()).not.toContain("Only available on this machine.");
+        });
+    });
+
     describe("while the machine is offline", () => {
         async function offlineSetup(width = 100) {
             const test = await createTestRenderer({ width, height: 24, kittyKeyboard: true });
@@ -1033,6 +1099,7 @@ describe("OpenTuiApp", () => {
             const gitStore = new GitStore(guard);
             const app = new OpenTuiApp({
                 renderer: test.renderer,
+                local: true,
                 net: guard,
                 store,
                 taskStore,

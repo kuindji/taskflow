@@ -32,13 +32,61 @@ describe("Help", () => {
             onClose: () => undefined,
         });
         testRenderer.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => testRenderer.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => testRenderer.renderer.destroy(),
+        );
         await testRenderer.renderOnce();
         const frame = testRenderer.captureCharFrame();
-        for (const group of ["Sessions", "Tasks", "Flows", "Schedules", "Git", "Settings", "Notifications"]) {
+        for (const group of [
+            "Sessions",
+            "Tasks",
+            "Flows",
+            "Schedules",
+            "Git",
+            "Settings",
+            "Notifications",
+        ]) {
             expect(frame).toContain(group);
         }
         for (const command of COMMAND_METADATA) expect(frame).toContain(command.description);
+    });
+
+    test("marks a this-machine-only command in its description", async () => {
+        const testRenderer = await createTestRenderer({ width: 80, height: 20 });
+        const view = new Help({
+            renderer: testRenderer.renderer,
+            commands: [
+                {
+                    kind: "git",
+                    group: "Git",
+                    keys: "g",
+                    label: "Git",
+                    description: "Synthetic local command",
+                    localOnly: true,
+                    route: () => null,
+                },
+                {
+                    kind: "zoom",
+                    group: "General",
+                    keys: "z",
+                    label: "Zoom",
+                    description: "Synthetic shared command",
+                    route: () => null,
+                },
+            ],
+            onClose: () => undefined,
+        });
+        testRenderer.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => testRenderer.renderer.destroy(),
+        );
+        await testRenderer.renderOnce();
+        const frame = testRenderer.captureCharFrame();
+        expect(frame).toContain("Synthetic local command (this machine only)");
+        expect(frame).toContain("Synthetic shared command");
+        expect(frame).not.toContain("Synthetic shared command (this machine only)");
     });
 
     test("scrolls from keyboard input and closes once", async () => {
@@ -49,7 +97,10 @@ describe("Help", () => {
             onClose: () => closes++,
         });
         testRenderer.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => testRenderer.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => testRenderer.renderer.destroy(),
+        );
         await testRenderer.renderOnce();
         const before = testRenderer.captureCharFrame();
         view.handleKey(key("pagedown"));

@@ -69,12 +69,14 @@ import { OwnerFilter } from "./owner-filter";
 import { TaskCreate } from "./task-create";
 import { TaskDetail } from "./task-detail";
 import {
+    COMMAND_METADATA,
     KeyRouter,
     commandForUiKey,
     commandHint,
     prepareForEmbeddedTerminal,
     type FocusTarget,
     type UiCommand,
+    type UiCommandKind,
 } from "./keys";
 
 interface StoreLike {
@@ -116,6 +118,8 @@ interface InjectedSession {
 
 interface OpenTuiAppDeps {
     renderer: CliRenderer;
+    /** Whether the backend runs on this machine. Commands marked `localOnly` need it. */
+    local: boolean;
     net: NetLike;
     store: StoreLike;
     sessions?: InjectedSession[];
@@ -297,6 +301,8 @@ class OpenTuiApp {
     private machineStatus: MachineStatus = { state: "online" };
     /** Set by the first refused request of an offline period, cleared when back online. */
     private offlineNotice = false;
+    /** Set when a this-machine-only command was refused, cleared by the next command. */
+    private localOnlyNotice = false;
 
     constructor(private readonly deps: OpenTuiAppDeps) {
         this.sessions = deps.sessions ?? [];
@@ -852,7 +858,21 @@ class OpenTuiApp {
         if (route.kind === "command") this.applyCommand(route.command);
     }
 
+    /** The one check for `localOnly` commands, shared by dispatch and the footer. */
+    private canRun(command: UiCommandKind): boolean {
+        return (
+            this.deps.local ||
+            COMMAND_METADATA.find((candidate) => candidate.kind === command)?.localOnly !== true
+        );
+    }
+
     private applyCommand(command: UiCommand): void {
+        this.localOnlyNotice = !this.canRun(command.kind);
+        if (this.localOnlyNotice) {
+            this.updateFooter();
+            this.deps.renderer.requestRender();
+            return;
+        }
         switch (command.kind) {
             case "move":
                 if (this.rows.length === 0) return;
@@ -2030,58 +2050,51 @@ class OpenTuiApp {
             return " Ctrl+Esc or Esc Esc  App controls";
         }
 
-        const hints = [
-            commandHint("move"),
-            commandHint(
-                "filter",
-                this.ownerFilterValue ? `Filter: ${this.ownerFilterValue}` : undefined,
-            ),
-        ];
+        const hints: string[] = [];
+        const hint = (command: UiCommandKind, label?: string): void => {
+            if (this.canRun(command)) hints.push(commandHint(command, label));
+        };
+        hint("move");
+        hint("filter", this.ownerFilterValue ? `Filter: ${this.ownerFilterValue}` : undefined);
         const session = this.sessions[this.activeSession];
-        if (session) hints.push(commandHint("open", "Focus"));
-        else if (this.selectedOwnerState.kind === "task") hints.push(commandHint("open", "Detail"));
-        if (this.sessions.length > 1) hints.push(commandHint("select-tab"));
-        hints.push(commandHint("create"));
-        if (this.selectedOwnerState.kind === "task") hints.push(commandHint("task-detail"));
+        if (session) hint("open", "Focus");
+        else if (this.selectedOwnerState.kind === "task") hint("open", "Detail");
+        if (this.sessions.length > 1) hint("select-tab");
+        hint("create");
+        if (this.selectedOwnerState.kind === "task") hint("task-detail");
         if (
             this.selectedOwnerState.kind === "project" ||
             (this.selectedOwnerState.kind === "task" &&
                 !this.deps.store.taskById(this.selectedOwnerState.taskId)?.parentId)
         ) {
-            hints.push(commandHint("task-create"));
+            hint("task-create");
         }
-        if (session) hints.push(commandHint("close"));
+        if (session) hint("close");
         if (session && this.canResume(session) && !this.resumePending.has(session.id)) {
-            hints.push(commandHint("resume"));
+            hint("resume");
         }
-        if (this.deps.flowStore) hints.push(commandHint("flows"));
-        if (this.deps.scheduleStore) hints.push(commandHint("schedules"));
-        if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) {
-            hints.push(commandHint("git"));
-        }
-        if (this.deps.settingsStore) hints.push(commandHint("settings"));
+        if (this.deps.flowStore) hint("flows");
+        if (this.deps.scheduleStore) hint("schedules");
+        if (repositoryPathForOwner(this.selectedOwnerState, this.deps.store)) hint("git");
+        if (this.deps.settingsStore) hint("settings");
         if (this.deps.notificationStore) {
             const unread = this.deps.notificationStore.unreadCount;
-            hints.push(
-                commandHint(
-                    "notifications",
-                    `Notifications${unread > 0 ? ` (${String(unread)})` : ""}`,
-                ),
-            );
+            hint("notifications", `Notifications${unread > 0 ? ` (${String(unread)})` : ""}`);
         }
-        hints.push(commandHint("zoom"));
-        if (this.deps.onSwitchMachine) hints.push(commandHint("machines"));
-        if (this.deps.onQuit) hints.push(commandHint("quit"));
-        hints.push(commandHint("help"));
+        hint("zoom");
+        if (this.deps.onSwitchMachine) hint("machines");
+        if (this.deps.onQuit) hint("quit");
+        hint("help");
         return ` ${hints.join("  ")}`;
     }
 
     private updateFooter(): void {
         if (this.destroyed || this.footer.isDestroyed) return;
+        const notices: string[] = [];
+        if (this.offlineNotice) notices.push(`${this.machineName()} is offline.`);
+        if (this.localOnlyNotice) notices.push("Only available on this machine.");
         const hints = this.currentKeyHints();
-        this.footer.content = this.offlineNotice
-            ? ` ${this.machineName()} is offline. ${hints}`
-            : hints;
+        this.footer.content = notices.length > 0 ? ` ${notices.join(" ")} ${hints}` : hints;
     }
 
     private updateFocus(): void {

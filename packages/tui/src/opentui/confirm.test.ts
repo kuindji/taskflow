@@ -53,6 +53,61 @@ describe("Confirm", () => {
         expect(confirmed()).toBe(1);
     });
 
+    it("flips the toggle with Space or t and passes its value on confirm", async () => {
+        const test = await createTestRenderer({ width: 80, height: 24 });
+        const values: boolean[] = [];
+        const confirm = new Confirm({
+            renderer: test.renderer,
+            title: "Remove project",
+            message: "Remove this project from Taskflow?",
+            toggle: { label: "Also delete task files", initial: false },
+            onConfirm: (toggleValue) => values.push(toggleValue),
+            onCancel: () => undefined,
+        });
+        test.renderer.root.add(confirm.renderable);
+        cleanups.push(
+            () => confirm.destroy(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("[ ] Also delete task files");
+
+        confirm.handleKey(key("space", " "));
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("[x] Also delete task files");
+        confirm.handleKey(key("t", "t"));
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("[ ] Also delete task files");
+        confirm.handleKey(key("t", "t"));
+
+        confirm.handleKey(key("return", "\r"));
+        expect(values).toEqual([true]);
+    });
+
+    it("renders no toggle line without a toggle and passes false", async () => {
+        const test = await createTestRenderer({ width: 80, height: 24 });
+        const values: boolean[] = [];
+        const confirm = new Confirm({
+            renderer: test.renderer,
+            title: "Close session",
+            message: "Close it?",
+            onConfirm: (toggleValue) => values.push(toggleValue),
+            onCancel: () => undefined,
+        });
+        test.renderer.root.add(confirm.renderable);
+        cleanups.push(
+            () => confirm.destroy(),
+            () => test.renderer.destroy(),
+        );
+        confirm.handleKey(key("space", " "));
+        await test.renderOnce();
+        const frame = test.captureCharFrame();
+        expect(frame).not.toContain("[ ]");
+        expect(frame).not.toContain("[x]");
+        confirm.handleKey(key("return", "\r"));
+        expect(values).toEqual([false]);
+    });
+
     it("cancels with n or Escape and shows a retryable error", async () => {
         const { test, confirm, cancelled } = await setup();
         confirm.handleKey(key("n", "n"));

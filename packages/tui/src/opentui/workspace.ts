@@ -260,6 +260,7 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
     try {
         const createdApp = new OpenTuiApp({
             renderer,
+            local: context.local,
             net,
             store,
             flowStore,

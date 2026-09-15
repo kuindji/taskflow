@@ -226,3 +226,23 @@ Test counts: `bun test packages/tui` went from 356 to 376 across 56 files (+2 of
 RED evidence: offline-guard, machine-session and app tests failed with `Cannot find module`, and 2 session-bridge resize tests failed.
 
 Deviations: `resetResize` uses the tracked applied size, because `renderable.width` is layout-computed. `tunnelExited` runs for any id. The retry failure reason doesn't replace the exit reason. `stopped` uses the offline title format. The status listener subscribes before `openWorkspace`, so the guard opens before the app's reconnect reloads. Concerns (status events during `openWorkspace` are ignored; mouse and paste input dropped silently while offline) are in the task-7 report.
+
+### Task 8 — local-only gating and the Confirm toggle
+
+Status: DONE. Commit: `feat(tui): gate this-machine-only commands`.
+
+- `keys.ts`: `CommandMetadata.localOnly?: boolean`. No existing command is marked, and a keys test guards that.
+- `app.ts`:
+  - `OpenTuiAppDeps.local: boolean` (required), which `openWorkspace` fills from `context.local`.
+  - `canRun(kind)` is the only check. `applyCommand` refuses a gated command and shows the footer notice `Only available on this machine.`, which the next command clears. The main footer skips hints that `canRun` refuses.
+  - The offline and local-only notices share one prefix, and the offline text is unchanged.
+- `help.ts`: `localOnly` commands get the ` (this machine only)` suffix.
+- `confirm.ts`:
+  - `ConfirmDeps.toggle?: { label; initial }`. `Space`/`t` flip it, it renders `[x] label` or `[ ] label`, and a `Space/t Toggle` hint is shown.
+  - `onConfirm(toggleValue: boolean)`. Without a toggle, `false` is passed and behaviour is unchanged. `messageFor` is left to Task 9.
+
+Test counts: `bun test packages/tui` went from 376 to 385 across 56 files (+2 confirm, +1 help, +1 keys, +2 app). The before-run also had 3 failures from another agent's in-progress `machine-session` tests, fixed in `684b0617`. `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: 2 confirm toggle tests, the help suffix test and the remote app gating test failed.
+
+Deviations: the app tests mark the `git` metadata entry `localOnly` for the duration of the test and delete the flag in cleanup, since no real localOnly command exists. The 11 existing app-test constructions got `local: true`. Prettier reformatted a few existing lines in `help.test.ts`.

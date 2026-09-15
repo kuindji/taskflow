@@ -191,6 +191,10 @@ describe("KeyRouter", () => {
         }
     });
 
+    it("keeps every existing command available on remote machines", () => {
+        expect(COMMAND_METADATA.filter((command) => command.localOnly)).toEqual([]);
+    });
+
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {
         const ctrlC = key("c", {
             ctrl: true,

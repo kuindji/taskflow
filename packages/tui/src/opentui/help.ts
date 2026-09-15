@@ -89,7 +89,9 @@ class Help {
             for (const command of commands) {
                 this.renderable.add(
                     new TextRenderable(this.deps.renderer, {
-                        content: ` ${command.keys.padEnd(10)} ${command.description}`,
+                        content: ` ${command.keys.padEnd(10)} ${command.description}${
+                            command.localOnly ? " (this machine only)" : ""
+                        }`,
                         minHeight: 1,
                         wrapMode: "word",
                     }),

@@ -47,6 +47,8 @@ interface CommandMetadata {
     hintKeys?: string;
     label: string;
     description: string;
+    /** Needs this machine: hidden from the footer and refused while remote, marked in help. */
+    localOnly?: boolean;
     route(input: CommandRouteInput): UiCommand | null;
 }
 

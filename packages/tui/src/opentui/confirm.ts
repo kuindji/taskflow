@@ -4,7 +4,10 @@ interface ConfirmDeps {
     renderer: CliRenderer;
     title: string;
     message: string;
-    onConfirm(): void;
+    /** An option the user can flip before confirming, rendered as `[x] label`. */
+    toggle?: { label: string; initial: boolean };
+    /** Receives the toggle's value, or `false` when there is no toggle. */
+    onConfirm(toggleValue: boolean): void;
     onCancel(): void;
     onStateChange?(): void;
 }
@@ -14,8 +17,10 @@ class Confirm {
     private readonly dialog: BoxRenderable;
     private pending = false;
     private error: string | null = null;
+    private toggleValue: boolean;
 
     constructor(private readonly deps: ConfirmDeps) {
+        this.toggleValue = deps.toggle?.initial ?? false;
         this.renderable = new BoxRenderable(deps.renderer, {
             id: "confirm-overlay",
             position: "absolute",
@@ -44,7 +49,10 @@ class Confirm {
     }
 
     get keyHints(): string {
-        return this.pending ? " Working..." : " Enter/y Confirm  Esc/n Cancel";
+        if (this.pending) return " Working...";
+        return this.deps.toggle
+            ? " Enter/y Confirm  Space/t Toggle  Esc/n Cancel"
+            : " Enter/y Confirm  Esc/n Cancel";
     }
 
     handleKey(event: KeyEvent): void {
@@ -55,11 +63,16 @@ class Confirm {
             this.deps.onCancel();
             return;
         }
+        if (this.deps.toggle && (event.name === "space" || event.sequence === "t")) {
+            this.toggleValue = !this.toggleValue;
+            this.rebuild();
+            return;
+        }
         if (event.sequence === "y" || event.name === "return" || event.name === "enter") {
             this.pending = true;
             this.error = null;
             this.rebuild();
-            this.deps.onConfirm();
+            this.deps.onConfirm(this.toggleValue);
         }
     }
 
@@ -78,6 +91,14 @@ class Confirm {
                 wrapMode: "word",
             }),
         );
+        if (this.deps.toggle) {
+            this.dialog.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: ` [${this.toggleValue ? "x" : " "}] ${this.deps.toggle.label}`,
+                    height: 1,
+                }),
+            );
+        }
         if (this.error) {
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, {
