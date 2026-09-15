@@ -9,6 +9,7 @@ import {
 import type { MenuEntry } from "@taskflow/shared";
 import { buildPickerRows, initialIndex, type PickerRow } from "../remote/picker-model";
 import { Confirm } from "./confirm";
+import { deliverKeyToView } from "./keys";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { singleLine } from "./session-picker";
 
@@ -396,8 +397,9 @@ class MachinePicker {
 }
 
 /**
- * Ask whether to trust a host key ssh has never seen. The dialog reads keys
- * itself, so whoever routes keys must hold them back until this settles.
+ * Ask whether to trust a host key ssh has never seen. It opens while the picker
+ * or the app already owns a keypress listener that claims every key, so the
+ * dialog listens ahead of them and claims its keys first.
  */
 function askTrust(renderer: CliRenderer, fingerprint: string, host: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -414,8 +416,8 @@ function askTrust(renderer: CliRenderer, fingerprint: string, host: string): Pro
             onConfirm: () => settle(true),
             onCancel: () => settle(false),
         });
-        const onKey = (event: KeyEvent): void => view.handleKey(event);
-        renderer.keyInput.on("keypress", onKey);
+        const onKey = (event: KeyEvent): void => deliverKeyToView(event, view);
+        renderer.keyInput.prependListener("keypress", onKey);
         renderer.root.add(view.renderable);
         renderer.requestRender();
     });

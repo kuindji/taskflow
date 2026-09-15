@@ -3,6 +3,7 @@ import { KeyEvent } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { MenuEntry } from "@taskflow/shared";
 import type { PickerRow } from "../remote/picker-model";
+import { deliverKeyToView } from "./keys";
 import { askTrust, MachinePicker } from "./machine-picker";
 
 function key(name: string, sequence = name, shift = false): KeyEvent {
@@ -241,6 +242,20 @@ describe("askTrust", () => {
         expect(await answer).toBe(true);
         await test.renderOnce();
         expect(test.captureCharFrame()).not.toContain("SHA256:abc123");
+    });
+
+    it("gets keys ahead of a listener that already claims them", async () => {
+        const test = await createTestRenderer({ width: 100, height: 30 });
+        cleanups.push(() => test.renderer.destroy());
+        const behind: string[] = [];
+        // The app's key handler and the launch picker both claim every key.
+        test.renderer.keyInput.on("keypress", (event: KeyEvent) =>
+            deliverKeyToView(event, { handleKey: () => behind.push(event.name) }),
+        );
+        const answer = askTrust(test.renderer, "SHA256:abc123", "desk.lan");
+        test.renderer.keyInput.emit("keypress", key("y", "y"));
+        expect(await answer).toBe(true);
+        expect(behind).toEqual([]);
     });
 
     it("resolves false on Esc", async () => {

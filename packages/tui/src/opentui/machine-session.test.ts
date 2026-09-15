@@ -8,7 +8,7 @@ import type { ConnectOutcome, MachineClient } from "../remote/connect";
 import type { PickerRow } from "../remote/picker-model";
 import type { TuiState } from "../remote/tui-state";
 import type { KeyOverlay, MachineStatus } from "./app";
-import { MachinePicker, type MachinePickerDeps } from "./machine-picker";
+import { askTrust, MachinePicker, type MachinePickerDeps } from "./machine-picker";
 import { MachineSession, type MachineSessionDeps } from "./machine-session";
 import type { WorkspaceContext } from "./workspace";
 
@@ -140,8 +140,13 @@ describe("MachineSession", () => {
         for (const cleanup of cleanups.splice(0).reverse()) cleanup();
     });
 
-    /** `realPicker` mounts the real MachinePicker, as entry.ts does, instead of a recording fake. */
-    async function harness(options: { realPicker?: boolean } = {}): Promise<Harness> {
+    /**
+     * `realPicker` mounts the real MachinePicker, as entry.ts does, instead of a recording fake.
+     * `realTrust` asks through the real trust dialog instead of always answering no.
+     */
+    async function harness(
+        options: { realPicker?: boolean; realTrust?: boolean } = {},
+    ): Promise<Harness> {
         const test = await createTestRenderer({ width: 80, height: 24 });
         cleanups.push(() => test.renderer.destroy());
         const log: string[] = [];
@@ -281,7 +286,10 @@ describe("MachineSession", () => {
                     },
                 };
             },
-            askTrust: () => Promise.resolve(false),
+            askTrust: (fingerprint, host) =>
+                options.realTrust
+                    ? askTrust(test.renderer, fingerprint, host)
+                    : Promise.resolve(false),
             onQuit: () => undefined,
             onFatal: (error) => {
                 throw error;
@@ -791,6 +799,36 @@ describe("MachineSession", () => {
             h.test.mockInput.pressEnter();
             await Bun.sleep(2);
             expect(renamed).toEqual([["alpha", "alphax"]]);
+        });
+
+        it("answers the host key prompt with y", async () => {
+            const h = await harness({ realPicker: true, realTrust: true });
+            const trusted: string[] = [];
+            h.registry.getHostFingerprint = () =>
+                Promise.resolve({ ok: true, fingerprint: "SHA256:abc123" });
+            h.registry.trustBackendHost = (id) => {
+                trusted.push(id);
+                return Promise.resolve({ ok: true });
+            };
+            h.outcomes.set("alpha", [
+                {
+                    ok: false,
+                    machineId: "alpha",
+                    failure: failure("unknown-host-key", "Host key verification failed."),
+                },
+            ]);
+            await h.session.openPicker();
+            h.test.mockInput.pressArrow("down"); // This machine -> alpha
+            h.test.mockInput.pressEnter();
+            await waitFor(() => h.log.includes("connect(alpha)"));
+            await Bun.sleep(5);
+            await h.test.renderOnce();
+            expect(h.test.captureCharFrame()).toContain("SHA256:abc123");
+
+            h.test.mockInput.pressKey("y");
+            await waitFor(() => trusted.length === 1);
+            await waitFor(() => h.log.includes("open(alpha)"));
+            expect(trusted).toEqual(["alpha"]);
         });
 
         it("holds exactly one keypress listener while open and none once it closes", async () => {
