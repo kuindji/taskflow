@@ -8,7 +8,7 @@ import type { ConnectOutcome, MachineClient } from "../remote/connect";
 import type { PickerRow } from "../remote/picker-model";
 import type { TuiState } from "../remote/tui-state";
 import type { KeyOverlay, MachineStatus } from "./app";
-import type { MachinePickerDeps } from "./machine-picker";
+import { MachinePicker, type MachinePickerDeps } from "./machine-picker";
 import { MachineSession, type MachineSessionDeps } from "./machine-session";
 import type { WorkspaceContext } from "./workspace";
 
@@ -91,6 +91,7 @@ interface FakeTimer {
 type AttachResult = Awaited<ReturnType<Registry["attachBackend"]>>;
 
 interface Harness {
+    test: Awaited<ReturnType<typeof createTestRenderer>>;
     session: MachineSession;
     log: string[];
     state: TuiState;
@@ -139,7 +140,8 @@ describe("MachineSession", () => {
         for (const cleanup of cleanups.splice(0).reverse()) cleanup();
     });
 
-    async function harness(): Promise<Harness> {
+    /** `realPicker` mounts the real MachinePicker, as entry.ts does, instead of a recording fake. */
+    async function harness(options: { realPicker?: boolean } = {}): Promise<Harness> {
         const test = await createTestRenderer({ width: 80, height: 24 });
         cleanups.push(() => test.renderer.destroy());
         const log: string[] = [];
@@ -263,6 +265,11 @@ describe("MachineSession", () => {
             createPicker: (deps): PickerView => {
                 const record = { deps, failures: [] as string[], destroyed: false };
                 pickers.push(record);
+                if (options.realPicker) {
+                    const picker = new MachinePicker(deps);
+                    test.renderer.root.add(picker.renderable);
+                    return picker;
+                }
                 return {
                     keyHints: " picker",
                     handleKey: () => undefined,
@@ -282,6 +289,7 @@ describe("MachineSession", () => {
         });
         cleanups.push(() => void session.shutdown());
         return {
+            test,
             session,
             log,
             state,
@@ -710,5 +718,97 @@ describe("MachineSession", () => {
             "EACCES: rename",
         ]);
         expect(unhandled).toEqual([]);
+    });
+
+    describe("launch picker keys", () => {
+        async function launch(): Promise<{
+            h: Harness;
+            added: string[];
+            renamed: Array<[string, string]>;
+            frame: () => Promise<string>;
+        }> {
+            const h = await harness({ realPicker: true });
+            const added: string[] = [];
+            const renamed: Array<[string, string]> = [];
+            h.registry.addBackend = (input) => {
+                added.push(input.host);
+                return Promise.resolve({
+                    id: input.host,
+                    backendUid: null,
+                    host: input.host,
+                    instanceId: "main",
+                    displayName: input.host,
+                    user: "",
+                    sshPort: 22,
+                    lastKnownPort: null,
+                    attached: false,
+                    addedAt: "2026-09-15T00:00:00.000Z",
+                });
+            };
+            h.registry.updateBackend = (id, patch) => {
+                renamed.push([id, patch.displayName ?? ""]);
+                return Promise.resolve({ ok: true });
+            };
+            // No workspace is open yet, so the picker opens in launch mode.
+            await h.session.openPicker();
+            expect(h.pickers[0].deps.mode).toBe("launch");
+            const frame = async (): Promise<string> => {
+                await h.test.renderOnce();
+                return h.test.captureCharFrame();
+            };
+            return { h, added, renamed, frame };
+        }
+
+        it("types each key once into the Add machine host, without the opening a", async () => {
+            const { h, added, frame } = await launch();
+            h.test.mockInput.pressKey("a");
+            for (const char of "127.0.0.1") h.test.mockInput.pressKey(char);
+            h.test.mockInput.pressTab();
+            expect(await frame()).toContain("Host: 127.0.0.1 ");
+
+            h.test.mockInput.pressEnter();
+            await Bun.sleep(2);
+            expect(added).toEqual(["127.0.0.1"]);
+        });
+
+        it("keeps a pasted host when Tab moves to the next field", async () => {
+            const { h, added, frame } = await launch();
+            h.test.mockInput.pressKey("a");
+            await h.test.mockInput.pasteBracketedText("127.0.0.1");
+            h.test.mockInput.pressTab();
+            expect(await frame()).toContain("Host: 127.0.0.1 ");
+
+            h.test.mockInput.pressEnter();
+            await Bun.sleep(2);
+            expect(added).toEqual(["127.0.0.1"]);
+        });
+
+        it("types each key once into Rename, without the opening R", async () => {
+            const { h, renamed } = await launch();
+            h.test.mockInput.pressArrow("down"); // This machine -> alpha
+            h.test.mockInput.pressKey("R");
+            h.test.mockInput.pressKey("x");
+            h.test.mockInput.pressEnter();
+            await Bun.sleep(2);
+            expect(renamed).toEqual([["alpha", "alphax"]]);
+        });
+
+        it("holds exactly one keypress listener while open and none once it closes", async () => {
+            const h = await harness();
+            const { keyInput } = h.test.renderer;
+            const before = keyInput.listenerCount("keypress");
+
+            await h.session.openPicker();
+            expect(keyInput.listenerCount("keypress")).toBe(before + 1);
+
+            h.pickers[0].deps.onPick(LOCAL_ROW);
+            await waitFor(() => h.pickers[0].destroyed);
+            expect(keyInput.listenerCount("keypress")).toBe(before);
+
+            // Over a workspace the picker uses the app's overlay slot, not a listener.
+            h.contexts[0].onSwitchMachine?.();
+            await waitFor(() => h.pickers.length === 2);
+            expect(keyInput.listenerCount("keypress")).toBe(before);
+        });
     });
 });

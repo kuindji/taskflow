@@ -10,6 +10,7 @@ import { LOCAL_MACHINE_ID } from "../remote/machines";
 import type { PickerRow } from "../remote/picker-model";
 import type { TuiState } from "../remote/tui-state";
 import type { MachineStatus, OverlayHandle } from "./app";
+import { deliverKeyToView } from "./keys";
 import type { MachinePicker, MachinePickerDeps } from "./machine-picker";
 import type { Workspace, WorkspaceContext } from "./workspace";
 
@@ -487,11 +488,14 @@ class MachineSession {
         else this.showPickerFailure(result.message);
     }
 
-    /** Over the app, keys go through its overlay slot. At launch there is no app. */
+    /**
+     * Over the app, keys go through its overlay slot. At launch there is no app,
+     * so a listener delivers them the same way the overlay slot does.
+     */
     private mountPicker(view: PickerView): OverlayHandle {
         if (this.current !== null) return this.current.workspace.showOverlay(view);
         const { keyInput } = this.deps.renderer;
-        const onKey = (event: KeyEvent): void => view.handleKey(event);
+        const onKey = (event: KeyEvent): void => deliverKeyToView(event, view);
         keyInput.on("keypress", onKey);
         return {
             refresh: () => undefined,

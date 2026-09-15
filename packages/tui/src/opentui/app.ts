@@ -78,6 +78,7 @@ import {
     KeyRouter,
     commandForUiKey,
     commandHint,
+    deliverKeyToView,
     prepareForEmbeddedTerminal,
     type FocusTarget,
     type UiCommand,
@@ -848,23 +849,17 @@ class OpenTuiApp {
 
     private handleKey(event: KeyEvent): void {
         if (this.overlay) {
-            event.preventDefault();
-            event.stopPropagation();
-            this.overlay.handleKey(event);
+            deliverKeyToView(event, this.overlay);
             this.updateFooter();
             return;
         }
         if (this.productConfirm) {
-            event.preventDefault();
-            event.stopPropagation();
-            this.productConfirm.view.handleKey(event);
+            deliverKeyToView(event, this.productConfirm.view);
             this.updateFooter();
             return;
         }
         if (this.confirm) {
-            event.preventDefault();
-            event.stopPropagation();
-            this.confirm.view.handleKey(event);
+            deliverKeyToView(event, this.confirm.view);
             this.updateFooter();
             return;
         }

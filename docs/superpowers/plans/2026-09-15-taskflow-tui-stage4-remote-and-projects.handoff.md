@@ -428,3 +428,23 @@ Setup: `bun run dev:tui` with `HOME` and `TASKFLOW_CONFIG_DIR` under `<scratchpa
 - Linux TUI → Mac, through discovery and through Add machine.
 - Sleeping the Mac, then waking it.
 - One real remote session attached and resized.
+
+### Final review fixes
+
+**Status:** done. TUI suite 431 → 439 pass, 0 fail (`bun test packages/tui`). `bun run typecheck` clean, eslint and prettier clean on changed files. No backend changes (R17).
+
+**F1 (Critical): archive `D` could delete an active task.** Commit `fd50b1a0 fix(tui): re-check the archive before deleting a task`.
+
+- `ArchiveStore.delete` re-fetches `task:list-archived` first. If the id is gone it sends no `task:delete`, keeps the fresh list (so the row drops) and resolves `"not-archived"`. The app then shows `This task is no longer archived.`
+- Entering archive mode calls the new `ArchiveStore.clear()`, so the last visit's rows are never shown or acted on while the reload is in flight. I chose this over ignoring `u`/`D` until the load finishes: it needs no load-state flag and also covers `u`.
+- RED on the pre-fix code: `bun test packages/tui/src/archive/store.test.ts` → 3 fail (`delete` returned `undefined`, `clear` missing). `bun test packages/tui/src/opentui/app.test.ts -t "archived tasks"` → 2 fail. The stale row recorded `task:delete {id: "a2", deleteWorktree: false}`, and after re-entering, a cached task row was still selectable.
+- GREEN: store 6 pass. app.test.ts 61 pass.
+
+**F2 (Critical): the launch-mode machine picker applied every key twice.** Commit `fix(tui): route launch picker keys like the overlay slot` (this entry's commit).
+
+- New `deliverKeyToView` in `keys.ts` claims the key (`preventDefault` + `stopPropagation`) and hands it to the view. The app's overlay, product-confirm and confirm branches use it, and so does `MachineSession.mountPicker` at launch. Launch and switch now share one contract.
+- The trust prompt and the Forget confirm have no text input, so they are unchanged.
+- The `machine-session.test.ts` harness takes `realPicker` to mount the real `MachinePicker` on the test renderer.
+- RED on the pre-fix code: `bun test packages/tui/src/opentui/machine-session.test.ts` → 3 fail. Typing `127.0.0.1` showed `Host: a112277..00..00..11`. A bracketed paste showed `Host: a127.0.0.1`: the paste is kept, and only the opening `a` corrupted it. Rename `alpha` + `x` recorded `alphaRxx`.
+- GREEN: machine-session 28 pass (paste + Tab keeps `127.0.0.1`), machine-picker 15 pass.
+- Also added: at launch exactly one keypress listener while the picker is open, none after it closes, and none for the switch picker. This closes the Task 6 deferred minor. It passes before and after the fix because it guards the routing rather than reproducing the bug.

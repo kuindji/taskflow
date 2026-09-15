@@ -435,5 +435,23 @@ function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
     return event;
 }
 
-export { COMMAND_METADATA, KeyRouter, commandForUiKey, commandHint, prepareForEmbeddedTerminal };
+/**
+ * Hand a key to a modal view that reads keys itself. The key is claimed first:
+ * a focused OpenTUI input would otherwise apply it a second time, including
+ * the key that opened the view and focused that input.
+ */
+function deliverKeyToView(event: KeyEvent, view: { handleKey(event: KeyEvent): void }): void {
+    event.preventDefault();
+    event.stopPropagation();
+    view.handleKey(event);
+}
+
+export {
+    COMMAND_METADATA,
+    KeyRouter,
+    commandForUiKey,
+    commandHint,
+    deliverKeyToView,
+    prepareForEmbeddedTerminal,
+};
 export type { CommandGroup, CommandMetadata, FocusTarget, KeyRoute, UiCommand, UiCommandKind };
