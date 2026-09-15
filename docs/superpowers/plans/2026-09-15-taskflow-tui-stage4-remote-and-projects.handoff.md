@@ -341,3 +341,90 @@ Status: DONE. Commit: `docs(tui): document stage 4 machines, projects and archiv
 - `packages/tui/tsconfig.json`: `include` gains `scripts`. Without it, eslint's project service can't parse the script, and typecheck doesn't cover it.
 
 Tests: `help.test.ts` went from 3 to 4 tests. The new test passes on current code. As a mutation check, listing `Tasks` twice in `GROUP_ORDER` made it fail with `count: 2`. `bun run typecheck` and `bunx eslint` on the changed TS files are clean. Fixture trial run: sshd listened on 127.0.0.1:2222, `ssh-keyscan` returned the ed25519 host key, and a login with the client key ran `echo login-ok`. After SIGTERM the script exited 0, the port closed and no sshd was left. The trial root was deleted.
+
+### Task 11 — validation and smoke
+
+Status: DONE_WITH_CONCERNS. Run against HEAD `a8dcf24e`. No product code was changed. Evidence (captures, logs, backend snapshots) is in `.superpowers/sdd/2026-09-15-taskflow-tui-stage4-remote-and-projects/task-11b-evidence/`. The file names below are relative to that folder. Full write-up: `task-11b-report.md` next to it.
+
+**Two failures:**
+
+1. **The launch machine picker can't add a machine.** On the picker shown at launch, press `a` and type `127.0.0.1`. Host becomes `a112277..00..00..11`: every key lands twice, and the `a` that opened the form lands too. A pasted host shows in the input, but it is dropped on Tab. Captures: `r02-probe-after-a.txt` (`a`), `r02-probe-after-z.txt` (`azz`), `r02-probe-paste-then-tab-lost.txt`. Cause: at launch, `MachineSession.mountPicker` (`machine-session.ts:494`) calls `view.handleKey` without `preventDefault()`. OpenTUI's `focus()` handler on the form input then calls `handleKeyPress` a second time after `machine-picker.ts:276`. The same form opened with `m` over a workspace types correctly (`l12a/l12b-overapp-add-*.txt`). Add project, link notes and task create were also fine. The smoke continued with a pre-registered `backends.json` record (`r03-seeded-backends.json`).
+2. **The full `bun test` doesn't finish.** Two runs hung at 0% CPU in the backend PTY tests. Run 1 stopped in `pty-manager.test.ts` after 928 pass / 0 fail (`v-full.log`, `v-full-hang.txt`). Run 2 stopped in `pty-manager-snapshot.test.ts` after 891 pass / 0 fail (`v-full2.log`). Alone, they pass 9/0 and 10/0. Stage 4 has no diff in those files or in `pty-manager.ts`.
+
+**Step 2, automated validation:**
+
+| Command | Result |
+| --- | --- |
+| `bun test packages/tui` | 431 pass, 0 fail (61 files) |
+| `bun test packages/shared` | 203 pass, 0 fail (18 files) |
+| `bun test electron/src` | 19 pass, 0 fail (3 files) |
+| `bun run lint` | exit 0 |
+| `bun run typecheck` | exit 0 |
+| `bun run build:backend:bin` | exit 0 |
+| `bun run --filter @taskflow/tui build:bin` | exit 0 |
+| `bun run build:electron` | exit 0 |
+| `git diff --check b7144315..HEAD` | exit 0 |
+| `bun test`, runs 1 and 2 | **FAIL**, hung (failure 2 above) |
+| `bun test --path-ignore-patterns='**/tests/services/pty-manager*.test.ts'` | 1644 pass, 2 skip, 10 fail (203 files) |
+
+The 10 failures, and the same files run alone:
+
+- `MarkdownPaneImpl.anchors` 3, `.checkbox` 5, `.rerender` 1. Alone: 3/0, 5/0, 1/0. This is the known mock.module leak family.
+- `packages/backend/tests/services/platform.test.ts` 1: the isolated backend exited 143, not 0, on SIGTERM. Alone: 7/0. It isn't in the baseline family, and Stage 4 has no diff there. I'm recording it as an intermittent failure under load.
+
+No `startBackend` timing failure showed up in the TUI suite.
+
+**Step 3, remote smoke:**
+
+- Root: `<scratchpad>/remote-root`, sshd fixture on 127.0.0.1:2222.
+- Backend: `HOME` and `TASKFLOW_CONFIG_DIR` under the root, `TASKFLOW_DEV_PORT=48931`, and discovery turned off over WS. Seeding: `r-seed-*`.
+- TUI binary: `HOME=R/client-home`, `TASKFLOW_TUI_STATE_DIR=R/tui`, with `R/bin/ssh` first on `PATH`.
+
+Results:
+
+- **FAIL**: add the machine through the picker form (failure 1).
+- PASS: the trust prompt fingerprint `SHA256:hS00BW1Wd/oq8NCb005lrHBz/gjaroOgi/WSosimfuA` matches the fixture key (`r03c-trust-prompt.txt`). After trusting, the TUI connects (`r03d-connected-workspace.txt`).
+- PASS: `R/client-home/.taskflow/known_hosts` holds `taskflow-127.0.0.1-2222 ssh-ed25519`. The real `~/.taskflow/known_hosts` doesn't exist before, during or after the run (`r03e-known-hosts-after-trust.txt`, `baseline.txt`, `z-final-process-sweep.txt`).
+- PASS: `p`, `X`, `J`, `K`, `L` each show `Only available on this machine.` with no dialog. The notice was cleared before each key. The backend project list didn't change (`r04-key-*.txt`, `r04-projects-before/after.txt`).
+- PASS: `D` in the archive view shows the notice and deletes nothing (`r05b-archive-key-D.txt`).
+- PASS: `A` lists `archived parent` with its subtasks. `u` restores it, `task:list` has the parent and both subtasks with `archivedAt: null`, and `task:list-archived` is empty (`r05e`, `r05f`, `r05g-*`).
+- PASS: after killing the ssh child, the header read `smoke-remote offline: SSH exited with code 0.` within 0.1 s. It was back online 1.8 s later on a new tunnel pid (`r06b-offline.txt`, `r06c-reconnected.txt`, `r06d-after-reconnect.txt`).
+- PASS: I started a plain zsh session on `remote-proj` (pty pid 8340 under the smoke backend), then switched `m` → This machine → `m` → smoke machine. The session was still listed with its prompt, pid 8340 stayed alive, and no second trust prompt appeared (`r07c`, `r07e`, `r08b`, `r08d`).
+- PASS: on quit the TUI exited 0. The tunnel pid, the TUI-owned local backend and the TUI are gone. `pgrep -fl 'ssh -N -L'` and the wrapper-aware `ssh .*-N -L` both come back empty (`r09b-after-quit-processes.txt`).
+- PASS: sshd and the backend were stopped and the root moved to Trash (`r10-fixture-stopped.txt`).
+
+**Step 4, local smoke:**
+
+Setup: `bun run dev:tui` with `HOME` and `TASKFLOW_CONFIG_DIR` under `<scratchpad>/local-root`. The dev backend env is recorded in `l02-local-backend-env.txt`.
+
+- PASS: Tab completed `…/work/smoke-al` to `…/work/smoke-alpha/`, and the project was added (`l03-probe-after-paste-tab.txt`, `l04-*`).
+- PASS: `J` and `K` reorder the project in both the sidebar and the backend (`l06a`, `l06b`, `l06-reorder-order.txt`).
+- PASS: linked to `second-proj` with note `smoke link note`, and the backend record's `linkedProjects` has it (`l07d`, `l07e-link-record.txt`).
+- PASS: hiding (toggle on) sets `hidden=true`. Adding the same path again restores the same id with `hidden=false`, and the link is kept (`l08a`, `l08c`, `l08f`).
+- PASS: removing `second-proj` with the toggle off leaves no backend record and no `projects.json` entry (`l09a`, `l09c`).
+- PASS: in the git repo, task `wt smoke` got worktree `.worktrees/wt-smoke` on branch `task/wt-smoke`. I archived it through the confirm, then pressed `D` with `[x] Also delete worktree and branch (task/wt-smoke)`. The directory was gone within 1 s, `git worktree list` and `git branch` show only `main`, and the task is in neither list (`l10b`, `l10d`, `l11e`, `l11f`, `l11h-worktree-gone.txt`).
+- PASS: the root was moved to Trash.
+
+**Deviations:**
+
+- The machine was pre-registered (failure 1).
+- The brief's `ssh -N -L` pattern can't match the wrapper's argv, so the wrapper-aware pattern was run as well.
+- Both TUI-side backend configs were pre-seeded with `discoverable:false`.
+- The remote `D` check ran with an archived subtask selected.
+- The first `u` restored a subtask because of a selection-helper bug. It was redone on the parent.
+- The first local archive was cancelled by my own Escape (`attempt1-l11*.txt`).
+
+**Unverified:**
+
+- After removal, smoke-alpha keeps a `linkedProjects` entry pointing at the removed project's id (`l09c-records-after-remove.txt`).
+- The offline reason reads `SSH exited with code 0.` after a SIGTERM kill.
+
+**Cleanup:** only the installed app's backend is left running. No sshd, tunnels, TUIs, dev backends, tmux sessions or test runs remain from this run (`z-final-process-sweep.txt`).
+
+**Level 1 review:** pending (controller).
+
+**Open human gates:**
+
+- Linux TUI → Mac, through discovery and through Add machine.
+- Sleeping the Mac, then waking it.
+- One real remote session attached and resized.
