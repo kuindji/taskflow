@@ -52,8 +52,11 @@ class FakeClient implements MachineClient {
 
     retarget(): void {}
 
+    closeError: Error | null = null;
+
     close(): void {
         this.closeCount++;
+        if (this.closeError) throw this.closeError;
     }
 }
 
@@ -68,6 +71,7 @@ interface Harness {
 function harness(
     options: {
         attach?: RegistryPort["attachBackend"];
+        detach?: RegistryPort["detachBackend"];
         confirm?: RegistryPort["confirmBackend"];
         setup?: (client: FakeClient) => void;
     } = {},
@@ -81,7 +85,7 @@ function harness(
             (() => Promise.resolve({ ok: true, origin: `http://127.0.0.1:${ORIGIN_PORT}` })),
         detachBackend: (id) => {
             detached.push(id);
-            return Promise.resolve();
+            return options.detach ? options.detach(id) : Promise.resolve();
         },
         confirmBackend: (id, info) => {
             confirmed.push({ id, info });
@@ -233,6 +237,91 @@ describe("connectMachine", () => {
         expect("failure" in outcome && outcome.failure.kind).toBe("unknown");
         expect(h.clients).toHaveLength(0);
         expect(h.detached).toEqual(["m1"]);
+    });
+
+    it("turns a rejected attachBackend into a failure and detaches once without a client", async () => {
+        // The registry records the origin before it persists, so a persist
+        // failure leaves an attached origin behind that only a detach clears.
+        const h = harness({ attach: () => Promise.reject(new Error("EACCES: backends.json")) });
+        const outcome = await connectMachine({ registry: h.registry }, "m1", {
+            createClient: h.createClient,
+        });
+
+        expect(outcome).toEqual({
+            ok: false,
+            machineId: "m1",
+            failure: { kind: "unknown", message: "EACCES: backends.json", stderr: "" },
+        });
+        expect(h.clients).toHaveLength(0);
+        expect(h.detached).toEqual(["m1"]);
+    });
+
+    it("still returns the attach rejection when the cleanup detach also rejects", async () => {
+        const h = harness({
+            attach: () => Promise.reject(new Error("EACCES: backends.json")),
+            detach: () => Promise.reject(new Error("detach failed")),
+        });
+        const outcome = await connectMachine({ registry: h.registry }, "m1", {
+            createClient: h.createClient,
+        });
+
+        expect(outcome).toEqual({
+            ok: false,
+            machineId: "m1",
+            failure: { kind: "unknown", message: "EACCES: backends.json", stderr: "" },
+        });
+        expect(h.detached).toEqual(["m1"]);
+    });
+
+    it("returns the original connect failure when the cleanup detach and close both throw", async () => {
+        const h = harness({
+            detach: () => Promise.reject(new Error("detach failed")),
+            setup: (client) => {
+                client.connectError = new Error("WebSocket connection error");
+                client.closeError = new Error("close failed");
+            },
+        });
+        const outcome = await connectMachine({ registry: h.registry }, "m1", {
+            createClient: h.createClient,
+        });
+
+        expect(outcome).toEqual({
+            ok: false,
+            machineId: "m1",
+            failure: { kind: "unknown", message: "WebSocket connection error", stderr: "" },
+        });
+        expect(h.clients[0]?.closeCount).toBe(1);
+        expect(h.detached).toEqual(["m1"]);
+    });
+
+    it("still reports incompatible when the cleanup detach rejects", async () => {
+        const h = harness({
+            detach: () => Promise.reject(new Error("detach failed")),
+            setup: (client) => {
+                client.info = systemInfo({ protocolVersion: PROTOCOL_VERSION + 1 });
+            },
+        });
+        const outcome = await connectMachine({ registry: h.registry }, "m1", {
+            createClient: h.createClient,
+        });
+
+        expect(outcome).toEqual({ ok: false, machineId: "m1", incompatible: true });
+        expect(h.detached).toEqual(["m1"]);
+    });
+
+    it("still reports alreadyAttached, without detaching, when closing the surplus client throws", async () => {
+        const h = harness({
+            confirm: () => Promise.resolve({ id: "uid-1", merged: true }),
+            setup: (client) => {
+                client.closeError = new Error("close failed");
+            },
+        });
+        const outcome = await connectMachine({ registry: h.registry }, "alias", {
+            createClient: h.createClient,
+        });
+
+        expect(outcome).toEqual({ ok: false, machineId: "uid-1", alreadyAttached: true });
+        expect(h.detached).toEqual([]);
     });
 
     it("keeps the requested id when the backend reports no uid", async () => {

@@ -59,7 +59,38 @@ async function connectMachine(
     const { registry } = machines;
     const createClient = deps.createClient ?? defaultCreateClient;
 
-    const attached = await registry.attachBackend(id);
+    const failed = (error: unknown): ConnectOutcome => ({
+        ok: false,
+        machineId: id,
+        failure: { kind: "unknown", message: errorMessage(error), stderr: "" },
+    });
+
+    // Best-effort cleanup: a close or detach that fails must never replace the
+    // outcome being reported, nor make this function throw.
+    const closeQuietly = (client: MachineClient | null): void => {
+        try {
+            client?.close();
+        } catch {
+            // The socket is abandoned either way.
+        }
+    };
+    const detachQuietly = async (): Promise<void> => {
+        try {
+            await registry.detachBackend(id);
+        } catch {
+            // Detach only closes and persists; the failure being reported stands.
+        }
+    };
+
+    let attached: Awaited<ReturnType<RegistryPort["attachBackend"]>>;
+    try {
+        attached = await registry.attachBackend(id);
+    } catch (error) {
+        // A rejection can come after the registry recorded the origin and the
+        // attached flag (e.g. a failed persist), so undo whatever it kept.
+        await detachQuietly();
+        return failed(error);
+    }
     if (!attached.ok) return { ok: false, machineId: id, failure: attached.failure };
 
     let client: MachineClient | null = null;
@@ -72,8 +103,8 @@ async function connectMachine(
         // The registry has no socket, so the version check is only ever
         // enforced by whoever dials.
         if (info.protocolVersion !== PROTOCOL_VERSION) {
-            client.close();
-            await registry.detachBackend(id);
+            closeQuietly(client);
+            await detachQuietly();
             return { ok: false, machineId: id, incompatible: true };
         }
 
@@ -87,23 +118,16 @@ async function connectMachine(
         if (confirmed.merged) {
             // The registry already closed this alias's tunnel. Detaching the
             // canonical id would kill the live one, so only the socket goes.
-            client.close();
+            // Quietly: a throwing close must not reach the catch below, whose
+            // detach would resolve this alias to the canonical live tunnel.
+            closeQuietly(client);
             return { ok: false, machineId: confirmed.id, alreadyAttached: true };
         }
         return { ok: true, machineId: confirmed.id, net: client };
     } catch (error) {
-        client?.close();
-        try {
-            await registry.detachBackend(id);
-        } catch {
-            // Detach only persists and closes; its failure must not turn a
-            // reported connect failure into a throw.
-        }
-        return {
-            ok: false,
-            machineId: id,
-            failure: { kind: "unknown", message: errorMessage(error), stderr: "" },
-        };
+        closeQuietly(client);
+        await detachQuietly();
+        return failed(error);
     }
 }
 
