@@ -4,7 +4,7 @@ Plan: `docs/superpowers/plans/2026-09-15-taskflow-tui-stage4-remote-and-projects
 
 Spec: `docs/superpowers/specs/2026-09-15-taskflow-tui-stage4-remote-and-projects-design.md`
 
-Status: implementation in progress. Task 1 (move gate) DONE. Next action: Task 2.
+Status: implementation in progress. Tasks 1 (move gate) and 2 (state dir/state file/registry) DONE. Next action: Task 3.
 
 ## Plan review
 
@@ -89,3 +89,21 @@ RED evidence (run in a scratchpad copy):
 Deviations:
 - The brief says "plus the two new tests". The after-count is +4, because Step 5 adds registry tests as well.
 - The `backend-registry` imports `fs/promises`, `os` and `path` still have no `node:` prefix. They are Node APIs, and they were left alone to keep the move logic-free.
+
+### Task 2 — TUI state directory, state file and registry
+
+Status: DONE. Commit: `feat(tui): add local machine state and registry wiring`.
+
+- `packages/tui/src/remote/state-dir.ts`: `resolveStateDir(env, homeDir)` — `TASKFLOW_TUI_STATE_DIR` (absolute, else throws), else `$XDG_CONFIG_HOME/taskflow/tui`, else `<home>/.config/taskflow/tui`. Mirrors the override pattern already used by `resolveDevLaunchConfig` in `dev.ts`.
+- `packages/tui/src/remote/tui-state.ts`: `TuiState { lastMachineId, selections }`, `readTuiState` (missing or unparsable `state.json` → empty state), `writeTuiState` (creates the dir with `mkdir(dir, {recursive:true, mode:0o700})`, then temp file + rename).
+- `packages/tui/src/remote/machines.ts`: `LOCAL_MACHINE_ID = "local"`, `Machines { registry, tunnels }`, `createMachines(stateDir)` — `mkdirSync(stateDir, {recursive:true, mode:0o700})`, then `createTunnelManager()` and `createRegistry({file: join(stateDir, "backends.json"), defaultUser: userInfo().username, ...tunnels methods})`, mirroring `electron/src/main.ts`. Deliberately does not call `registry.init()`/`startDiscovery()` — callers decide when to start the listener.
+- `packages/tui/src/dev.ts`: added `devStateDir(configDir) => join(configDir, "tui")`, exported, and `main()` now sets `TASKFLOW_TUI_STATE_DIR` to it unless already set in the environment.
+
+Test counts:
+- New: `state-dir.test.ts` (4), `tui-state.test.ts` (4), `machines.test.ts` (1) = 9 in `packages/tui/src/remote`. Plus one new case in `dev.test.ts` for `devStateDir`. `bun test packages/tui/src/remote packages/tui/src/dev.test.ts` → 16 pass, 0 fail.
+- `bun run typecheck` passes for every workspace package. `bunx eslint` on all changed/new files reports nothing.
+
+RED evidence: before implementation, `bun test packages/tui/src/remote` failed with "Cannot find module './state-dir'" / "./tui-state'" / "./machines'" (3 errors, 0 pass).
+
+Deviations:
+- The `machines.test.ts` spec ("no listener starts (no `startDiscovery` call)") is verified by monkey-patching the *instance* method returned by the real `createRegistry` (`machines.registry.startDiscovery = mock(...)`) rather than mocking the `@taskflow/shared/remote` module. An earlier attempt with `mock.module` hit the known Bun gotcha (rewriting a live-binding import causes `createRegistry` to call itself and blow the call stack, per `project_bun_test_mock_module.md`); capturing the real function by dynamic-import value did not avoid it either, since bun re-resolves the named import binding through the mocked module. Spying on the returned instance sidesteps the whole class of bug and needed no `mock.module`, so the file has no cross-test leak risk.

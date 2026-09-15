@@ -69,6 +69,10 @@ function resolveDevLaunchConfig(inputs: DevLaunchInputs): DevLaunchConfig {
     };
 }
 
+function devStateDir(configDir: string): string {
+    return join(configDir, "tui");
+}
+
 function currentBranch(repoRoot: string): string {
     try {
         return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -94,6 +98,9 @@ async function main(): Promise<void> {
     process.env.TASKFLOW_DEV_BRANCH = launch.devBranch;
     process.env.TASKFLOW_CONFIG_DIR = launch.configDir;
     process.env.TASKFLOW_BACKEND_BIN = launch.backendBin;
+    if (!process.env.TASKFLOW_TUI_STATE_DIR) {
+        process.env.TASKFLOW_TUI_STATE_DIR = devStateDir(launch.configDir);
+    }
 
     process.stdout.write(
         `Taskflow TUI development instance: ${launch.instanceId}\n` +
@@ -112,5 +119,5 @@ if (import.meta.main) {
     });
 }
 
-export { resolveDevLaunchConfig, sanitizeBranch };
+export { devStateDir, resolveDevLaunchConfig, sanitizeBranch };
 export type { DevLaunchConfig, DevLaunchInputs };

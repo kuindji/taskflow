@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
-import { resolveDevLaunchConfig, sanitizeBranch } from "./dev";
+import { devStateDir, resolveDevLaunchConfig, sanitizeBranch } from "./dev";
 
 const base = {
     env: {},
@@ -66,5 +66,11 @@ describe("TUI development launcher", () => {
 
     it("never resolves the development instance to main", () => {
         expect(resolveDevLaunchConfig({ ...base, branch: "main" }).instanceId).toBe("dev-main");
+    });
+
+    it("nests the TUI state directory under the dev config root", () => {
+        expect(devStateDir("/Users/test/.config/taskflow-tui-dev/feature-live-sessions")).toBe(
+            "/Users/test/.config/taskflow-tui-dev/feature-live-sessions/tui",
+        );
     });
 });
