@@ -51,7 +51,7 @@ class Store {
                 this.setProjectOrder((payload as ProjectReorderPayload).orderedIds);
             }),
             net.on(MSG.TASK_CREATED, (payload) => {
-                this.apply(() => this.applyTask(payload));
+                this.applyTask(payload as Task);
             }),
             net.on(MSG.TASK_UPDATED, (payload) => {
                 this.apply(() => this.updateTask(payload));
@@ -87,14 +87,22 @@ class Store {
      * Appending instead would leave a new or newly pinned task in a slot the
      * next snapshot moves it out of.
      */
-    private applyTask(payload: unknown): void {
-        this.taskList = sortTasksByCreatedAtDesc(upsert(this.taskList, payload as Task));
+    private upsertTask(task: Task): void {
+        this.taskList = sortTasksByCreatedAtDesc(upsert(this.taskList, task));
+    }
+
+    /**
+     * Fold in a task from a broadcast or a request response as it is. Unlike
+     * `applyServerTask`, a status change neither cascades nor refetches.
+     */
+    applyTask(task: Task): void {
+        this.apply(() => this.upsertTask(task));
     }
 
     private updateTask(payload: unknown): void {
         const next = payload as Task;
         const previous = this.taskList.find((t) => t.id === next.id);
-        this.applyTask(payload);
+        this.upsertTask(next);
         if (next.parentId !== undefined) return;
         // Archiving or unarchiving a top-level task cascades to its subtasks on
         // the backend, which broadcasts the parent alone

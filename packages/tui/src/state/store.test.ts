@@ -466,6 +466,34 @@ describe("Store", () => {
         store.dispose();
     });
 
+    test("applyTask folds in a task through the created-task reducer without refetching", async () => {
+        const older: Task = { ...task("t-old", "p1", "Older"), createdAt: "2026-01-01T00:00:00Z" };
+        const restored: Task = {
+            ...task("t-restored", "p1", "Restored"),
+            createdAt: "2026-06-01T00:00:00Z",
+        };
+        const net = fakeNet([project("p1", "One")], [older]);
+        const store = new Store(net);
+        await store.load();
+        const request = net.request.bind(net);
+        let requests = 0;
+        net.request = <T>(type: string, payload?: unknown): Promise<T> => {
+            requests++;
+            return request<T>(type, payload);
+        };
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        store.applyTask(restored);
+        await flush();
+
+        expect(store.tasksFor("p1").map((t) => t.id)).toEqual(["t-restored", "t-old"]);
+        expect(changes).toBe(1);
+        // `applyServerTask` would refetch here, because an active task appeared.
+        expect(requests).toBe(0);
+        store.dispose();
+    });
+
     test("floats a task to the top when it is pinned", async () => {
         const newer: Task = { ...task("t1", "p1", "Newer"), createdAt: "2026-06-01T00:00:00Z" };
         const older: Task = { ...task("t2", "p1", "Older"), createdAt: "2026-01-01T00:00:00Z" };

@@ -55,6 +55,9 @@ class FakeStore implements StoreLike {
         else this.tasks[index] = task;
         this.notify();
     }
+    applyTask(task: Task): void {
+        this.applyServerTask(task);
+    }
     onChange(listener: () => void): () => void {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);
@@ -1481,6 +1484,28 @@ describe("OpenTuiApp", () => {
             expect(lines()[0]).not.toContain("Archive");
             expect(frame()).toContain("Master Workspace");
             expect(app.selectedOwner).toEqual({ kind: "task", taskId: "a1", projectId: "p1" });
+        });
+
+        it("u keeps the restored task selected when the task reload fails", async () => {
+            const { test, net, app, lines, frame, settle, selectRow, enterArchive } =
+                await archiveSetup();
+            await enterArchive();
+            await selectRow("Old parent");
+            net.responses.set(MSG.TASK_UNARCHIVE, {
+                ...archived("a1", "Old parent"),
+                status: "active" as const,
+                archivedAt: null,
+            });
+            // Without a TASK_LIST stub the FakeNet rejects, so `Store.load()` fails.
+            net.responses.delete(MSG.TASK_LIST);
+
+            test.mockInput.pressKey("u");
+            await settle();
+            await settle();
+
+            expect(lines()[0]).not.toContain("Archive");
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "a1", projectId: "p1" });
+            expect(frame()).toContain("Could not reload tasks: Unexpected request: task:list");
         });
 
         it("D on a top-level task with a worktree offers the worktree toggle, off", async () => {

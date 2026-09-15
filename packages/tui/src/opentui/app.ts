@@ -92,6 +92,7 @@ interface StoreLike {
     projectById(projectId: string): Project | null;
     taskById(taskId: string): Task | null;
     applyServerTask(task: Task): void;
+    applyTask(task: Task): void;
     load(): Promise<void>;
     onChange(listener: () => void): () => void;
 }
@@ -1646,8 +1647,9 @@ class OpenTuiApp {
     }
 
     /**
-     * The response carries only the parent, so the root store reloads to pick up
-     * the restored subtasks. The archive closes even when that reload fails.
+     * The response carries only the parent. It goes into the root store at once,
+     * so it stays selectable even if the reload that picks up the restored
+     * subtasks fails. The archive closes either way.
      */
     private unarchiveSelected(): void {
         const archive = this.deps.archiveStore;
@@ -1655,6 +1657,7 @@ class OpenTuiApp {
         if (!archive || !task) return;
         archive.unarchive(task.id).then(
             async (restored) => {
+                this.deps.store.applyTask(restored);
                 let loadError: unknown = null;
                 try {
                     await this.deps.store.load();
