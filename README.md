@@ -49,6 +49,27 @@ TASKFLOW_DEV_BRANCH=stage3-smoke \
 bun run dev:tui
 ```
 
+### TUI machines
+
+`taskflow-tui` opens a machine picker: This machine, saved machines, backends
+discovered on the network, and Add machine. `Enter` connects, `a` adds a machine
+(host, SSH user, SSH port, backend port), and `R`/`F` rename or forget a saved
+one. The first connection to an SSH host shows its key fingerprint and asks
+whether to trust it.
+
+- `taskflow-tui <machine>` connects to a saved machine by name or id and skips
+  the picker. If that connection fails, the picker opens with the error.
+- `taskflow-tui --connect host:port` dials a backend directly, such as a tunnel
+  you opened yourself, with no picker and no saved machines. Bracket IPv6 hosts
+  (`[::1]:7777`). It can't be combined with a machine name.
+- Inside the TUI, `m` reopens the picker to switch machines. It isn't available
+  in a `--connect` session.
+
+The TUI keeps saved machines and per-machine selections in its state directory:
+`TASKFLOW_TUI_STATE_DIR` (absolute) when set, else
+`$XDG_CONFIG_HOME/taskflow/tui`, else `~/.config/taskflow/tui`. `bun run dev:tui`
+defaults it to `tui` inside the development config root.
+
 ### TUI keyboard commands
 
 Application commands are available while the UI owns focus. From a session,
@@ -56,6 +77,22 @@ press `Ctrl+Escape` or `Escape Escape` to return to application controls.
 
 - `Up`/`Down` or `j`/`k`: select an owner; `Enter` or `l`: open it or focus its
   active session; `1`-`9`: select a session tab.
+- `m`: switch machine.
+- `p`: add a project folder (`Tab` completes the path); `X`: hide or permanently
+  remove the selected project; `J`/`K`: move it down/up; `L`: edit its linked
+  projects.
+- `A`: switch the sidebar between active and archived tasks. In the archive,
+  `u` restores the selected task with its subtasks and `D` permanently deletes
+  it. Only selection, read-only task details, filter, zoom, `m`, help and quit work
+  there.
+
+`p`, `X`, `J`, `K`, `L` and `D` need the backend to run on this machine. While
+you're connected to another machine they are hidden from the footer, marked
+"(this machine only)" in help, and pressing one shows `Only available on this
+machine.` Removing a project asks whether to keep its data: with the toggle on,
+the project is hidden and adding the same folder again restores it; with it off,
+the project and its tasks are deleted. Deleting an archived task that has a
+worktree offers to delete the worktree and branch too.
 - `s`: new session; `q`: close the active session; `r`: resume an interrupted
   agent session.
 - `t`: task details; `n`: create a task or subtask; `g`: repository changes and

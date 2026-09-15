@@ -330,3 +330,14 @@ Deviations:
 - `state/store.ts` and `help.ts` are unchanged. `applyTask` was already its own reducer, and the ruling calls `Store.load()` after `u`. The new commands fall into the existing `Tasks` help group.
 - `TaskDetailDeps.task` was not made optional.
 - `ArchiveStore.delete` drops its own records, as `unarchive` does, so the app never calls `removeLocal`.
+
+### Task 11 (part A) — help coverage, README, smoke sshd fixture
+
+Status: DONE. Commit: `docs(tui): document stage 4 machines, projects and archive`. Steps 2–7 (validation matrix, smokes, Level 1 review, validation record) are part B.
+
+- `help.test.ts`: new test that every `COMMAND_METADATA` entry renders exactly once as `<keys padded to 10> <description>`, and that the `Machines` and `Projects` groups render. The existing test only used `toContain` on descriptions and didn't check those two groups.
+- `README.md`: new `TUI machines` section (picker, `taskflow-tui <machine>`, `--connect`, `m`, state directory resolution), plus the project, archive and this-machine-only rules in `TUI keyboard commands`.
+- `packages/tui/scripts/smoke-sshd.ts` (new): the disposable sshd fixture from the brief. It prints `client-key: <path>`, and stops sshd on SIGINT, SIGTERM or process exit.
+- `packages/tui/tsconfig.json`: `include` gains `scripts`. Without it, eslint's project service can't parse the script, and typecheck doesn't cover it.
+
+Tests: `help.test.ts` went from 3 to 4 tests. The new test passes on current code. As a mutation check, listing `Tasks` twice in `GROUP_ORDER` made it fail with `count: 2`. `bun run typecheck` and `bunx eslint` on the changed TS files are clean. Fixture trial run: sshd listened on 127.0.0.1:2222, `ssh-keyscan` returned the ed25519 host key, and a login with the client key ran `echo login-ok`. After SIGTERM the script exited 0, the port closed and no sshd was left. The trial root was deleted.

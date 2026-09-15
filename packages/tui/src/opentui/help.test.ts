@@ -52,6 +52,26 @@ describe("Help", () => {
         for (const command of COMMAND_METADATA) expect(frame).toContain(command.description);
     });
 
+    test("lists every command exactly once, including machines, projects and archive", async () => {
+        const testRenderer = await createTestRenderer({ width: 120, height: 80 });
+        const view = new Help({
+            renderer: testRenderer.renderer,
+            onClose: () => undefined,
+        });
+        testRenderer.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => testRenderer.renderer.destroy(),
+        );
+        await testRenderer.renderOnce();
+        const frame = testRenderer.captureCharFrame();
+        for (const group of ["Machines", "Projects"]) expect(frame).toContain(group);
+        for (const command of COMMAND_METADATA) {
+            const line = `${command.keys.padEnd(10)} ${command.description}`;
+            expect({ line, count: frame.split(line).length - 1 }).toEqual({ line, count: 1 });
+        }
+    });
+
     test("marks a this-machine-only command in its description", async () => {
         const testRenderer = await createTestRenderer({ width: 80, height: 20 });
         const view = new Help({
