@@ -184,10 +184,12 @@ A refactor with no behaviour change. It makes the machine switch in Task 6 possi
 - Produces:
   - `interface WorkspaceContext { renderer: CliRenderer; machineId: string; machineLabel: string; local: boolean; onQuit(): void; onSwitchMachine(): void }`
   - `interface Workspace { readonly app: OpenTuiApp; readonly local: boolean; readonly machineId: string; hasOpenEditor(): boolean; selection(): { projectId: string | null; taskId: string | null }; restoreSelection(selection: { projectId: string | null; taskId: string | null }): void; dispose(): void }`
-  - `openWorkspace(net: WsClient, context: WorkspaceContext): Promise<Workspace>`
+  - `openWorkspace(net: NetLike, context: WorkspaceContext): Promise<Workspace>`. `NetLike` is not `WsClient`: tests pass a fake, and Task 7 passes `OfflineGuardNet`. A class with private fields can't be satisfied structurally, so export the `NetLike` interface from `net/client.ts`.
+  - `dispose()` order: `app.destroy()` first, which removes the renderer key and resize listeners (`app.ts:370-380`) and the root renderable; then the session controller; then every store. `dispose()` never touches the renderer itself.
 
 - [ ] **Step 1: Write failing tests** in `workspace.test.ts` using the fake `NetLike` and renderer helpers already used by `app.test.ts`. Import them from there, or move them into a shared test helper file if they're local to that test.
-  - `dispose()` calls `dispose` once on every store and `destroy` on the session controller, sends no `SESSION_STOP`/`session:close` request, and a second `dispose()` is a no-op.
+  - `dispose()` calls `dispose` once on every store and `destroy` on the session controller, calls `app.destroy()` exactly once before them, sends no `SESSION_STOP`/`session:close` request, and a second `dispose()` is a no-op.
+  - Same-renderer rebuild: open workspace A, `dispose()` it, open workspace B on the same fake renderer, then emit one keypress. Only B's handler runs, the renderer has exactly one `keypress` and one `resize` listener, and A's root renderable is no longer a child of the renderer root.
   - `hasOpenEditor()` is true while an `onEditTaskText` or `onEditRecord` promise is pending and false after it settles.
 - [ ] **Step 2: Run.** `bun test packages/tui/src/opentui/workspace.test.ts` → FAIL.
 - [ ] **Step 3: Move the wiring.** Cut store, controller, action runner, editor dependency and `OpenTuiApp` construction out of `entry.ts` into `openWorkspace`. Track pending external editor work with a counter incremented and decremented around `editRecord` and task text edits. `selection()` reads the app's selected owner. `restoreSelection` selects a project or task only if the store still has it. `entry.ts` keeps argument parsing, the runtime owner, backend start and `finish`, and calls `openWorkspace` once.
@@ -211,7 +213,12 @@ A refactor with no behaviour change. It makes the machine switch in Task 6 possi
   - `WsClient.retarget(port: number, host: string | null): void`: replaces the dial target. If connected, the socket is closed and the existing reconnect loop dials the new target. `port`/`host` stop being readonly.
   - `type ConnectOutcome = { ok: true; machineId: string; net: WsClient } | { ok: false; machineId: string; failure: TunnelFailure } | { ok: false; machineId: string; incompatible: true }`
   - `connectMachine(machines: Machines, id: string, deps?: { createClient?: (port: number, host: string) => WsClient }): Promise<ConnectOutcome>`. Order: `registry.attachBackend(id)` → parse origin port → `client.connect()` → `SYSTEM_INFO` → if `protocolVersion !== PROTOCOL_VERSION`, close the client, `registry.detachBackend(id)`, return `incompatible` → `registry.confirmBackend(id, info)` → return `{ok: true, machineId: confirmed.id}`. A thrown `confirmBackend` detaches, closes the client and returns `{ok: false, failure: {kind: "unknown", message, stderr: ""}}`.
-    - **Merge case.** When `confirmBackend` returns `merged: true`, the registry has already closed the new tunnel (`backend-registry.ts:399-410`), because the target is an alias of a backend attached under its uid. In the TUI that can only be the machine currently attached. `connectMachine` closes the new client and returns `{ok: false, machineId: confirmed.id, alreadyAttached: true}`, and `MachineSession.switchTo` treats that as "already on this machine": it keeps the current workspace and closes the picker. Add `{ ok: false; machineId: string; alreadyAttached: true }` to `ConnectOutcome`.
+    - **Merge case.** When `confirmBackend` returns `merged: true`, the registry has already closed the new tunnel (`backend-registry.ts:399-410`), because the target is an alias of a backend attached under its uid. `connectMachine` closes the new client and returns `{ok: false, machineId: confirmed.id, alreadyAttached: true}`. It doesn't decide what that means.
+
+`MachineSession.switchTo` decides:
+- If `machineId === currentMachineId`, it's a no-op. Keep the workspace and close the picker.
+- If it differs, the registry holds a stale origin for a machine that isn't the current workspace, for example after a partial switch or a missed tunnel exit. Call `registry.detachBackend(machineId)` to close the stale tunnel and origin, then run `connectMachine(machines, machineId)` once more and continue the switch with that result.
+- `MachineSession` also calls `registry.detachBackend` for any remote id it attached that isn't the current machine: on every switch failure after a successful attach, and at the end of every switch. So stale origins shouldn't arise in normal operation. Add `{ ok: false; machineId: string; alreadyAttached: true }` to `ConnectOutcome`.
   - `type PickerRow = { kind: "local" } | { kind: "machine"; entry: MenuEntry } | { kind: "add" }`
   - `buildPickerRows(entries: MenuEntry[]): PickerRow[]`: local first, then saved entries (seen before unseen, each in `listBackends` order), then unsaved discovered, then add.
   - `initialIndex(rows: PickerRow[], lastMachineId: string | null): number`
@@ -307,15 +314,17 @@ Picker keys: `↑↓/jk` move, Enter pick, `a` add machine form, `R` rename save
 `shutdown()`: dispose the workspace, close the net, `tunnels.closeAllTunnels()`, stop the owned local backend if one was started, `registry.stopDiscovery()`.
 
 **Signal and fatal paths.** `OpenTuiRuntimeOwner` handles `SIGINT`/`SIGTERM`/`SIGHUP`, uncaught exceptions and unhandled rejections through its own `shutdown()` (`runtime.ts:90-138`), which knows only one socket and one backend.
-- Add `OpenTuiRuntimeOwner.setShutdownHook(hook: () => Promise<void>): void`. `shutdownOnce` awaits the hook after destroying the renderer and before its own socket and backend cleanup, and a hook rejection is reported and does not stop the rest of cleanup.
+- Add `OpenTuiRuntimeOwner.setShutdownHook(hook: () => Promise<void>): void`. `shutdownOnce` awaits the hook **before** `renderer.destroy()`, because the hook disposes the workspace and its OpenTUI renderables, which must happen while the renderer is alive (`runtime.ts:128-138` destroys the renderer first today). The resulting order: hook (workspace dispose → net close → `closeAllTunnels` → owned local backend stop → `stopDiscovery`) → `renderer.destroy()` → the runtime's own socket and backend cleanup, which is empty for machine connections. A hook rejection is reported and does not stop the rest of cleanup.
 - `entry.ts` registers `machineSession.shutdown` as the hook and stops using `ownSocket`/`ownBackend` for machine connections. `MachineSession` owns them.
 - Tests in `packages/tui/src/opentui/runtime.test.ts`:
-  - emitting `SIGTERM` on a runtime with a hook awaits the hook before `exit` is called;
+  - emitting `SIGTERM` on a runtime with a hook logs `hook → renderer.destroy → exit`, in that order;
   - a rejecting hook still destroys the renderer and exits.
 
 - [ ] **Step 1: Failing tests** in `machine-session.test.ts` with fakes for `connectMachine`, `openWorkspace` and the backend handle:
   - a successful switch logs `connect(new) → dispose(old) → close(oldNet) → detach(old) → open(new)`, in that order;
   - a failed connect logs no dispose, and the old workspace stays current;
+  - `alreadyAttached` for the current machine id: no connect retry, no dispose;
+  - `alreadyAttached` for a different id (stale origin): logs `detach(stale) → connect(stale) → dispose(old) → … → open(stale)`;
   - an open editor refuses before any connect;
   - switching local → remote never calls the local backend's `stop`, and switching back reuses the same handle without `startBackend`;
   - `shutdown` calls `closeAllTunnels` and stops the local backend once.
@@ -343,7 +352,8 @@ Picker keys: `↑↓/jk` move, Enter pick, `a` add machine form, `R` rename save
   - **Gate at the net layer, not in command dispatch.** Product views receive keys before global dispatch (`app.ts:752-763`) and call request-backed callbacks directly: flow pause at `flow-run.ts:93`, stage/unstage/commit at `git-changes.ts:122-128`, and task edits and pin/archive in `task-detail.ts`. So a dispatch-level check would miss them.
     - Add `class OfflineGuardNet implements NetLike` in `packages/tui/src/net/offline-guard.ts`. It wraps the real `WsClient`, and while `offline` is set, `request()` rejects with `class MachineOfflineError extends Error` without calling the inner client. `on`/`onStatusChange` pass through.
     - `openWorkspace` receives the guard, so every store and view uses it.
-    - The app's existing request error display shows `<label> is offline.` for `MachineOfflineError`.
+    - Add error display: product-view and command request failures that are `MachineOfflineError` show the footer notice `<label> is offline.`. Don't assume an existing generic display covers them; wire it where each view already reports request errors.
+    - **Terminal input path.** `SessionBridge.sendInput` and `sendResize` swallow request errors (`session-bridge.ts:198-213`), so the guard alone would drop keystrokes silently. Add `OpenTuiApp` handling: while the machine status is not online and a key would go to a focused session bridge (`app.ts:769`), don't forward it, and show `<label> is offline.` once per offline period. Resize requests may still be dropped silently while offline. Today nothing ever clears `lastResize` (`session-bridge.ts:54,208-209`), so a size dropped while offline would never be resent. Add `SessionBridge.resetResize(): void`, which sets `lastResize = null` and immediately resends the current pane size. `MachineSession` calls it on every bridge when the status returns to online. Test in `session-bridge.test.ts`: a resize to 80x24 while the fake net rejects, then `resetResize()` after it accepts, records one `TERMINAL_RESIZE {cols: 80, rows: 24}` on the accepting net.
     - No per-command `sendsRequest` flag.
 
 Behaviour in `MachineSession`:
@@ -361,7 +371,7 @@ Behaviour in `MachineSession`:
   - `no-backend` stops after one attempt with state `stopped`;
   - a switch during backoff cancels the pending attempt, so no attach runs after the switch;
   - `offline-guard.test.ts`: while offline, `request()` rejects with `MachineOfflineError` and the inner fake records no call; after going online, requests pass through.
-  - `app.test.ts`: while offline, opening task detail with `t` still renders the cached task; submitting a new task shows `<label> is offline.` and the inner net records no `TASK_CREATE`; in the Git changes view, `s` on an unstaged file records no `GIT_STAGE`.
+  - `app.test.ts`: while offline, opening task detail with `t` still renders the cached task; submitting a new task shows `<label> is offline.` and the inner net records no `TASK_CREATE`; in the Git changes view, `s` on an unstaged file records no `GIT_STAGE`; with a focused session while offline, typing `x` records no `SESSION_INPUT` on the inner net and shows `<label> is offline.` once.
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** `OfflineGuardNet` and the error display. `MachineSession` flips the guard's `offline` flag from the tunnel exit and status handlers.
 - [ ] **Step 4: Run.** `bun test packages/tui` → PASS.
@@ -489,7 +499,7 @@ Behaviour in `MachineSession`:
     - `delete` sends `{id, deleteWorktree}` exactly.
   - `app.test.ts`:
     - `A` loads the archive once per entry and shows the header label `Archive`;
-    - rows group by project and parent, and projects with no archived tasks are omitted;
+    - rows group by project and parent, and projects with no archived tasks are omitted; the archive sidebar has no Master Workspace row; a subtask row follows its parent; filtering by a subtask's title keeps its parent row;
     - the name filter applies in archive mode;
     - Enter opens read-only detail, where `p` (pin) and every edit key `task-detail.ts` binds today send nothing;
     - `u` restores and leaves archive mode with the restored task selected;
@@ -500,7 +510,22 @@ Behaviour in `MachineSession`:
     - a reconnect while in archive mode reloads the archive.
   - `task-detail.test.ts`: read-only hints omit edit, pin and archive.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement.** Archive mode reuses `buildRows` with an injected task source instead of `store.tasksFor`, so row building exists once.
+- [ ] **Step 3: Implement.** Row building. `buildRows` (`app.ts:156-199`) always adds Master Workspace, includes every project, and emits a flat task list, so it can't produce the archive sidebar as-is. Extend it, rather than adding a second builder, with an options object:
+
+```ts
+interface RowSource {
+    includeMaster: boolean;
+    tasksFor(projectId: string): readonly Task[];
+    omitEmptyProjects: boolean;
+    nestSubtasks: boolean;
+}
+```
+
+- The active sidebar passes `{includeMaster: true, tasksFor: store.tasksFor, omitEmptyProjects: false, nestSubtasks: false}`, which is today's behaviour, and existing `app.test.ts` row tests must stay green unchanged.
+- Archive mode passes `{includeMaster: false, tasksFor: archivedTasksFor, omitEmptyProjects: true, nestSubtasks: true}`.
+- With `nestSubtasks`, a task row with `parentId` is emitted directly after its parent, with label prefix `  └ `. An archived subtask whose parent isn't archived is emitted at top level.
+- The name filter keeps a parent row when a subtask matches.
+- `SidebarRow` is unchanged.
 - [ ] **Step 4: Run.** `bun test packages/tui` → PASS. `bun run typecheck`.
 - [ ] **Step 5: Commit.** `feat(tui): browse, restore and delete archived tasks`
 

@@ -25,3 +25,14 @@ Codex also confirmed:
 - the backend payload shapes for `project:*`, `task:list-archived`, `task:unarchive`, `task:delete` and task logs.
 
 Found by Claude while planning, before round 1: `task:unarchive` returns only the parent task, and `task:delete` removes the worktree in the background. Task 10 and the local smoke account for both.
+
+### Round 2 (Codex gpt-5.5, prompted plan review, 2026-09-15)
+
+Verdict: changes required. Claude checked all six findings against the code; all six were real and fixed in the plan. Round-1 fixes 1 (`closing`) and 5 (ssh wrapper, alias) were confirmed correct. Fixes 2, 3 and 4 were incomplete and are revised below.
+
+1. **Major, Task 6.** The shutdown hook ran after `renderer.destroy()` (`runtime.ts:128-138`), but it disposes OpenTUI renderables, which need a live renderer. **Fix:** the hook runs before `renderer.destroy()`, and the test asserts `hook → renderer.destroy → exit`.
+2. **Major, Tasks 4/6.** `alreadyAttached` assumed a merge can only hit the current machine. A stale origin left by a partial switch also merges (`backend-registry.ts:395-410`). **Fix:** `MachineSession` decides. Same id means no-op. A different id means detach the stale origin, reconnect once and continue the switch. It also detaches any non-current remote id it attached. Tests cover both cases.
+3. **Major, Tasks 3/6.** `Workspace.dispose()` wasn't required to call `app.destroy()`, the only place renderer listeners and the root renderable are removed (`app.ts:370-380`, `:2095`+). **Fix:** the dispose order starts with `app.destroy()`, plus a same-renderer rebuild test asserting one keypress and one resize listener.
+4. **Major, Task 7.** Session input and resize swallow request errors (`session-bridge.ts:198-213`), so the offline guard alone drops keystrokes silently. **Fix:** the app doesn't forward keys to a focused session while offline and shows the notice once. The test asserts no `SESSION_INPUT`.
+5. **Major, Task 10.** `buildRows` always adds Master Workspace, includes every project and emits flat task rows (`app.ts:156-199`). **Fix:** a `RowSource` options object (`includeMaster`, `tasksFor`, `omitEmptyProjects`, `nestSubtasks`). Active-sidebar row tests must stay unchanged.
+6. **Major, Tasks 3/7.** `openWorkspace(net: WsClient)` can't accept a test fake or `OfflineGuardNet`. **Fix:** `openWorkspace(net: NetLike)`, with `NetLike` exported from `net/client.ts`.
