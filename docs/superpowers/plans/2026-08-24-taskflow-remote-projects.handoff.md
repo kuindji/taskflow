@@ -2250,6 +2250,14 @@ mock.module-leak family: `wiki-backend-collision.repro.test.ts` (1),
 
 ## Next step
 
-Next step: finish Task 22 with the user — Steps 5, 9 and 9a, plus Step 8's settings/master workspace check, when
-the remote machine has no other agents running. See "Task 22, session 1" for what passed and the three menu bugs
-found; the user deferred fixing those. Tasks 1–21 are clear.
+Status (2026-09-15): the feature is accepted on its happy path and shipped in v0.15.0. The user tested it after
+session 1, but not every step. These checks were never recorded as run, so treat them as open. Fix any bugs they
+turn up as they appear:
+
+- Step 5 (sleep, wake, drop);
+- Step 8's settings/master workspace check;
+- Step 9 (quit) and Step 9a (flow control, remote Cmd-click, concurrent "Work as…", uncheck/rename mid-connect);
+- packaged-build checks (multicast under `bun build --compile`, macOS local-network prompt);
+- in-app recheck of the `7e979b14` menu fixes.
+
+Tasks 1–21 are clear. Work has moved on to the TUI.
