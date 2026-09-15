@@ -4,7 +4,7 @@ Plan: `docs/superpowers/plans/2026-09-15-taskflow-tui-stage4-remote-and-projects
 
 Spec: `docs/superpowers/specs/2026-09-15-taskflow-tui-stage4-remote-and-projects-design.md`
 
-Status: plan in review. No implementation code written.
+Status: plan review DONE after round 4 (clean). No implementation code written. Next action: execute Task 1, the move gate.
 
 ## Plan review
 
@@ -50,3 +50,18 @@ No blockers. Round-2 fixes verified OK: shutdown hook ordering, stale-origin han
 2. **Major, Task 10.** Archived selections and detail only work for active tasks. `resolveOwner` requires `status === "active"` (`sessions/owner.ts:58-63`) and runs on every refresh (`app.ts:504`); `openTaskDetail` uses `store.taskById` (`app.ts:989-990`). **Fix:** archive mode skips `resolveOwner`, and looks tasks up and resolves parent attributes through `ArchiveStore` first. Tests cover a selection surviving refresh, Enter opening read-only detail, and inherited attributes.
 3. **Major, Task 7.** Nothing gave `MachineSession` a way to call `resetResize()` on bridges inside `OpenTuiApp`/`SessionController`. **Fix:** `SessionBridgeLike.resetResize` → `SessionController.resetResizes` → `Workspace.resetSessionResizes`, called on the transition to online, with a test.
 4. **Major, Task 4.** A `client.connect()` or `SYSTEM_INFO` failure after `attachBackend` (which records the origin and `attached: true`, `backend-registry.ts:323-330`) had no cleanup. **Fix:** every step after attach detaches and closes on failure, and `connectMachine` never throws. Tests cover connect and handshake rejection.
+
+Found by Claude after round 3: `resetResize()` must resend only for the active bridge, using the size `setActive` last applied (`session-bridge.ts:215-221`), so background sessions are never resized to a stale size.
+
+### Round 4 (Codex gpt-5.5, verification round, 2026-09-15)
+
+All four round-3 fixes were verified OK against the code. "No new blocker or major findings."
+
+Codex also confirmed that selecting an archived task sends no failing requests:
+- `onOwnerChange` only reconciles sessions (`entry.ts:267-268`);
+- `sessionsForOwner` returns `[]` for archived ids;
+- flow-run lookup accepts any owner id;
+- schedules are project-scoped;
+- task logs are keyed by id.
+
+Plan review is complete.
