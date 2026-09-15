@@ -17,6 +17,7 @@ const GROUP_ORDER: readonly CommandGroup[] = [
     "General",
     "Machines",
     "Sessions",
+    "Projects",
     "Tasks",
     "Flows",
     "Schedules",

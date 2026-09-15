@@ -15,6 +15,11 @@ type UiCommand =
     | { kind: "schedules" }
     | { kind: "task-detail" }
     | { kind: "task-create" }
+    | { kind: "project-add" }
+    | { kind: "project-remove" }
+    | { kind: "project-move-down" }
+    | { kind: "project-move-up" }
+    | { kind: "project-links" }
     | { kind: "git" }
     | { kind: "settings" }
     | { kind: "notifications" }
@@ -27,6 +32,7 @@ type CommandGroup =
     | "General"
     | "Machines"
     | "Sessions"
+    | "Projects"
     | "Tasks"
     | "Flows"
     | "Schedules"
@@ -153,6 +159,51 @@ const COMMAND_METADATA: readonly CommandMetadata[] = [
         label: "New task",
         description: "Create a task or subtask",
         route: exactTextRoute("task-create", "n"),
+    },
+    {
+        kind: "project-add",
+        group: "Projects",
+        keys: "p",
+        label: "Add project",
+        description: "Add a project folder",
+        localOnly: true,
+        route: exactTextRoute("project-add", "p"),
+    },
+    {
+        kind: "project-remove",
+        group: "Projects",
+        keys: "X",
+        label: "Remove project",
+        description: "Hide or permanently remove the selected project",
+        localOnly: true,
+        route: exactTextRoute("project-remove", "X"),
+    },
+    {
+        kind: "project-move-down",
+        group: "Projects",
+        keys: "J",
+        label: "Move down",
+        description: "Move the selected project down",
+        localOnly: true,
+        route: exactTextRoute("project-move-down", "J"),
+    },
+    {
+        kind: "project-move-up",
+        group: "Projects",
+        keys: "K",
+        label: "Move up",
+        description: "Move the selected project up",
+        localOnly: true,
+        route: exactTextRoute("project-move-up", "K"),
+    },
+    {
+        kind: "project-links",
+        group: "Projects",
+        keys: "L",
+        label: "Links",
+        description: "Edit the selected project's linked projects",
+        localOnly: true,
+        route: exactTextRoute("project-links", "L"),
     },
     {
         kind: "flows",

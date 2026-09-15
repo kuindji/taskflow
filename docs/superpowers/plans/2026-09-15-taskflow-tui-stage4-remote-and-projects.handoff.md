@@ -246,3 +246,37 @@ Test counts: `bun test packages/tui` went from 376 to 385 across 56 files (+2 co
 RED evidence: 2 confirm toggle tests, the help suffix test and the remote app gating test failed.
 
 Deviations: the app tests mark the `git` metadata entry `localOnly` for the duration of the test and delete the flag in cleanup, since no real localOnly command exists. The 11 existing app-test constructions got `local: true`. Prettier reformatted a few existing lines in `help.test.ts`.
+
+### Task 9 — project management
+
+Status: DONE. Commit: `feat(tui): manage projects on this machine`.
+
+- `state/store.ts`: `applyProject(project)`, `removeProject(id)` and `setProjectOrder(ids)` are now public. The `PROJECT_CREATED/UPDATED/REMOVED/REORDERED` handlers call them, so events and request responses go through the same reducers, including deferral during `load()`. New `projectOrder` getter: all ids, hidden ones included.
+- `projects/store.ts`: `ProjectStore(net, store)`:
+  - `add`, `hide` (`{id, hidden: true}`), `remove`, `setLinks` (`{id, linkedProjects}`): each applies its response to the `Store`.
+  - `reorder(orderedIds)`: expands a visible-only order with `buildReorderedProjectIds`, so hidden projects keep their slots. It applies the order optimistically, sends the full order, and restores the previous order on rejection.
+- `opentui/line-input.ts` (new, not in the brief): `editLine(input, event)` (Escape cancels, Enter submits, other keys edit) and `isChorded`. It's shared by `OwnerFilter` (now uses it), `ProjectAdd` and the link-note input.
+- `opentui/path-input.ts`: `completePath(input, deps?)` with `~` expansion, directories only, dot-directories only when typed, longest common prefix, and `/` on a unique match. It reads the local filesystem through `fs/promises` and never the backend.
+- `opentui/project-add.ts`: path field (Tab completes, several candidates listed) and an optional name field (↑↓ switches fields). An empty path is refused. `setError` keeps the typed values.
+- `opentui/linked-projects.ts`: lists links with notes. `a` adds (picker excludes self, hidden and already-linked projects, then a note), `e`/Enter edits a note, `d` removes. Every change sends the full array via `onSave`, and the app answers with `setLinks`/`setError`.
+- `opentui/confirm.ts`: `messageFor?(toggleValue)` replaces the message and is redrawn on each flip. The message line uses `minHeight: 2` instead of `height: 2`, so long project names wrap.
+- `keys.ts`/`help.ts`: five `localOnly` commands in a new `Projects` group (after Sessions): `p` add, `X` remove, `J`/`K` move, `L` links.
+- `app.ts`:
+  - `projectStore?` dep, which `workspace.ts` wires.
+  - One `projectDialog` slot for add, remove-confirm and links.
+  - `X`: `Confirm` with toggle `Keep project data` (initially on) and the brief's two messages; on calls `hide`, off calls `remove`.
+  - `J`/`K`: swap with the visible neighbour, sending nothing at either end. Reorder failures go through `showCommandNotice` + `errorMessage`, and dialog failures go through `view.setError(... errorMessage)`, so `MachineOfflineError` raises the offline notice.
+  - Sidebar project rows with `locationValid === false` render `! <name>`, and `rowSignature` includes the flag.
+  - Footer hints: `p Add project` when a project store exists, plus remove/move/links on a project row.
+- Task 8's temporary `git` localOnly flagging in `app.test.ts` is gone. The gating tests now use the real project commands. The keys guard now asserts that exactly the five project commands are localOnly.
+
+Test counts: `bun test packages/tui` went from 385 to 410 across 60 files (+5 path-input, +5 projects/store, +4 project-add, +4 linked-projects, +1 confirm, +2 state/store, +4 app net (6 new, 2 replaced); keys and help counts are unchanged, with one test replaced and one frame height raised). `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: the four new test files failed with `Cannot find module`. confirm had 1 failure, keys 1, state/store 2, and app 6.
+
+Deviations:
+- The `completePath` deps type narrows `readdir` to `Promise<Pick<Dirent, "name" | "isDirectory">[]>`. A real `Dirent[]` reader still fits.
+- `ProjectStore.reorder` accepts a visible-only order.
+- `Store.projectOrder` was added.
+- `line-input.ts` was added, and `OwnerFilter` was moved onto it.
+- The help test's renderer height went from 40 to 48, to fit the new group.

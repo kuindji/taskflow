@@ -84,6 +84,32 @@ describe("Confirm", () => {
         expect(values).toEqual([true]);
     });
 
+    it("rewrites the message for the toggle's value when it flips", async () => {
+        const test = await createTestRenderer({ width: 80, height: 24 });
+        const confirm = new Confirm({
+            renderer: test.renderer,
+            title: "Remove project",
+            message: "unused",
+            messageFor: (keep) => (keep ? "Hide it for now." : "Delete it forever."),
+            toggle: { label: "Keep project data", initial: true },
+            onConfirm: () => undefined,
+            onCancel: () => undefined,
+        });
+        test.renderer.root.add(confirm.renderable);
+        cleanups.push(
+            () => confirm.destroy(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Hide it for now.");
+        expect(test.captureCharFrame()).not.toContain("unused");
+
+        confirm.handleKey(key("t", "t"));
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Delete it forever.");
+        expect(test.captureCharFrame()).not.toContain("Hide it for now.");
+    });
+
     it("renders no toggle line without a toggle and passes false", async () => {
         const test = await createTestRenderer({ width: 80, height: 24 });
         const values: boolean[] = [];

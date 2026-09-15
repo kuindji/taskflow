@@ -26,7 +26,7 @@ describe("Help", () => {
     });
 
     test("renders every command from the shared metadata grouped by product", async () => {
-        const testRenderer = await createTestRenderer({ width: 80, height: 40 });
+        const testRenderer = await createTestRenderer({ width: 80, height: 48 });
         const view = new Help({
             renderer: testRenderer.renderer,
             onClose: () => undefined,

@@ -31,6 +31,7 @@ import type { GitStore } from "../git/store";
 import type { GitChange } from "../git/model";
 import type { SettingsStore } from "../settings/store";
 import type { NotificationStore } from "../notifications/store";
+import type { ProjectStore } from "../projects/store";
 import type { NetLike } from "../net/client";
 import { MachineOfflineError } from "../net/offline-guard";
 import {
@@ -60,6 +61,8 @@ import { FlowRun } from "./flow-run";
 import { GitChanges } from "./git-changes";
 import { GitCommit } from "./git-commit";
 import { Help } from "./help";
+import { LinkedProjects } from "./linked-projects";
+import { ProjectAdd } from "./project-add";
 import { Schedules } from "./schedules";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 import { SessionPicker } from "./session-picker";
@@ -135,6 +138,7 @@ interface OpenTuiAppDeps {
     gitStore?: GitStore;
     settingsStore?: SettingsStore;
     notificationStore?: NotificationStore;
+    projectStore?: ProjectStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -171,6 +175,8 @@ interface SidebarRow {
     owner: SessionOwner;
     label: string;
     sessionCount: number;
+    /** A project whose folder no longer exists; drawn with a `!` marker. */
+    missing: boolean;
 }
 
 const ESCAPE_IDLE_MS = 25;
@@ -196,6 +202,7 @@ function buildRows(
         owner: MASTER_OWNER,
         label: "Master Workspace",
         sessionCount: store.masterSessions.length,
+        missing: false,
     };
     const rows: SidebarRow[] =
         query === "" || masterRow.label.toLowerCase().includes(query) ? [masterRow] : [];
@@ -214,6 +221,7 @@ function buildRows(
             owner: { kind: "project", projectId: project.id },
             label,
             sessionCount: project.sessions.length,
+            missing: project.locationValid === false,
         });
         if (query === "" && collapsedProjectIds.has(project.id)) continue;
         for (const task of matchingTasks) {
@@ -223,6 +231,7 @@ function buildRows(
                 owner: { kind: "task", taskId: task.id, projectId: project.id },
                 label: cleanLabel(task.title),
                 sessionCount: task.sessions.length,
+                missing: false,
             });
         }
     }
@@ -233,7 +242,7 @@ function rowSignature(rows: readonly SidebarRow[]): string {
     return rows
         .map(
             (row) =>
-                `${row.kind}\u0000${row.id}\u0000${row.label}\u0000${String(row.sessionCount)}`,
+                `${row.kind}\u0000${row.id}\u0000${row.label}\u0000${String(row.sessionCount)}\u0000${String(row.missing)}`,
         )
         .join("\u0001");
 }
@@ -294,6 +303,8 @@ class OpenTuiApp {
     private helpPreviousFocus: FocusTarget | null = null;
     private overlay: KeyOverlay | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
+    /** The open add, remove or linked-projects dialog. */
+    private projectDialog: ProjectAdd | LinkedProjects | Confirm | null = null;
     private schedulerEnabled = false;
     private pendingFlowOwnerKey: string | null = null;
     private sidebarColumns = 30;
@@ -609,7 +620,7 @@ class OpenTuiApp {
             });
             const badge = row.sessionCount > 0 ? ` ${String(row.sessionCount)}` : "";
             const label = new TextRenderable(this.deps.renderer, {
-                content: `${row.kind === "task" ? "  " : ""}${row.label}`,
+                content: `${row.kind === "task" ? "  " : ""}${row.missing ? "! " : ""}${row.label}`,
                 height: 1,
                 flexGrow: 1,
                 flexShrink: 1,
@@ -749,6 +760,13 @@ class OpenTuiApp {
             event.preventDefault();
             event.stopPropagation();
             this.confirm.view.handleKey(event);
+            this.updateFooter();
+            return;
+        }
+        if (this.projectDialog) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.projectDialog.handleKey(event);
             this.updateFooter();
             return;
         }
@@ -926,6 +944,21 @@ class OpenTuiApp {
                 break;
             case "task-create":
                 this.openTaskCreate();
+                break;
+            case "project-add":
+                this.openProjectAdd();
+                break;
+            case "project-remove":
+                this.openProjectRemove();
+                break;
+            case "project-move-down":
+                this.moveProject(1);
+                break;
+            case "project-move-up":
+                this.moveProject(-1);
+                break;
+            case "project-links":
+                this.openProjectLinks();
                 break;
             case "git":
                 this.openGitChanges();
@@ -1314,6 +1347,130 @@ class OpenTuiApp {
         view.destroy();
         this.updateFooter();
         this.deps.renderer.requestRender();
+    }
+
+    private selectedProject(): Project | null {
+        return this.selectedOwnerState.kind === "project"
+            ? this.deps.store.projectById(this.selectedOwnerState.projectId)
+            : null;
+    }
+
+    private showProjectDialog(view: ProjectAdd | LinkedProjects | Confirm): void {
+        this.projectDialog = view;
+        this.root.add(view.renderable);
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private closeProjectDialog(view: ProjectAdd | LinkedProjects | Confirm): void {
+        if (this.projectDialog !== view) return;
+        this.projectDialog = null;
+        view.destroy();
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private redrawProjectDialog(): void {
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private openProjectAdd(): void {
+        const store = this.deps.projectStore;
+        if (!store || this.projectDialog) return;
+        const view = new ProjectAdd({
+            renderer: this.deps.renderer,
+            onCancel: () => this.closeProjectDialog(view),
+            onSubmit: (path, name) => {
+                store.add(path, name).then(
+                    (added) => {
+                        if (this.projectDialog !== view) return;
+                        this.closeProjectDialog(view);
+                        this.selectOwner({ kind: "project", projectId: added.id });
+                    },
+                    (error: unknown) => {
+                        if (this.projectDialog !== view) return;
+                        view.setError(`Could not add project: ${this.errorMessage(error)}`);
+                    },
+                );
+            },
+            onStateChange: () => this.redrawProjectDialog(),
+        });
+        this.showProjectDialog(view);
+    }
+
+    private openProjectRemove(): void {
+        const store = this.deps.projectStore;
+        const project = this.selectedProject();
+        if (!store || !project || this.projectDialog) return;
+        const name = cleanLabel(project.name);
+        const messageFor = (keep: boolean): string =>
+            keep
+                ? `Hide "${name}"? Its tasks stay available and adding the same folder again restores it.`
+                : `Permanently remove "${name}" and delete all of its tasks? This cannot be undone.`;
+        const view = new Confirm({
+            renderer: this.deps.renderer,
+            title: "Remove project",
+            message: messageFor(true),
+            messageFor,
+            toggle: { label: "Keep project data", initial: true },
+            onCancel: () => this.closeProjectDialog(view),
+            onConfirm: (keep) => {
+                const work = keep ? store.hide(project.id) : store.remove(project.id);
+                work.then(
+                    () => this.closeProjectDialog(view),
+                    (error: unknown) => {
+                        if (this.projectDialog !== view) return;
+                        view.setError(
+                            `Could not ${keep ? "hide" : "remove"} project: ${this.errorMessage(error)}`,
+                        );
+                    },
+                );
+            },
+            onStateChange: () => this.redrawProjectDialog(),
+        });
+        this.showProjectDialog(view);
+    }
+
+    /** Swap the selected project with its visible neighbour. Nothing is sent at either end. */
+    private moveProject(delta: -1 | 1): void {
+        const store = this.deps.projectStore;
+        const project = this.selectedProject();
+        if (!store || !project) return;
+        const ids = this.deps.store.projects.map((candidate) => candidate.id);
+        const index = ids.indexOf(project.id);
+        const target = index + delta;
+        if (index === -1 || target < 0 || target >= ids.length) return;
+        [ids[index], ids[target]] = [ids[target], ids[index]];
+        store.reorder(ids).catch((error: unknown) => {
+            this.showCommandNotice(` Could not reorder projects: ${this.errorMessage(error)}`);
+        });
+    }
+
+    private openProjectLinks(): void {
+        const store = this.deps.projectStore;
+        const project = this.selectedProject();
+        if (!store || !project || this.projectDialog) return;
+        const view = new LinkedProjects({
+            renderer: this.deps.renderer,
+            project,
+            projects: this.deps.store.projects,
+            onSave: (links) => {
+                store.setLinks(project.id, links).then(
+                    (updated) => {
+                        if (this.projectDialog === view)
+                            view.setLinks(updated.linkedProjects ?? []);
+                    },
+                    (error: unknown) => {
+                        if (this.projectDialog !== view) return;
+                        view.setError(`Could not update links: ${this.errorMessage(error)}`);
+                    },
+                );
+            },
+            onClose: () => this.closeProjectDialog(view),
+            onStateChange: () => this.redrawProjectDialog(),
+        });
+        this.showProjectDialog(view);
     }
 
     private showCommandNotice(message: string): void {
@@ -2037,6 +2194,7 @@ class OpenTuiApp {
         if (this.overlay) return this.overlay.keyHints;
         if (this.productConfirm) return this.productConfirm.view.keyHints;
         if (this.confirm) return this.confirm.view.keyHints;
+        if (this.projectDialog) return this.projectDialog.keyHints;
         if (this.picker) return this.picker.view.keyHints;
         if (this.taskCreate) return this.taskCreate.keyHints;
         if (this.gitCommit) return this.gitCommit.keyHints;
@@ -2068,6 +2226,15 @@ class OpenTuiApp {
                 !this.deps.store.taskById(this.selectedOwnerState.taskId)?.parentId)
         ) {
             hint("task-create");
+        }
+        if (this.deps.projectStore) {
+            hint("project-add");
+            if (this.selectedOwnerState.kind === "project") {
+                hint("project-remove");
+                hint("project-move-down");
+                hint("project-move-up");
+                hint("project-links");
+            }
         }
         if (session) hint("close");
         if (session && this.canResume(session) && !this.resumePending.has(session.id)) {
@@ -2246,6 +2413,8 @@ class OpenTuiApp {
         this.gitCommit = null;
         this.confirm?.view.destroy();
         this.confirm = null;
+        this.projectDialog?.destroy();
+        this.projectDialog = null;
         this.flowInput?.destroy();
         this.flowInput = null;
         this.ownerFilter?.destroy();

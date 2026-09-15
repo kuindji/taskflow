@@ -5,6 +5,7 @@ import {
     type CliRenderer,
     type KeyEvent,
 } from "@opentui/core";
+import { editLine } from "./line-input";
 
 interface OwnerFilterDeps {
     renderer: CliRenderer;
@@ -66,19 +67,19 @@ class OwnerFilter {
     }
 
     handleKey(event: KeyEvent): void {
-        if (event.eventType !== "press") return;
-        const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
-        if (event.name === "escape" && !chorded) {
-            this.deps.onCancel();
-            return;
+        switch (editLine(this.input, event)) {
+            case "cancel":
+                this.deps.onCancel();
+                return;
+            case "submit":
+                this.deps.onSubmit(this.input.value.trim());
+                return;
+            case "edit":
+                this.deps.onStateChange?.();
+                return;
+            default:
+                return;
         }
-        if (chorded) return;
-        if (event.name === "return" || event.name === "enter") {
-            this.deps.onSubmit(this.input.value.trim());
-            return;
-        }
-        this.input.handleKeyPress(event);
-        this.deps.onStateChange?.();
     }
 
     destroy(): void {

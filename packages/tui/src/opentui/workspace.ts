@@ -9,6 +9,7 @@ import type {
 } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { Store } from "../state/store";
+import { ProjectStore } from "../projects/store";
 import { SessionController } from "../sessions/controller";
 import { ownerRequest, type SessionOwner } from "../sessions/owner";
 import { ActionRunner } from "../sessions/action-runner";
@@ -77,6 +78,7 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
     let disposed = false;
 
     const store = new Store(net);
+    const projectStore = new ProjectStore(net, store);
     const flowStore = new FlowStore(net);
     const scheduleStore = new ScheduleStore(net);
     const taskDetailStore = new TaskDetailStore(net);
@@ -263,6 +265,7 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
             local: context.local,
             net,
             store,
+            projectStore,
             flowStore,
             scheduleStore,
             taskStore: taskDetailStore,

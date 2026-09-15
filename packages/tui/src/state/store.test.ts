@@ -61,6 +61,45 @@ function fakeNet(projects: Project[], tasks: Task[], masterSessions: SessionRef[
     };
 }
 
+describe("Store project reducers", () => {
+    test("apply, remove and reorder projects from request responses", async () => {
+        const net = fakeNet(
+            [project("p1", "One"), project("p2", "Two"), project("p3", "Three")],
+            [task("t1", "p1", "Gone"), task("t2", "p2", "Kept")],
+        );
+        const store = new Store(net);
+        await store.load();
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        store.applyProject({ ...project("p2", "Two"), hidden: true });
+        expect(store.projects.map((p) => p.id)).toEqual(["p1", "p3"]);
+        expect(store.projectOrder).toEqual(["p1", "p2", "p3"]);
+
+        store.setProjectOrder(["p3", "p2", "p1"]);
+        expect(store.projectOrder).toEqual(["p3", "p2", "p1"]);
+
+        store.removeProject("p1");
+        expect(store.projectOrder).toEqual(["p3", "p2"]);
+        expect(store.tasks.map((t) => t.id)).toEqual(["t2"]);
+        expect(changes).toBe(3);
+    });
+
+    test("the broadcast handlers use the same reducers", async () => {
+        const net = fakeNet([project("p1", "One"), project("p2", "Two")], [task("t1", "p1", "T")]);
+        const store = new Store(net);
+        await store.load();
+
+        net.emit(MSG.PROJECT_REORDERED, { orderedIds: ["p2", "p1"] });
+        expect(store.projectOrder).toEqual(["p2", "p1"]);
+        net.emit(MSG.PROJECT_UPDATED, { ...project("p2", "Renamed") });
+        expect(store.projectById("p2")?.name).toBe("Renamed");
+        net.emit(MSG.PROJECT_REMOVED, { id: "p1" });
+        expect(store.projectOrder).toEqual(["p2"]);
+        expect(store.tasks).toEqual([]);
+    });
+});
+
 /**
  * A net whose two snapshot requests settle independently, so a test can emit a
  * broadcast in the window between the first response and the second.

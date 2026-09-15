@@ -3,6 +3,8 @@ import type {
     MasterSessionsListResponse,
     Project,
     ProjectListResponse,
+    ProjectRemovePayload,
+    ProjectReorderPayload,
     SessionRef,
     Task,
     TaskListResponse,
@@ -37,20 +39,16 @@ class Store {
     constructor(private readonly net: NetLike) {
         this.disposers.push(
             net.on(MSG.PROJECT_CREATED, (payload) => {
-                this.apply(() => this.applyProject(payload));
+                this.applyProject(payload as Project);
             }),
             net.on(MSG.PROJECT_UPDATED, (payload) => {
-                this.apply(() => this.applyProject(payload));
+                this.applyProject(payload as Project);
             }),
             net.on(MSG.PROJECT_REMOVED, (payload) => {
-                this.apply(() => {
-                    this.removeProject(payload);
-                });
+                this.removeProject((payload as ProjectRemovePayload).id);
             }),
             net.on(MSG.PROJECT_REORDERED, (payload) => {
-                this.apply(() => {
-                    this.reorderProjects(payload);
-                });
+                this.setProjectOrder((payload as ProjectReorderPayload).orderedIds);
             }),
             net.on(MSG.TASK_CREATED, (payload) => {
                 this.apply(() => this.applyTask(payload));
@@ -76,8 +74,11 @@ class Store {
         this.notify();
     }
 
-    private applyProject(payload: unknown): void {
-        this.projectList = upsert(this.projectList, payload as Project);
+    /** Fold in a project from a broadcast or from a request response. */
+    applyProject(project: Project): void {
+        this.apply(() => {
+            this.projectList = upsert(this.projectList, project);
+        });
     }
 
     /**
@@ -127,19 +128,26 @@ class Store {
      * Project order is client-visible, and a reorder broadcast carries only the
      * new id order, so reapply it to the records already held.
      */
-    private reorderProjects(payload: unknown): void {
-        const { orderedIds } = payload as { orderedIds: string[] };
-        this.projectList = orderProjectsByIds(this.projectList, orderedIds);
+    setProjectOrder(ids: string[]): void {
+        this.apply(() => {
+            this.projectList = orderProjectsByIds(this.projectList, ids);
+        });
     }
 
     /**
      * Removing a project cascades to its tasks on the backend, which emits no
      * per-task event for them, so drop them here or they linger as orphans.
      */
-    private removeProject(payload: unknown): void {
-        const { id } = payload as { id: string };
-        this.projectList = this.projectList.filter((p) => p.id !== id);
-        this.taskList = this.taskList.filter((t) => t.projectId !== id);
+    removeProject(id: string): void {
+        this.apply(() => {
+            this.projectList = this.projectList.filter((p) => p.id !== id);
+            this.taskList = this.taskList.filter((t) => t.projectId !== id);
+        });
+    }
+
+    /** Every project id in the backend's order, hidden projects included. */
+    get projectOrder(): string[] {
+        return this.projectList.map((project) => project.id);
     }
 
     private notify(): void {

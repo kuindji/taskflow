@@ -4,6 +4,8 @@ interface ConfirmDeps {
     renderer: CliRenderer;
     title: string;
     message: string;
+    /** Replaces `message` with wording for the toggle's current value; redrawn on every flip. */
+    messageFor?(toggleValue: boolean): string;
     /** An option the user can flip before confirming, rendered as `[x] label`. */
     toggle?: { label: string; initial: boolean };
     /** Receives the toggle's value, or `false` when there is no toggle. */
@@ -86,8 +88,8 @@ class Confirm {
         for (const child of [...this.dialog.getChildren()]) child.destroy();
         this.dialog.add(
             new TextRenderable(this.deps.renderer, {
-                content: ` ${this.deps.message}`,
-                height: 2,
+                content: ` ${this.deps.messageFor?.(this.toggleValue) ?? this.deps.message}`,
+                minHeight: 2,
                 wrapMode: "word",
             }),
         );

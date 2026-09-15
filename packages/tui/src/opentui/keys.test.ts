@@ -176,6 +176,11 @@ describe("KeyRouter", () => {
             key("/"),
             key("/", { shift: true, sequence: "?" }),
             key("m"),
+            key("p"),
+            key("x", { shift: true, sequence: "X" }),
+            key("j", { shift: true, sequence: "J" }),
+            key("k", { shift: true, sequence: "K" }),
+            key("l", { shift: true, sequence: "L" }),
         ];
         const routedKinds = events.flatMap((event) => {
             const route = router.route("ui", event);
@@ -191,8 +196,28 @@ describe("KeyRouter", () => {
         }
     });
 
-    it("keeps every existing command available on remote machines", () => {
-        expect(COMMAND_METADATA.filter((command) => command.localOnly)).toEqual([]);
+    it("marks only the project commands this-machine-only, in the Projects group", () => {
+        const localOnly = COMMAND_METADATA.filter((command) => command.localOnly);
+        expect(localOnly.map((command) => [command.kind, command.keys])).toEqual([
+            ["project-add", "p"],
+            ["project-remove", "X"],
+            ["project-move-down", "J"],
+            ["project-move-up", "K"],
+            ["project-links", "L"],
+        ]);
+        expect(localOnly.every((command) => command.group === "Projects")).toBe(true);
+        expect(GROUP_ORDER).toContain("Projects");
+        const router = new KeyRouter();
+        expect(router.route("ui", key("j", { shift: true, sequence: "J" }))).toEqual({
+            kind: "command",
+            command: { kind: "project-move-down" },
+            before: undefined,
+        });
+        expect(router.route("ui", key("j"))).toEqual({
+            kind: "command",
+            command: { kind: "move", delta: 1 },
+            before: undefined,
+        });
     });
 
     it("adapts Kitty parser fields to OpenTUI physical keys", () => {

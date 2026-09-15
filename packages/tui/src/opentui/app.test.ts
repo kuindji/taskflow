@@ -16,9 +16,10 @@ import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
 import { NotificationStore } from "../notifications/store";
 import { OfflineGuardNet } from "../net/offline-guard";
+import { ProjectStore } from "../projects/store";
 import type { SessionOwner } from "../sessions/owner";
+import { Store } from "../state/store";
 import { SessionBridge } from "./session-bridge";
-import { COMMAND_METADATA } from "./keys";
 import {
     OpenTuiApp,
     buildRows,
@@ -1018,57 +1019,153 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Interrupted shell sessions cannot be resumed");
     });
 
-    describe("with a this-machine-only command", () => {
-        async function localOnlySetup(local: boolean) {
-            // No real command is this-machine-only yet, so mark Git as one for the test.
-            const git = COMMAND_METADATA.find((command) => command.kind === "git");
-            if (!git) throw new Error("git command metadata missing");
-            git.localOnly = true;
+    it("marks a project whose folder is missing with !", async () => {
+        const { test, store } = await setup(100);
+        store.projects = [
+            { ...project("p1", "Missing Folder"), locationValid: false },
+            project("p2", "Present Folder"),
+        ];
+        store.notify();
+        await test.renderOnce();
+        const lines = test.captureCharFrame().split("\n");
+        expect(lines.find((line) => line.includes("Missing Folder"))).toContain("! Missing Folder");
+        expect(lines.find((line) => line.includes("Present Folder"))).not.toContain("!");
+    });
+
+    describe("project commands", () => {
+        const PROJECT_REQUESTS: readonly string[] = [
+            MSG.PROJECT_ADD,
+            MSG.PROJECT_UPDATE,
+            MSG.PROJECT_REMOVE,
+            MSG.PROJECT_REORDER,
+        ];
+
+        async function projectSetup(local: boolean) {
             const test = await createTestRenderer({ width: 160, height: 24, kittyKeyboard: true });
             const net = new FakeNet();
-            net.responses.set(MSG.GIT_STATUS, {
-                status: { branch: "main", ahead: 0, behind: 0, stagedFiles: [], unstagedFiles: [] },
+            net.responses.set(MSG.PROJECT_LIST, {
+                projects: [project("p1", "First Project"), project("p2", "Second Project")],
             });
-            const store = new FakeStore();
-            store.projects = [project("p1", "Project")];
-            const gitStore = new GitStore(net);
-            const app = new OpenTuiApp({ renderer: test.renderer, local, net, store, gitStore });
+            net.responses.set(MSG.TASK_LIST, { tasks: [] });
+            net.responses.set(MSG.MASTER_SESSIONS_LIST, { sessions: [] });
+            net.responses.set(MSG.PROJECT_UPDATE, {
+                ...project("p1", "First Project"),
+                hidden: true,
+            });
+            net.responses.set(MSG.PROJECT_REMOVE, { success: true });
+            net.responses.set(MSG.PROJECT_REORDER, { projects: [] });
+            const store = new Store(net);
+            const projectStore = new ProjectStore(net, store);
+            const app = new OpenTuiApp({
+                renderer: test.renderer,
+                local,
+                net,
+                store,
+                projectStore,
+            });
             await app.init();
             cleanups.push(
-                () => delete git.localOnly,
                 () => app.destroy(),
-                () => gitStore.dispose(),
+                () => store.dispose(),
                 () => test.renderer.destroy(),
             );
-            test.mockInput.pressArrow("down");
             await test.renderOnce();
-            const gitRequests = (): number =>
-                net.requests.filter((request) => request.type === MSG.GIT_STATUS).length;
-            return { test, gitRequests };
+            const frame = (): string => test.captureCharFrame();
+            const footer = (): string => frame().split("\n")[23];
+            const projectRequests = () =>
+                net.requests.filter((request) => PROJECT_REQUESTS.includes(request.type));
+            const settle = async (): Promise<void> => {
+                await Bun.sleep(1);
+                await test.renderOnce();
+            };
+            return { test, net, store, app, frame, footer, projectRequests, settle };
         }
 
-        it("hides it from the footer on a remote machine and refuses to run it", async () => {
-            const { test, gitRequests } = await localOnlySetup(false);
-            const footer = (): string => test.captureCharFrame().split("\n")[23];
+        it("hides them on a remote machine and sends nothing for any of the five", async () => {
+            const { test, app, frame, footer, projectRequests, settle } = await projectSetup(false);
             expect(footer()).toContain("z Zoom");
-            expect(footer()).not.toContain("g Git");
+            expect(footer()).not.toContain("p Add project");
 
-            test.mockInput.pressKey("g");
-            await Bun.sleep(1);
-            await test.renderOnce();
-            expect(gitRequests()).toBe(0);
+            test.mockInput.pressKey("p");
+            await settle();
             expect(footer()).toContain("Only available on this machine.");
+            expect(frame()).not.toContain("Project path");
+
+            test.mockInput.pressArrow("down");
+            expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p1" });
+            for (const letter of ["X", "J", "K", "L"]) {
+                test.mockInput.pressKey(letter);
+                await settle();
+                expect(footer()).toContain("Only available on this machine.");
+            }
+            expect(projectRequests()).toEqual([]);
+            expect(frame()).not.toContain("Keep project data");
+            expect(frame()).not.toContain("Linked projects");
         });
 
-        it("shows and runs it on this machine", async () => {
-            const { test, gitRequests } = await localOnlySetup(true);
-            expect(test.captureCharFrame().split("\n")[23]).toContain("g Git");
+        it("shows and opens add project on this machine", async () => {
+            const { test, frame, footer, settle } = await projectSetup(true);
+            expect(footer()).toContain("p Add project");
 
-            test.mockInput.pressKey("g");
-            await Bun.sleep(1);
-            await test.renderOnce();
-            expect(gitRequests()).toBe(1);
-            expect(test.captureCharFrame()).not.toContain("Only available on this machine.");
+            test.mockInput.pressKey("p");
+            await settle();
+            expect(frame()).toContain("Project path");
+            expect(frame()).not.toContain("Only available on this machine.");
+        });
+
+        it("X hides the project while Keep project data is on", async () => {
+            const { test, store, frame, projectRequests, settle } = await projectSetup(true);
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressKey("X");
+            await settle();
+            expect(frame()).toContain("[x] Keep project data");
+            expect(frame()).toContain('Hide "First Project"?');
+
+            test.mockInput.pressEnter();
+            await settle();
+            expect(projectRequests()).toEqual([
+                { type: MSG.PROJECT_UPDATE, payload: { id: "p1", hidden: true } },
+            ]);
+            expect(store.projects.map((p) => p.id)).toEqual(["p2"]);
+            expect(frame()).not.toContain("Keep project data");
+        });
+
+        it("X removes the project once Keep project data is off", async () => {
+            const { test, store, frame, projectRequests, settle } = await projectSetup(true);
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressKey("X");
+            await settle();
+            test.mockInput.pressKey("t");
+            await settle();
+            expect(frame()).toContain("[ ] Keep project data");
+            expect(frame()).toContain('Permanently remove "First Project"');
+
+            test.mockInput.pressEnter();
+            await settle();
+            expect(projectRequests()).toEqual([
+                { type: MSG.PROJECT_REMOVE, payload: { id: "p1" } },
+            ]);
+            expect(store.projectById("p1")).toBeNull();
+        });
+
+        it("J on the last project does nothing and K moves it up", async () => {
+            const { test, store, app, projectRequests, settle } = await projectSetup(true);
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressArrow("down");
+            expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p2" });
+
+            test.mockInput.pressKey("J");
+            await settle();
+            expect(projectRequests()).toEqual([]);
+            expect(store.projectOrder).toEqual(["p1", "p2"]);
+
+            test.mockInput.pressKey("K");
+            await settle();
+            expect(projectRequests()).toEqual([
+                { type: MSG.PROJECT_REORDER, payload: { orderedIds: ["p2", "p1"] } },
+            ]);
+            expect(store.projectOrder).toEqual(["p2", "p1"]);
+            expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p2" });
         });
     });
 
