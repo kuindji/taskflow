@@ -36,3 +36,17 @@ Verdict: changes required. Claude checked all six findings against the code; all
 4. **Major, Task 7.** Session input and resize swallow request errors (`session-bridge.ts:198-213`), so the offline guard alone drops keystrokes silently. **Fix:** the app doesn't forward keys to a focused session while offline and shows the notice once. The test asserts no `SESSION_INPUT`.
 5. **Major, Task 10.** `buildRows` always adds Master Workspace, includes every project and emits flat task rows (`app.ts:156-199`). **Fix:** a `RowSource` options object (`includeMaster`, `tasksFor`, `omitEmptyProjects`, `nestSubtasks`). Active-sidebar row tests must stay unchanged.
 6. **Major, Tasks 3/7.** `openWorkspace(net: WsClient)` can't accept a test fake or `OfflineGuardNet`. **Fix:** `openWorkspace(net: NetLike)`, with `NetLike` exported from `net/client.ts`.
+
+Found by Claude after round 2:
+- The round 2 resize fix assumed `lastResize` is cleared on reattach. It never is (`session-bridge.ts:54,208-209`). **Fix:** `SessionBridge.resetResize()`, with a test.
+- `ConnectOutcome`'s type omitted the `alreadyAttached` variant. **Fix:** added to the type.
+- `buildRows` callers pass positional arguments (`app.ts:491`, `app.test.ts:566,570`). **Fix:** `RowSource` is an optional fourth parameter.
+
+### Round 3 (Codex gpt-5.5, prompted plan review, 2026-09-15)
+
+No blockers. Round-2 fixes verified OK: shutdown hook ordering, stale-origin handling, same-renderer rebuild test, `openWorkspace(net: NetLike)`. Not OK: the resize reset path and `RowSource`, both fixed below. Claude checked all four findings against the code; all four were real and fixed.
+
+1. **Major, Task 10.** `tasksFor: store.tasksFor` passes an unbound class method, and `tasksFor` reads `this.taskList` (`state/store.ts:205-207`). **Fix:** always pass an arrow, with a test through a real `Store`.
+2. **Major, Task 10.** Archived selections and detail only work for active tasks. `resolveOwner` requires `status === "active"` (`sessions/owner.ts:58-63`) and runs on every refresh (`app.ts:504`); `openTaskDetail` uses `store.taskById` (`app.ts:989-990`). **Fix:** archive mode skips `resolveOwner`, and looks tasks up and resolves parent attributes through `ArchiveStore` first. Tests cover a selection surviving refresh, Enter opening read-only detail, and inherited attributes.
+3. **Major, Task 7.** Nothing gave `MachineSession` a way to call `resetResize()` on bridges inside `OpenTuiApp`/`SessionController`. **Fix:** `SessionBridgeLike.resetResize` → `SessionController.resetResizes` → `Workspace.resetSessionResizes`, called on the transition to online, with a test.
+4. **Major, Task 4.** A `client.connect()` or `SYSTEM_INFO` failure after `attachBackend` (which records the origin and `attached: true`, `backend-registry.ts:323-330`) had no cleanup. **Fix:** every step after attach detaches and closes on failure, and `connectMachine` never throws. Tests cover connect and handshake rejection.

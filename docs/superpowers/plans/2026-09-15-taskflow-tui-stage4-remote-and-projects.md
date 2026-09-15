@@ -183,7 +183,7 @@ A refactor with no behaviour change. It makes the machine switch in Task 6 possi
 
 - Produces:
   - `interface WorkspaceContext { renderer: CliRenderer; machineId: string; machineLabel: string; local: boolean; onQuit(): void; onSwitchMachine(): void }`
-  - `interface Workspace { readonly app: OpenTuiApp; readonly local: boolean; readonly machineId: string; hasOpenEditor(): boolean; selection(): { projectId: string | null; taskId: string | null }; restoreSelection(selection: { projectId: string | null; taskId: string | null }): void; dispose(): void }`
+  - `interface Workspace { readonly app: OpenTuiApp; readonly local: boolean; readonly machineId: string; hasOpenEditor(): boolean; resetSessionResizes(): void; selection(): { projectId: string | null; taskId: string | null }; restoreSelection(selection: { projectId: string | null; taskId: string | null }): void; dispose(): void }`
   - `openWorkspace(net: NetLike, context: WorkspaceContext): Promise<Workspace>`. `NetLike` is not `WsClient`: tests pass a fake, and Task 7 passes `OfflineGuardNet`. A class with private fields can't be satisfied structurally, so export the `NetLike` interface from `net/client.ts`.
   - `dispose()` order: `app.destroy()` first, which removes the renderer key and resize listeners (`app.ts:370-380`) and the root renderable; then the session controller; then every store. `dispose()` never touches the renderer itself.
 
@@ -211,8 +211,8 @@ A refactor with no behaviour change. It makes the machine switch in Task 6 possi
 - Consumes: `Machines`, `LOCAL_MACHINE_ID` (Task 2).
 - Produces:
   - `WsClient.retarget(port: number, host: string | null): void`: replaces the dial target. If connected, the socket is closed and the existing reconnect loop dials the new target. `port`/`host` stop being readonly.
-  - `type ConnectOutcome = { ok: true; machineId: string; net: WsClient } | { ok: false; machineId: string; failure: TunnelFailure } | { ok: false; machineId: string; incompatible: true }`
-  - `connectMachine(machines: Machines, id: string, deps?: { createClient?: (port: number, host: string) => WsClient }): Promise<ConnectOutcome>`. Order: `registry.attachBackend(id)` → parse origin port → `client.connect()` → `SYSTEM_INFO` → if `protocolVersion !== PROTOCOL_VERSION`, close the client, `registry.detachBackend(id)`, return `incompatible` → `registry.confirmBackend(id, info)` → return `{ok: true, machineId: confirmed.id}`. A thrown `confirmBackend` detaches, closes the client and returns `{ok: false, failure: {kind: "unknown", message, stderr: ""}}`.
+  - `type ConnectOutcome = { ok: true; machineId: string; net: WsClient } | { ok: false; machineId: string; failure: TunnelFailure } | { ok: false; machineId: string; incompatible: true } | { ok: false; machineId: string; alreadyAttached: true }`. The success variant keeps `WsClient`, because `MachineSession` needs `retarget` and `close`. It wraps the client in `OfflineGuardNet` (Task 7) before passing it to `openWorkspace(net: NetLike)`.
+  - `connectMachine(machines: Machines, id: string, deps?: { createClient?: (port: number, host: string) => WsClient }): Promise<ConnectOutcome>`. Order: `registry.attachBackend(id)` → parse origin port → `client.connect()` → `SYSTEM_INFO` → if `protocolVersion !== PROTOCOL_VERSION`, close the client, `registry.detachBackend(id)`, return `incompatible` → `registry.confirmBackend(id, info)` → return `{ok: true, machineId: confirmed.id}`. Everything after a successful `attachBackend` has cleanup: parsing the origin, `client.connect()`, the `SYSTEM_INFO` request, and `confirmBackend`. The registry has already recorded the origin and set `attached: true` by then (`backend-registry.ts:323-330`). Any throw or rejection in those steps closes the client (if it was created), calls `registry.detachBackend(id)`, and returns `{ok: false, machineId: id, failure: {kind: "unknown", message, stderr: ""}}`. `connectMachine` never throws. A thrown `confirmBackend` likewise detaches, closes the client and returns `{ok: false, failure: {kind: "unknown", message, stderr: ""}}`.
     - **Merge case.** When `confirmBackend` returns `merged: true`, the registry has already closed the new tunnel (`backend-registry.ts:399-410`), because the target is an alias of a backend attached under its uid. `connectMachine` closes the new client and returns `{ok: false, machineId: confirmed.id, alreadyAttached: true}`. It doesn't decide what that means.
 
 `MachineSession.switchTo` decides:
@@ -230,6 +230,8 @@ A refactor with no behaviour change. It makes the machine switch in Task 6 possi
     - success returns the confirmed id;
     - an attach failure is returned unchanged and no client is created;
     - a protocol mismatch returns `incompatible` and calls `detachBackend`;
+    - `client.connect()` rejecting returns a failure, calls `detachBackend(id)` once, and does not throw;
+    - the `SYSTEM_INFO` request rejecting returns a failure, closes the client, and calls `detachBackend(id)` once;
     - `confirmBackend` resolving `{id: "uid-1", merged: true}` returns `alreadyAttached`, closes the new client, and does not call `detachBackend`, because detaching the canonical id would kill the live tunnel;
     - a `confirmBackend` throw returns a failure, closes the client and detaches.
   - `picker-model.test.ts`: row order; `initialIndex` for local, a saved id, a missing id (→ 0); name lookup ignores unsaved entries.
@@ -353,7 +355,13 @@ Picker keys: `↑↓/jk` move, Enter pick, `a` add machine form, `R` rename save
     - Add `class OfflineGuardNet implements NetLike` in `packages/tui/src/net/offline-guard.ts`. It wraps the real `WsClient`, and while `offline` is set, `request()` rejects with `class MachineOfflineError extends Error` without calling the inner client. `on`/`onStatusChange` pass through.
     - `openWorkspace` receives the guard, so every store and view uses it.
     - Add error display: product-view and command request failures that are `MachineOfflineError` show the footer notice `<label> is offline.`. Don't assume an existing generic display covers them; wire it where each view already reports request errors.
-    - **Terminal input path.** `SessionBridge.sendInput` and `sendResize` swallow request errors (`session-bridge.ts:198-213`), so the guard alone would drop keystrokes silently. Add `OpenTuiApp` handling: while the machine status is not online and a key would go to a focused session bridge (`app.ts:769`), don't forward it, and show `<label> is offline.` once per offline period. Resize requests may still be dropped silently while offline. Today nothing ever clears `lastResize` (`session-bridge.ts:54,208-209`), so a size dropped while offline would never be resent. Add `SessionBridge.resetResize(): void`, which sets `lastResize = null` and immediately resends the current pane size. `MachineSession` calls it on every bridge when the status returns to online. Test in `session-bridge.test.ts`: a resize to 80x24 while the fake net rejects, then `resetResize()` after it accepts, records one `TERMINAL_RESIZE {cols: 80, rows: 24}` on the accepting net.
+    - **Terminal input path.** `SessionBridge.sendInput` and `sendResize` swallow request errors (`session-bridge.ts:198-213`), so the guard alone would drop keystrokes silently. Add `OpenTuiApp` handling: while the machine status is not online and a key would go to a focused session bridge (`app.ts:769`), don't forward it, and show `<label> is offline.` once per offline period. Resize requests may still be dropped silently while offline. Today nothing ever clears `lastResize` (`session-bridge.ts:54,208-209`), so a size dropped while offline would never be resent. Add `SessionBridge.resetResize(): void`, which sets `lastResize = null` and immediately resends the current pane size. Bridges are private to `OpenTuiApp` and `SessionController`, so reach them in layers:
+- add `resetResize(): void` to `SessionBridgeLike` (`app.ts`) and to the controller's bridge type (`sessions/controller.ts`);
+- add `SessionController.resetResizes(): void`, which calls it on every live bridge;
+- `Workspace.resetSessionResizes()` (Task 3 interface) calls `controller.resetResizes()`;
+- `MachineSession` calls `workspace.resetSessionResizes()` on the transition to online.
+
+Test in `machine-session.test.ts`: an offline → online status change calls `resetSessionResizes` once on the fake workspace. Test in `session-bridge.test.ts`: a resize to 80x24 while the fake net rejects, then `resetResize()` after it accepts, records one `TERMINAL_RESIZE {cols: 80, rows: 24}` on the accepting net.
     - No per-command `sendsRequest` flag.
 
 Behaviour in `MachineSession`:
@@ -510,7 +518,7 @@ Behaviour in `MachineSession`:
     - a reconnect while in archive mode reloads the archive.
   - `task-detail.test.ts`: read-only hints omit edit, pin and archive.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement.** Row building. `buildRows` (`app.ts:156-199`) always adds Master Workspace, includes every project, and emits a flat task list, so it can't produce the archive sidebar as-is. Extend it, rather than adding a second builder, with an options object:
+- [ ] **Step 3: Implement.** Row building. `buildRows` (`app.ts:156-199`) always adds Master Workspace, includes every project, and emits a flat task list, so it can't produce the archive sidebar as-is. Extend it, rather than adding a second builder, with an optional fourth parameter `source?: RowSource`. The existing positional parameters `(store, collapsedProjectIds, filter)` stay, because `app.ts:491` and the tests at `app.test.ts:566,570` call it that way, and those tests must pass unchanged. Omitting `source` means today's behaviour:
 
 ```ts
 interface RowSource {
@@ -521,11 +529,29 @@ interface RowSource {
 }
 ```
 
-- The active sidebar passes `{includeMaster: true, tasksFor: store.tasksFor, omitEmptyProjects: false, nestSubtasks: false}`, which is today's behaviour, and existing `app.test.ts` row tests must stay green unchanged.
+- The active sidebar passes `{includeMaster: true, tasksFor: (projectId) => store.tasksFor(projectId), omitEmptyProjects: false, nestSubtasks: false}`, which is today's behaviour, and existing `app.test.ts` row tests must stay green unchanged.
 - Archive mode passes `{includeMaster: false, tasksFor: archivedTasksFor, omitEmptyProjects: true, nestSubtasks: true}`.
 - With `nestSubtasks`, a task row with `parentId` is emitted directly after its parent, with label prefix `  └ `. An archived subtask whose parent isn't archived is emitted at top level.
 - The name filter keeps a parent row when a subtask matches.
 - `SidebarRow` is unchanged.
+- `Store.tasksFor` is a class method that reads `this.taskList` (`store.ts:205-207`), so always pass an arrow like `(projectId) => store.tasksFor(projectId)`, never the bare method. Add an `app.test.ts` case that builds active rows through `RowSource` with a real `Store`.
+
+Archive selection and detail. Today both paths only work for active tasks:
+- `resolveOwner` accepts only tasks with `status === "active"` from `store.tasks` (`sessions/owner.ts:58-63`), and `refreshRows` calls it on every refresh (`app.ts:504`).
+- `openTaskDetail` looks the task up with `store.taskById` (`app.ts:989-990`).
+
+So in archive mode:
+- `refreshRows` skips `resolveOwner`. It keeps the selected owner if a row with that owner key exists, otherwise it selects the first row.
+- `openTaskDetail` looks the task up in `ArchiveStore.tasks()` and constructs `TaskDetail` with `task` and `readOnly: true`.
+- Attribute resolution: `resolvedTaskAttributes(task, store)` looks up the parent task. Give it a lookup that checks `ArchiveStore.tasks()` first, then `store.taskById`, so an archived subtask of an archived parent still shows inherited attributes.
+- Session listing for archived owners returns `[]`, and the session pane shows no sessions.
+
+Leaving archive mode runs the normal `resolveOwner` path.
+
+Tests (`app.test.ts`):
+- In archive mode, a selected archived subtask stays selected after a store change triggers `refreshRows`.
+- Enter on it opens read-only detail showing its title.
+- An inherited attribute from its archived parent is listed.
 - [ ] **Step 4: Run.** `bun test packages/tui` → PASS. `bun run typecheck`.
 - [ ] **Step 5: Commit.** `feat(tui): browse, restore and delete archived tasks`
 
