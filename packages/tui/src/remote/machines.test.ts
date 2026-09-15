@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createRegistry, createTunnelManager } from "@taskflow/shared/remote";
 import { createMachines } from "./machines";
 
 let dir: string;
@@ -16,12 +17,19 @@ afterEach(async () => {
 
 describe("createMachines", () => {
     it("wires a registry that persists to backends.json without starting discovery", async () => {
-        const machines = createMachines(dir);
-        // Spy on the instance method rather than mocking the shared module:
-        // `createMachines` must never call `startDiscovery` itself, and this
-        // proves it without touching how the real registry is constructed.
-        const startDiscoverySpy = mock(machines.registry.startDiscovery);
-        machines.registry.startDiscovery = startDiscoverySpy;
+        const startDiscoverySpy = mock(() => Promise.resolve());
+        const machines = createMachines(dir, {
+            createTunnelManager,
+            // The spy is installed on the registry object *before*
+            // `createMachines` ever sees it, so a `startDiscovery()` call
+            // made during construction — not just afterward — fails this
+            // test, not only one made by a caller later.
+            createRegistry: (deps: Parameters<typeof createRegistry>[0]) => {
+                const registry = createRegistry(deps);
+                registry.startDiscovery = startDiscoverySpy;
+                return registry;
+            },
+        });
 
         await machines.registry.load();
         await machines.registry.addBackend({ host: "10.0.0.5" });

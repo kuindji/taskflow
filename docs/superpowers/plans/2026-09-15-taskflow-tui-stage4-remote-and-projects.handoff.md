@@ -107,3 +107,40 @@ RED evidence: before implementation, `bun test packages/tui/src/remote` failed w
 
 Deviations:
 - The `machines.test.ts` spec ("no listener starts (no `startDiscovery` call)") is verified by monkey-patching the *instance* method returned by the real `createRegistry` (`machines.registry.startDiscovery = mock(...)`) rather than mocking the `@taskflow/shared/remote` module. An earlier attempt with `mock.module` hit the known Bun gotcha (rewriting a live-binding import causes `createRegistry` to call itself and blow the call stack, per `project_bun_test_mock_module.md`); capturing the real function by dynamic-import value did not avoid it either, since bun re-resolves the named import binding through the mocked module. Spying on the returned instance sidesteps the whole class of bug and needed no `mock.module`, so the file has no cross-test leak risk.
+
+#### Fix round 1
+
+Commit: `fix(tui): validate tui state and tighten discovery test`.
+
+Three controller-verified findings, all fixed:
+1. `tui-state.ts`'s bare `catch` in `readTuiState` turned every read failure into empty state. Now `ENOENT` (via an `isErrnoException` type guard) and JSON `SyntaxError` both return empty state; any other error (`EACCES`, `EISDIR`, ...) rethrows.
+2. `JSON.parse(raw) as TuiState` was an unchecked cast — a `state.json` of `null` made `readTuiState` return `null`, and `state.lastMachineId` then threw. Replaced with `parseTuiState(value: unknown): TuiState` built from type guards (`isPlainObject`, `isStringOrNull`, `isSelectionEntry`): an invalid top level falls back to empty state, invalid individual `selections` entries are dropped while valid ones survive. No `as` on unvalidated data.
+3. `machines.test.ts`'s `startDiscovery` spy was installed on the registry *after* `createMachines` had already run, so it couldn't catch a `startDiscovery()` call made during construction. Added an unexported `MachineFactories` seam (`{createRegistry, createTunnelManager}`, defaulting to the real functions) and an optional second parameter on `createMachines`; the test now installs the spy inside a `createRegistry` wrapper before `createMachines` ever sees the returned registry. Verified by temporarily adding `registry.startDiscovery()` inside `createMachines` (test failed), then removing it (test passed).
+
+Test counts: `tui-state.test.ts` +5 (JSON `null`, JSON `[]`, wrong-typed `lastMachineId`, invalid selection entries dropped, directory-at-path rejects). `machines.test.ts` reworked, same 1 test. `bun test packages/tui/src/remote` → 14 pass, 0 fail (up from 9). `bun run typecheck` and `bunx eslint` on the four changed files both clean, no new `eslint-disable` comments.
+
+RED evidence: the 5 new `tui-state.test.ts` cases failed against the pre-fix code (bare catch / unchecked cast) with the exact symptoms in each finding. The `machines.test.ts` RED was demonstrated by temporarily adding a `startDiscovery()` call inside `createMachines`, confirming the reworked test catches it (`Expected number of calls: 0, Received number of calls: 1`), then reverting.
+
+### Task 3 — extract `openWorkspace`
+
+Status: DONE. Commit: `refactor(tui): build the workspace in one disposable unit`.
+
+- `packages/tui/src/opentui/workspace.ts`: `openWorkspace(net: NetLike, context: WorkspaceContext): Promise<Workspace>` builds the stores, session controller, action runner, external editor wiring and `OpenTuiApp`, then runs `app.init()`. `dispose()` is idempotent and runs `app.destroy()` → `controller.destroy()` → every store's `dispose()`, and never touches the renderer. If `init()` throws, `openWorkspace` disposes what it built and rethrows.
+- `hasOpenEditor()` counts `onEditTaskText`/`onEditRecord` work in progress (incremented before, decremented in `finally`).
+- `selection()` maps `app.selectedOwner` to `{projectId, taskId}`. `restoreSelection` selects the task if the store has it, otherwise the project if the store has it, otherwise does nothing. It goes through a new public `OpenTuiApp.selectOwner(owner)`, which sets the owner and runs the existing `refreshRows(true)`.
+- `entry.ts` keeps argument parsing, the runtime owner, backend start and `finish`, and calls `openWorkspace` once. Context: `--connect host:port` → `local: false`, `machineId: "connect:<host>:<port>"`, label `<host>:<port>`; otherwise `local: true`, `machineId: "local"`, label `This machine`. `onQuit` → `finish(0)`; `onSwitchMachine` is a no-op. The label isn't rendered.
+- `editorActions` moved with the editor code into `workspace.ts`.
+- `FakeNet`, `project`, `task` and `fullSettings` moved out of `app.test.ts` into `packages/tui/src/opentui/test-helpers.ts`, which both tests import.
+
+Test counts:
+- Before: `bun test packages/tui` → 288 pass across 50 files.
+- After: 298 pass, 0 fail across 51 files. That is 288 + 5 new `workspace.test.ts` tests + 5 tests from uncommitted `packages/tui/src/remote` changes that belong to another agent and are not in this commit (`bun test packages/tui/src/remote` → 14, Task 2 recorded 9).
+- `bun run typecheck` passes for every package. `bunx eslint` on the changed files reports nothing. No TUI test file uses `mock.module`.
+
+RED evidence: `bun test packages/tui/src/opentui/workspace.test.ts` failed with `Cannot find module './workspace'` before implementation.
+
+Deviations:
+- No `resetSessionResizes()` on `Workspace` (controller ruling: Task 7 adds it).
+- Added `OpenTuiApp.selectOwner` (6 lines); the app had no public way to set the selection.
+- `opentui-index.test.ts` now imports `editorActions` from `workspace.ts`, and its `new SessionController` source check reads `workspace.ts`, because that code moved.
+- The `hasOpenEditor` tests drive the real key path (`t`/`e`/Enter and `f`/`n`/Enter) with a system-info editor whose command is `true`, and hold the `TASK_UPDATE` / `FLOW_DEFINITION_SAVE` response open. The workspace has no test-only seam.
