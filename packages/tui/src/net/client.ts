@@ -47,9 +47,23 @@ class WsClient implements NetLike {
      * `TASKFLOW_HOST` describes this one. Left null, the local rule applies.
      */
     constructor(
-        private readonly port: number,
-        private readonly host: string | null = null,
+        private port: number,
+        private host: string | null = null,
     ) {}
+
+    /**
+     * Point the client at another backend, e.g. after a tunnel was reopened on a
+     * new local port. A live socket is dropped and the retry loop dials the new
+     * target; an armed retry picks it up on its own. A closed client stays
+     * closed: only `connect()` revives it.
+     */
+    retarget(port: number, host: string | null): void {
+        this.port = port;
+        this.host = host;
+        if (this.closed || this.ws === null) return;
+        this.disconnect(new Error("Connection retargeted"));
+        this.scheduleReconnect();
+    }
 
     connect(): Promise<void> {
         // Dialling again means the caller wants a connection, so a previous

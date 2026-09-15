@@ -144,3 +144,20 @@ Deviations:
 - Added `OpenTuiApp.selectOwner` (6 lines); the app had no public way to set the selection.
 - `opentui-index.test.ts` now imports `editorActions` from `workspace.ts`, and its `new SessionController` source check reads `workspace.ts`, because that code moved.
 - The `hasOpenEditor` tests drive the real key path (`t`/`e`/Enter and `f`/`n`/Enter) with a system-info editor whose command is `true`, and hold the `TASK_UPDATE` / `FLOW_DEFINITION_SAVE` response open. The workspace has no test-only seam.
+
+### Task 4 — connect service and picker model
+
+Status: DONE. Commit: `feat(tui): connect to saved machines through the shared registry`.
+
+- `WsClient.retarget(port, host)`: `port`/`host` are no longer readonly. A live socket is disconnected and the retry loop is armed explicitly, because `disconnect` detaches `onclose`. A closed client stays closed.
+- `remote/connect.ts`: `connectMachine(machines: { registry: RegistryPort }, id, deps?)` returns `ConnectOutcome` and never throws. Once the attach succeeds, any throw (origin parse, connect, `SYSTEM_INFO`, `confirmBackend`) closes the client and detaches. A protocol mismatch closes, detaches and returns `incompatible`. A merge closes without detaching and returns `alreadyAttached` with the canonical id.
+- `remote/picker-model.ts`: `PickerRow`, `buildPickerRows`, `initialIndex`, `findMachineByName`.
+
+Test counts: `bun test packages/tui/src/remote packages/tui/src/net/client.test.ts` → 41 pass. `bun test packages/tui` → 317 pass, 0 fail across 53 files (was 298, +19). `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: the new `retarget` test failed, and `connect.test.ts` / `picker-model.test.ts` failed with `Cannot find module`.
+
+Deviations:
+- `deps.createClient` and the success variant's `net` use `MachineClient` (`NetLike` plus `connect`/`retarget`/`close`), which `WsClient` satisfies, instead of `WsClient` (controller ruling: a fake can't match private fields).
+- A backend whose `SYSTEM_INFO` has no `backendUid` skips `confirmBackend` and keeps the requested id, as the renderer's `backend-store.ts` does. The brief didn't cover this case.
+- Extra tests for an unparsable origin and the no-uid path.

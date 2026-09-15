@@ -184,6 +184,26 @@ describe("WsClient", () => {
         expect(seen).toEqual([true, false]);
     });
 
+    test("retarget() on a connected client closes the socket and redials the new port", async () => {
+        const client = makeClient(startEchoServer());
+        await client.connect();
+        const seen: boolean[] = [];
+        const reconnected = new Promise<void>((resolve) => {
+            client.onStatusChange(({ connected }) => {
+                seen.push(connected);
+                if (connected) resolve();
+            });
+        });
+        // The malformed server answers every request with `{ ok: true }`, which
+        // the echo server never does, so the reply proves which port was dialled.
+        client.retarget(startMalformedServer(), null);
+        expect(seen).toEqual([false]);
+        await Promise.race([reconnected, Bun.sleep(2_000)]);
+        expect(seen).toEqual([false, true]);
+        const result = await client.request<{ ok: boolean }>("hello", {});
+        expect(result).toEqual({ ok: true });
+    });
+
     test("a socket superseded by a new connect() no longer delivers events", async () => {
         const client = makeClient(startEchoServer());
         await client.connect();
