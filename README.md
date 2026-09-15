@@ -67,6 +67,19 @@ that, and without either it uses `taskflow-backend` from `PATH`. To use another
 machine's backend you only need the TUI: it connects over SSH, so that machine
 must accept your SSH key.
 
+### Desktop app on Linux
+
+`bun run release` publishes an x64 AppImage and `latest-linux.yml` to the same
+GitHub release as the macOS builds. To build one locally without publishing:
+
+```sh
+bun run dist:linux
+```
+
+The AppImage lands in `electron/release/`. Install it at a fixed path, such as
+`~/Applications/Taskflow.AppImage`, and launch it from there: Check for Updates
+replaces that file in place, so its directory must be writable.
+
 ### TUI machines
 
 `taskflow-tui` opens a machine picker: This machine, saved machines, backends

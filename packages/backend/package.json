@@ -12,6 +12,7 @@
         "build:bin:mac-x64": "bun run scripts/build-macos-bin.mjs x64",
         "build:bin:mac-arm64": "bun run scripts/build-macos-bin.mjs arm64",
         "build:bin:mac-all": "bun run scripts/build-macos-bin.mjs all",
+        "build:bin:linux": "bun run scripts/build-linux-bin.mjs x64",
         "build:bin:win": "bun build src/index.ts --compile --target=bun-windows-x64 --outfile dist/taskflow-backend.exe",
         "build:bin:win-arm64": "bun build src/index.ts --compile --target=bun-windows-arm64 --outfile dist/taskflow-backend.exe",
         "build:cli": "bun build src/services/taskflow-cli-bin.ts --compile --outfile dist/taskflow-cli",

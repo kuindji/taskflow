@@ -15,8 +15,10 @@
         "dist:win-arm64": "electron-builder --win --arm64",
         "dist:win:portable": "electron-builder --win portable --x64",
         "dist:win-arm64:portable": "electron-builder --win portable --arm64",
+        "dist:linux": "electron-builder --linux --x64",
         "publish": "electron-builder --publish always",
-        "publish:mac-all": "electron-builder --mac --x64 --arm64 --publish always"
+        "publish:mac-all": "electron-builder --mac --x64 --arm64 --publish always",
+        "publish:linux": "electron-builder --linux --x64 --publish always"
     },
     "build": {
         "appId": "com.taskflow.app",
@@ -42,6 +44,9 @@
             "repo": "taskflow"
         },
         "afterSign": "scripts/notarize.js",
+        "toolsets": {
+            "appimage": "1.0.2"
+        },
         "mac": {
             "category": "public.app-category.developer-tools",
             "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
@@ -90,6 +95,25 @@
                 {
                     "from": "../packages/backend/node_modules/@vscode/ripgrep/bin/rg.exe",
                     "to": "backend/rg.exe"
+                }
+            ]
+        },
+        "linux": {
+            "target": [
+                "AppImage"
+            ],
+            "category": "Development",
+            "executableName": "taskflow",
+            "icon": "build/icon.png",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "extraResources": [
+                {
+                    "from": "../packages/backend/dist/linux/${arch}/taskflow-backend",
+                    "to": "backend/taskflow-backend"
+                },
+                {
+                    "from": "../packages/backend/dist/linux/${arch}/rg",
+                    "to": "backend/rg"
                 }
             ]
         }
