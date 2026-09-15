@@ -1,5 +1,5 @@
 import { readFile, rename, writeFile } from "fs/promises";
-import type { BackendRecord, DiscoveredBackend, MenuEntry, TunnelFailure } from "@taskflow/shared";
+import type { BackendRecord, DiscoveredBackend, MenuEntry, TunnelFailure } from "../types/backend";
 import {
     backendIdFor,
     createListener,
@@ -7,7 +7,7 @@ import {
     isStale,
     isValidPort,
     type DiscoveryListener,
-} from "@taskflow/shared/discovery";
+} from "../discovery";
 import {
     adoptUid,
     matchesDiscovered,
@@ -186,22 +186,36 @@ function createRegistry(deps: RegistryDeps) {
         });
     }
 
+    async function startDiscovery(): Promise<void> {
+        listener = createListener({
+            onChange(entries) {
+                const before = new Set(discovered.map((entry) => entry.backendUid));
+                discovered = entries;
+                for (const entry of entries) {
+                    if (before.has(entry.backendUid)) continue;
+                    const record = records.find((r) => matchesDiscovered(r, entry));
+                    if (record) for (const handler of seenHandlers) handler(record.id);
+                }
+                notifyChanged();
+            },
+        });
+        await listener.start();
+    }
+
+    /** Stops and drops the listener, so `startDiscovery` can run again. */
+    function stopDiscovery(): void {
+        listener?.stop();
+        listener = null;
+    }
+
     return {
+        load,
+        startDiscovery,
+        stopDiscovery,
+
         async init(): Promise<void> {
             await load();
-            listener = createListener({
-                onChange(entries) {
-                    const before = new Set(discovered.map((entry) => entry.backendUid));
-                    discovered = entries;
-                    for (const entry of entries) {
-                        if (before.has(entry.backendUid)) continue;
-                        const record = records.find((r) => matchesDiscovered(r, entry));
-                        if (record) for (const handler of seenHandlers) handler(record.id);
-                    }
-                    notifyChanged();
-                },
-            });
-            await listener.start();
+            await startDiscovery();
         },
 
         listBackends(): Promise<MenuEntry[]> {
@@ -509,9 +523,7 @@ function createRegistry(deps: RegistryDeps) {
             discovered = entries;
         },
 
-        stop(): void {
-            listener?.stop();
-        },
+        stop: stopDiscovery,
     };
 }
 

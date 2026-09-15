@@ -4,7 +4,7 @@ Plan: `docs/superpowers/plans/2026-09-15-taskflow-tui-stage4-remote-and-projects
 
 Spec: `docs/superpowers/specs/2026-09-15-taskflow-tui-stage4-remote-and-projects-design.md`
 
-Status: plan review DONE after round 4 (clean). No implementation code written. Next action: execute Task 1, the move gate.
+Status: implementation in progress. Task 1 (move gate) DONE. Next action: Task 2.
 
 ## Plan review
 
@@ -65,3 +65,27 @@ Codex also confirmed that selecting an archived task sends no failing requests:
 - task logs are keyed by id.
 
 Plan review is complete.
+
+## Implementation
+
+### Task 1 — move the remote modules into `packages/shared` (gate)
+
+Status: DONE. Commit: `refactor(shared): move remote tunnel and registry modules out of electron`.
+
+- `backend-records`, `tunnel-args`, `tunnel-manager` and `backend-registry` and their tests moved with `git mv` to `packages/shared/src/remote/`. `@taskflow/shared/remote` exports `createRegistry`, `BackendRegistry`, `createTunnelManager`, `TunnelManager`, `TunnelResult` and `KNOWN_HOSTS_FILE`.
+- `createTunnelManager()` holds `tunnels`, `pendingOpens`, `exitHandler`, `closing` and `scannedHostKeys`, along with every function that reads them. Stateless helpers and the constants stay at module level. No logic changed: a sorted, whitespace-insensitive line diff against the old file shows only the wrapper, the return object, the exports, the import paths and one prettier line wrap.
+- The registry gained `load`, `startDiscovery` and `stopDiscovery`. `init` is `load` then `startDiscovery`, and `stop` is `stopDiscovery`.
+- Electron's `main.ts` creates one manager and passes its methods to `createRegistry`. `ipc-handlers.ts` takes `tunnels: TunnelManager` in its deps.
+
+Test counts:
+- Before the move: `bun test electron/src` passed 83. The four moved files passed 15 (records), 23 (args), 3 (tunnel manager) and 23 (registry), 64 in total.
+- After the move: `bun test packages/shared/src/remote` passes 68. That is the 64 moved tests, plus 2 new tunnel-manager isolation tests and 2 new registry tests (Step 5). `bun test electron/src` passes 19 (83 − 64).
+- `bun run typecheck`, eslint on the changed paths and `bun run build:electron` all pass.
+
+RED evidence (run in a scratchpad copy):
+- With `closing` moved back to module scope, "closing all tunnels on one manager does not stop another from opening" fails with `Expected: not "Taskflow is quitting."`.
+- With HEAD's registry, both new registry tests fail with `reg.load is not a function`.
+
+Deviations:
+- The brief says "plus the two new tests". The after-count is +4, because Step 5 adds registry tests as well.
+- The `backend-registry` imports `fs/promises`, `os` and `path` still have no `node:` prefix. They are Node APIs, and they were left alone to keep the move logic-free.

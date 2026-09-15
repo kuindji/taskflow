@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { DiscoveredBackend } from "@taskflow/shared";
+import type { DiscoveredBackend } from "../types/backend";
 import { createRegistry } from "./backend-registry";
 
 const dirs: string[] = [];
@@ -488,5 +488,30 @@ describe("backend registry", () => {
         await reg.removeBackend(again.id);
 
         expect((await reg.listBackends()).map((entry) => entry.id)).toEqual(["abc123"]);
+    });
+
+    test("load reads saved records without starting discovery", async () => {
+        const { reg: writer, dir } = await registry();
+        await writer.addBackend({ host: "desktop.local" });
+        const { reg } = await registry({ file: join(dir, "backends.json") });
+
+        await reg.load();
+        // With no listener, only the seeded cache can supply this entry.
+        reg.__setDiscoveredForTest([discovered({ backendUid: "def456", address: "laptop.local" })]);
+        reg.probe();
+
+        expect((await reg.listBackends()).map((entry) => entry.id).sort()).toEqual(
+            ["desktop.local:main", "laptop.local:main"].sort(),
+        );
+    });
+
+    test("discovery can be started again after it is stopped", async () => {
+        const { reg } = await registry();
+        await reg.load();
+
+        await reg.startDiscovery();
+        reg.stopDiscovery();
+        await reg.startDiscovery();
+        reg.stopDiscovery();
     });
 });

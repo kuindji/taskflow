@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BackendRecord } from "@taskflow/shared";
-import { closeTunnel, hasTunnel, onTunnelExit, openTunnel, rekeyTunnel } from "./tunnel-manager";
+import type { BackendRecord } from "../types/backend";
+import { createTunnelManager } from "./tunnel-manager";
 
 // A stand-in `ssh` on PATH. It reads the local port from `-L`, logs its pid,
 // and after a delay starts answering there the way the backend does, so the
@@ -71,10 +71,6 @@ beforeAll(() => {
     process.env.FAKE_SSH_READY_DELAY_MS = "500";
 });
 
-afterEach(() => {
-    for (const id of [record.id, "abc123"]) closeTunnel(id);
-});
-
 afterAll(() => {
     process.env.PATH = savedPath;
     delete process.env.FAKE_SSH_LOG;
@@ -82,18 +78,28 @@ afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
+function useLog(name: string): void {
+    logFile = join(dir, name);
+    writeFileSync(logFile, "");
+    process.env.FAKE_SSH_LOG = logFile;
+}
+
 describe("openTunnel", () => {
+    const manager = createTunnelManager();
+    afterEach(() => {
+        for (const id of [record.id, "abc123"]) manager.closeTunnel(id);
+    });
+
     test("two concurrent opens for one record spawn one child and resolve only after readiness", async () => {
-        logFile = join(dir, "concurrent.log");
-        writeFileSync(logFile, "");
-        process.env.FAKE_SSH_LOG = logFile;
+        useLog("concurrent.log");
 
         const settledAt: number[] = [];
-        const opens = [openTunnel(record, 54892), openTunnel(record, 54892)].map((open) =>
-            open.then((result) => {
-                settledAt.push(Date.now());
-                return result;
-            }),
+        const opens = [manager.openTunnel(record, 54892), manager.openTunnel(record, 54892)].map(
+            (open) =>
+                open.then((result) => {
+                    settledAt.push(Date.now());
+                    return result;
+                }),
         );
         const results = await Promise.all(opens);
 
@@ -107,39 +113,72 @@ describe("openTunnel", () => {
 });
 
 describe("rekeyTunnel", () => {
-    test("refiles a live child under the new id without killing it", async () => {
-        logFile = join(dir, "rekey.log");
-        writeFileSync(logFile, "");
-        process.env.FAKE_SSH_LOG = logFile;
+    const manager = createTunnelManager();
+    afterEach(() => {
+        for (const id of [record.id, "abc123"]) manager.closeTunnel(id);
+    });
 
-        const result = await openTunnel(record, 54892);
+    test("refiles a live child under the new id without killing it", async () => {
+        useLog("rekey.log");
+
+        const result = await manager.openTunnel(record, 54892);
         if (!result.ok) throw new Error(result.failure.message);
 
-        rekeyTunnel(record.id, "abc123");
+        manager.rekeyTunnel(record.id, "abc123");
 
-        expect(hasTunnel(record.id)).toBe(false);
-        expect(hasTunnel("abc123")).toBe(true);
+        expect(manager.hasTunnel(record.id)).toBe(false);
+        expect(manager.hasTunnel("abc123")).toBe(true);
         expect(await answers(result.localPort)).toBe(true);
         expect(readLog().filter((entry) => entry.event === "spawn")).toHaveLength(1);
         // Reachable under the new id: an open for it adopts the same child.
-        expect(await openTunnel({ ...record, id: "abc123" }, 54892)).toEqual(result);
+        expect(await manager.openTunnel({ ...record, id: "abc123" }, 54892)).toEqual(result);
     });
 
     test("a rekeyed child that exits is reported under the new id", async () => {
-        logFile = join(dir, "rekey-exit.log");
-        writeFileSync(logFile, "");
-        process.env.FAKE_SSH_LOG = logFile;
+        useLog("rekey-exit.log");
 
-        const result = await openTunnel(record, 54892);
+        const result = await manager.openTunnel(record, 54892);
         if (!result.ok) throw new Error(result.failure.message);
-        rekeyTunnel(record.id, "abc123");
+        manager.rekeyTunnel(record.id, "abc123");
 
-        const reported = new Promise<string>((resolve) => onTunnelExit((id) => resolve(id)));
+        const reported = new Promise<string>((resolve) =>
+            manager.onTunnelExit((id) => resolve(id)),
+        );
         const pid = readLog().find((entry) => entry.event === "spawn")?.pid;
         if (pid === undefined) throw new Error("fake ssh never started");
         process.kill(pid, "SIGKILL");
 
         expect(await reported).toBe("abc123");
-        expect(hasTunnel("abc123")).toBe(false);
+        expect(manager.hasTunnel("abc123")).toBe(false);
+    });
+});
+
+describe("separate managers", () => {
+    const first = createTunnelManager();
+    const second = createTunnelManager();
+    afterEach(() => {
+        first.closeTunnel(record.id);
+        second.closeTunnel(record.id);
+    });
+
+    test("a tunnel opened on one manager is not visible on another", async () => {
+        useLog("isolation.log");
+
+        const result = await first.openTunnel(record, 54892);
+        if (!result.ok) throw new Error(result.failure.message);
+
+        expect(first.hasTunnel(record.id)).toBe(true);
+        expect(second.hasTunnel(record.id)).toBe(false);
+    });
+
+    test("closing all tunnels on one manager does not stop another from opening", async () => {
+        useLog("closing.log");
+
+        first.closeAllTunnels();
+        const result = await second.openTunnel(record, 54892);
+
+        if (!result.ok) expect(result.failure.message).not.toBe("Taskflow is quitting.");
+        expect(result.ok).toBe(true);
+        expect(second.hasTunnel(record.id)).toBe(true);
     });
 });

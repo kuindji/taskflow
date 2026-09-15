@@ -1,5 +1,5 @@
-import { backendIdFor, isSafeLabel, isStale, isValidPort } from "@taskflow/shared/discovery";
-import type { BackendRecord, DiscoveredBackend, MenuEntry } from "@taskflow/shared";
+import { backendIdFor, isSafeLabel, isStale, isValidPort } from "../discovery";
+import type { BackendRecord, DiscoveredBackend, MenuEntry } from "../types/backend";
 
 function isRecordLike(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;

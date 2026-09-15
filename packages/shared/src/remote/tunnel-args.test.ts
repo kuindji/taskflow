@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { BackendRecord } from "@taskflow/shared";
+import type { BackendRecord } from "../types/backend";
 import {
     buildKeyscanArgs,
     buildTunnelArgs,

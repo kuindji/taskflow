@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { BackendRecord, TunnelFailure } from "@taskflow/shared";
+import type { BackendRecord, TunnelFailure } from "../types/backend";
 
 /**
  * The app's own trust store. Host-key approval is the one security decision

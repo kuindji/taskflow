@@ -6,15 +6,15 @@ import { join } from "path";
 import type { TunnelFailure } from "@taskflow/shared";
 import { downloadArtifact, isArtifactUrl } from "./artifact-download";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
-import type { BackendRegistry } from "./backend-registry";
+import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
 import { backendOrigin } from "./backend-url";
 import type { TrayState } from "./tray-manager";
-import { onTunnelExit } from "./tunnel-manager";
 
 interface IpcHandlersDeps {
     getMainWindow: () => BrowserWindow | null;
     getBackendPort: () => number | null;
     registry: BackendRegistry;
+    tunnels: TunnelManager;
     setRendererTrayState: (status: TrayState) => void;
     updateTrayIcon: () => void;
     setShowArchiveChecked: (value: boolean) => void;
@@ -392,7 +392,7 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
         deps.getMainWindow()?.webContents.send("backend-seen", { id });
     });
 
-    onTunnelExit((id, failure) => {
+    deps.tunnels.onTunnelExit((id, failure) => {
         void registry.tunnelExited(id);
         deps.getMainWindow()?.webContents.send("backend-dropped", { id, failure });
     });

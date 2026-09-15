@@ -2,17 +2,7 @@ import { app, dialog, nativeTheme, Notification } from "electron";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 
-import { createRegistry } from "./backend-registry";
-import {
-    closeAllTunnels,
-    closeTunnel,
-    fetchHostKeyFingerprint,
-    forgetScannedHostKey,
-    openTunnel,
-    readRemotePort,
-    rekeyTunnel,
-    trustHostKey,
-} from "./tunnel-manager";
+import { createRegistry, createTunnelManager } from "@taskflow/shared/remote";
 
 import {
     startBackend,
@@ -133,16 +123,17 @@ initAutoUpdater({
 
 // Created here so the IPC handlers can hold it; nothing is read or bound until
 // `init()` runs in `whenReady`. `userData` is final by now (dev mode sets it above).
+const tunnels = createTunnelManager();
 const registry = createRegistry({
     file: join(app.getPath("userData"), "backends.json"),
     defaultUser: userInfo().username,
-    openTunnel,
-    closeTunnel,
-    rekeyTunnel,
-    readRemotePort,
-    fetchHostKeyFingerprint,
-    trustHostKey,
-    forgetScannedHostKey,
+    openTunnel: tunnels.openTunnel,
+    closeTunnel: tunnels.closeTunnel,
+    rekeyTunnel: tunnels.rekeyTunnel,
+    readRemotePort: tunnels.readRemotePort,
+    fetchHostKeyFingerprint: tunnels.fetchHostKeyFingerprint,
+    trustHostKey: tunnels.trustHostKey,
+    forgetScannedHostKey: tunnels.forgetScannedHostKey,
 });
 
 function getAttachedBackends() {
@@ -181,6 +172,7 @@ registerIpcHandlers({
     getMainWindow,
     getBackendPort,
     registry,
+    tunnels,
     setRendererTrayState,
     updateTrayIcon,
     setShowArchiveChecked,
@@ -279,7 +271,7 @@ app.on("before-quit", (e) => {
             })
             .finally(() => {
                 registry.stop();
-                closeAllTunnels();
+                tunnels.closeAllTunnels();
                 killBackendProcess();
                 void cleanupBackendArtifacts();
                 app.quit();
@@ -287,7 +279,7 @@ app.on("before-quit", (e) => {
         return;
     }
     registry.stop();
-    closeAllTunnels();
+    tunnels.closeAllTunnels();
     killBackendProcess();
     void cleanupBackendArtifacts();
 });
