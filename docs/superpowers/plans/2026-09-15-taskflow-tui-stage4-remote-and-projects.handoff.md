@@ -205,3 +205,24 @@ Deviations:
 - If `openWorkspace` throws after the old workspace is gone, the new connection is released and `switchTo` rejects. The picker then reports the error through `onFatal`, as launch did.
 - `MachinePickerDeps` is now an exported type. Task 5's `prompting` key guard is gone: the picker is pending during every connect, and a pending picker already ignores keys.
 - `entry.ts` has no automated test. The unknown-name exit (2) was re-checked by hand with a sandboxed HOME.
+
+### Task 7 — dropped connections and quit
+
+Status: DONE_WITH_CONCERNS. Commit: `feat(tui): show offline machines and reattach dropped tunnels`.
+
+- `net/offline-guard.ts`: `OfflineGuardNet` (public `offline` flag) and `MachineOfflineError`. While `offline` is set, `request()` rejects without reaching the inner client. `on`/`onStatusChange` pass through. `MachineSession` hands each workspace a guard and keeps the raw client for `retarget`/`close`.
+- `MachineSession`:
+  - Tunnel exit: `registry.tunnelExited(id)` for every exit. For the current remote machine it also sets `offline: <failure.message>` and re-attaches with backoff 1/2/4/8/16/30 s (capped). `no-backend` sets `stopped` and stops. On success, `retarget(port, 127.0.0.1)`, and the status goes online on the client's connected status.
+  - Raw socket status: a disconnect while online sets `offline: Connection lost`. Connected sets online, which opens the guard and calls `resetSessionResizes` once.
+  - A switch or shutdown cancels the pending timer or in-flight attempt, and a late successful attach is detached or closed.
+  - The new optional `schedule` dep defaults to `setTimeout`.
+- Carried from Task 6: `shutdown()` saves the current selection and awaits `writeState` before disposing. A failed write still runs all cleanup, and `shutdown()` then rejects.
+- `app.ts`: `setMachineStatus` (title `<label> offline: <reason>`), the exported `MachineStatus` type, and a footer notice `<label> is offline.` raised through `errorMessage` (every view's request-error path) plus `noticeOffline` for the FlowRun/Schedules callbacks. Keys bound for a focused session are consumed while not online.
+- Resize reset layers: `SessionBridge.resetResize()` resends the size `setActive` applied, but only when active. Then `SessionController.resetResizes()`, then `Workspace.resetSessionResizes()`. `Workspace.setMachineStatus` was added too.
+- `remote/connect.ts`: `parseOrigin` is exported and reused.
+
+Test counts: `bun test packages/tui` went from 356 to 376 across 56 files (+2 offline-guard, +2 session-bridge, +11 machine-session, +4 app, +1 controller). `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: offline-guard, machine-session and app tests failed with `Cannot find module`, and 2 session-bridge resize tests failed.
+
+Deviations: `resetResize` uses the tracked applied size, because `renderable.width` is layout-computed. `tunnelExited` runs for any id. The retry failure reason doesn't replace the exit reason. `stopped` uses the offline title format. The status listener subscribes before `openWorkspace`, so the guard opens before the app's reconnect reloads. Concerns (status events during `openWorkspace` are ignored; mouse and paste input dropped silently while offline) are in the task-7 report.

@@ -1,14 +1,15 @@
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { MSG } from "@taskflow/shared";
-import type { MenuEntry, SystemInfo } from "@taskflow/shared";
+import type { MenuEntry, SystemInfo, TunnelFailure } from "@taskflow/shared";
 import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
 import type { BackendHandle } from "../backend/manager";
 import type { NetLike } from "../net/client";
-import type { ConnectOutcome, MachineClient } from "../remote/connect";
+import { OfflineGuardNet } from "../net/offline-guard";
+import { parseOrigin, type ConnectOutcome, type MachineClient } from "../remote/connect";
 import { LOCAL_MACHINE_ID } from "../remote/machines";
 import type { PickerRow } from "../remote/picker-model";
 import type { TuiState } from "../remote/tui-state";
-import type { OverlayHandle } from "./app";
+import type { MachineStatus, OverlayHandle } from "./app";
 import type { MachinePicker, MachinePickerDeps } from "./machine-picker";
 import type { Workspace, WorkspaceContext } from "./workspace";
 
@@ -16,6 +17,7 @@ type SessionRegistry = Pick<
     BackendRegistry,
     | "addBackend"
     | "addDiscoveredBackend"
+    | "attachBackend"
     | "detachBackend"
     | "getHostFingerprint"
     | "listBackends"
@@ -25,12 +27,19 @@ type SessionRegistry = Pick<
     | "startDiscovery"
     | "stopDiscovery"
     | "trustBackendHost"
+    | "tunnelExited"
     | "updateBackend"
 >;
 
 type SessionWorkspace = Pick<
     Workspace,
-    "dispose" | "hasOpenEditor" | "selection" | "restoreSelection" | "showOverlay"
+    | "dispose"
+    | "hasOpenEditor"
+    | "selection"
+    | "restoreSelection"
+    | "showOverlay"
+    | "setMachineStatus"
+    | "resetSessionResizes"
 >;
 
 type PickerView = Pick<
@@ -40,8 +49,11 @@ type PickerView = Pick<
 
 interface MachineSessionDeps {
     renderer: CliRenderer;
-    machines: { registry: SessionRegistry; tunnels: Pick<TunnelManager, "closeAllTunnels"> };
-    /** Updated in place: selections on every switch, `lastMachineId` after each open. */
+    machines: {
+        registry: SessionRegistry;
+        tunnels: Pick<TunnelManager, "closeAllTunnels" | "onTunnelExit">;
+    };
+    /** Updated in place: selections on every switch and on quit, `lastMachineId` after each open. */
     state: TuiState;
     writeState(state: TuiState): Promise<void>;
     connect(id: string): Promise<ConnectOutcome>;
@@ -54,15 +66,29 @@ interface MachineSessionDeps {
     askTrust(fingerprint: string, host: string): Promise<boolean>;
     onQuit(): void;
     onFatal(error: unknown): void;
+    /** Arms a one-shot timer and returns its cancel. Defaults to `setTimeout`. */
+    schedule?: (run: () => void, delayMs: number) => () => void;
 }
 
 type SwitchResult = { ok: true } | { ok: false; message: string };
 
+type AttachResult = Awaited<ReturnType<SessionRegistry["attachBackend"]>>;
+
 interface CurrentMachine {
     machineId: string;
     local: boolean;
+    /** The raw client, kept for `retarget` and `close`. The workspace only sees `guard`. */
     net: MachineClient;
+    guard: OfflineGuardNet;
     workspace: SessionWorkspace;
+    status: MachineStatus;
+    unsubscribeStatus(): void;
+}
+
+/** A re-attach waiting on its timer or on the registry. Cancelled by a switch or quit. */
+interface Reattach {
+    cancelled: boolean;
+    cancelTimer(): void;
 }
 
 /** Where a connect attempt landed. `current`: it resolved to the machine already open. */
@@ -78,6 +104,9 @@ interface OpenPicker {
 }
 
 const EDITOR_OPEN_MESSAGE = "Close the external editor before switching machines.";
+const CONNECTION_LOST = "Connection lost";
+const REATTACH_BASE_DELAY_MS = 1_000;
+const REATTACH_MAX_DELAY_MS = 30_000;
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -96,10 +125,16 @@ function isCurrentRow(row: PickerRow, current: CurrentMachine): boolean {
     return row.kind === "machine" && row.entry.id === current.machineId;
 }
 
+function defaultSchedule(run: () => void, delayMs: number): () => void {
+    const timer = setTimeout(run, delayMs);
+    return () => clearTimeout(timer);
+}
+
 /**
  * Owns the machine the TUI is connected to: its workspace and socket, the
  * local backend this process started, and the picker used to change machines.
- * Launch and the `m` switch share `switchTo`.
+ * Launch and the `m` switch share `switchTo`. Also tracks whether the open
+ * machine is reachable, and re-attaches a remote one whose tunnel died.
  */
 class MachineSession {
     private current: CurrentMachine | null = null;
@@ -109,8 +144,11 @@ class MachineSession {
     private pickerOpening = false;
     private connecting = false;
     private shutdownPromise: Promise<void> | null = null;
+    private reattach: Reattach | null = null;
 
-    constructor(private readonly deps: MachineSessionDeps) {}
+    constructor(private readonly deps: MachineSessionDeps) {
+        deps.machines.tunnels.onTunnelExit((id, failure) => this.onTunnelExit(id, failure));
+    }
 
     /**
      * Connect the row first and only then replace the current workspace, so a
@@ -135,15 +173,24 @@ class MachineSession {
         if (previous !== null) {
             state.selections[previous.machineId] = previous.workspace.selection();
             this.current = null;
+            this.cancelReattach();
+            previous.unsubscribeStatus();
             previous.workspace.dispose();
             previous.net.close();
             // The local backend keeps running: switching back reuses it.
             if (!previous.local) await this.detachQuietly(previous.machineId);
         }
 
+        const guard = new OfflineGuardNet(target.net);
+        let opened: CurrentMachine | null = null;
+        // Subscribed before the workspace, whose app reloads everything on
+        // reconnect: listeners run in order, so the guard is open by then.
+        const unsubscribeStatus = target.net.onStatusChange(({ connected }) => {
+            if (opened !== null) this.onSocketStatus(opened, connected);
+        });
         let workspace: SessionWorkspace;
         try {
-            workspace = await this.deps.openWorkspace(target.net, {
+            workspace = await this.deps.openWorkspace(guard, {
                 renderer: this.deps.renderer,
                 machineId: target.machineId,
                 machineLabel: target.label,
@@ -154,15 +201,20 @@ class MachineSession {
                 },
             });
         } catch (error) {
+            unsubscribeStatus();
             await this.release(target);
             throw error;
         }
-        this.current = {
+        opened = {
             machineId: target.machineId,
             local: target.local,
             net: target.net,
+            guard,
             workspace,
+            status: { state: "online" },
+            unsubscribeStatus,
         };
+        this.current = opened;
         const selection = state.selections[target.machineId];
         if (selection) workspace.restoreSelection(selection);
         state.lastMachineId = target.machineId;
@@ -244,13 +296,13 @@ class MachineSession {
         }
     }
 
-    /** Workspace, socket, tunnels, the owned local backend, discovery. Runs once. */
+    /** Selection, workspace, socket, tunnels, the owned local backend, discovery. Runs once. */
     shutdown(): Promise<void> {
         this.shutdownPromise ??= this.shutdownOnce();
         return this.shutdownPromise;
     }
 
-    private shutdownOnce(): Promise<void> {
+    private async shutdownOnce(): Promise<void> {
         const { registry, tunnels } = this.deps.machines;
         const errors: unknown[] = [];
         // Each step runs even if an earlier one threw: a leaked ssh child or
@@ -263,18 +315,135 @@ class MachineSession {
             }
         };
         step(() => this.dropPicker());
+        step(() => this.cancelReattach());
         const current = this.current;
         this.current = null;
         if (current !== null) {
+            // Saved before the workspace goes, so the next launch reopens it here.
+            const { state } = this.deps;
+            step(() => {
+                state.selections[current.machineId] = current.workspace.selection();
+            });
+            try {
+                await this.deps.writeState(state);
+            } catch (error) {
+                errors.push(error);
+            }
+            step(() => current.unsubscribeStatus());
             step(() => current.workspace.dispose());
             step(() => current.net.close());
         }
         step(() => tunnels.closeAllTunnels());
         step(() => this.stopLocalBackend());
         step(() => registry.stopDiscovery());
-        if (errors.length === 0) return Promise.resolve();
+        if (errors.length === 0) return;
         const [first] = errors;
-        return Promise.reject(first instanceof Error ? first : new Error(String(first)));
+        throw first instanceof Error ? first : new Error(String(first));
+    }
+
+    private onTunnelExit(id: string, failure: TunnelFailure): void {
+        // The origin points at nothing now, whichever machine it belonged to.
+        void this.deps.machines.registry.tunnelExited(id).catch(() => undefined);
+        const machine = this.current;
+        if (machine === null || machine.local || machine.machineId !== id) return;
+        this.setStatus(machine, { state: "offline", reason: failure.message });
+        if (this.reattach === null) this.scheduleReattach(machine, 0);
+    }
+
+    /**
+     * The local client redials on its own. So does a remote one, which covers a
+     * dropped socket over a live tunnel. A dead tunnel is `onTunnelExit`'s.
+     */
+    private onSocketStatus(machine: CurrentMachine, connected: boolean): void {
+        if (this.current !== machine) return;
+        if (connected) {
+            if (machine.status.state !== "online") this.setStatus(machine, { state: "online" });
+            return;
+        }
+        // An offline status set by a tunnel exit keeps its more precise reason.
+        if (machine.status.state === "online") {
+            this.setStatus(machine, { state: "offline", reason: CONNECTION_LOST });
+        }
+    }
+
+    private setStatus(machine: CurrentMachine, status: MachineStatus): void {
+        const wasOnline = machine.status.state === "online";
+        machine.status = status;
+        machine.guard.offline = status.state !== "online";
+        machine.workspace.setMachineStatus(status);
+        if (status.state === "online" && !wasOnline) machine.workspace.resetSessionResizes();
+    }
+
+    private scheduleReattach(machine: CurrentMachine, attempt: number): void {
+        const delay = Math.min(REATTACH_BASE_DELAY_MS * 2 ** attempt, REATTACH_MAX_DELAY_MS);
+        const schedule = this.deps.schedule ?? defaultSchedule;
+        const reattach: Reattach = { cancelled: false, cancelTimer: () => undefined };
+        this.reattach = reattach;
+        reattach.cancelTimer = schedule(
+            () => void this.reattachOnce(machine, reattach, attempt),
+            delay,
+        );
+    }
+
+    private async reattachOnce(
+        machine: CurrentMachine,
+        reattach: Reattach,
+        attempt: number,
+    ): Promise<void> {
+        if (reattach.cancelled) return;
+        let result: AttachResult;
+        try {
+            result = await this.deps.machines.registry.attachBackend(machine.machineId);
+        } catch (error) {
+            result = {
+                ok: false,
+                failure: { kind: "unknown", message: errorMessage(error), stderr: "" },
+            };
+        }
+        if (reattach.cancelled) {
+            if (result.ok) this.dropOrphanTunnel(machine.machineId);
+            return;
+        }
+        if (!result.ok) {
+            if (result.failure.kind === "no-backend") {
+                this.reattach = null;
+                this.setStatus(machine, { state: "stopped", reason: result.failure.message });
+                return;
+            }
+            this.scheduleReattach(machine, attempt + 1);
+            return;
+        }
+        let target: { port: number; host: string };
+        try {
+            target = parseOrigin(result.origin);
+        } catch {
+            this.scheduleReattach(machine, attempt + 1);
+            return;
+        }
+        this.reattach = null;
+        // The client's own retry loop dials the new port; its status goes online then.
+        machine.net.retarget(target.port, target.host);
+    }
+
+    /** An attach that finished after a switch or quit gave the machine up. */
+    private dropOrphanTunnel(id: string): void {
+        if (this.shutdownPromise !== null) {
+            try {
+                this.deps.machines.tunnels.closeAllTunnels();
+            } catch {
+                // Shutdown already reported its own tunnel failures.
+            }
+            return;
+        }
+        if (this.current?.machineId !== id) void this.detachQuietly(id);
+    }
+
+    private cancelReattach(): void {
+        const reattach = this.reattach;
+        if (reattach === null) return;
+        this.reattach = null;
+        reattach.cancelled = true;
+        reattach.cancelTimer();
     }
 
     private async pick(row: PickerRow): Promise<void> {

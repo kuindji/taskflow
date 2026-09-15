@@ -10,6 +10,7 @@ interface ControllerBridge {
     focus(): void;
     blur(): void;
     setInputEnabled(enabled: boolean): void;
+    resetResize(): void;
     destroy(): void;
 }
 
@@ -207,6 +208,11 @@ class SessionController {
 
     reattach(): void {
         for (const tab of this.tabsValue) void tab.bridge.attach().catch(() => undefined);
+    }
+
+    /** Resend terminal sizes that may have been lost while the machine was unreachable. */
+    resetResizes(): void {
+        for (const tab of this.tabsValue) tab.bridge.resetResize();
     }
 
     get tabs(): readonly SessionTab[] {

@@ -33,7 +33,7 @@ import {
     serializeSchedule,
 } from "../editor/records";
 import { defaultExternalEditorDeps, editRecord } from "../editor/external-editor";
-import { OpenTuiApp, type KeyOverlay, type OverlayHandle } from "./app";
+import { OpenTuiApp, type KeyOverlay, type MachineStatus, type OverlayHandle } from "./app";
 import { SessionBridge } from "./session-bridge";
 
 interface WorkspaceContext {
@@ -56,6 +56,9 @@ interface Workspace {
     selection(): WorkspaceSelection;
     restoreSelection(selection: WorkspaceSelection): void;
     showOverlay(overlay: KeyOverlay): OverlayHandle;
+    setMachineStatus(status: MachineStatus): void;
+    /** Resend every session's terminal size, e.g. after the machine came back. */
+    resetSessionResizes(): void;
     dispose(): void;
 }
 
@@ -310,6 +313,8 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
                 }
             },
             showOverlay: (overlay) => createdApp.showOverlay(overlay),
+            setMachineStatus: (status) => createdApp.setMachineStatus(status),
+            resetSessionResizes: () => controller.resetResizes(),
             dispose,
         };
     } catch (error) {

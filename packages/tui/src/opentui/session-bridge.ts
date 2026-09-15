@@ -52,10 +52,13 @@ class SessionBridge {
     private attachQueue: Promise<void> = Promise.resolve();
     private readonly disposers: Array<() => void> = [];
     private lastResize: { cols: number; rows: number } | null = null;
+    /** The pane size `setActive` last gave the renderable, whose own width is layout-computed. */
+    private appliedSize: { cols: number; rows: number };
     private readonly osc52: Osc52Scanner;
     private readonly outputFilter = new EmbeddedTerminalOutputFilter();
 
     constructor(private readonly deps: SessionBridgeDeps) {
+        this.appliedSize = { cols: deps.cols, rows: deps.rows };
         this.osc52 = new Osc52Scanner(deps.clipboard ?? rendererClipboardSink(deps.renderer));
         this.renderable = new EmbeddedTerminalRenderable(deps.renderer, {
             id: `session-${deps.sessionId}`,
@@ -212,10 +215,22 @@ class SessionBridge {
             .catch(() => undefined);
     }
 
+    /**
+     * Forget the last size sent, which may never have arrived (a resize while
+     * the machine was offline is dropped). An active bridge resends its current
+     * size now. An inactive one sends its real size on the next `setActive`.
+     */
+    resetResize(): void {
+        this.lastResize = null;
+        if (!this.active) return;
+        this.sendResize(this.appliedSize.cols, this.appliedSize.rows);
+    }
+
     setActive(active: boolean, cols?: number, rows?: number): void {
         this.active = active;
         this.renderable.visible = active;
         if (active && cols !== undefined && rows !== undefined) {
+            this.appliedSize = { cols, rows };
             this.renderable.width = cols;
             this.renderable.height = rows;
             this.sendResize(cols, rows);

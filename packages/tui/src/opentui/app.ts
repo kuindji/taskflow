@@ -32,6 +32,7 @@ import type { GitChange } from "../git/model";
 import type { SettingsStore } from "../settings/store";
 import type { NotificationStore } from "../notifications/store";
 import type { NetLike } from "../net/client";
+import { MachineOfflineError } from "../net/offline-guard";
 import {
     repositoryPathForOwner,
     repositoryTargetIdForOwner,
@@ -94,8 +95,15 @@ interface SessionBridgeLike {
     setActive(active: boolean, cols?: number, rows?: number): void;
     focus(): void;
     blur(): void;
+    resetResize(): void;
     destroy(): void;
 }
+
+/** Whether the machine can be reached. `stopped`: reachable host, no backend, no retry. */
+type MachineStatus =
+    | { state: "online" }
+    | { state: "offline"; reason: string }
+    | { state: "stopped"; reason: string };
 
 interface InjectedSession {
     id: string;
@@ -286,6 +294,9 @@ class OpenTuiApp {
     private pendingFlowOwnerKey: string | null = null;
     private sidebarColumns = 30;
     private collapsedProjectIds = new Set<string>();
+    private machineStatus: MachineStatus = { state: "online" };
+    /** Set by the first refused request of an offline period, cleared when back online. */
+    private offlineNotice = false;
 
     constructor(private readonly deps: OpenTuiAppDeps) {
         this.sessions = deps.sessions ?? [];
@@ -796,6 +807,14 @@ class OpenTuiApp {
         }
         const route = this.keyRouter.route(this.focusTarget, event);
         if (route.kind === "pass") {
+            // The bridge swallows failed input requests, so without this the
+            // keys would vanish with no sign of why.
+            if (this.focusTarget === "session" && this.machineStatus.state !== "online") {
+                event.preventDefault();
+                event.stopPropagation();
+                this.showOfflineNotice();
+                return;
+            }
             if (route.before) {
                 this.activeBridge()?.renderable.handleKeyPress(
                     prepareForEmbeddedTerminal(route.before),
@@ -811,7 +830,11 @@ class OpenTuiApp {
             this.escapeTimer = setTimeout(() => {
                 this.escapeTimer = null;
                 const held = this.keyRouter.takeHeldEscape();
-                if (held && this.focusTarget === "session") {
+                if (
+                    held &&
+                    this.focusTarget === "session" &&
+                    this.machineStatus.state === "online"
+                ) {
                     this.activeBridge()?.renderable.handleKeyPress(
                         prepareForEmbeddedTerminal(held),
                     );
@@ -936,6 +959,38 @@ class OpenTuiApp {
         this.updateSessionVisibility();
         this.updateFooter();
         this.deps.renderer.requestRender();
+    }
+
+    /** The main panel's title carries the status: `<label> offline: <reason>`. */
+    setMachineStatus(status: MachineStatus): void {
+        if (this.destroyed) return;
+        this.machineStatus = status;
+        this.main.title =
+            status.state === "online"
+                ? this.deps.machineLabel
+                : `${this.machineName()} offline: ${status.reason}`;
+        if (status.state === "online") this.offlineNotice = false;
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    private machineName(): string {
+        return this.deps.machineLabel ?? "This machine";
+    }
+
+    private showOfflineNotice(): void {
+        if (this.destroyed || this.offlineNotice || this.machineStatus.state === "online") return;
+        this.offlineNotice = true;
+        this.updateFooter();
+        this.deps.renderer.requestRender();
+    }
+
+    /** For callbacks whose view reports the failure itself: still raise the offline notice. */
+    private noticeOffline<T>(work: Promise<T>): Promise<T> {
+        return work.catch((error: unknown) => {
+            this.errorMessage(error);
+            throw error;
+        });
     }
 
     showOverlay(overlay: KeyOverlay): OverlayHandle {
@@ -1605,11 +1660,11 @@ class OpenTuiApp {
             flow,
             actions: store.actions,
             sessionState: (id) => this.sessions.find((session) => session.id === id)?.state,
-            pause: () => store.pause(ownerId, run.flowId),
-            resume: () => store.resume(ownerId, run.flowId),
-            stop: () => store.stop(ownerId, run.flowId),
-            skip: () => store.skip(ownerId, run.flowId),
-            jump: (index) => store.jump(ownerId, run.flowId, index),
+            pause: () => this.noticeOffline(store.pause(ownerId, run.flowId)),
+            resume: () => this.noticeOffline(store.resume(ownerId, run.flowId)),
+            stop: () => this.noticeOffline(store.stop(ownerId, run.flowId)),
+            skip: () => this.noticeOffline(store.skip(ownerId, run.flowId)),
+            jump: (index) => this.noticeOffline(store.jump(ownerId, run.flowId, index)),
             confirm: (message) => this.askProductConfirm("Flow control", message),
             onFocusSession: (id) => this.focusFlowSession(id),
             onLibrary: () => this.openFlowLibrary(),
@@ -1638,10 +1693,14 @@ class OpenTuiApp {
             schedulerEnabled: this.schedulerEnabled,
             onCreate: () => this.editSchedule(null),
             onEdit: (schedule) => this.editSchedule(schedule),
-            onDelete: (schedule) => store.delete(schedule.id),
+            onDelete: (schedule) => this.noticeOffline(store.delete(schedule.id)),
             onToggle: (schedule) =>
-                store.update({ id: schedule.id, enabled: !schedule.enabled }).then(() => undefined),
-            onTrigger: (schedule) => store.trigger(schedule.id),
+                this.noticeOffline(
+                    store
+                        .update({ id: schedule.id, enabled: !schedule.enabled })
+                        .then(() => undefined),
+                ),
+            onTrigger: (schedule) => this.noticeOffline(store.trigger(schedule.id)),
             confirm: (message) => this.askProductConfirm("Schedule", message),
             onClose: () => this.showSessions(),
             onStateChange: () => this.updateFooter(),
@@ -1837,7 +1896,13 @@ class OpenTuiApp {
         this.deps.renderer.requestRender();
     }
 
+    /**
+     * Formats a failure a view is about to show. Every view reports request
+     * failures through here, so a request the offline guard refused also raises
+     * the footer notice.
+     */
     private errorMessage(error: unknown): string {
+        if (error instanceof MachineOfflineError) this.showOfflineNotice();
         return cleanLabel(error instanceof Error ? error.message : String(error));
     }
 
@@ -2013,7 +2078,10 @@ class OpenTuiApp {
 
     private updateFooter(): void {
         if (this.destroyed || this.footer.isDestroyed) return;
-        this.footer.content = this.currentKeyHints();
+        const hints = this.currentKeyHints();
+        this.footer.content = this.offlineNotice
+            ? ` ${this.machineName()} is offline. ${hints}`
+            : hints;
     }
 
     private updateFocus(): void {
@@ -2193,6 +2261,7 @@ export { OpenTuiApp, buildRows, cleanLabel };
 export type {
     InjectedSession,
     KeyOverlay,
+    MachineStatus,
     OpenTuiAppDeps,
     OverlayHandle,
     SessionBridgeLike,

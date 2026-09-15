@@ -257,6 +257,34 @@ describe("SessionBridge", () => {
         ).toHaveLength(1);
     });
 
+    it("resends a resize the backend never received once resizes are reset", async () => {
+        const { net, bridge } = await setup(40, 8);
+        bridge.setActive(true, 80, 24);
+        expect(
+            net.requests.filter((request) => request.type === MSG.TERMINAL_RESIZE).at(-1)?.payload,
+        ).toEqual({ sessionId: "s1", cols: 80, rows: 24 });
+
+        net.requests.length = 0;
+        net.responses.set(MSG.TERMINAL_RESIZE, {});
+        bridge.resetResize();
+        expect(net.requests).toEqual([
+            { type: MSG.TERMINAL_RESIZE, payload: { sessionId: "s1", cols: 80, rows: 24 } },
+        ]);
+    });
+
+    it("only clears the remembered size of an inactive bridge", async () => {
+        const { net, bridge } = await setup(40, 8);
+        bridge.setActive(false);
+        net.requests.length = 0;
+        bridge.resetResize();
+        expect(net.requests).toEqual([]);
+
+        bridge.setActive(true, 40, 8);
+        expect(net.requests).toEqual([
+            { type: MSG.TERMINAL_RESIZE, payload: { sessionId: "s1", cols: 40, rows: 8 } },
+        ]);
+    });
+
     it("destroys subscriptions and terminal state idempotently", async () => {
         const { net, bridge } = await setup();
         bridge.destroy();

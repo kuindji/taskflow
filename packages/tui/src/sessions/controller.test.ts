@@ -24,6 +24,7 @@ function setup() {
                 focus: () => undefined,
                 blur: () => undefined,
                 setInputEnabled: (enabled: boolean) => calls.push(`input:${String(enabled)}`),
+                resetResize: () => calls.push("resetResize"),
                 destroy: () => calls.push("destroy"),
             } as unknown as ControllerBridge;
             created.push({ id: session.id, bridge, calls });
@@ -67,6 +68,14 @@ describe("SessionController", () => {
             ["input:true", "attach"],
         ]);
         expect(controller.tabs.map((tab) => tab.id)).toEqual(["a", "b"]);
+    });
+
+    it("resets the remembered terminal size of every live bridge", () => {
+        const { controller, created } = setup();
+        controller.reconcile({ kind: "master" }, [ref("a"), ref("b")]);
+        for (const item of created) item.calls.length = 0;
+        controller.resetResizes();
+        expect(created.map((item) => item.calls)).toEqual([["resetResize"], ["resetResize"]]);
     });
 
     it("keeps bridge identity while metadata changes", () => {

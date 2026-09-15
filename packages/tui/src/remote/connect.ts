@@ -131,5 +131,5 @@ async function connectMachine(
     }
 }
 
-export { connectMachine };
+export { connectMachine, parseOrigin };
 export type { ConnectOutcome, MachineClient, RegistryPort };

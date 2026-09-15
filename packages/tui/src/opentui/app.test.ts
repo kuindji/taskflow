@@ -15,7 +15,9 @@ import { TaskDetailStore } from "../tasks/store";
 import { GitStore } from "../git/store";
 import { SettingsStore } from "../settings/store";
 import { NotificationStore } from "../notifications/store";
+import { OfflineGuardNet } from "../net/offline-guard";
 import type { SessionOwner } from "../sessions/owner";
+import { SessionBridge } from "./session-bridge";
 import {
     OpenTuiApp,
     buildRows,
@@ -1002,6 +1004,142 @@ describe("OpenTuiApp", () => {
         ]);
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("Interrupted shell sessions cannot be resumed");
+    });
+
+    describe("while the machine is offline", () => {
+        async function offlineSetup(width = 100) {
+            const test = await createTestRenderer({ width, height: 24, kittyKeyboard: true });
+            const inner = new FakeNet();
+            inner.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+            inner.responses.set(MSG.TASK_CREATE, task("new-task", "p1", "New task"));
+            inner.responses.set(MSG.GIT_STATUS, {
+                status: {
+                    branch: "main",
+                    ahead: 0,
+                    behind: 0,
+                    stagedFiles: [],
+                    unstagedFiles: [{ path: "file.ts", status: "modified", staged: false }],
+                },
+            });
+            inner.responses.set(MSG.GIT_DIFF_FILE, { unstaged: "@@ -1 +1 @@\n-old\n+new" });
+            inner.responses.set(MSG.GIT_STAGE, {});
+            inner.responses.set(MSG.SESSION_INPUT, {});
+            inner.responses.set(MSG.TERMINAL_RESIZE, {});
+            const guard = new OfflineGuardNet(inner);
+            const store = new FakeStore();
+            store.projects = [project("p1", "Project")];
+            store.tasks = [{ ...task("t1", "p1", "Task"), description: "Cached description" }];
+            const taskStore = new TaskDetailStore(guard);
+            const gitStore = new GitStore(guard);
+            const app = new OpenTuiApp({
+                renderer: test.renderer,
+                net: guard,
+                store,
+                taskStore,
+                gitStore,
+                machineLabel: "Studio Mac",
+            });
+            await app.init();
+            cleanups.push(
+                () => app.destroy(),
+                () => taskStore.dispose(),
+                () => gitStore.dispose(),
+                () => test.renderer.destroy(),
+            );
+            const goOffline = async (): Promise<void> => {
+                guard.offline = true;
+                app.setMachineStatus({ state: "offline", reason: "ssh exited" });
+                await test.renderOnce();
+            };
+            const settle = async (): Promise<void> => {
+                await Bun.sleep(1);
+                await test.renderOnce();
+            };
+            return { test, inner, guard, app, goOffline, settle };
+        }
+
+        function sent(net: FakeNet, type: string): number {
+            return net.requests.filter((request) => request.type === type).length;
+        }
+
+        function occurrences(frame: string, text: string): number {
+            return frame.split(text).length - 1;
+        }
+
+        it("shows the offline reason in the title and still opens a cached task", async () => {
+            const { test, app, goOffline, settle } = await offlineSetup();
+            await goOffline();
+            expect(test.captureCharFrame().split("\n")[0]).toContain(
+                "Studio Mac offline: ssh exited",
+            );
+
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressKey("t");
+            await settle();
+            expect(test.captureCharFrame()).toContain("Cached description");
+
+            app.setMachineStatus({ state: "online" });
+            await test.renderOnce();
+            const frame = test.captureCharFrame();
+            expect(frame.split("\n")[0]).toContain("Studio Mac");
+            expect(frame).not.toContain("offline: ssh exited");
+            expect(frame).not.toContain("Studio Mac is offline.");
+        });
+
+        it("sends no task create and shows the offline notice", async () => {
+            const { test, inner, goOffline, settle } = await offlineSetup();
+            await goOffline();
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressKey("n");
+            await test.mockInput.typeText("New task");
+            test.mockInput.pressArrow("down");
+            await test.mockInput.typeText("Do work");
+            test.mockInput.pressEnter();
+            await settle();
+
+            expect(sent(inner, MSG.TASK_CREATE)).toBe(0);
+            expect(test.captureCharFrame()).toContain("Studio Mac is offline.");
+        });
+
+        it("sends no Git stage from the changes view", async () => {
+            const { test, inner, goOffline, settle } = await offlineSetup();
+            test.mockInput.pressArrow("down");
+            test.mockInput.pressKey("g");
+            await settle();
+            expect(test.captureCharFrame()).toContain("file.ts");
+
+            await goOffline();
+            test.mockInput.pressKey("s");
+            await settle();
+            expect(sent(inner, MSG.GIT_STAGE)).toBe(0);
+            expect(test.captureCharFrame()).toContain("Studio Mac is offline.");
+        });
+
+        it("keeps typed keys from a focused session and says so once", async () => {
+            const { test, inner, guard, app, goOffline, settle } = await offlineSetup();
+            const bridge = new SessionBridge({
+                renderer: test.renderer,
+                net: guard,
+                sessionId: "s1",
+                owner: {},
+                cols: 40,
+                rows: 10,
+            });
+            app.setSessions([{ id: "s1", label: "shell", bridge }]);
+            test.mockInput.pressEnter();
+            expect(app.focus).toBe("session");
+
+            await goOffline();
+            inner.requests.length = 0;
+            test.mockInput.pressKey("x");
+            test.mockInput.pressKey("y");
+            await settle();
+
+            expect(sent(inner, MSG.SESSION_INPUT)).toBe(0);
+            expect(occurrences(test.captureCharFrame(), "Studio Mac is offline.")).toBe(1);
+            expect(app.focus).toBe("session");
+        });
     });
 
     it("keeps the interrupted tab and shows a retry message after resume failure", async () => {
