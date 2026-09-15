@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, nativeImage, nativeTheme, Tray } from "electron";
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { join } from "path";
 import type { AttachedBackend } from "./attached-backends";
 
@@ -24,13 +24,15 @@ function initTrayManager(d: TrayManagerDeps): void {
     deps = d;
 }
 
+// Not __dirname: the bundler bakes in the build machine's path, which does not
+// exist where a packaged app is installed.
 function getMenuBarIconPath(): string {
-    const p = join(__dirname, "..", "dist", "menubar-icon.png");
+    const p = join(app.getAppPath(), "dist", "menubar-icon.png");
     return p.replace("app.asar", "app.asar.unpacked");
 }
 
 function getMenuBarIcon2xPath(): string {
-    const p = join(__dirname, "..", "dist", "menubar-icon@2x.png");
+    const p = join(app.getAppPath(), "dist", "menubar-icon@2x.png");
     return p.replace("app.asar", "app.asar.unpacked");
 }
 
