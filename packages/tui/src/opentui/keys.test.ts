@@ -181,6 +181,9 @@ describe("KeyRouter", () => {
             key("j", { shift: true, sequence: "J" }),
             key("k", { shift: true, sequence: "K" }),
             key("l", { shift: true, sequence: "L" }),
+            key("a", { shift: true, sequence: "A" }),
+            key("u"),
+            key("d", { shift: true, sequence: "D" }),
         ];
         const routedKinds = events.flatMap((event) => {
             const route = router.route("ui", event);
@@ -196,16 +199,24 @@ describe("KeyRouter", () => {
         }
     });
 
-    it("marks only the project commands this-machine-only, in the Projects group", () => {
+    it("marks only task delete and the project commands this-machine-only", () => {
         const localOnly = COMMAND_METADATA.filter((command) => command.localOnly);
-        expect(localOnly.map((command) => [command.kind, command.keys])).toEqual([
-            ["project-add", "p"],
-            ["project-remove", "X"],
-            ["project-move-down", "J"],
-            ["project-move-up", "K"],
-            ["project-links", "L"],
+        expect(localOnly.map((command) => [command.kind, command.keys, command.group])).toEqual([
+            ["task-delete", "D", "Tasks"],
+            ["project-add", "p", "Projects"],
+            ["project-remove", "X", "Projects"],
+            ["project-move-down", "J", "Projects"],
+            ["project-move-up", "K", "Projects"],
+            ["project-links", "L", "Projects"],
         ]);
-        expect(localOnly.every((command) => command.group === "Projects")).toBe(true);
+        expect(
+            COMMAND_METADATA.filter((command) =>
+                ["archive-toggle", "task-unarchive"].includes(command.kind),
+            ).map((command) => [command.kind, command.keys, command.group]),
+        ).toEqual([
+            ["archive-toggle", "A", "Tasks"],
+            ["task-unarchive", "u", "Tasks"],
+        ]);
         expect(GROUP_ORDER).toContain("Projects");
         const router = new KeyRouter();
         expect(router.route("ui", key("j", { shift: true, sequence: "J" }))).toEqual({

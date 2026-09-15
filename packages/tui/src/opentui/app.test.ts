@@ -9,6 +9,7 @@ import type {
     Task,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import { ArchiveStore } from "../archive/store";
 import { FlowStore } from "../flows/store";
 import { ScheduleStore } from "../schedules/store";
 import { TaskDetailStore } from "../tasks/store";
@@ -1166,6 +1167,381 @@ describe("OpenTuiApp", () => {
             ]);
             expect(store.projectOrder).toEqual(["p2", "p1"]);
             expect(app.selectedOwner).toEqual({ kind: "project", projectId: "p2" });
+        });
+    });
+
+    describe("archived tasks", () => {
+        const ARCHIVED_AT = "2026-09-01T10:00:00.000Z";
+
+        function archived(id: string, title: string, extra: Partial<Task> = {}): Task {
+            return {
+                ...task(id, "p1", title),
+                status: "archived",
+                archivedAt: ARCHIVED_AT,
+                ...extra,
+            };
+        }
+
+        // Payload order is deliberately not parent-first: nesting must reorder it.
+        function archivedTasks(): Task[] {
+            return [
+                archived("s2", "Needle sub", {
+                    parentId: "a1",
+                    sessions: task("x", "p1", "", 2).sessions,
+                }),
+                archived("a2", "Plain archived"),
+                archived("a1", "Old parent", {
+                    worktree: { enabled: true, path: "/tmp/wt", branch: "feature/old", pr: null },
+                    attributes: [{ id: "attr-1", name: "stack", value: "bun" }],
+                }),
+                archived("s1", "First sub", { parentId: "a1" }),
+                archived("s3", "Orphan sub", { parentId: "t1" }),
+            ];
+        }
+
+        const MUTATIONS: readonly string[] = [
+            MSG.TASK_UPDATE,
+            MSG.TASK_ARCHIVE,
+            MSG.ATTR_CREATE,
+            MSG.ATTR_UPDATE,
+            MSG.ATTR_DELETE,
+            MSG.TASK_UNARCHIVE,
+            MSG.TASK_DELETE,
+        ];
+
+        async function archiveSetup(local = true) {
+            const test = await createTestRenderer({ width: 160, height: 40, kittyKeyboard: true });
+            const net = new FakeNet();
+            net.responses.set(MSG.PROJECT_LIST, {
+                projects: [project("p1", "Alpha"), project("p2", "Beta")],
+            });
+            net.responses.set(MSG.TASK_LIST, {
+                tasks: [task("t1", "p1", "Active task"), task("t2", "p2", "Beta task")],
+            });
+            net.responses.set(MSG.MASTER_SESSIONS_LIST, { sessions: [] });
+            net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: archivedTasks() });
+            net.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+            net.responses.set(MSG.TASK_DELETE, { success: true });
+            const store = new Store(net);
+            const archiveStore = new ArchiveStore(net);
+            const taskStore = new TaskDetailStore(net);
+            let textEdits = 0;
+            const app = new OpenTuiApp({
+                renderer: test.renderer,
+                local,
+                net,
+                store,
+                archiveStore,
+                taskStore,
+                onEditTaskText: async () => {
+                    textEdits++;
+                    return null;
+                },
+            });
+            await app.init();
+            cleanups.push(
+                () => app.destroy(),
+                () => taskStore.dispose(),
+                () => store.dispose(),
+                () => test.renderer.destroy(),
+            );
+            await test.renderOnce();
+            const frame = (): string => test.captureCharFrame();
+            const lines = (): string[] => frame().split("\n");
+            const footer = (): string => lines()[39];
+            /** Frame text with borders removed and wrapped lines joined. */
+            const flat = (): string =>
+                lines()
+                    .map((line) =>
+                        line
+                            .replace(/[│┌┐└┘─]/g, " ")
+                            .trim()
+                            .replace(/\s+/g, " "),
+                    )
+                    .join(" ");
+            const sent = (type: string) => net.requests.filter((request) => request.type === type);
+            const settle = async (): Promise<void> => {
+                await Bun.sleep(1);
+                await test.renderOnce();
+            };
+            const selectRow = async (label: string): Promise<void> => {
+                for (let step = 0; step < 20; step++) {
+                    const owner = app.selectedOwner;
+                    const current =
+                        owner.kind === "task"
+                            ? archiveStore
+                                  .tasks()
+                                  .find((candidate) => candidate.id === owner.taskId)
+                            : null;
+                    if (current?.title === label) return;
+                    test.mockInput.pressArrow("down");
+                }
+                throw new Error(`row not found: ${label}`);
+            };
+            const enterArchive = async (): Promise<void> => {
+                test.mockInput.pressKey("A");
+                await settle();
+            };
+            return {
+                test,
+                net,
+                store,
+                archiveStore,
+                app,
+                frame,
+                lines,
+                footer,
+                flat,
+                sent,
+                settle,
+                selectRow,
+                enterArchive,
+                textEdits: () => textEdits,
+            };
+        }
+
+        it("builds the active rows through RowSource exactly as before", async () => {
+            const net = new FakeNet();
+            net.responses.set(MSG.PROJECT_LIST, {
+                projects: [project("p1", "Alpha"), project("p2", "Beta")],
+            });
+            net.responses.set(MSG.TASK_LIST, {
+                tasks: [
+                    task("t1", "p1", "Active task"),
+                    { ...task("t9", "p1", "Sub"), parentId: "t1" },
+                ],
+            });
+            net.responses.set(MSG.MASTER_SESSIONS_LIST, { sessions: [] });
+            const store = new Store(net);
+            await store.load();
+            cleanups.push(() => store.dispose());
+
+            const viaSource = buildRows(store, new Set(), "", {
+                includeMaster: true,
+                tasksFor: (projectId) => store.tasksFor(projectId),
+                omitEmptyProjects: false,
+                nestSubtasks: false,
+            });
+
+            expect(viaSource).toEqual(buildRows(store));
+            expect(viaSource.map((row) => row.label)).toEqual([
+                "Master Workspace",
+                "Alpha",
+                "Active task",
+                "Sub",
+                "Beta",
+            ]);
+        });
+
+        it("A loads the archive once per entry and titles the sidebar Archive", async () => {
+            const { test, lines, sent, settle, enterArchive } = await archiveSetup();
+            expect(lines()[0]).not.toContain("Archive");
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(0);
+
+            await enterArchive();
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(1);
+            expect(lines()[0]).toContain("Archive");
+
+            test.mockInput.pressKey("A");
+            await settle();
+            expect(lines()[0]).not.toContain("Archive");
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(1);
+
+            await enterArchive();
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(2);
+        });
+
+        it("groups rows by project and parent without Master Workspace or empty projects", async () => {
+            const { frame, lines, enterArchive } = await archiveSetup();
+            await enterArchive();
+
+            // The footer's `A Active tasks` hint is not a row, so only the panels are checked.
+            const panels = lines().slice(0, 39).join("\n");
+            expect(frame()).not.toContain("Master Workspace");
+            expect(panels).not.toContain("Beta");
+            expect(panels).not.toContain("Active task");
+            const row = (text: string): number => lines().findIndex((line) => line.includes(text));
+            expect(row("Alpha")).toBe(1);
+            expect(row("Plain archived")).toBe(2);
+            expect(row("Old parent")).toBe(3);
+            expect(lines()[4]).toContain("└ Needle sub");
+            expect(lines()[5]).toContain("└ First sub");
+            expect(row("Orphan sub")).toBe(6);
+            expect(lines()[6]).not.toContain("└");
+        });
+
+        it("keeps a parent row when the name filter matches its subtask", async () => {
+            const net = new FakeNet();
+            const store = new FakeStore();
+            store.projects = [project("p1", "Alpha"), project("p2", "Beta")];
+            net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: archivedTasks() });
+            const archiveStore = new ArchiveStore(net);
+            await archiveStore.load();
+            const source = {
+                includeMaster: false,
+                tasksFor: (projectId: string) =>
+                    archiveStore.tasks().filter((candidate) => candidate.projectId === projectId),
+                omitEmptyProjects: true,
+                nestSubtasks: true,
+            };
+
+            expect(buildRows(store, new Set(), "needle", source).map((row) => row.label)).toEqual([
+                "Alpha",
+                "Old parent",
+                "  └ Needle sub",
+            ]);
+        });
+
+        it("applies the name filter in archive mode", async () => {
+            const { test, frame, settle, enterArchive } = await archiveSetup();
+            await enterArchive();
+            test.mockInput.pressKey("/");
+            await test.mockInput.typeText("needle");
+            test.mockInput.pressEnter();
+            await settle();
+
+            expect(frame()).toContain("Old parent");
+            expect(frame()).toContain("Needle sub");
+            expect(frame()).not.toContain("Plain archived");
+            expect(frame()).not.toContain("First sub");
+        });
+
+        it("keeps an archived subtask selected across store changes and opens it read-only", async () => {
+            const { test, net, app, frame, sent, settle, selectRow, enterArchive, textEdits } =
+                await archiveSetup();
+            await enterArchive();
+            await selectRow("Needle sub");
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "s2", projectId: "p1" });
+            expect(app.selectedSessions).toEqual([]);
+
+            net.emit(MSG.TASK_UPDATED, { ...task("t1", "p1", "Active task renamed") });
+            await settle();
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "s2", projectId: "p1" });
+
+            test.mockInput.pressEnter();
+            await settle();
+            expect(frame()).toContain("Needle sub");
+            expect(frame()).toContain("Archived 2026-09-01 · purged after 30 days");
+            expect(frame()).toContain("stack = bun  (parent)");
+
+            const before = net.requests.length;
+            for (const letter of ["r", "e", "o", "n", "u", "d", "p", "a"]) {
+                test.mockInput.pressKey(letter);
+                await test.mockInput.typeText("x");
+                test.mockInput.pressEnter();
+                await settle();
+            }
+            const after = net.requests
+                .slice(before)
+                .filter((request) => MUTATIONS.includes(request.type));
+            expect(after).toEqual([]);
+            expect(sent(MSG.TASK_UPDATE)).toEqual([]);
+            expect(textEdits()).toBe(0);
+        });
+
+        it("u restores the task and leaves archive mode with it selected", async () => {
+            const {
+                test,
+                net,
+                archiveStore,
+                app,
+                lines,
+                frame,
+                sent,
+                settle,
+                selectRow,
+                enterArchive,
+            } = await archiveSetup();
+            await enterArchive();
+            await selectRow("Old parent");
+            const restored = {
+                ...archived("a1", "Old parent"),
+                status: "active" as const,
+                archivedAt: null,
+            };
+            net.responses.set(MSG.TASK_UNARCHIVE, restored);
+            net.responses.set(MSG.TASK_LIST, {
+                tasks: [
+                    restored,
+                    { ...task("s1", "p1", "First sub"), parentId: "a1" },
+                    { ...task("s2", "p1", "Needle sub"), parentId: "a1" },
+                    task("t1", "p1", "Active task"),
+                    task("t2", "p2", "Beta task"),
+                ],
+            });
+
+            test.mockInput.pressKey("u");
+            await settle();
+            await settle();
+
+            expect(sent(MSG.TASK_UNARCHIVE)).toEqual([
+                { type: MSG.TASK_UNARCHIVE, payload: { id: "a1" } },
+            ]);
+            expect(archiveStore.tasks().map((candidate) => candidate.id)).toEqual(["a2", "s3"]);
+            expect(lines()[0]).not.toContain("Archive");
+            expect(frame()).toContain("Master Workspace");
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "a1", projectId: "p1" });
+        });
+
+        it("D on a top-level task with a worktree offers the worktree toggle, off", async () => {
+            const { test, flat, sent, frame, settle, selectRow, enterArchive } =
+                await archiveSetup();
+            await enterArchive();
+            await selectRow("Old parent");
+
+            test.mockInput.pressKey("D");
+            await settle();
+            expect(flat()).toContain(
+                "Permanently delete this task and its 2 subtasks, their sessions, and all logs. This cannot be undone.",
+            );
+            expect(flat()).toContain("[ ] Also delete worktree and branch (feature/old)");
+
+            test.mockInput.pressEnter();
+            await settle();
+            expect(sent(MSG.TASK_DELETE)).toEqual([
+                { type: MSG.TASK_DELETE, payload: { id: "a1", deleteWorktree: false } },
+            ]);
+            expect(frame()).not.toContain("Old parent");
+            expect(frame()).not.toContain("Needle sub");
+        });
+
+        it("D on a subtask shows no toggle and no subtask phrase", async () => {
+            const { test, flat, settle, selectRow, enterArchive } = await archiveSetup();
+            await enterArchive();
+            await selectRow("First sub");
+
+            test.mockInput.pressKey("D");
+            await settle();
+            expect(flat()).toContain(
+                "Permanently delete this task, their sessions, and all logs. This cannot be undone.",
+            );
+            expect(flat()).not.toContain("Also delete worktree");
+        });
+
+        it("D on a remote machine sends nothing", async () => {
+            const { test, footer, flat, sent, settle, selectRow, enterArchive } =
+                await archiveSetup(false);
+            await enterArchive();
+            await selectRow("Plain archived");
+
+            test.mockInput.pressKey("D");
+            await settle();
+            expect(footer()).toContain("Only available on this machine.");
+            expect(flat()).not.toContain("Permanently delete");
+            expect(sent(MSG.TASK_DELETE)).toEqual([]);
+        });
+
+        it("reloads the archive on reconnect only while in archive mode", async () => {
+            const { net, sent, settle, enterArchive } = await archiveSetup();
+            net.emitStatus(true);
+            await settle();
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(0);
+
+            await enterArchive();
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(1);
+            net.emitStatus(true);
+            await settle();
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(2);
         });
     });
 

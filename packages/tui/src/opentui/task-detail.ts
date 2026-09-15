@@ -14,6 +14,8 @@ interface TaskDetailDeps {
     project: Project | null;
     attributes: readonly ResolvedAttribute[];
     logs: readonly TaskLogEntry[];
+    /** An archived task: only navigation and close keys work, and the header says when it is purged. */
+    readOnly?: boolean;
     onEditDescription(): void;
     onEditNotes(): void;
     onEditTitle(title: string): void;
@@ -30,9 +32,10 @@ function cleanMultiline(value: string): string {
     let result = "";
     for (const char of value) {
         const code = char.codePointAt(0) ?? 0;
-        result += code < 0x09 || (code > 0x0d && code < 0x20) || (code >= 0x7f && code <= 0x9f)
-            ? "�"
-            : char;
+        result +=
+            code < 0x09 || (code > 0x0d && code < 0x20) || (code >= 0x7f && code <= 0x9f)
+                ? "�"
+                : char;
     }
     return result;
 }
@@ -42,6 +45,13 @@ function taskLogLabel(entry: TaskLogEntry): string {
         ? entry.timestamp
         : new Date(entry.timestamp).toISOString().replace("T", " ").slice(0, 19);
     return `${timestamp}  ${entry.type}  ${entry.message}`;
+}
+
+function archivedDate(archivedAt: string | null): string {
+    if (archivedAt === null) return "unknown date";
+    return Number.isNaN(Date.parse(archivedAt))
+        ? cleanMultiline(archivedAt)
+        : new Date(archivedAt).toISOString().slice(0, 10);
 }
 
 class TaskDetail {
@@ -86,6 +96,7 @@ class TaskDetail {
 
     get keyHints(): string {
         if (this.editKind) return " Enter Save  Esc Cancel";
+        if (this.deps.readOnly) return " ↑↓ Attribute  Esc/q Sessions";
         return this.pending
             ? " Working..."
             : " r Title  e Description  o Notes  ↑↓ Attribute  n Add  u Update  d Delete  p Pin  a Archive  Esc/q Sessions";
@@ -131,6 +142,9 @@ class TaskDetail {
         if (event.name === "escape" || event.sequence === "q") return this.deps.onClose();
         if (event.name === "down" || event.sequence === "j") return this.moveAttribute(1);
         if (event.name === "up" || event.sequence === "k") return this.moveAttribute(-1);
+        if (event.name === "pagedown") return this.renderable.scrollBy(8);
+        if (event.name === "pageup") return this.renderable.scrollBy(-8);
+        if (this.deps.readOnly) return;
         if (event.sequence === "r") return this.beginEdit("title", this.task.title);
         if (event.sequence === "e") return this.deps.onEditDescription();
         if (event.sequence === "o") return this.deps.onEditNotes();
@@ -156,8 +170,6 @@ class TaskDetail {
         }
         if (event.sequence === "p") return this.deps.onTogglePin();
         if (event.sequence === "a") return this.deps.onArchive();
-        if (event.name === "pagedown") this.renderable.scrollBy(8);
-        if (event.name === "pageup") this.renderable.scrollBy(-8);
     }
 
     private moveAttribute(delta: number): void {
@@ -230,10 +242,16 @@ class TaskDetail {
     private rebuild(editValue?: string): void {
         const retainedEditValue = editValue ?? this.editInput?.value ?? "";
         for (const child of [...this.renderable.getChildren()]) child.destroy();
-        this.addLine(` ${cleanMultiline(this.task.title)}${this.task.pinned ? "  [pinned]" : ""}`, true);
+        this.addLine(
+            ` ${cleanMultiline(this.task.title)}${this.task.pinned ? "  [pinned]" : ""}`,
+            true,
+        );
+        if (this.deps.readOnly) {
+            this.addLine(` Archived ${archivedDate(this.task.archivedAt)} · purged after 30 days`);
+        }
         this.addLine(` Project: ${cleanMultiline(this.project?.name ?? this.task.projectId)}`);
         const worktree = this.task.worktree.enabled
-            ? this.task.worktree.path ?? "initializing"
+            ? (this.task.worktree.path ?? "initializing")
             : "disabled";
         this.addLine(` Worktree: ${cleanMultiline(worktree)}`);
         this.addLine("");

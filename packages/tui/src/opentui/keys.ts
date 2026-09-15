@@ -15,6 +15,9 @@ type UiCommand =
     | { kind: "schedules" }
     | { kind: "task-detail" }
     | { kind: "task-create" }
+    | { kind: "archive-toggle" }
+    | { kind: "task-unarchive" }
+    | { kind: "task-delete" }
     | { kind: "project-add" }
     | { kind: "project-remove" }
     | { kind: "project-move-down" }
@@ -159,6 +162,31 @@ const COMMAND_METADATA: readonly CommandMetadata[] = [
         label: "New task",
         description: "Create a task or subtask",
         route: exactTextRoute("task-create", "n"),
+    },
+    {
+        kind: "archive-toggle",
+        group: "Tasks",
+        keys: "A",
+        label: "Archive",
+        description: "Switch the sidebar between active and archived tasks",
+        route: exactTextRoute("archive-toggle", "A"),
+    },
+    {
+        kind: "task-unarchive",
+        group: "Tasks",
+        keys: "u",
+        label: "Restore",
+        description: "Restore the selected archived task and its subtasks",
+        route: exactTextRoute("task-unarchive", "u"),
+    },
+    {
+        kind: "task-delete",
+        group: "Tasks",
+        keys: "D",
+        label: "Delete",
+        description: "Permanently delete the selected archived task",
+        localOnly: true,
+        route: exactTextRoute("task-delete", "D"),
     },
     {
         kind: "project-add",

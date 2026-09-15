@@ -280,3 +280,53 @@ Deviations:
 - `Store.projectOrder` was added.
 - `line-input.ts` was added, and `OwnerFilter` was moved onto it.
 - The help test's renderer height went from 40 to 48, to fit the new group.
+
+### Task 10 — archived tasks
+
+Status: DONE. Commit: `feat(tui): browse, restore and delete archived tasks`.
+
+- `archive/store.ts` (new): `ArchiveStore(net)`.
+  - `load()` sends `task:list-archived` and returns the payload tasks unchanged.
+  - `tasks()` returns the current list.
+  - `unarchive(id)` sends `{id}`, then drops the parent and every archived task whose `parentId` is `id`.
+  - `delete(id, deleteWorktree)` sends exactly `{id, deleteWorktree}`, then drops the same set. Worktree removal still runs in the background on the backend.
+  - `removeLocal(ids)`.
+- `keys.ts`: three new `Tasks` commands:
+  - `archive-toggle` (`A`)
+  - `task-unarchive` (`u`)
+  - `task-delete` (`D`, `localOnly`)
+- `task-detail.ts`: `readOnly?`.
+  - Navigation (↑↓, PgUp/PgDn) and close work; the edit, pin and archive keys return early.
+  - Hints are ` ↑↓ Attribute  Esc/q Sessions`.
+  - The header adds `Archived <YYYY-MM-DD> · purged after 30 days`.
+  - `task` stays required, as it already was.
+- `app.ts`:
+  - `buildRows` takes an optional fourth parameter `source: RowSource`. When it is omitted, the result is today's active rows, and the positional callers are unchanged.
+  - Archive rows: no Master Workspace row and no projects without archived tasks. Subtasks come right after their parent, prefixed `  └ `, and a subtask whose parent isn't archived stays at top level. The name filter keeps a parent when a subtask matches, and keeps a parent's subtasks when the parent matches.
+  - `sidebarMode: "active" | "archive"`. In archive mode the sidebar border title is `Archive`, and every entry into the mode loads the archive once.
+  - In archive mode:
+    - Collapsed projects are ignored.
+    - `refreshRows` skips `resolveOwner` and keeps the selection while its row exists, otherwise it selects the first row (Master when there are no rows).
+    - Owners list no sessions, and owner product loads (flows, schedules, Git) are skipped.
+    - Enter and `t` open read-only detail from `ArchiveStore`. Inherited attributes look up archived parents first.
+  - Archive mode ignores every command except select, open, task detail, `A`, `u`, `D`, filter, zoom, machines, help and quit.
+  - `u`:
+    1. Sends `task:unarchive`.
+    2. Awaits the root `Store.load()`.
+    3. Leaves archive mode and selects the restored task.
+    4. If the load rejected, it still leaves and shows `Could not reload tasks: ...`.
+  - `D`:
+    - Opens `Confirm` in the existing `projectDialog` slot with `Permanently delete this task[ and its N subtask(s)], their sessions, and all logs. This cannot be undone.`
+    - The toggle `Also delete worktree and branch (<branch>)` starts off and appears only for a top-level task with a worktree.
+  - A reconnect in archive mode reloads the archive through the existing `onStatusChange` handler.
+  - Every failure goes through `errorMessage`, so `MachineOfflineError` still raises the offline notice.
+- `workspace.ts` creates the `ArchiveStore` and passes it to the app.
+
+Test counts: `bun test packages/tui` went from 410 to 428 across 61 files. This task added 16 of them (+4 archive/store, +1 task-detail, +11 app). The keys guard test was rewritten rather than added. `bun run typecheck` and `bunx eslint` on the changed files are clean.
+
+RED evidence: archive/store and app failed with `Cannot find module`, and keys (localOnly guard) and task-detail (read-only) each had 1 failure.
+
+Deviations:
+- `state/store.ts` and `help.ts` are unchanged. `applyTask` was already its own reducer, and the ruling calls `Store.load()` after `u`. The new commands fall into the existing `Tasks` help group.
+- `TaskDetailDeps.task` was not made optional.
+- `ArchiveStore.delete` drops its own records, as `unarchive` does, so the app never calls `removeLocal`.

@@ -14,6 +14,7 @@ import type {
     AppSettings,
     Project,
     Notification,
+    ResolvedAttribute,
     SessionCreatePayload,
     SessionCreateResponse,
     SessionRef,
@@ -32,6 +33,7 @@ import type { GitChange } from "../git/model";
 import type { SettingsStore } from "../settings/store";
 import type { NotificationStore } from "../notifications/store";
 import type { ProjectStore } from "../projects/store";
+import type { ArchiveStore } from "../archive/store";
 import type { NetLike } from "../net/client";
 import { MachineOfflineError } from "../net/offline-guard";
 import {
@@ -139,6 +141,7 @@ interface OpenTuiAppDeps {
     settingsStore?: SettingsStore;
     notificationStore?: NotificationStore;
     projectStore?: ProjectStore;
+    archiveStore?: ArchiveStore;
     onRunAction?: (owner: SessionOwner, action: ActionDefinition) => Promise<string>;
     onEditRecord?: (
         kind: "flow" | "action" | "schedule",
@@ -190,12 +193,60 @@ function cleanLabel(label: string): string {
     return result;
 }
 
+/** Where `buildRows` takes each project's tasks from, and how it lays them out. */
+interface RowSource {
+    includeMaster: boolean;
+    tasksFor(projectId: string): readonly Task[];
+    omitEmptyProjects: boolean;
+    nestSubtasks: boolean;
+}
+
+/** The commands an archive sidebar row supports; archive mode ignores the rest. */
+const ARCHIVE_COMMANDS: ReadonlySet<UiCommandKind> = new Set<UiCommandKind>([
+    "move",
+    "open",
+    "task-detail",
+    "archive-toggle",
+    "task-unarchive",
+    "task-delete",
+    "filter",
+    "zoom",
+    "machines",
+    "help",
+    "quit",
+]);
+
+function activeRowSource(store: StoreLike): RowSource {
+    return {
+        includeMaster: true,
+        tasksFor: (projectId) => store.tasksFor(projectId),
+        omitEmptyProjects: false,
+        nestSubtasks: false,
+    };
+}
+
+/** Each subtask directly after its parent. A subtask whose parent is absent stays top level. */
+function nestTasks(tasks: readonly Task[]): Array<{ task: Task; nested: boolean }> {
+    const ids = new Set(tasks.map((task) => task.id));
+    const entries: Array<{ task: Task; nested: boolean }> = [];
+    for (const task of tasks) {
+        if (task.parentId && ids.has(task.parentId)) continue;
+        entries.push({ task, nested: false });
+        for (const child of tasks) {
+            if (child.parentId === task.id) entries.push({ task: child, nested: true });
+        }
+    }
+    return entries;
+}
+
 function buildRows(
     store: StoreLike,
     collapsedProjectIds: ReadonlySet<string> = new Set(),
     filter = "",
+    source: RowSource = activeRowSource(store),
 ): SidebarRow[] {
     const query = filter.trim().toLowerCase();
+    const matches = (task: Task): boolean => cleanLabel(task.title).toLowerCase().includes(query);
     const masterRow: SidebarRow = {
         kind: "master",
         id: "master",
@@ -205,15 +256,34 @@ function buildRows(
         missing: false,
     };
     const rows: SidebarRow[] =
-        query === "" || masterRow.label.toLowerCase().includes(query) ? [masterRow] : [];
+        source.includeMaster && (query === "" || masterRow.label.toLowerCase().includes(query))
+            ? [masterRow]
+            : [];
     for (const project of store.projects) {
         const label = cleanLabel(project.name);
-        const tasks = store.tasksFor(project.id);
+        const tasks = source.tasksFor(project.id);
+        if (source.omitEmptyProjects && tasks.length === 0) continue;
         const projectMatches = label.toLowerCase().includes(query);
+        const entries = source.nestSubtasks
+            ? nestTasks(tasks)
+            : tasks.map((task) => ({ task, nested: false }));
+        // A nested row stays when its parent matches, and a parent stays when one of its subtasks does.
         const matchingTasks =
             query === "" || projectMatches
-                ? tasks
-                : tasks.filter((task) => cleanLabel(task.title).toLowerCase().includes(query));
+                ? entries
+                : entries.filter(({ task, nested }) => {
+                      if (matches(task)) return true;
+                      if (nested) {
+                          const parent = tasks.find((candidate) => candidate.id === task.parentId);
+                          return parent !== undefined && matches(parent);
+                      }
+                      return entries.some(
+                          (entry) =>
+                              entry.nested &&
+                              entry.task.parentId === task.id &&
+                              matches(entry.task),
+                      );
+                  });
         if (query !== "" && !projectMatches && matchingTasks.length === 0) continue;
         rows.push({
             kind: "project",
@@ -224,12 +294,12 @@ function buildRows(
             missing: project.locationValid === false,
         });
         if (query === "" && collapsedProjectIds.has(project.id)) continue;
-        for (const task of matchingTasks) {
+        for (const { task, nested } of matchingTasks) {
             rows.push({
                 kind: "task",
                 id: task.id,
                 owner: { kind: "task", taskId: task.id, projectId: project.id },
-                label: cleanLabel(task.title),
+                label: `${nested ? "  └ " : ""}${cleanLabel(task.title)}`,
                 sessionCount: task.sessions.length,
                 missing: false,
             });
@@ -303,12 +373,13 @@ class OpenTuiApp {
     private helpPreviousFocus: FocusTarget | null = null;
     private overlay: KeyOverlay | null = null;
     private productConfirm: { view: Confirm; resolve(value: boolean): void } | null = null;
-    /** The open add, remove or linked-projects dialog. */
+    /** The open add-project, remove-project, linked-projects or delete-task dialog. */
     private projectDialog: ProjectAdd | LinkedProjects | Confirm | null = null;
     private schedulerEnabled = false;
     private pendingFlowOwnerKey: string | null = null;
     private sidebarColumns = 30;
     private collapsedProjectIds = new Set<string>();
+    private sidebarMode: "active" | "archive" = "active";
     private machineStatus: MachineStatus = { state: "online" };
     /** Set by the first refused request of an offline period, cleared when back online. */
     private offlineNotice = false;
@@ -446,6 +517,7 @@ class OpenTuiApp {
                 void this.deps.store.load().catch(() => undefined);
                 void this.loadSystemInfo().catch(() => undefined);
                 void this.loadProducts().catch(() => undefined);
+                if (this.sidebarMode === "archive") this.reloadArchive();
                 if (this.deps.onReconnect) this.deps.onReconnect();
                 else {
                     for (const session of this.sessions)
@@ -517,6 +589,8 @@ class OpenTuiApp {
     }
 
     private async loadOwnerProducts(): Promise<void> {
+        // Flows, schedules and Git belong to active owners only.
+        if (this.sidebarMode === "archive") return;
         await Promise.all([
             this.deps.flowStore?.loadRun(this.selectedOwnerState) ?? Promise.resolve(),
             this.deps.scheduleStore?.load(ownerProjectId(this.selectedOwnerState) ?? undefined) ??
@@ -537,25 +611,39 @@ class OpenTuiApp {
     }
 
     private refreshRows(force = false): void {
-        const rows = buildRows(this.deps.store, this.collapsedProjectIds, this.ownerFilterValue);
+        const archive = this.sidebarMode === "archive";
+        // Collapsing is an active-sidebar setting; the archive has no way to expand a project.
+        const rows = buildRows(
+            this.deps.store,
+            archive ? new Set() : this.collapsedProjectIds,
+            this.ownerFilterValue,
+            this.rowSource(),
+        );
         const signature = rowSignature(rows);
         const previousOwnerKey = ownerKey(this.selectedOwnerState);
-        if (
-            this.ownerFilterValue === "" &&
-            this.selectedOwnerState.kind === "task" &&
-            this.collapsedProjectIds.has(this.selectedOwnerState.projectId)
-        ) {
-            this.selectedOwnerState = {
-                kind: "project",
-                projectId: this.selectedOwnerState.projectId,
-            };
-        }
-        this.selectedOwnerState = resolveOwner(this.deps.store, this.selectedOwnerState);
-        if (
-            rows.length > 0 &&
-            !rows.some((row) => ownerKey(row.owner) === ownerKey(this.selectedOwnerState))
-        ) {
-            this.selectedOwnerState = rows[0].owner;
+        if (archive) {
+            // `resolveOwner` accepts only active tasks, so keep the selection while its row exists.
+            if (!rows.some((row) => ownerKey(row.owner) === previousOwnerKey)) {
+                this.selectedOwnerState = rows.length > 0 ? rows[0].owner : MASTER_OWNER;
+            }
+        } else {
+            if (
+                this.ownerFilterValue === "" &&
+                this.selectedOwnerState.kind === "task" &&
+                this.collapsedProjectIds.has(this.selectedOwnerState.projectId)
+            ) {
+                this.selectedOwnerState = {
+                    kind: "project",
+                    projectId: this.selectedOwnerState.projectId,
+                };
+            }
+            this.selectedOwnerState = resolveOwner(this.deps.store, this.selectedOwnerState);
+            if (
+                rows.length > 0 &&
+                !rows.some((row) => ownerKey(row.owner) === ownerKey(this.selectedOwnerState))
+            ) {
+                this.selectedOwnerState = rows[0].owner;
+            }
         }
         const ownerChanged = previousOwnerKey !== ownerKey(this.selectedOwnerState);
         if (
@@ -567,7 +655,7 @@ class OpenTuiApp {
         }
         this.deps.onOwnerChange?.(
             this.selectedOwnerState,
-            sessionsForOwner(this.deps.store, this.selectedOwnerState),
+            this.ownerSessions(this.selectedOwnerState),
         );
         if (ownerChanged) {
             this.deps.taskStore?.selectTask(
@@ -591,6 +679,22 @@ class OpenTuiApp {
         this.selected = selectedIndex === -1 ? 0 : selectedIndex;
         this.rebuildSidebar();
         this.deps.renderer.requestRender();
+    }
+
+    private rowSource(): RowSource {
+        const archive = this.deps.archiveStore;
+        if (this.sidebarMode !== "archive" || !archive) return activeRowSource(this.deps.store);
+        return {
+            includeMaster: false,
+            tasksFor: (projectId) => archive.tasks().filter((task) => task.projectId === projectId),
+            omitEmptyProjects: true,
+            nestSubtasks: true,
+        };
+    }
+
+    /** Archived owners have no live sessions. */
+    private ownerSessions(owner: SessionOwner): readonly SessionRef[] {
+        return this.sidebarMode === "archive" ? [] : sessionsForOwner(this.deps.store, owner);
     }
 
     private applyTuiSettings(settings: AppSettings | null): void {
@@ -713,7 +817,7 @@ class OpenTuiApp {
         if (changed) {
             this.deps.onOwnerChange?.(
                 this.selectedOwnerState,
-                sessionsForOwner(this.deps.store, this.selectedOwnerState),
+                this.ownerSessions(this.selectedOwnerState),
             );
             if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
@@ -891,6 +995,7 @@ class OpenTuiApp {
             this.deps.renderer.requestRender();
             return;
         }
+        if (this.sidebarMode === "archive" && !ARCHIVE_COMMANDS.has(command.kind)) return;
         switch (command.kind) {
             case "move":
                 if (this.rows.length === 0) return;
@@ -902,7 +1007,7 @@ class OpenTuiApp {
                 this.rebuildSidebar();
                 this.deps.onOwnerChange?.(
                     this.selectedOwnerState,
-                    sessionsForOwner(this.deps.store, this.selectedOwnerState),
+                    this.ownerSessions(this.selectedOwnerState),
                 );
                 if (this.mainView === "flow-run") this.openFlowLibrary();
                 else this.syncProductView();
@@ -917,7 +1022,7 @@ class OpenTuiApp {
                 this.updateStatusNotice();
                 break;
             case "open":
-                if (this.sessions.length > 0) {
+                if (this.sidebarMode === "active" && this.sessions.length > 0) {
                     this.focusTarget = "session";
                     this.updateFocus();
                 } else {
@@ -944,6 +1049,15 @@ class OpenTuiApp {
                 break;
             case "task-create":
                 this.openTaskCreate();
+                break;
+            case "archive-toggle":
+                this.toggleArchive();
+                break;
+            case "task-unarchive":
+                this.unarchiveSelected();
+                break;
+            case "task-delete":
+                this.openTaskDelete();
                 break;
             case "project-add":
                 this.openProjectAdd();
@@ -1145,16 +1259,16 @@ class OpenTuiApp {
 
     private openTaskDetail(): void {
         if (this.selectedOwnerState.kind !== "task") return;
-        const task = this.deps.store.taskById(this.selectedOwnerState.taskId);
+        const task = this.ownerTask(this.selectedOwnerState.taskId);
         if (!task) return;
         const project = this.deps.store.projectById(task.projectId);
-        const attributes = resolvedTaskAttributes(task, this.deps.store);
         const view = new TaskDetail({
             renderer: this.deps.renderer,
             task,
             project,
-            attributes,
+            attributes: this.taskAttributes(task),
             logs: this.deps.taskStore?.logsFor(task.id) ?? [],
+            readOnly: this.sidebarMode === "archive",
             onEditTitle: (title) => void this.updateTaskTitle(view, task.id, title),
             onEditDescription: () => void this.editTaskText(view, task.id, "description"),
             onEditNotes: () => void this.editTaskText(view, task.id, "notes"),
@@ -1175,6 +1289,26 @@ class OpenTuiApp {
             if (this.productView === view) {
                 view.setError(`Could not load task activity: ${this.errorMessage(error)}`);
             }
+        });
+    }
+
+    /** The selected sidebar's task: the archive's copy while it is shown. */
+    private ownerTask(taskId: string): Task | null {
+        if (this.sidebarMode === "archive") {
+            return this.deps.archiveStore?.tasks().find((task) => task.id === taskId) ?? null;
+        }
+        return this.deps.store.taskById(taskId);
+    }
+
+    /** An archived subtask's parent may be archived too, so the archive is searched first. */
+    private taskAttributes(task: Task): ResolvedAttribute[] {
+        const archive = this.deps.archiveStore;
+        if (this.sidebarMode !== "archive" || !archive) {
+            return resolvedTaskAttributes(task, this.deps.store);
+        }
+        return resolvedTaskAttributes(task, {
+            projects: this.deps.store.projects,
+            tasks: [...archive.tasks(), ...this.deps.store.tasks],
         });
     }
 
@@ -1468,6 +1602,125 @@ class OpenTuiApp {
                 );
             },
             onClose: () => this.closeProjectDialog(view),
+            onStateChange: () => this.redrawProjectDialog(),
+        });
+        this.showProjectDialog(view);
+    }
+
+    private toggleArchive(): void {
+        if (!this.deps.archiveStore) return;
+        if (this.sidebarMode === "archive") {
+            this.leaveArchive();
+            return;
+        }
+        this.sidebarMode = "archive";
+        this.sidebar.title = "Archive";
+        this.refreshRows(true);
+        this.reloadArchive();
+    }
+
+    private leaveArchive(): void {
+        this.sidebarMode = "active";
+        this.sidebar.title = undefined;
+        this.refreshRows(true);
+    }
+
+    /** Fetch the archive and redraw it. A failure is shown, never thrown. */
+    private reloadArchive(): void {
+        this.deps.archiveStore?.load().then(
+            () => {
+                if (!this.destroyed && this.sidebarMode === "archive") this.refreshRows(true);
+            },
+            (error: unknown) => {
+                if (this.destroyed || this.sidebarMode !== "archive") return;
+                this.showCommandNotice(
+                    ` Could not load archived tasks: ${this.errorMessage(error)}`,
+                );
+            },
+        );
+    }
+
+    private selectedArchivedTask(): Task | null {
+        if (this.sidebarMode !== "archive" || this.selectedOwnerState.kind !== "task") return null;
+        return this.ownerTask(this.selectedOwnerState.taskId);
+    }
+
+    /**
+     * The response carries only the parent, so the root store reloads to pick up
+     * the restored subtasks. The archive closes even when that reload fails.
+     */
+    private unarchiveSelected(): void {
+        const archive = this.deps.archiveStore;
+        const task = this.selectedArchivedTask();
+        if (!archive || !task) return;
+        archive.unarchive(task.id).then(
+            async (restored) => {
+                let loadError: unknown = null;
+                try {
+                    await this.deps.store.load();
+                } catch (error) {
+                    loadError = error;
+                }
+                if (this.destroyed) return;
+                this.selectedOwnerState = {
+                    kind: "task",
+                    taskId: restored.id,
+                    projectId: restored.projectId,
+                };
+                this.leaveArchive();
+                if (loadError !== null) {
+                    this.showCommandNotice(
+                        ` Could not reload tasks: ${this.errorMessage(loadError)}`,
+                    );
+                }
+            },
+            (error: unknown) => {
+                if (this.destroyed) return;
+                this.showCommandNotice(` Could not restore task: ${this.errorMessage(error)}`);
+            },
+        );
+    }
+
+    private openTaskDelete(): void {
+        const archive = this.deps.archiveStore;
+        const task = this.selectedArchivedTask();
+        if (!archive || !task || this.projectDialog) return;
+        const subtasks = task.parentId
+            ? 0
+            : archive.tasks().filter((candidate) => candidate.parentId === task.id).length;
+        const subtaskPhrase =
+            subtasks === 0
+                ? ""
+                : ` and its ${String(subtasks)} subtask${subtasks === 1 ? "" : "s"}`;
+        const branch =
+            !task.parentId && task.worktree.enabled && task.worktree.path
+                ? task.worktree.branch
+                : null;
+        const view = new Confirm({
+            renderer: this.deps.renderer,
+            title: "Delete task",
+            message: `Permanently delete this task${subtaskPhrase}, their sessions, and all logs. This cannot be undone.`,
+            ...(branch
+                ? {
+                      toggle: {
+                          label: `Also delete worktree and branch (${cleanLabel(branch)})`,
+                          initial: false,
+                      },
+                  }
+                : {}),
+            onCancel: () => this.closeProjectDialog(view),
+            onConfirm: (deleteWorktree) => {
+                archive.delete(task.id, deleteWorktree).then(
+                    () => {
+                        this.closeProjectDialog(view);
+                        if (!this.destroyed) this.refreshRows(true);
+                    },
+                    (error: unknown) => {
+                        if (this.projectDialog !== view) return;
+                        view.setError(`Could not delete task: ${this.errorMessage(error)}`);
+                    },
+                );
+            },
             onStateChange: () => this.redrawProjectDialog(),
         });
         this.showProjectDialog(view);
@@ -1938,15 +2191,15 @@ class OpenTuiApp {
                 this.showSessions();
                 return;
             }
-            const task = this.deps.store.taskById(this.selectedOwnerState.taskId);
-            if (!task || task.status !== "active") {
+            const task = this.ownerTask(this.selectedOwnerState.taskId);
+            if (!task || (this.sidebarMode === "active" && task.status !== "active")) {
                 this.showSessions();
                 return;
             }
             this.productView.update(
                 task,
                 this.deps.store.projectById(task.projectId),
-                resolvedTaskAttributes(task, this.deps.store),
+                this.taskAttributes(task),
                 this.deps.taskStore?.logsFor(task.id) ?? [],
             );
         } else if (this.productView instanceof GitChanges) {
@@ -2214,6 +2467,19 @@ class OpenTuiApp {
         };
         hint("move");
         hint("filter", this.ownerFilterValue ? `Filter: ${this.ownerFilterValue}` : undefined);
+        if (this.sidebarMode === "archive") {
+            if (this.selectedArchivedTask()) {
+                hint("open", "Detail");
+                hint("task-unarchive");
+                hint("task-delete");
+            }
+            hint("archive-toggle", "Active tasks");
+            hint("zoom");
+            if (this.deps.onSwitchMachine) hint("machines");
+            if (this.deps.onQuit) hint("quit");
+            hint("help");
+            return ` ${hints.join("  ")}`;
+        }
         const session = this.sessions[this.activeSession];
         if (session) hint("open", "Focus");
         else if (this.selectedOwnerState.kind === "task") hint("open", "Detail");
@@ -2227,6 +2493,7 @@ class OpenTuiApp {
         ) {
             hint("task-create");
         }
+        if (this.deps.archiveStore) hint("archive-toggle");
         if (this.deps.projectStore) {
             hint("project-add");
             if (this.selectedOwnerState.kind === "project") {
@@ -2330,7 +2597,7 @@ class OpenTuiApp {
     }
 
     get selectedSessions(): readonly SessionRef[] {
-        return sessionsForOwner(this.deps.store, this.selectedOwnerState);
+        return this.ownerSessions(this.selectedOwnerState);
     }
 
     setSessions(sessions: readonly InjectedSession[], activeId: string | null = null): void {

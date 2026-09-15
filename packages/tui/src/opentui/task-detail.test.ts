@@ -80,7 +80,10 @@ describe("TaskDetail", () => {
             onClose: () => undefined,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         await test.renderOnce();
         const frame = test.captureCharFrame();
         expect(frame).toContain("Workspace operations  [pinned]");
@@ -110,7 +113,10 @@ describe("TaskDetail", () => {
             onClose: () => calls.push("close"),
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("e"));
         view.handleKey(key("o"));
         view.handleKey(key("p"));
@@ -135,15 +141,17 @@ describe("TaskDetail", () => {
             onEditDescription: () => undefined,
             onEditNotes: () => undefined,
             onCreateAttribute: (name, value) => calls.push(["create", name, value]),
-            onUpdateAttribute: (attribute, value) =>
-                calls.push(["update", attribute.id, value]),
+            onUpdateAttribute: (attribute, value) => calls.push(["update", attribute.id, value]),
             onDeleteAttribute: (attribute) => calls.push(["delete", attribute.id]),
             onTogglePin: () => undefined,
             onArchive: () => undefined,
             onClose: () => undefined,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
 
         view.handleKey(key("u"));
         await test.renderOnce();
@@ -167,5 +175,55 @@ describe("TaskDetail", () => {
 
         view.handleKey(key("d"));
         expect(calls[2]).toEqual(["delete", "a2"]);
+    });
+
+    test("read-only mode ignores edit, pin and archive keys and omits their hints", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24 });
+        const calls: string[] = [];
+        const view = new TaskDetail({
+            renderer: test.renderer,
+            task: { ...task, status: "archived", archivedAt: "2026-09-01T10:00:00.000Z" },
+            project,
+            attributes,
+            logs,
+            readOnly: true,
+            onEditTitle: () => calls.push("title"),
+            onEditDescription: () => calls.push("description"),
+            onEditNotes: () => calls.push("notes"),
+            onCreateAttribute: () => calls.push("create-attribute"),
+            onUpdateAttribute: () => calls.push("update-attribute"),
+            onDeleteAttribute: () => calls.push("delete-attribute"),
+            onTogglePin: () => calls.push("pin"),
+            onArchive: () => calls.push("archive"),
+            onClose: () => calls.push("close"),
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+
+        for (const letter of ["r", "e", "o", "n", "u", "d", "p", "a"]) {
+            view.handleKey(key(letter));
+            view.handleKey(key("x"));
+            view.handleKey(key("return", "\r"));
+        }
+        view.handleKey(key("down"));
+        view.handleKey(key("u"));
+        view.handleKey(key("d"));
+        expect(calls).toEqual([]);
+
+        expect(view.keyHints).toBe(" ↑↓ Attribute  Esc/q Sessions");
+        for (const hidden of ["Title", "Description", "Notes", "Add", "Update", "Delete", "Pin"]) {
+            expect(view.keyHints).not.toContain(hidden);
+        }
+        expect(view.keyHints).not.toContain("Archive");
+        await test.renderOnce();
+        const frame = test.captureCharFrame();
+        expect(frame).toContain("Archived 2026-09-01 · purged after 30 days");
+        expect(frame).not.toContain("New title");
+
+        view.handleKey(key("escape", "\x1b"));
+        expect(calls).toEqual(["close"]);
     });
 });
