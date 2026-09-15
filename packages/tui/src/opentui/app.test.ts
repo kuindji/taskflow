@@ -1556,6 +1556,53 @@ describe("OpenTuiApp", () => {
             expect(sent(MSG.TASK_DELETE)).toEqual([]);
         });
 
+        it("D sends nothing for a row another client restored meanwhile", async () => {
+            const { test, net, frame, sent, settle, selectRow, enterArchive } =
+                await archiveSetup();
+            await enterArchive();
+            await selectRow("Plain archived");
+            // Another client restored a2: the backend holds it as an active task now.
+            net.responses.set(MSG.TASK_LIST_ARCHIVED, {
+                tasks: archivedTasks().filter((candidate) => candidate.id !== "a2"),
+            });
+
+            test.mockInput.pressKey("D");
+            await settle();
+            test.mockInput.pressEnter();
+            await settle();
+            await settle();
+
+            expect(sent(MSG.TASK_DELETE)).toEqual([]);
+            expect(frame()).toContain("This task is no longer archived.");
+            expect(frame()).not.toContain("Plain archived");
+            expect(frame()).not.toContain("Permanently delete");
+        });
+
+        it("re-entering the archive offers no rows from the previous visit until it loads", async () => {
+            const { test, net, app, sent, settle, enterArchive } = await archiveSetup();
+            await enterArchive();
+            test.mockInput.pressKey("A");
+            await settle();
+            // The next load is still in flight when D is pressed.
+            net.responses.set(MSG.TASK_LIST_ARCHIVED, new Promise(() => undefined));
+
+            await enterArchive();
+            for (let step = 0; step < 10; step++) {
+                test.mockInput.pressArrow("down");
+                await settle();
+            }
+            expect(app.selectedOwner.kind).not.toBe("task");
+            test.mockInput.pressKey("D");
+            await settle();
+            test.mockInput.pressKey("y");
+            await settle();
+            test.mockInput.pressEnter();
+            await settle();
+
+            expect(sent(MSG.TASK_LIST_ARCHIVED)).toHaveLength(2);
+            expect(sent(MSG.TASK_DELETE)).toEqual([]);
+        });
+
         it("reloads the archive on reconnect only while in archive mode", async () => {
             const { net, sent, settle, enterArchive } = await archiveSetup();
             net.emitStatus(true);

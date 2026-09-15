@@ -43,7 +43,7 @@ describe("ArchiveStore", () => {
         expect(store.tasks().map((candidate) => candidate.id)).toEqual(["a2"]);
     });
 
-    test("delete sends exactly the id and deleteWorktree", async () => {
+    test("delete re-checks the archive, then sends exactly the id and deleteWorktree", async () => {
         const net = new FakeNet();
         net.responses.set(MSG.TASK_LIST_ARCHIVED, {
             tasks: [archived("a1"), archived("s1", "a1"), archived("a2")],
@@ -52,13 +52,42 @@ describe("ArchiveStore", () => {
         const store = new ArchiveStore(net);
         await store.load();
 
-        await store.delete("a1", true);
-        await store.delete("a2", false);
+        expect(await store.delete("a1", true)).toBe("deleted");
+        net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a2")] });
+        expect(await store.delete("a2", false)).toBe("deleted");
 
-        expect(net.requests.filter((request) => request.type === MSG.TASK_DELETE)).toEqual([
+        expect(net.requests.slice(1)).toEqual([
+            { type: MSG.TASK_LIST_ARCHIVED, payload: undefined },
             { type: MSG.TASK_DELETE, payload: { id: "a1", deleteWorktree: true } },
+            { type: MSG.TASK_LIST_ARCHIVED, payload: undefined },
             { type: MSG.TASK_DELETE, payload: { id: "a2", deleteWorktree: false } },
         ]);
+        expect(store.tasks()).toEqual([]);
+    });
+
+    test("delete sends nothing for a task that is no longer archived and drops its row", async () => {
+        const net = new FakeNet();
+        net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a1"), archived("a2")] });
+        net.responses.set(MSG.TASK_DELETE, { success: true });
+        const store = new ArchiveStore(net);
+        await store.load();
+        // Another client restored a2: it is active on the backend now.
+        net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a1")] });
+
+        expect(await store.delete("a2", true)).toBe("not-archived");
+
+        expect(net.requests.filter((request) => request.type === MSG.TASK_DELETE)).toEqual([]);
+        expect(store.tasks().map((candidate) => candidate.id)).toEqual(["a1"]);
+    });
+
+    test("clear forgets the cached archive", async () => {
+        const net = new FakeNet();
+        net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a1")] });
+        const store = new ArchiveStore(net);
+        await store.load();
+
+        store.clear();
+
         expect(store.tasks()).toEqual([]);
     });
 

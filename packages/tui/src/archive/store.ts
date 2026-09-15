@@ -34,11 +34,24 @@ class ArchiveStore {
         return task;
     }
 
-    /** Resolves before the worktree is gone: the backend removes it in the background. */
-    async delete(id: string, deleteWorktree: boolean): Promise<void> {
+    /**
+     * `task:delete` also deletes active tasks, and another client may have
+     * restored this one since the list was fetched. So the archive is fetched
+     * again first, and a task that is no longer in it is only dropped here.
+     * Resolves before the worktree is gone: the backend removes it in the background.
+     */
+    async delete(id: string, deleteWorktree: boolean): Promise<"deleted" | "not-archived"> {
+        const archived = await this.load();
+        if (!archived.some((task) => task.id === id)) return "not-archived";
         const payload: TaskDeletePayload = { id, deleteWorktree };
         await this.net.request(MSG.TASK_DELETE, payload);
         this.removeWithSubtasks(id);
+        return "deleted";
+    }
+
+    /** Forget the cached list, so rows from an earlier visit are never acted on. */
+    clear(): void {
+        this.list = [];
     }
 
     removeLocal(ids: readonly string[]): void {

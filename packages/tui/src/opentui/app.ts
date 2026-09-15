@@ -1616,6 +1616,8 @@ class OpenTuiApp {
         }
         this.sidebarMode = "archive";
         this.sidebar.title = "Archive";
+        // Nothing is broadcast to the archive, so the last visit's rows may be stale.
+        this.deps.archiveStore.clear();
         this.refreshRows(true);
         this.reloadArchive();
     }
@@ -1714,9 +1716,13 @@ class OpenTuiApp {
             onCancel: () => this.closeProjectDialog(view),
             onConfirm: (deleteWorktree) => {
                 archive.delete(task.id, deleteWorktree).then(
-                    () => {
+                    (outcome) => {
                         this.closeProjectDialog(view);
-                        if (!this.destroyed) this.refreshRows(true);
+                        if (this.destroyed) return;
+                        this.refreshRows(true);
+                        if (outcome === "not-archived") {
+                            this.showCommandNotice(" This task is no longer archived.");
+                        }
                     },
                     (error: unknown) => {
                         if (this.projectDialog !== view) return;
