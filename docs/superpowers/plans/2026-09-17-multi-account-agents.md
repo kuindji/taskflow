@@ -764,7 +764,7 @@ git commit -m "feat(backend): resolve agent accounts to home-dir overrides"
 - Modify: `packages/ui/src/lib/normalize-agent-options.test.ts`
 - Modify: `packages/ui/src/components/flows/ActionEditor.tsx:35-107,177,190`
 - Modify: `packages/tui/src/editor/validation.ts:93-120`
-- Modify: `packages/tui/src/editor/validation.test.ts`
+- Modify: `packages/tui/src/editor/records.test.ts`
 
 **Interfaces:**
 - Consumes: `ClaudeLaunchOptions.account`, `CodexLaunchOptions.account` (Task 1).
@@ -814,11 +814,11 @@ describe("normalizeAgentOptions accounts", () => {
 });
 ```
 
-In `packages/tui/src/editor/validation.test.ts`, find the existing test that parses valid Claude agentOptions and copy its setup into a new test that adds `account: work` under both a claude and a codex `agentOptions`. It must expect the parsed result to contain `account: "work"`, and expect `account: 5` to throw `agentOptions.account`. (Read the file first; reuse its exact helper names and YAML fixture style.)
+In `packages/tui/src/editor/records.test.ts` (agent-option parsing is tested there, around line 43; `validation.test.ts` only covers `parseYamlMapping`), copy the existing action test that parses `agentOptions:\n  type: codex\n  reasoningEffort: high` into new tests. Cover `account: work` for an action (codex), an inline flow action (claude), and a schedule. Each must expect `agentOptions` to include `account: "work"`, and expect `account: 5` to throw a message containing `agentOptions.account`. Reuse the file's exact parse helpers and YAML string style.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `bun test packages/backend/tests/services/claude-options.test.ts && bun test packages/ui/src/lib/normalize-agent-options.test.ts && bun test packages/tui/src/editor/validation.test.ts`
+Run: `bun test packages/backend/tests/services/claude-options.test.ts && bun test packages/ui/src/lib/normalize-agent-options.test.ts && bun test packages/tui/src/editor/records.test.ts`
 Expected: FAIL. The account is dropped, and the TUI rejects the unknown key `account`.
 
 - [ ] **Step 3: Implement**
@@ -857,13 +857,13 @@ Replace both `normalizeAgentOptions(` calls inside `initialSnapshot`/`currentSna
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `bun test packages/backend/tests/services/claude-options.test.ts && bun test packages/ui/src/lib/normalize-agent-options.test.ts && bun test packages/tui/src/editor/validation.test.ts && bun test packages/ui/src/components/flows/FlowEditor.library.test.tsx`
+Run: `bun test packages/backend/tests/services/claude-options.test.ts && bun test packages/ui/src/lib/normalize-agent-options.test.ts && bun test packages/tui/src/editor/records.test.ts && bun test packages/ui/src/components/flows/FlowEditor.library.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/backend/src/services/claude-options.ts packages/backend/tests/services/claude-options.test.ts packages/ui/src/lib/normalize-agent-options.ts packages/ui/src/lib/normalize-agent-options.test.ts packages/ui/src/components/flows/ActionEditor.tsx packages/tui/src/editor/validation.ts packages/tui/src/editor/validation.test.ts
+git add packages/backend/src/services/claude-options.ts packages/backend/tests/services/claude-options.test.ts packages/ui/src/lib/normalize-agent-options.ts packages/ui/src/lib/normalize-agent-options.test.ts packages/ui/src/components/flows/ActionEditor.tsx packages/tui/src/editor/validation.ts packages/tui/src/editor/records.test.ts
 git commit -m "feat: preserve agent account through launch option normalizers"
 ```
 
@@ -1190,7 +1190,7 @@ git commit -m "feat(backend): launch and resume agents under their account home 
 - Modify: `packages/backend/src/handlers/project.ts:70-110`
 - Modify: `packages/backend/src/api/routes/project-routes.ts:142-175`
 - Modify: `packages/backend/tests/handlers/project.test.ts`
-- Modify: `packages/backend/tests/api/routes.test.ts` (add the REST case next to any existing `/api/projects` tests, reusing that file's request helper)
+- Modify: `packages/backend/tests/api/routes.test.ts`. Add a new `describe("project update routes", ...)` block that copies the real-`TaskStore` setup of `describe("project reorder routes")` (~line 480). The first describe in that file registers routes with `taskStore: {} as never`, so a PATCH test placed there can never pass.
 
 **Interfaces:**
 - Consumes: `mergeProjectAgentAccounts` (Task 2), `ProjectAgentAccountsPatch` (Task 1).
@@ -1223,7 +1223,7 @@ git commit -m "feat(backend): launch and resume agents under their account home 
 
 (Check the existing tests for the exact add-project message and its payload shape; use the same one.)
 
-For REST, add a case to the routes test that PATCHes `{ agentAccounts: { codex: "x-work" } }` and expects `agentAccounts` in the response body, plus `{ agentAccounts: "bad" }` → 400. Follow the file's existing request helper.
+For REST, in the new `project update routes` describe, add a case that PATCHes `{ agentAccounts: { codex: "x-work" } }` and expects `agentAccounts` in the response body, plus `{ agentAccounts: "bad" }` → 400. Follow the file's existing request helper.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1938,7 +1938,7 @@ Mirror an existing UI component test's setup. Cases:
 - **Delete default:** the delete button for the account equal to `defaultAccount` is disabled and has the title "Choose another default account first".
 - **Error display:** when `onUpdate` rejects with `new Error("bad path")`, the text `bad path` is rendered.
 
-Note on Add: an empty `homeDir` fails backend validation (not absolute). To avoid that, the Add button must not call `onUpdate` right away. It adds a local draft row, and the row is saved on blur once both name and home dir are filled. Write the test as: click Add → type name "work" → type home dir "/h" → blur → `onUpdate` is called with `[{ id: "new-id", name: "work", homeDir: "/h" }]`.
+Note on Add: an empty `homeDir` fails backend validation (not absolute). To avoid that, the Add button must not call `onUpdate` right away. It adds a local draft row, and the row is saved on blur once both name and home dir are filled. Write the test as: click Add → type name "work" → type home dir "/h" → blur → `onUpdate` is called with `[{ id: "new-id", name: "work", homeDir: "/h" }]`. Add a second case: click Add twice, complete only the second row, blur. `onUpdate` must receive only the completed row.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1950,7 +1950,8 @@ Expected: FAIL (module not found).
 Behavior (follow `LinkedProjectsSection.tsx` for the debounce and ref style and `SettingRow` for layout):
 - Local state: `drafts: AgentAccount[]` is initialized from `accounts` and re-synced whenever the `accounts` prop changes. `pendingDelete: AgentAccount | null`. `error: string | null`.
 - `commit(next: AgentAccount[])`: `setError(null); onUpdate({ accounts: next }).catch((e) => setError(e instanceof Error ? e.message : String(e)))`.
-- Each row: a name `Input`, a home-dir `Input` (placeholder `/Users/you/.claude-work`, or `/Users/you/.codex-work` for Codex), a "Browse" `Button` shown only when `typeof window.taskflow?.selectProjectDirectory === "function"` (it fills the home dir from the picker result and commits), and a delete `Button` (lucide `Trash2`, ghost). On blur of either input: if the row's name and homeDir are non-empty after trim and the row differs from the saved account, call `commit(drafts)` with trimmed values. Drafts with an empty field are not sent.
+- `commit` only ever sends complete rows: `drafts.filter((a) => a.name.trim() && a.homeDir.trim()).map((a) => ({ ...a, name: a.name.trim(), homeDir: a.homeDir.trim() }))`. Incomplete drafts stay local, both on blur and on delete.
+- Each row: a name `Input`, a home-dir `Input` (placeholder `/Users/you/.claude-work`, or `/Users/you/.codex-work` for Codex), a "Browse" `Button` shown only when `typeof window.taskflow?.selectProjectDirectory === "function"` (it fills the home dir from the picker result and commits), and a delete `Button` (lucide `Trash2`, ghost). On blur of either input: if the row's name and homeDir are non-empty after trim and the row differs from the saved account, call `commit(drafts)`. Commit filters out incomplete rows as described above.
 - The delete button is disabled when `account.id === defaultAccount`, with `title="Choose another default account first"`. Otherwise it opens `ConfirmDeleteDialog` with title `Delete account "<name>"?` and description `Projects, actions and schedules that use this account will fail to launch until you pick another one.`. On confirm: `commit(drafts.filter(a => a.id !== id))`.
 - The "Add account" button appends `{ id: crypto.randomUUID(), name: \`account ${drafts.length + 1}\`, homeDir: "" }` to the drafts only.
 - Above the list, `AgentAccountSelect` with label "Default Account", hint `Account new ${Claude|Codex} sessions use unless a project or launch picks another`, `accounts={accounts}` (saved accounts only), `value={defaultAccount}`, and `onChange={(v) => onUpdate({ defaultAccount: v }).catch(...)}`.
