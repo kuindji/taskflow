@@ -79,7 +79,9 @@ interface Project { /* existing */ agentAccounts?: Partial<Record<AccountAgentTy
 interface SessionRef { /* existing */ agentHomeDir?: string }
 ```
 
-`account` on launch options is an account id. Undefined means "inherit".
+`account` on launch options holds an account id, a unique account name, or
+`"default"`. Undefined means "inherit". Stored `"default"` is an explicit choice
+of the built-in account and overrides the project and global levels.
 Settings defaults: `accounts: []`, `defaultAccount: "default"`. The settings
 store's load path fills these in for existing settings files.
 
@@ -100,7 +102,14 @@ resolveAgentAccount(
 ```
 
 Precedence: `options.account` → `project.agentAccounts[type]` →
-`settings[type].defaultAccount` → `"default"`.
+`settings[type].defaultAccount` → `"default"`. The first level that is set wins.
+
+A value is looked up by id first, then by exact unique name. Names are allowed
+so that CLI flags, REST payloads, and TUI YAML can use them, and so that no
+saved definition (flow action, inline flow action, schedule, project) needs
+converting when it is stored. If an account is renamed, anything saved with
+the old name fails loudly at launch, the same as an unknown id. The UI always
+stores ids.
 
 - `"default"` returns `override: null`.
 - An id not found in `settings[type].accounts` throws an error naming the
@@ -128,21 +137,13 @@ The **remote agent** (`remote-agent-service.ts`) launches a master session
 with no project and no `account` option, so it always uses the global Claude
 default account. Master-workspace sessions resolve the same way.
 
-### Account names at the API boundary
-
-Stored data holds ids only. The backend session-create entry points (REST
-`/api/sessions`, WS `SESSION_CREATE`) and project-update entry points accept a
-unique account name or an id and turn it into an id before storing or
-launching. An unmatched value fails with the "unknown account" error. The CLI
-passes the user's value through unchanged, so neither CLI implementation needs
-to read settings.
-
 ### Resume
 
-`createSession` receives `resumeSession`. When it is set, `resolveAgentAccount`
-is not called. The env override is `session.agentHomeDir` (set only if it
-differs from the backend's inherited/native home, so a default session never
-gains an explicit variable). A deleted or re-pointed account, or a changed
+Every new Claude/Codex session saves its effective home as `agentHomeDir`,
+including sessions on the default account. When `createSession` receives
+`resumeSession`, `resolveAgentAccount` is not called. The env variable is set
+to the saved `agentHomeDir` only when it differs from the backend's current
+effective home for the default account (`process.env.<VAR> ?? native home`). A deleted or re-pointed account, or a changed
 project/global default, therefore has no effect on resume. Sessions saved before this feature have no
 `agentHomeDir` and resume on the default home, which matches today's behavior.
 
@@ -153,7 +154,7 @@ project/global default, therefore has no effect on resume. Sessions saved before
 | `native-session-discovery.ts` (Codex) | `capture`/`discover` take the effective home and read `<home>/sessions`. The launch lock is keyed per effective home dir instead of per agent type. |
 | `handlers/agent-commands.ts` (Claude slash commands) | User commands come from `<effective home>/commands` of the account the project resolves to, with no launch options. The payload gains an optional `projectId`; without it, the global default is used. |
 | `runtime-detector.ts` `fetchCodexModels` | Unchanged; always uses the inherited/native home. |
-| `git-pr.ts` `generateCommitMessage` (`claude -p`) | Uses the project's Claude account (the caller knows the project), falling back to the global default. |
+| `git-pr.ts` `generateCommitMessage` (`claude -p`) | The request carries only a repo path today. The `GIT_GENERATE_COMMIT_MSG` handler maps that path to its owning project (task worktree → task's project, or project path), using the ownership lookup behind `assertWorkspaceRepo`, and passes the `projectId` into `generateCommitMessage`. No project found → global default. |
 | `title-generator.ts` (`claude -p --model haiku`) | Same rule: project account if the task's project is known, else global default. |
 | `index.ts` `generateScheduleName` (`claude -p --model haiku`) | Global default Claude account. |
 
@@ -169,12 +170,14 @@ keeps its existing failure handling (e.g. the fallback title).
   home dir with a folder picker, delete) and a Default account dropdown with
   "Default (inherited environment)" first. The delete confirmation warns that projects,
   actions, and schedules referencing the account will fail to launch until
-  changed.
+  changed. The account that is currently the global default can't be deleted;
+  pick another default first.
 - **Project (TaskInfoPanel, next to LinkedProjectsSection):** an "Agent
   accounts" section with a dropdown per agent ("Use global default" + accounts).
   It only renders for an agent that has at least one account.
-- **AgentOptionsPanel:** an Account dropdown for Claude/Codex with "Inherit
-  (project → default)" first. This covers actions, flows, schedules, and the
+- **AgentOptionsPanel:** an Account dropdown for Claude/Codex: "Inherit
+  (project → default)" (stored as absent), then "Default (inherited
+  environment)" (stored as `"default"`), then named accounts. This covers actions, flows, schedules, and the
   launch dialog.
 - **Tabs:** sessions on a non-default account show the account name next to the
   agent name. Default-account sessions look the same as today.
@@ -195,22 +198,32 @@ Today these copy only listed fields and would silently drop `account`:
   (validate `account` as an optional string)
 - any other serializer found for inline flow actions and schedules
 
-Picking "Inherit" in the dropdown removes the field (`account` undefined). It
-is not stored as a sentinel value.
+Picking "Inherit" removes the field (`account` undefined). Picking "Default"
+stores `"default"`.
 
 ### Project update contracts
 
 `ProjectUpdatePayload` (`shared/src/types/ws.ts`), the WS handler
 (`handlers/project.ts`), and the REST route (`project-routes.ts`) accept
-`agentAccounts`. A per-agent value of `null` clears that agent's override.
+`agentAccounts`. A per-agent value of `null` clears that agent's override; `"default"` pins the
+project to the built-in account.
+
+### Settings validation (settings store)
+
+- Account ids are unique, generated by the backend, and never `"default"`.
+- Names are non-empty, unique per agent type, and not `"default"`.
+- `homeDir` must be an absolute path.
+- `defaultAccount` must be `"default"` or an existing id. An update that deletes
+  the account currently used as `defaultAccount` is rejected.
+- Deleting any other account is allowed; references from projects, actions,
+  and schedules stay as they are and fail at launch.
 
 ## CLI
 
 Both implementations (POSIX `taskflow-cli.sh` and the TS bin) and the docs:
 
 - `taskflow-cli agent run ... --account "<name or id>"` sets
-  `agentOptions.account` verbatim. The backend turns names into ids (see
-  "Account names at the API boundary").
+  `agentOptions.account` verbatim; `default` selects the built-in account.
 - `taskflow-cli project update <projectId> --claude-account "<name|id|default>"`
   and `--codex-account ...`. `default` clears the project override.
 
@@ -231,8 +244,12 @@ Account list management stays in desktop settings.
   account, discovery reads the inherited dir and no override is added.
 - Option normalizers (UI shared, TUI validation) keep `account`; "Inherit"
   removes it.
-- API boundary: names become ids; unknown names fail; project update with `null`
-  clears an override.
+- Name lookup: id wins over name; a unique name resolves; an unknown or renamed
+  name fails; explicit `"default"` in options overrides a project account;
+  project update with `null` clears an override.
+- Settings validation: duplicate names and relative paths are rejected; deleting
+  the current default account is rejected.
+- Commit message: the repo path maps to the project and its account is used.
 - Headless helpers: `headlessClaudeEnv` sets the override for the project account
   and throws on an unknown account.
 - Codex discovery reads `<CODEX_HOME>/sessions`; two concurrent launches on
