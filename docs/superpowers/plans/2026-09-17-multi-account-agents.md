@@ -1949,10 +1949,25 @@ Expected: FAIL (module not found).
 
 Behavior (follow `LinkedProjectsSection.tsx` for the debounce and ref style and `SettingRow` for layout):
 - Local state: `drafts: AgentAccount[]` is initialized from `accounts` and re-synced whenever the `accounts` prop changes. `pendingDelete: AgentAccount | null`. `error: string | null`.
-- `commit(next: AgentAccount[])`: `setError(null); onUpdate({ accounts: next }).catch((e) => setError(e instanceof Error ? e.message : String(e)))`.
-- `commit` only ever sends complete rows: `drafts.filter((a) => a.name.trim() && a.homeDir.trim()).map((a) => ({ ...a, name: a.name.trim(), homeDir: a.homeDir.trim() }))`. Incomplete drafts stay local, both on blur and on delete.
+- `commit(next: AgentAccount[])` works only on its `next` argument, never on `drafts` state (state may be stale in the same tick). Handlers (blur, browse, delete) build `next`, call `setDrafts(next)` if local state changes, and pass that same array to `commit`:
+
+```ts
+const commit = useCallback(
+    (next: AgentAccount[]) => {
+        const complete = next
+            .filter((row) => row.name.trim() && row.homeDir.trim())
+            .map((row) => ({ ...row, name: row.name.trim(), homeDir: row.homeDir.trim() }));
+        setError(null);
+        onUpdate({ accounts: complete }).catch((e: unknown) =>
+            setError(e instanceof Error ? e.message : String(e)),
+        );
+    },
+    [onUpdate],
+);
+```
+- Incomplete drafts stay local: `commit` drops them from what it sends, both on blur and on delete.
 - Each row: a name `Input`, a home-dir `Input` (placeholder `/Users/you/.claude-work`, or `/Users/you/.codex-work` for Codex), a "Browse" `Button` shown only when `typeof window.taskflow?.selectProjectDirectory === "function"` (it fills the home dir from the picker result and commits), and a delete `Button` (lucide `Trash2`, ghost). On blur of either input: if the row's name and homeDir are non-empty after trim and the row differs from the saved account, call `commit(drafts)`. Commit filters out incomplete rows as described above.
-- The delete button is disabled when `account.id === defaultAccount`, with `title="Choose another default account first"`. Otherwise it opens `ConfirmDeleteDialog` with title `Delete account "<name>"?` and description `Projects, actions and schedules that use this account will fail to launch until you pick another one.`. On confirm: `commit(drafts.filter(a => a.id !== id))`.
+- The delete button is disabled when `account.id === defaultAccount`, with `title="Choose another default account first"`. Otherwise it opens `ConfirmDeleteDialog` with title `Delete account "<name>"?` and description `Projects, actions and schedules that use this account will fail to launch until you pick another one.`. On confirm: `const next = drafts.filter((a) => a.id !== id); setDrafts(next); commit(next);`.
 - The "Add account" button appends `{ id: crypto.randomUUID(), name: \`account ${drafts.length + 1}\`, homeDir: "" }` to the drafts only.
 - Above the list, `AgentAccountSelect` with label "Default Account", hint `Account new ${Claude|Codex} sessions use unless a project or launch picks another`, `accounts={accounts}` (saved accounts only), `value={defaultAccount}`, and `onChange={(v) => onUpdate({ defaultAccount: v }).catch(...)}`.
 - Error text: `<p className="text-destructive text-xs">{error}</p>`.
