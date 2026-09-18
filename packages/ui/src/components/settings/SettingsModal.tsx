@@ -13,6 +13,7 @@ import {
     ALL_AGENT_TYPES,
     isAgentType,
     isVersionAtLeast,
+    type AgentAccount,
     type AgentType,
     type ShellInfo,
     type ShellListResponse,
@@ -41,6 +42,7 @@ import { useRemoteAgentStatus } from "@/hooks/useRemoteAgentStatus";
 import { GeneralSection } from "./sections/GeneralSection";
 import { DefaultsSection } from "./sections/DefaultsSection";
 import { CodexSection } from "./sections/CodexSection";
+import { AgentAccountsSection } from "./sections/AgentAccountsSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
 import { PiSection } from "./sections/PiSection";
 import { KimiSection } from "./sections/KimiSection";
@@ -348,6 +350,18 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleClaudeAccounts = useCallback(
+        (patch: { accounts?: AgentAccount[]; defaultAccount?: string }) =>
+            updateSettings({ claude: patch }),
+        [updateSettings],
+    );
+
+    const handleCodexAccounts = useCallback(
+        (patch: { accounts?: AgentAccount[]; defaultAccount?: string }) =>
+            updateSettings({ codex: patch }),
+        [updateSettings],
+    );
+
     const handleCodexDangerouslyBypass = useCallback(
         (dangerouslyBypassApprovalsAndSandbox: boolean) => {
             void updateSettings({ codex: { dangerouslyBypassApprovalsAndSandbox } });
@@ -532,6 +546,12 @@ function SettingsModal() {
                                     onEffortChange={handleClaudeEffort}
                                     onPermissionModeChange={handleClaudePermissionMode}
                                 />
+                                <AgentAccountsSection
+                                    agent="claude"
+                                    accounts={settings.claude.accounts}
+                                    defaultAccount={settings.claude.defaultAccount}
+                                    onUpdate={handleClaudeAccounts}
+                                />
                             </div>
                         )}
 
@@ -552,6 +572,12 @@ function SettingsModal() {
                                     onDangerouslyBypassApprovalsAndSandboxChange={
                                         handleCodexDangerouslyBypass
                                     }
+                                />
+                                <AgentAccountsSection
+                                    agent="codex"
+                                    accounts={settings.codex.accounts}
+                                    defaultAccount={settings.codex.defaultAccount}
+                                    onUpdate={handleCodexAccounts}
                                 />
                             </div>
                         )}

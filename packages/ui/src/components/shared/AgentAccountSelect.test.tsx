@@ -68,3 +68,12 @@ test("shows the default label when value is default and no inheritLabel is given
     mount({ accounts, value: "default" });
     expect(triggerText()).toBe("Default (inherited environment)");
 });
+
+test("shows the account name when the stored value is a name rather than an id", () => {
+    // The CLI and project YAML may store an account *name*; the component maps
+    // it to that account's id so the trigger renders the account, not an
+    // "Unknown account" fallback.
+    mount({ accounts, value: "work", inheritLabel: "Inherit (project → default)" });
+    expect(triggerText()).toBe("work");
+    expect(container.textContent ?? "").not.toContain("Unknown account");
+});
