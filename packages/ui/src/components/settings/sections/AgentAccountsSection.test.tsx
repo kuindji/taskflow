@@ -11,6 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // make the committed objects assertable. `defineProperty` shadows the real
 // method on the happy-dom `crypto` instance for the whole file.
 let nextIds: string[] = [];
+const realRandomUUID = Object.getOwnPropertyDescriptor(globalThis.crypto, "randomUUID");
 Object.defineProperty(globalThis.crypto, "randomUUID", {
     configurable: true,
     value: () => nextIds.shift() ?? "unstubbed-id",
@@ -29,12 +30,9 @@ function onUpdate(patch: Patch): Promise<void> {
 let container: HTMLDivElement;
 let root: Root | null = null;
 
-function mount(accounts: AgentAccount[], defaultAccount = "default") {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
+function render(target: Root, accounts: AgentAccount[], defaultAccount: string) {
     act(() => {
-        root?.render(
+        target.render(
             <AgentAccountsSection
                 agent="claude"
                 accounts={accounts}
@@ -43,6 +41,24 @@ function mount(accounts: AgentAccount[], defaultAccount = "default") {
             />,
         );
     });
+}
+
+function mount(accounts: AgentAccount[], defaultAccount = "default") {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    render(root, accounts, defaultAccount);
+}
+
+/**
+ * Re-renders with a new `accounts` array instance, which is what the app does
+ * after every successful save: the backend replies with the whole settings
+ * object and the store publishes a fresh one, so this section's `accounts`
+ * prop is a new array even when a sibling section did the saving.
+ */
+function rerender(accounts: AgentAccount[], defaultAccount = "default") {
+    if (!root) throw new Error("not mounted");
+    render(root, accounts, defaultAccount);
 }
 
 function unmount() {
@@ -111,6 +127,15 @@ beforeEach(() => {
 
 afterAll(() => {
     unmount();
+    // A whole `bun test` run shares one process, so put the real generator
+    // back rather than handing "unstubbed-id" to other modules.
+    if (realRandomUUID) {
+        Object.defineProperty(globalThis.crypto, "randomUUID", realRandomUUID);
+    } else {
+        // It was inherited from Crypto.prototype; dropping the own property
+        // exposes the prototype method again.
+        Reflect.deleteProperty(globalThis.crypto, "randomUUID");
+    }
 });
 
 const a1: AgentAccount = { id: "a1", name: "personal", homeDir: "/home/personal" };
@@ -144,8 +169,15 @@ test("an incomplete draft is left out of what is sent", () => {
     blur("claude-account-name-new-id-2");
 
     expect(patches).toEqual([{ accounts: [{ id: "new-id-2", name: "work", homeDir: "/h" }] }]);
-    // The incomplete row stays on screen so it can still be filled in.
+
+    // The save round-trips: the store publishes fresh settings, so this
+    // section is re-rendered with the saved accounts only.
+    rerender([{ id: "new-id-2", name: "work", homeDir: "/h" }]);
+
+    // The incomplete row stays on screen so it can still be filled in, and the
+    // saved row is still there once.
     expect(input("claude-account-name-new-id").value).toBe("account 1");
+    expect(input("claude-account-name-new-id-2").value).toBe("work");
 });
 
 test("deleting a non-default account commits the remaining accounts once confirmed", () => {

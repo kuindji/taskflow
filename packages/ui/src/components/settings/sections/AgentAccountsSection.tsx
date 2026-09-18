@@ -31,9 +31,19 @@ function AgentAccountsSection({
     const [error, setError] = useState<string | null>(null);
 
     // Saved accounts win: a completed row round-trips through the backend and
-    // comes back as a new `accounts` array.
+    // comes back as a new `accounts` array. Rows that are not saved yet and
+    // are still incomplete are kept, because every save (including one from
+    // another settings section) republishes the whole settings object and so
+    // hands this section a fresh `accounts` array -- replacing drafts outright
+    // would wipe a half-filled row the user is still typing into.
     useEffect(() => {
-        setDrafts(accounts);
+        setDrafts((prev) => {
+            const savedIds = new Set(accounts.map((account) => account.id));
+            const pending = prev.filter(
+                (row) => !savedIds.has(row.id) && !(row.name.trim() && row.homeDir.trim()),
+            );
+            return [...accounts, ...pending];
+        });
     }, [accounts]);
 
     // Handlers run from events (blur, click, picker resolution) after the
