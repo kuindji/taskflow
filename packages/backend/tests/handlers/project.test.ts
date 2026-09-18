@@ -133,4 +133,42 @@ describe("project handlers", () => {
             }),
         ).rejects.toThrow();
     });
+
+    it("keeps both overrides when two agentAccounts patches overlap", async () => {
+        const dir = await createProjectDir("concurrent-accounts");
+        const project = (await router.handle(MSG.PROJECT_ADD, { path: dir })) as { id: string };
+
+        // The UI fires one `void updateProject(...)` per dropdown, so the second
+        // patch starts before the first has written.
+        const first = router.handle(MSG.PROJECT_UPDATE, {
+            id: project.id,
+            agentAccounts: { claude: "c-work" },
+        });
+        const second = router.handle(MSG.PROJECT_UPDATE, {
+            id: project.id,
+            agentAccounts: { codex: "x-work" },
+        });
+        await Promise.all([first, second]);
+
+        const stored = await store.getProject(project.id);
+        expect(stored?.agentAccounts).toEqual({ claude: "c-work", codex: "x-work" });
+    });
+
+    it("keeps accepting updates after an invalid agentAccounts patch", async () => {
+        const dir = await createProjectDir("rejected-accounts");
+        const project = (await router.handle(MSG.PROJECT_ADD, { path: dir })) as { id: string };
+
+        // The merge now runs inside the projects mutation lock, so a rejected
+        // patch must not leave the lock held or the mutation queue poisoned.
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
+        await expect(
+            router.handle(MSG.PROJECT_UPDATE, { id: project.id, agentAccounts: { pi: "x" } }),
+        ).rejects.toThrow();
+
+        const updated = (await router.handle(MSG.PROJECT_UPDATE, {
+            id: project.id,
+            agentAccounts: { claude: "c-work" },
+        })) as { agentAccounts?: Record<string, string> };
+        expect(updated.agentAccounts).toEqual({ claude: "c-work" });
+    });
 });

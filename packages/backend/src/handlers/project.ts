@@ -122,12 +122,20 @@ export function registerProjectHandlers(
         if (hasLinkedProjects) {
             updates.linkedProjects = linkedProjects;
         }
-        if (hasAgentAccounts) {
-            const current = await store.getProject(id);
-            if (!current) throw new Error(`Project not found: ${id}`);
-            updates.agentAccounts = mergeProjectAgentAccounts(current.agentAccounts, agentAccounts);
-        }
-        const updated = await store.updateProject(id, updates);
+        // Merging inside the updater keeps read-merge-write under the store's
+        // projects lock, so two overlapping patches (the panel fires one per
+        // dropdown) can't clobber each other's override.
+        const updated = await store.updateProject(id, (project) =>
+            hasAgentAccounts
+                ? {
+                      ...updates,
+                      agentAccounts: mergeProjectAgentAccounts(
+                          project.agentAccounts,
+                          agentAccounts,
+                      ),
+                  }
+                : updates,
+        );
         if (path) {
             changeTracker?.untrack(id);
             changeTracker?.track(id, path);

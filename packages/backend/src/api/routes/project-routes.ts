@@ -8,7 +8,10 @@ import { MSG } from "@taskflow/shared";
 import { filterProjectSessions } from "../../services/instance-filter";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
-import { mergeProjectAgentAccounts } from "../../services/agent-accounts";
+import {
+    InvalidAgentAccountsError,
+    mergeProjectAgentAccounts,
+} from "../../services/agent-accounts";
 
 interface ProjectRouteDeps {
     apiRouter: ApiRouter;
@@ -174,28 +177,27 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
                 ? body.linkedProjects
                 : undefined;
         }
-        if (Object.prototype.hasOwnProperty.call(body, "agentAccounts")) {
-            const current = await taskStore.getProject(params.id);
-            if (!current) return errorResponse(`Project not found: ${params.id}`, 404);
-            try {
-                updates.agentAccounts = mergeProjectAgentAccounts(
-                    current.agentAccounts,
-                    body.agentAccounts,
-                );
-            } catch (err) {
-                return errorResponse(
-                    err instanceof Error ? err.message : "Invalid agentAccounts",
-                    400,
-                );
-            }
-        }
+        const hasAgentAccounts = Object.prototype.hasOwnProperty.call(body, "agentAccounts");
 
-        if (Object.keys(updates).length === 0) {
+        if (Object.keys(updates).length === 0 && !hasAgentAccounts) {
             return errorResponse("At least one updatable field must be provided", 400);
         }
 
         try {
-            const updated = await taskStore.updateProject(params.id, updates);
+            // Merging inside the updater keeps read-merge-write under the store's
+            // projects lock, so two overlapping patches (the panel fires one per
+            // dropdown) can't clobber each other's override.
+            const updated = await taskStore.updateProject(params.id, (project) =>
+                hasAgentAccounts
+                    ? {
+                          ...updates,
+                          agentAccounts: mergeProjectAgentAccounts(
+                              project.agentAccounts,
+                              body.agentAccounts,
+                          ),
+                      }
+                    : updates,
+            );
             if (updates.path) {
                 changeTracker?.untrack(params.id);
                 changeTracker?.track(params.id, updates.path);
@@ -206,6 +208,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             });
             return jsonResponse(filterProjectSessions(updated, config.instanceId));
         } catch (err) {
+            if (err instanceof InvalidAgentAccountsError) return errorResponse(err.message, 400);
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) return errorResponse(message, 404);
             console.error("[api] PATCH /api/projects/:id failed:", err);

@@ -105,30 +105,39 @@ function headlessClaudeEnv(
     return { ...cleanEnv, PATH: buildShellPath(), ...accountEnv("claude", override) };
 }
 
+/**
+ * Thrown for a malformed `agentAccounts` patch. The merge runs inside
+ * `TaskStore.updateProject`'s mutation lock, so its callers need to tell a bad
+ * request (400) apart from a failed write (500) after the fact.
+ */
+class InvalidAgentAccountsError extends Error {}
+
 function mergeProjectAgentAccounts(
     current: Project["agentAccounts"],
     patch: unknown,
 ): Project["agentAccounts"] {
     if (typeof patch !== "object" || patch === null || Array.isArray(patch)) {
-        throw new Error("agentAccounts must be an object");
+        throw new InvalidAgentAccountsError("agentAccounts must be an object");
     }
     const merged: Partial<Record<AccountAgentType, string | null>> = { ...current };
     for (const [key, value] of Object.entries(patch)) {
         if (!isAccountAgentType(key)) {
-            throw new Error(`agentAccounts does not support agent "${key}"`);
+            throw new InvalidAgentAccountsError(`agentAccounts does not support agent "${key}"`);
         }
         if (value === null) {
             merged[key] = null;
         } else if (typeof value === "string" && value.trim()) {
             const trimmed = value.trim();
             if (trimmed.toLowerCase() === INHERIT_AGENT_ACCOUNT) {
-                throw new Error(
+                throw new InvalidAgentAccountsError(
                     `agentAccounts.${key} must not be "inherit"; send null to clear the override`,
                 );
             }
             merged[key] = trimmed;
         } else {
-            throw new Error(`agentAccounts.${key} must be a non-empty string or null`);
+            throw new InvalidAgentAccountsError(
+                `agentAccounts.${key} must be a non-empty string or null`,
+            );
         }
     }
     const next: NonNullable<Project["agentAccounts"]> = {};
@@ -140,6 +149,7 @@ function mergeProjectAgentAccounts(
 }
 
 export {
+    InvalidAgentAccountsError,
     accountEnv,
     headlessClaudeEnv,
     inheritedAgentHome,

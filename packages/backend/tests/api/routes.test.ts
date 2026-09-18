@@ -646,4 +646,27 @@ describe("project update routes", () => {
         );
         expect(res?.status).toBe(400);
     });
+
+    it("PATCH /api/projects/:id keeps both overrides when two patches overlap", async () => {
+        const patch = (agentAccounts: Record<string, string>) =>
+            apiRouter.handle(
+                new Request(`http://localhost/api/projects/${projectId}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ agentAccounts }),
+                    headers: { "Content-Type": "application/json" },
+                }),
+            );
+        const first = patch({ claude: "c-work" });
+        const second = patch({ codex: "x-work" });
+        const [resA, resB] = await Promise.all([first, second]);
+        expect(resA?.status).toBe(200);
+        expect(resB?.status).toBe(200);
+
+        const res = await apiRouter.handle(new Request("http://localhost/api/projects"));
+        const body = (await res?.json()) as {
+            projects: Array<{ id: string; agentAccounts?: Record<string, string> }>;
+        };
+        const stored = body.projects.find((p) => p.id === projectId);
+        expect(stored?.agentAccounts).toEqual({ claude: "c-work", codex: "x-work" });
+    });
 });
