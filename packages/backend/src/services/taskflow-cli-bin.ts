@@ -5,6 +5,8 @@ import { decideAttrScope, type AttrScope } from "./attr-scope";
 import { splitAttrArgs } from "./attr-args";
 import { consumeFlags } from "./cli-flags";
 import { computeMovedOrder } from "./project-move";
+import { ACCOUNT_AGENT_TYPES, INHERIT_AGENT_ACCOUNT } from "@taskflow/shared";
+import type { ProjectAgentAccountsPatch } from "@taskflow/shared";
 
 const API_URL = process.env.TASKFLOW_API_URL;
 if (!API_URL) {
@@ -921,11 +923,11 @@ async function handleProject(args: string[]): Promise<void> {
             if (flags.path !== undefined) body.path = flags.path;
             if (flags.hidden) body.hidden = true;
             if (flags.visible) body.hidden = false;
-            const agentAccounts: Record<string, string | null> = {};
-            for (const agent of ["claude", "codex"] as const) {
+            const agentAccounts: ProjectAgentAccountsPatch = {};
+            for (const agent of ACCOUNT_AGENT_TYPES) {
                 const value = flags[`${agent}-account`];
                 if (typeof value === "string" && value) {
-                    agentAccounts[agent] = value === "inherit" ? null : value;
+                    agentAccounts[agent] = value === INHERIT_AGENT_ACCOUNT ? null : value;
                 }
             }
             if (Object.keys(agentAccounts).length > 0) body.agentAccounts = agentAccounts;
