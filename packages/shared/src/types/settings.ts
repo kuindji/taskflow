@@ -1,5 +1,6 @@
 import type {
     AgentType,
+    AgentAccount,
     ClaudePermissionMode,
     ClaudeEffortLevel,
     CodexSandboxMode,
@@ -22,6 +23,9 @@ export interface ClaudeSettings {
     defaultModel: string;
     defaultEffort: ClaudeEffortLevel | "default";
     permissionMode: ClaudePermissionMode | "default";
+    accounts: AgentAccount[];
+    /** Account id or "default". */
+    defaultAccount: string;
 }
 
 export interface CodexSettings {
@@ -30,6 +34,9 @@ export interface CodexSettings {
     sandbox: CodexSandboxMode;
     approvalPolicy: CodexApprovalPolicy;
     dangerouslyBypassApprovalsAndSandbox: boolean;
+    accounts: AgentAccount[];
+    /** Account id or "default". */
+    defaultAccount: string;
 }
 
 export interface OpenCodeSettings {

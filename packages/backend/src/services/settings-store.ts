@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "fs/promises";
+import { isAbsolute } from "path";
 import {
     ALL_AGENT_TYPES,
     CLAUDE_EFFORT_LEVELS,
@@ -6,6 +7,7 @@ import {
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
     CODEX_SANDBOX_MODES,
+    DEFAULT_AGENT_ACCOUNT_ID,
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_MARKDOWN_WIDTH,
@@ -16,9 +18,11 @@ import {
     DEFAULT_TERMINAL_FONT_SIZE,
     DEFAULT_TERMINAL_SHELL,
     DEFAULT_THEME_ID,
+    INHERIT_AGENT_ACCOUNT,
     isAgentType,
 } from "@taskflow/shared";
 import type {
+    AgentAccount,
     AppSettings,
     ClaudeSettings,
     CodexSettings,
@@ -69,6 +73,8 @@ const DEFAULTS: AppSettings = {
         defaultModel: "default",
         defaultEffort: "default",
         permissionMode: "default",
+        accounts: [],
+        defaultAccount: "default",
     },
     codex: {
         defaultModel: "",
@@ -76,6 +82,8 @@ const DEFAULTS: AppSettings = {
         sandbox: "workspace-write",
         approvalPolicy: "on-request",
         dangerouslyBypassApprovalsAndSandbox: false,
+        accounts: [],
+        defaultAccount: "default",
     },
     opencode: {
         defaultModel: "",
@@ -114,8 +122,8 @@ function createDefaultSettings(): AppSettings {
             window: { ...DEFAULTS.layout.window },
             panels: { ...DEFAULTS.layout.panels },
         },
-        claude: { ...DEFAULTS.claude },
-        codex: { ...DEFAULTS.codex },
+        claude: { ...DEFAULTS.claude, accounts: [] },
+        codex: { ...DEFAULTS.codex, accounts: [] },
         opencode: { ...DEFAULTS.opencode },
         pi: { ...DEFAULTS.pi },
         kimi: { ...DEFAULTS.kimi },
@@ -133,6 +141,68 @@ function applyNullable<T extends object>(target: T, patch: { [K in keyof T]?: T[
         } else if (patch[key] !== undefined) {
             target[key] = patch[key] as T[keyof T];
         }
+    }
+}
+
+function isAgentAccount(value: unknown): value is AgentAccount {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return (
+        typeof record.id === "string" &&
+        typeof record.name === "string" &&
+        typeof record.homeDir === "string"
+    );
+}
+
+/** Shape repair only. An unknown defaultAccount is kept so launches fail loudly. */
+function normalizeAccountSettings(settings: ClaudeSettings | CodexSettings): boolean {
+    let changed = false;
+    // Read through `unknown` so this narrows on the actual runtime shape (which may
+    // not match the static AgentAccount[] type for settings loaded from disk),
+    // instead of TypeScript treating the "not every element matches" branch as
+    // unreachable given the declared type.
+    const accounts: unknown = settings.accounts;
+    if (!Array.isArray(accounts)) {
+        settings.accounts = [];
+        changed = true;
+    } else if (!accounts.every(isAgentAccount)) {
+        settings.accounts = accounts.filter(isAgentAccount);
+        changed = true;
+    }
+    if (typeof settings.defaultAccount !== "string" || settings.defaultAccount === "") {
+        settings.defaultAccount = DEFAULT_AGENT_ACCOUNT_ID;
+        changed = true;
+    }
+    return changed;
+}
+
+function assertValidAccountSettings(settings: ClaudeSettings | CodexSettings, agent: string): void {
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    const reserved = [DEFAULT_AGENT_ACCOUNT_ID, INHERIT_AGENT_ACCOUNT];
+    for (const account of settings.accounts) {
+        if (!account.id || account.id === DEFAULT_AGENT_ACCOUNT_ID || ids.has(account.id)) {
+            throw new Error(
+                `${agent} account id "${account.id}" is empty, reserved, or duplicated`,
+            );
+        }
+        ids.add(account.id);
+        const name = account.name.trim();
+        const key = name.toLowerCase();
+        if (!name || reserved.includes(key) || names.has(key)) {
+            throw new Error(
+                `${agent} account name "${account.name}" is empty, reserved, or duplicated`,
+            );
+        }
+        names.add(key);
+        if (!isAbsolute(account.homeDir)) {
+            throw new Error(`${agent} account "${name}" home directory must be an absolute path`);
+        }
+    }
+    if (settings.defaultAccount !== DEFAULT_AGENT_ACCOUNT_ID && !ids.has(settings.defaultAccount)) {
+        throw new Error(
+            `${agent} default account must be the built-in account or an existing account; choose another default account before deleting it`,
+        );
     }
 }
 
@@ -177,6 +247,8 @@ function normalizeCodexSettings(settings: CodexSettings, defaults: CodexSettings
         changed = true;
     }
 
+    changed = normalizeAccountSettings(settings) || changed;
+
     return changed;
 }
 
@@ -213,6 +285,8 @@ function normalizeClaudeSettings(settings: ClaudeSettings, defaults: ClaudeSetti
         delete legacy.dangerouslySkipPermissions;
         changed = true;
     }
+
+    changed = normalizeAccountSettings(settings) || changed;
 
     return changed;
 }
@@ -365,10 +439,12 @@ export class SettingsStore {
         if (partial.claude) {
             applyNullable(current.claude, partial.claude);
             normalizeClaudeSettings(current.claude, DEFAULTS.claude);
+            assertValidAccountSettings(current.claude, "Claude");
         }
         if (partial.codex) {
             applyNullable(current.codex, partial.codex);
             normalizeCodexSettings(current.codex, DEFAULTS.codex);
+            assertValidAccountSettings(current.codex, "Codex");
         }
         if (partial.opencode) {
             applyNullable(current.opencode, partial.opencode);

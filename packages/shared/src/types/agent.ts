@@ -16,6 +16,26 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     kimi: "Kimi",
 };
 
+const ACCOUNT_AGENT_TYPES = ["claude", "codex"] as const;
+
+type AccountAgentType = (typeof ACCOUNT_AGENT_TYPES)[number];
+
+function isAccountAgentType(value: unknown): value is AccountAgentType {
+    return (ACCOUNT_AGENT_TYPES as readonly unknown[]).includes(value);
+}
+
+/** Built-in account: Taskflow sets no home-dir variable for the agent. */
+const DEFAULT_AGENT_ACCOUNT_ID = "default";
+/** UI/CLI value meaning "no override at this level". Never stored. */
+const INHERIT_AGENT_ACCOUNT = "inherit";
+
+interface AgentAccount {
+    id: string;
+    name: string;
+    /** Absolute path on the backend machine; becomes CLAUDE_CONFIG_DIR / CODEX_HOME. */
+    homeDir: string;
+}
+
 const CLAUDE_PERMISSION_MODES = [
     "manual",
     "acceptEdits",
@@ -34,6 +54,8 @@ interface ClaudeLaunchOptions {
     permissionMode?: ClaudePermissionMode;
     model?: string;
     effort?: ClaudeEffortLevel;
+    /** Account id, unique account name, or "default". Undefined inherits. */
+    account?: string;
 }
 
 const CODEX_SANDBOX_MODES = ["read-only", "workspace-write", "danger-full-access"] as const;
@@ -59,6 +81,8 @@ interface CodexLaunchOptions {
     sandbox?: CodexSandboxMode;
     approvalPolicy?: CodexApprovalPolicy;
     dangerouslyBypassApprovalsAndSandbox?: boolean;
+    /** Account id, unique account name, or "default". Undefined inherits. */
+    account?: string;
 }
 
 interface CodexReasoningEffortInfo {
@@ -150,6 +174,10 @@ export {
     ALL_AGENT_TYPES,
     AGENT_DISPLAY_NAMES,
     isAgentType,
+    ACCOUNT_AGENT_TYPES,
+    isAccountAgentType,
+    DEFAULT_AGENT_ACCOUNT_ID,
+    INHERIT_AGENT_ACCOUNT,
     CLAUDE_PERMISSION_MODES,
     CLAUDE_EFFORT_LEVELS,
     CODEX_SANDBOX_MODES,
@@ -160,6 +188,8 @@ export {
 
 export type {
     AgentType,
+    AccountAgentType,
+    AgentAccount,
     ClaudePermissionMode,
     ClaudeEffortLevel,
     ClaudeLaunchOptions,

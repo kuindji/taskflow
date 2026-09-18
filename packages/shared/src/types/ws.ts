@@ -7,6 +7,7 @@ import type { SystemInfo } from "./system";
 import type {
     AgentLaunchOptions,
     AgentAvailability,
+    AccountAgentType,
     CodexModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
@@ -50,6 +51,9 @@ export interface ProjectRemovePayload {
     id: string;
 }
 
+/** `null` clears that agent's project override. */
+export type ProjectAgentAccountsPatch = Partial<Record<AccountAgentType, string | null>>;
+
 export interface ProjectUpdatePayload {
     id: string;
     name?: string;
@@ -58,6 +62,7 @@ export interface ProjectUpdatePayload {
     prompt?: string;
     linkedProjects?: LinkedProject[];
     hidden?: boolean;
+    agentAccounts?: ProjectAgentAccountsPatch;
 }
 
 export interface ProjectForkPayload {

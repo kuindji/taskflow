@@ -35,6 +35,8 @@ const DEFAULT_CLAUDE = {
     defaultModel: "default" as const,
     defaultEffort: "default" as const,
     permissionMode: "default" as const,
+    accounts: [],
+    defaultAccount: "default",
 };
 const DEFAULT_CODEX = {
     defaultModel: "",
@@ -42,6 +44,8 @@ const DEFAULT_CODEX = {
     sandbox: "workspace-write" as const,
     approvalPolicy: "on-request" as const,
     dangerouslyBypassApprovalsAndSandbox: false,
+    accounts: [],
+    defaultAccount: "default",
 };
 const DEFAULT_OPENCODE = {
     defaultModel: "",
@@ -487,6 +491,8 @@ describe("SettingsStore", () => {
             sandbox: "workspace-write",
             approvalPolicy: "on-request",
             dangerouslyBypassApprovalsAndSandbox: false,
+            accounts: [],
+            defaultAccount: "default",
         });
 
         const persisted = JSON.parse(await readFile(settingsFile, "utf-8")) as {
@@ -544,5 +550,102 @@ describe("SettingsStore", () => {
         expect(settings.claude.permissionMode).toBe("manual");
         expect(settings.claude.defaultEffort).toBe("ultracode");
         expect(settings.remoteAgent.permissionMode).toBe("manual");
+    });
+});
+
+describe("agent accounts settings", () => {
+    let dir: string;
+    let store: SettingsStore;
+
+    beforeEach(async () => {
+        dir = await mkdtemp(join(tmpdir(), "taskflow-settings-accounts-"));
+        store = new SettingsStore(join(dir, "settings.json"));
+    });
+
+    afterEach(async () => {
+        await rm(dir, { recursive: true, force: true });
+    });
+
+    it("fills account defaults for files written before accounts existed", async () => {
+        await writeFile(
+            join(dir, "settings.json"),
+            JSON.stringify({ claude: { defaultModel: "opus" }, codex: {} }),
+        );
+        const settings = await store.get();
+        expect(settings.claude.accounts).toEqual([]);
+        expect(settings.claude.defaultAccount).toBe("default");
+        expect(settings.codex.accounts).toEqual([]);
+        expect(settings.codex.defaultAccount).toBe("default");
+    });
+
+    it("does not share the accounts array between default settings objects", async () => {
+        const first = await store.get();
+        first.claude.accounts.push({ id: "x", name: "x", homeDir: "/x" });
+        const second = await store.get();
+        expect(second.claude.accounts).toEqual([]);
+    });
+
+    it("stores valid accounts and a default pointing at one of them", async () => {
+        const settings = await store.update({
+            claude: {
+                accounts: [{ id: "a1", name: "work", homeDir: "/Users/me/.claude-work" }],
+                defaultAccount: "a1",
+            },
+        });
+        expect(settings.claude.accounts).toEqual([
+            { id: "a1", name: "work", homeDir: "/Users/me/.claude-work" },
+        ]);
+        expect(settings.claude.defaultAccount).toBe("a1");
+    });
+
+    it("rejects duplicate names, reserved names, bad ids and relative paths", async () => {
+        const bad = [
+            [
+                { id: "a1", name: "work", homeDir: "/a" },
+                { id: "a2", name: "Work", homeDir: "/b" },
+            ],
+            [{ id: "a1", name: "default", homeDir: "/a" }],
+            [{ id: "a1", name: "Inherit", homeDir: "/a" }],
+            [{ id: "default", name: "work", homeDir: "/a" }],
+            [
+                { id: "a1", name: "one", homeDir: "/a" },
+                { id: "a1", name: "two", homeDir: "/b" },
+            ],
+            [{ id: "a1", name: "work", homeDir: "relative/dir" }],
+            [{ id: "a1", name: "  ", homeDir: "/a" }],
+        ];
+        for (const accounts of bad) {
+            // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
+            await expect(store.update({ codex: { accounts } })).rejects.toThrow();
+        }
+        expect((await store.get()).codex.accounts).toEqual([]);
+    });
+
+    it("rejects deleting the account that is the global default", async () => {
+        await store.update({
+            claude: {
+                accounts: [{ id: "a1", name: "work", homeDir: "/a" }],
+                defaultAccount: "a1",
+            },
+        });
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
+        await expect(store.update({ claude: { accounts: [] } })).rejects.toThrow(
+            /default account/i,
+        );
+        expect((await store.get()).claude.accounts).toHaveLength(1);
+    });
+
+    it("allows switching the default back to the built-in account", async () => {
+        await store.update({
+            claude: {
+                accounts: [{ id: "a1", name: "work", homeDir: "/a" }],
+                defaultAccount: "a1",
+            },
+        });
+        const settings = await store.update({
+            claude: { defaultAccount: "default", accounts: [] },
+        });
+        expect(settings.claude.defaultAccount).toBe("default");
+        expect(settings.claude.accounts).toEqual([]);
     });
 });

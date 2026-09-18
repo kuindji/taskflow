@@ -19,6 +19,8 @@ export interface SessionRef {
     /** Effective working directory and launch options required to resume safely. */
     cwd?: string;
     agentOptions?: AgentLaunchOptions;
+    /** Effective agent home dir the session was launched with; resume reuses it. */
+    agentHomeDir?: string;
     /** Flow ownership retained across backend restarts. */
     flow?: {
         flowId: string;
