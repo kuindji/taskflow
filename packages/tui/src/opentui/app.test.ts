@@ -116,6 +116,8 @@ describe("OpenTuiApp", () => {
                 defaultModel: "default",
                 defaultEffort: "default",
                 permissionMode: "default",
+                accounts: [],
+                defaultAccount: "default",
             },
             codex: {
                 defaultModel: "",
@@ -123,6 +125,8 @@ describe("OpenTuiApp", () => {
                 sandbox: "workspace-write",
                 approvalPolicy: "on-request",
                 dangerouslyBypassApprovalsAndSandbox: false,
+                accounts: [],
+                defaultAccount: "default",
             },
             opencode: { defaultModel: "", autoApprove: false },
             pi: { defaultModel: "", thinking: "off", tools: "" },

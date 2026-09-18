@@ -2,6 +2,7 @@ import {
     AGENT_DISPLAY_NAMES,
     ALL_AGENT_TYPES,
     DEFAULT_TERMINAL_SHELL,
+    isAccountAgentType,
     type AgentListResponse,
     type AgentLaunchOptions,
     type AgentType,
@@ -49,15 +50,28 @@ function buildSessionPickerItems(
     const defaultShell = configuredShellPath(shells, settings.terminal.defaultShell);
 
     return [
-        ...orderedAgents.map(
-            (type): SessionPickerItem => ({
+        ...orderedAgents.flatMap((type): SessionPickerItem[] => {
+            const base: SessionPickerItem = {
                 kind: "agent",
                 type,
                 label: AGENT_DISPLAY_NAMES[type],
                 isDefault: type === defaultAgent,
                 agentOptions: defaultAgentOptions(type, settings),
-            }),
-        ),
+            };
+            if (!isAccountAgentType(type)) return [base];
+            return [
+                base,
+                ...settings[type].accounts.map(
+                    (account): SessionPickerItem => ({
+                        kind: "agent",
+                        type,
+                        label: `${AGENT_DISPLAY_NAMES[type]} · ${account.name}`,
+                        isDefault: false,
+                        agentOptions: withAccount(defaultAgentOptions(type, settings), account.id),
+                    }),
+                ),
+            ];
+        }),
         ...shells.shells.map(
             (shell): SessionPickerItem => ({
                 kind: "shell",
@@ -119,6 +133,12 @@ function defaultAgentOptions(type: AgentType, settings: AppSettings): AgentLaunc
                 permissionMode: settings.kimi.permissionMode,
             };
     }
+}
+
+function withAccount(options: AgentLaunchOptions, account: string): AgentLaunchOptions {
+    return options.type === "claude" || options.type === "codex"
+        ? { ...options, account }
+        : options;
 }
 
 interface CreatePayloadInputs {

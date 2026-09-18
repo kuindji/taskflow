@@ -21,13 +21,21 @@ const shells: ShellListResponse = {
 const settings = {
     general: { defaultAgent: "codex" },
     terminal: { defaultShell: "system" },
-    claude: { defaultModel: "default", defaultEffort: "default", permissionMode: "default" },
+    claude: {
+        defaultModel: "default",
+        defaultEffort: "default",
+        permissionMode: "default",
+        accounts: [],
+        defaultAccount: "default",
+    },
     codex: {
         defaultModel: "gpt-5",
         defaultReasoningEffort: "high",
         sandbox: "workspace-write",
         approvalPolicy: "on-request",
         dangerouslyBypassApprovalsAndSandbox: false,
+        accounts: [],
+        defaultAccount: "default",
     },
     opencode: { defaultModel: "", autoApprove: false },
     pi: { defaultModel: "", thinking: "off", tools: "" },
@@ -104,6 +112,27 @@ describe("session creation model", () => {
             cols: 90,
             rows: 30,
         });
+    });
+
+    it("adds a picker entry per Claude and Codex account", () => {
+        const withAccounts = {
+            ...settings,
+            claude: {
+                ...settings.claude,
+                accounts: [{ id: "c-work", name: "work", homeDir: "/h" }],
+            },
+        } as AppSettings;
+        const items = buildSessionPickerItems(agents, shells, withAccounts);
+        const claudeWork = items.find((item) => item.label === "Claude · work");
+        expect(claudeWork).toMatchObject({
+            kind: "agent",
+            type: "claude",
+            isDefault: false,
+            agentOptions: { type: "claude", account: "c-work" },
+        });
+        expect(items.findIndex((item) => item.label === "Claude · work")).toBe(
+            items.findIndex((item) => item.label === "Claude") + 1,
+        );
     });
 
     it("sends a full shell path and never infers prompts for master or project", () => {
