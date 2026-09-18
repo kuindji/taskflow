@@ -6,6 +6,7 @@ import { MSG } from "@taskflow/shared";
 import { TaskStore } from "../../src/services/task-store";
 import { createTitleGenerator } from "../../src/services/title-generator";
 import { createWorktreeSetup } from "../../src/services/worktree-setup";
+import { SettingsStore } from "../../src/services/settings-store";
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
@@ -43,6 +44,7 @@ describe("title generator", () => {
     let gitService: FakeGitService;
     let events: Array<{ type: string; payload: unknown }>;
     let originalSpawn: typeof Bun.spawn;
+    let settingsStore: SettingsStore;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-title-test-"));
@@ -61,6 +63,7 @@ describe("title generator", () => {
         gitService = new FakeGitService();
         events = [];
         originalSpawn = Bun.spawn;
+        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
     });
 
     afterEach(async () => {
@@ -94,6 +97,7 @@ describe("title generator", () => {
             taskStore: store,
             broadcast,
             createWorktree: worktreeSetup.createWorktreeForTask,
+            settingsStore,
         });
 
         await generator.generate(task.id, task.description);
@@ -131,6 +135,7 @@ describe("title generator", () => {
             broadcast: (event) => {
                 events.push(event);
             },
+            settingsStore,
         });
 
         await generator.generate(task.id, task.description);
@@ -167,6 +172,7 @@ describe("title generator", () => {
             taskStore: store,
             broadcast,
             createWorktree: worktreeSetup.createWorktreeForTask,
+            settingsStore,
         });
 
         await generator.generate(task.id, task.description);
@@ -182,5 +188,34 @@ describe("title generator", () => {
             pr: null,
         });
         expect(gitService.createdWorktrees.length).toBe(1);
+    });
+
+    it("runs title generation under the task project's Claude account", async () => {
+        let spawnEnv: Record<string, string | undefined> | undefined;
+        Bun.spawn = ((_cmd: string[], options: { env?: Record<string, string | undefined> }) => {
+            spawnEnv = options.env;
+            return makeSpawnResult("Title\n");
+        }) as unknown as typeof Bun.spawn;
+
+        await settingsStore.update({
+            claude: { accounts: [{ id: "c-work", name: "work", homeDir: "/homes/claude-work" }] },
+        });
+        const project = await store.addProject({ name: "project", path: projectPath });
+        await store.updateProject(project.id, { agentAccounts: { claude: "c-work" } });
+        const task = await store.createTask({
+            projectId: project.id,
+            title: "",
+            description: "d",
+            worktree: { enabled: false, path: null, branch: null, pr: null },
+        });
+
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast: () => {},
+            settingsStore,
+        });
+        await generator.generate(task.id, "d");
+
+        expect(spawnEnv?.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
     });
 });

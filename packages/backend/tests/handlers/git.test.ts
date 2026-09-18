@@ -7,6 +7,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import type { GitService } from "../../src/services/git-service";
+import { SettingsStore } from "../../src/services/settings-store";
 
 class FakeGitService {
     statusCalls: string[] = [];
@@ -19,6 +20,7 @@ class FakeGitService {
         path: string;
         previousPath?: string;
     }> = [];
+    commitMessageCalls: Array<{ repoPath: string; env: Record<string, string | undefined> }> = [];
 
     async status(repoPath: string) {
         this.statusCalls.push(repoPath);
@@ -43,6 +45,15 @@ class FakeGitService {
         this.commitDiffFileCalls.push({ repoPath, hash, path, previousPath });
         return { original: "", modified: "" };
     }
+
+    async generateCommitMessage(
+        repoPath: string,
+        _includeUnstaged: boolean,
+        env: Record<string, string | undefined>,
+    ) {
+        this.commitMessageCalls.push({ repoPath, env });
+        return "feat: x";
+    }
 }
 
 async function expectRejects(fn: () => Promise<unknown>, match: string) {
@@ -61,6 +72,8 @@ describe("git handlers", () => {
     let projectPath: string;
     let worktreePath: string;
     let git: FakeGitService;
+    let settingsStore: SettingsStore;
+    let projectId: string;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-git-test-"));
@@ -79,6 +92,7 @@ describe("git handlers", () => {
         await mkdir(worktreePath, { recursive: true });
 
         const project = await store.addProject({ name: "project", path: projectPath });
+        projectId = project.id;
         await store.createTask({
             projectId: project.id,
             title: "Worktree task",
@@ -93,11 +107,13 @@ describe("git handlers", () => {
 
         router = new TestRouter();
         git = new FakeGitService();
+        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
         registerGitHandlers({
             router,
             git: git as unknown as GitService,
             taskStore: store,
             broadcast: () => {},
+            settingsStore,
         });
     });
 
@@ -222,5 +238,18 @@ describe("git handlers", () => {
             "outside repository",
         );
         expect(git.commitDiffFileCalls).toEqual([]);
+    });
+
+    it("generates commit messages under the project's Claude account", async () => {
+        await settingsStore.update({
+            claude: { accounts: [{ id: "c-work", name: "work", homeDir: "/homes/claude-work" }] },
+        });
+        await store.updateProject(projectId, { agentAccounts: { claude: "c-work" } });
+
+        await router.handle(MSG.GIT_GENERATE_COMMIT_MSG, { path: worktreePath });
+
+        const call = git.commitMessageCalls.at(-1)!;
+        expect(call.env.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
+        expect(call.env.CLAUDECODE).toBeUndefined();
     });
 });

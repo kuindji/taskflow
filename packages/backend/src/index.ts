@@ -44,7 +44,7 @@ import { registerFlowHandlers } from "./handlers/flow";
 import { ScheduleStore } from "./services/schedule-store";
 import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-service";
 import { registerScheduleHandlers } from "./handlers/schedule";
-import { buildShellPath } from "./services/shell-path";
+import { headlessClaudeEnv } from "./services/agent-accounts";
 import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
@@ -209,6 +209,7 @@ async function main() {
         const titleGenerator = createTitleGenerator({
             taskStore: store,
             broadcast: server.broadcast,
+            settingsStore,
             createWorktree: worktreeSetup.createWorktreeForTask,
         });
 
@@ -332,6 +333,7 @@ async function main() {
             git: gitService,
             taskStore: store,
             broadcast: server.broadcast,
+            settingsStore,
             changeTracker,
         });
         registerTypeScriptHandlers({
@@ -356,13 +358,12 @@ async function main() {
         });
         const generateScheduleName = async (prompt: string): Promise<string> => {
             try {
-                const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
                 const aiPrompt = `Generate a concise schedule name (3-7 words) for this scheduled task prompt. Output ONLY the name, nothing else. No quotes, no punctuation at the end.\n\nPrompt: ${prompt}`;
                 const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
                     stdin: "pipe",
                     stdout: "pipe",
                     stderr: "pipe",
-                    env: { ...cleanEnv, PATH: buildShellPath() },
+                    env: headlessClaudeEnv(await settingsStore.get(), null),
                 });
                 void proc.stdin.write(aiPrompt);
                 void proc.stdin.end();

@@ -1,18 +1,20 @@
 import type { TaskStore } from "./task-store";
 import type { WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { buildShellPath } from "./shell-path";
+import type { SettingsStore } from "./settings-store";
+import { headlessClaudeEnv } from "./agent-accounts";
 import { filterTaskSessions } from "./instance-filter";
 import { config } from "../config";
 
 interface TitleGeneratorDeps {
     taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
+    settingsStore: SettingsStore;
     createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
 }
 
 export function createTitleGenerator(deps: TitleGeneratorDeps) {
-    const { taskStore, broadcast, createWorktree } = deps;
+    const { taskStore, broadcast, settingsStore, createWorktree } = deps;
 
     async function generate(
         taskId: string,
@@ -22,14 +24,15 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
         const prompt = `Generate a concise task title (3-7 words) for this task description. Output ONLY the title, nothing else. No quotes, no punctuation at the end.\n\nDescription: ${description}`;
 
         try {
-            // Must strip CLAUDECODE and CLAUDE_CODE_ENTRYPOINT from env
-            const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
+            const task = await taskStore.getTask(taskId);
+            const project = task ? await taskStore.getProject(task.projectId) : null;
+            const env = headlessClaudeEnv(await settingsStore.get(), project);
 
             const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
                 stdin: "pipe",
                 stdout: "pipe",
                 stderr: "pipe",
-                env: { ...cleanEnv, PATH: buildShellPath() },
+                env,
             });
             void proc.stdin.write(prompt);
             void proc.stdin.end();

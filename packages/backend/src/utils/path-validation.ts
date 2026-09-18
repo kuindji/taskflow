@@ -1,4 +1,5 @@
 import type { TaskStore } from "../services/task-store";
+import type { Project } from "@taskflow/shared";
 import { realpath } from "fs/promises";
 import { basename, dirname, resolve, sep } from "path";
 
@@ -28,6 +29,30 @@ async function resolveWorkspacePath(path: string): Promise<string> {
         const parentPath = await realpath(dirname(path)).catch(() => resolve(dirname(path)));
         return resolve(parentPath, basename(path));
     });
+}
+
+/** Project owning a path: a task worktree's project first, else the deepest project root. */
+export async function findProjectForPath(
+    taskStore: TaskStore,
+    path: string,
+): Promise<Project | null> {
+    const resolvedPath = await resolveWorkspacePath(path);
+    for (const task of await taskStore.listTasks()) {
+        const worktreePath = task.worktree.enabled ? task.worktree.path : null;
+        if (!worktreePath) continue;
+        const root = await realpath(worktreePath).catch(() => resolve(worktreePath));
+        if (isWithinRoot(resolvedPath, root)) return taskStore.getProject(task.projectId);
+    }
+    let best: Project | null = null;
+    let bestLength = -1;
+    for (const project of await taskStore.listProjects()) {
+        const root = await realpath(project.path).catch(() => resolve(project.path));
+        if (isWithinRoot(resolvedPath, root) && root.length > bestLength) {
+            best = project;
+            bestLength = root.length;
+        }
+    }
+    return best;
 }
 
 export async function assertMutableWorkspacePath(

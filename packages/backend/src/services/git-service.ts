@@ -490,8 +490,12 @@ export class GitService {
         return checkBranchPrImpl(repoPath, branch);
     }
 
-    async generateCommitMessage(repoPath: string, includeUnstaged = true): Promise<string> {
-        return generateCommitMessageImpl(this, repoPath, includeUnstaged);
+    async generateCommitMessage(
+        repoPath: string,
+        includeUnstaged: boolean,
+        env: Record<string, string | undefined>,
+    ): Promise<string> {
+        return generateCommitMessageImpl(this, repoPath, includeUnstaged, env);
     }
 
     async getRemoteUrl(repoPath: string): Promise<string | null> {

@@ -23,19 +23,23 @@ import type { Router } from "../ws/router";
 import type { GitService } from "../services/git-service";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
+import type { SettingsStore } from "../services/settings-store";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 import {
     assertWorkspaceRepo,
     assertRepoFilePath,
     assertWorktreePath,
+    findProjectForPath,
 } from "../utils/path-validation";
+import { headlessClaudeEnv } from "../services/agent-accounts";
 
 interface GitHandlerDeps {
     router: Router;
     git: GitService;
     taskStore: TaskStore;
     broadcast: (message: { type: string; payload: unknown }) => void;
+    settingsStore: SettingsStore;
     changeTracker?: ChangeTracker;
 }
 
@@ -49,7 +53,7 @@ function assertCommitHash(hash: string): string {
 }
 
 export function registerGitHandlers(deps: GitHandlerDeps): void {
-    const { router, git, taskStore, broadcast, changeTracker } = deps;
+    const { router, git, taskStore, broadcast, settingsStore, changeTracker } = deps;
 
     router.register(MSG.GIT_STATUS, async (payload) => {
         const { path } = payload as GitStatusPayload;
@@ -184,7 +188,9 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
     router.register(MSG.GIT_GENERATE_COMMIT_MSG, async (payload) => {
         const { path, includeUnstaged } = payload as GitGenerateCommitMsgPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true);
+        const project = await findProjectForPath(taskStore, repoPath);
+        const env = headlessClaudeEnv(await settingsStore.get(), project);
+        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true, env);
         return { message };
     });
 

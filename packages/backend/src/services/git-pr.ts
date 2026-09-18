@@ -72,7 +72,8 @@ async function checkBranchPr(
 async function generateCommitMessage(
     gitService: GitService,
     repoPath: string,
-    includeUnstaged = true,
+    includeUnstaged: boolean,
+    env: Record<string, string | undefined>,
 ): Promise<string> {
     const diffResult = await gitService.diff(repoPath);
     const files = includeUnstaged ? diffResult.files : diffResult.files.filter((f) => f.staged);
@@ -88,10 +89,6 @@ async function generateCommitMessage(
         "",
         diffText,
     ].join("\n");
-
-    const env: Record<string, string | undefined> = { ...process.env };
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
 
     const proc = Bun.spawn(["claude", "-p", prompt], {
         cwd: repoPath,
