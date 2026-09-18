@@ -349,7 +349,7 @@ async function main() {
         registerSettingsHandlers({ router, settingsStore, taskStore: store });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
-        registerAgentCommandsHandlers(router);
+        registerAgentCommandsHandlers({ router, taskStore: store, settingsStore });
         registerFlowHandlers({ router, flowStore, flowRunner });
         registerNotificationHandlers({
             router,
