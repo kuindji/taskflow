@@ -17,6 +17,7 @@ import { TruncatedText } from "@/components/ui/truncated-text";
 import { AttributesSection } from "@/components/panels/AttributesSection";
 import { EditedFilesList } from "@/components/panels/EditedFilesList";
 import { LinkedProjectsSection } from "@/components/panels/LinkedProjectsSection";
+import { ProjectAgentAccountsSection } from "@/components/panels/ProjectAgentAccountsSection";
 
 const logTypeStyles: Record<TaskLogEntryType, string> = {
     info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -384,6 +385,8 @@ function TaskInfoPanel() {
                         <Separator className="my-4" />
 
                         <LinkedProjectsSection project={project} />
+
+                        <ProjectAgentAccountsSection project={project} />
 
                         <Separator className="my-4" />
 

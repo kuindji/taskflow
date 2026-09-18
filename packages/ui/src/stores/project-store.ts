@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
     LinkedProject,
     Project,
+    ProjectAgentAccountsPatch,
     ProjectForkResponse,
     ProjectListResponse,
 } from "@taskflow/shared";
@@ -19,6 +20,7 @@ interface ProjectUpdate {
     defaultInitCommand?: string;
     prompt?: string;
     linkedProjects?: LinkedProject[];
+    agentAccounts?: ProjectAgentAccountsPatch;
 }
 
 /**
