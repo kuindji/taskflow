@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "fs/promises";
-import { isAbsolute } from "path";
+import { isAbsolute, resolve } from "path";
 import {
     ALL_AGENT_TYPES,
     CLAUDE_EFFORT_LEVELS,
@@ -176,12 +176,22 @@ function normalizeAccountSettings(settings: ClaudeSettings | CodexSettings): boo
     return changed;
 }
 
-function assertValidAccountSettings(settings: ClaudeSettings | CodexSettings, agent: string): void {
+/**
+ * Validates accounts and canonicalises their home dirs. Two spellings of one
+ * directory ("/homes/x" and "/homes/x/") must not survive as distinct values:
+ * downstream code compares home dirs by string (the Codex launch lock key, the
+ * saved `SessionRef.agentHomeDir`, and the inherited-home check when resuming).
+ */
+function validateAndNormalizeAccountSettings(
+    settings: ClaudeSettings | CodexSettings,
+    agent: string,
+): void {
     const ids = new Set<string>();
     const names = new Set<string>();
     const reserved = [DEFAULT_AGENT_ACCOUNT_ID, INHERIT_AGENT_ACCOUNT];
+    const normalized: AgentAccount[] = [];
     for (const account of settings.accounts) {
-        if (!account.id || account.id === DEFAULT_AGENT_ACCOUNT_ID || ids.has(account.id)) {
+        if (!account.id || reserved.includes(account.id) || ids.has(account.id)) {
             throw new Error(
                 `${agent} account id "${account.id}" is empty, reserved, or duplicated`,
             );
@@ -198,7 +208,9 @@ function assertValidAccountSettings(settings: ClaudeSettings | CodexSettings, ag
         if (!isAbsolute(account.homeDir)) {
             throw new Error(`${agent} account "${name}" home directory must be an absolute path`);
         }
+        normalized.push({ ...account, homeDir: resolve(account.homeDir) });
     }
+    settings.accounts = normalized;
     if (settings.defaultAccount !== DEFAULT_AGENT_ACCOUNT_ID && !ids.has(settings.defaultAccount)) {
         throw new Error(
             `${agent} default account must be the built-in account or an existing account; choose another default account before deleting it`,
@@ -439,12 +451,12 @@ export class SettingsStore {
         if (partial.claude) {
             applyNullable(current.claude, partial.claude);
             normalizeClaudeSettings(current.claude, DEFAULTS.claude);
-            assertValidAccountSettings(current.claude, "Claude");
+            validateAndNormalizeAccountSettings(current.claude, "Claude");
         }
         if (partial.codex) {
             applyNullable(current.codex, partial.codex);
             normalizeCodexSettings(current.codex, DEFAULTS.codex);
-            assertValidAccountSettings(current.codex, "Codex");
+            validateAndNormalizeAccountSettings(current.codex, "Codex");
         }
         if (partial.opencode) {
             applyNullable(current.opencode, partial.opencode);

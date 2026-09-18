@@ -607,6 +607,7 @@ describe("agent accounts settings", () => {
             [{ id: "a1", name: "default", homeDir: "/a" }],
             [{ id: "a1", name: "Inherit", homeDir: "/a" }],
             [{ id: "default", name: "work", homeDir: "/a" }],
+            [{ id: "inherit", name: "work", homeDir: "/a" }],
             [
                 { id: "a1", name: "one", homeDir: "/a" },
                 { id: "a1", name: "two", homeDir: "/b" },
@@ -619,6 +620,26 @@ describe("agent accounts settings", () => {
             await expect(store.update({ codex: { accounts } })).rejects.toThrow();
         }
         expect((await store.get()).codex.accounts).toEqual([]);
+    });
+
+    it("normalizes account home dirs so two spellings of one directory match", async () => {
+        const settings = await store.update({
+            codex: {
+                accounts: [
+                    { id: "a1", name: "one", homeDir: "/homes/x" },
+                    { id: "a2", name: "two", homeDir: "/homes/x/" },
+                ],
+            },
+        });
+        expect(settings.codex.accounts.map((account) => account.homeDir)).toEqual([
+            "/homes/x",
+            "/homes/x",
+        ]);
+        const reloaded = await store.get();
+        expect(reloaded.codex.accounts.map((account) => account.homeDir)).toEqual([
+            "/homes/x",
+            "/homes/x",
+        ]);
     });
 
     it("rejects deleting the account that is the global default", async () => {

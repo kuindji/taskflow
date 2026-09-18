@@ -43,4 +43,15 @@ describe("native session discovery with account homes", () => {
         await releaseA();
         await releaseB();
     });
+
+    it("serializes launches that share one home dir", async () => {
+        const releaseA = await acquireNativeSessionLaunchLock("codex", "/homes/shared");
+        const started = Date.now();
+        const pendingB = acquireNativeSessionLaunchLock("codex", "/homes/shared");
+        const timer = setTimeout(() => void releaseA(), 200);
+        const releaseB = await pendingB;
+        clearTimeout(timer);
+        expect(Date.now() - started).toBeGreaterThan(50);
+        await releaseB();
+    });
 });
