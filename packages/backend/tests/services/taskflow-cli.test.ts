@@ -276,6 +276,47 @@ describe("taskflow-cli", () => {
         expect(body.agentOptions.permissionMode).toBe("manual");
     });
 
+    it("passes --account into Claude and Codex agent options", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["agent", "run", "codex", "--account", "work"], {
+            ...env,
+            TASKFLOW_PROJECT_ID: "project-1",
+        });
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(JSON.parse(request.data)).toMatchObject({
+            agentOptions: { type: "codex", account: "work" },
+        });
+    });
+
+    it("ignores --account for agents without accounts", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        runCli(cliPath, ["agent", "run", "pi", "--account", "work"], {
+            ...env,
+            TASKFLOW_PROJECT_ID: "project-1",
+        });
+        const request = await readCapturedRequest(captureFile);
+        const body = JSON.parse(request.data) as {
+            agentOptions?: { account?: unknown };
+        };
+        expect(body.agentOptions?.account).toBeUndefined();
+    });
+
+    it("maps project account flags, with inherit clearing", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["project", "update", "p1", "--claude-account", "work", "--codex-account", "inherit"],
+            env,
+        );
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(request.method).toBe("PATCH");
+        expect(JSON.parse(request.data)).toEqual({
+            agentAccounts: { claude: "work", codex: null },
+        });
+    });
+
     it("ends the whole flow from a flow action", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(cliPath, ["flow", "complete"], {

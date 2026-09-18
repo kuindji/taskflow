@@ -11,6 +11,7 @@ Claude-specific flags: --dangerously-skip-permissions, --permission-mode "<mode>
 --dangerously-skip-permissions bypasses all permission checks for Claude.
 --permission-mode sets permission mode (manual, acceptEdits, bypassPermissions, dontAsk, plan, auto). The legacy default value inherits Claude's configured mode.
 --effort sets the effort level for Claude sessions (low, medium, high, xhigh, max, ultracode; model and version dependent).
+--account "<name|id|default>" runs a Claude or Codex session under that account (see Settings → Claude/Codex → Accounts). `default` forces the built-in account; omit the flag to inherit the project's or global default account.
 Codex-specific flags: --sandbox "<mode>", --approval-policy "<policy>", --reasoning-effort "<level>", --yolo.
 --sandbox sets sandbox mode (read-only, workspace-write, danger-full-access).
 --approval-policy sets approval policy (untrusted, on-request, never).

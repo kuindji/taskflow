@@ -895,20 +895,38 @@ case "$cmd" in
       update)
         proj_id="${1:-}"
         if [ -z "$proj_id" ]; then
-          echo "Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible]" >&2
+          echo "Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible] [--claude-account a] [--codex-account a]" >&2
           exit 1
         fi
         shift
         payload=""
+        proj_claude_account=""
+        proj_codex_account=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --name) payload=$(printf '%s"name":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --path) payload=$(printf '%s"path":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --hidden) payload=$(printf '%s"hidden":true,' "$payload"); shift ;;
             --visible) payload=$(printf '%s"hidden":false,' "$payload"); shift ;;
+            --claude-account) proj_claude_account="${2:-}"; shift 2 ;;
+            --codex-account) proj_codex_account="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
         done
+        _account_json() {
+          if [ "$1" = "inherit" ]; then printf 'null'; else json_string "$1"; fi
+        }
+        accounts=""
+        if [ -n "$proj_claude_account" ]; then
+          accounts=$(printf '%s"claude":%s,' "$accounts" "$(_account_json "$proj_claude_account")")
+        fi
+        if [ -n "$proj_codex_account" ]; then
+          accounts=$(printf '%s"codex":%s,' "$accounts" "$(_account_json "$proj_codex_account")")
+        fi
+        if [ -n "$accounts" ]; then
+          accounts=$(printf '%s' "$accounts" | sed 's/,$//')
+          payload=$(printf '%s"agentAccounts":{%s},' "$payload" "$accounts")
+        fi
         if [ -z "$payload" ]; then
           echo "No update fields provided" >&2
           exit 1
@@ -1100,6 +1118,7 @@ case "$cmd" in
         agent_task_id=""
         agent_label=""
         agent_model=""
+        agent_account=""
         # Claude-specific
         agent_permission_mode=""
         agent_effort=""
@@ -1118,6 +1137,7 @@ case "$cmd" in
             --task) agent_task_id="${2:-}"; shift 2 ;;
             --label) agent_label="${2:-}"; shift 2 ;;
             --model) agent_model="${2:-}"; shift 2 ;;
+            --account) agent_account="${2:-}"; shift 2 ;;
             # Claude
             --dangerously-skip-permissions) agent_skip_permissions="true"; shift ;;
             --permission-mode) agent_permission_mode="${2:-}"; shift 2 ;;
@@ -1192,6 +1212,9 @@ case "$cmd" in
           if [ -n "$agent_auto_approve" ]; then
             _append_opt '"autoApprove":true'
           fi
+        fi
+        if [ -n "$agent_account" ] && { [ "$agent_type" = "claude" ] || [ "$agent_type" = "codex" ]; }; then
+          _append_opt "$(printf '"account":%s' "$(json_string "$agent_account")")"
         fi
         if [ -n "$agent_model" ]; then
           _append_opt "$(printf '"model":%s' "$(json_string "$agent_model")")"

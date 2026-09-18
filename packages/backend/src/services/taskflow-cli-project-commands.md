@@ -6,6 +6,7 @@
 `taskflow-cli project update <projectId> --name "New Name"` Rename project
 `taskflow-cli project update <projectId> --hidden` Hide project
 `taskflow-cli project update <projectId> --visible` Unhide project
+`taskflow-cli project update <projectId> --claude-account "<name|id|default|inherit>"` sets the project's Claude account (`inherit` clears it); `--codex-account` does the same for Codex.
 `taskflow-cli project fork <projectId> <branch>` Create a local git clone of the project in a sibling directory, check out the given branch, and register it as a new project. (Not a worktree).
 `taskflow-cli project fork <projectId> <branch> --folder custom-name` Use a custom folder name instead of slugified branch name.
 `taskflow-cli project move <id> --to <n>`          Move project to 1-based position n

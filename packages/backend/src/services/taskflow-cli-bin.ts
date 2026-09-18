@@ -904,7 +904,7 @@ async function handleProject(args: string[]): Promise<void> {
             const projId = subArgs[0] ?? "";
             if (!projId) {
                 process.stderr.write(
-                    "Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible]\n",
+                    "Usage: taskflow-cli project update <id> [--name n] [--path p] [--hidden] [--visible] [--claude-account a] [--codex-account a]\n",
                 );
                 process.exit(1);
             }
@@ -913,12 +913,22 @@ async function handleProject(args: string[]): Promise<void> {
                 path: "string",
                 hidden: "boolean",
                 visible: "boolean",
+                "claude-account": "string",
+                "codex-account": "string",
             });
             const body: Record<string, unknown> = {};
             if (flags.name !== undefined) body.name = flags.name;
             if (flags.path !== undefined) body.path = flags.path;
             if (flags.hidden) body.hidden = true;
             if (flags.visible) body.hidden = false;
+            const agentAccounts: Record<string, string | null> = {};
+            for (const agent of ["claude", "codex"] as const) {
+                const value = flags[`${agent}-account`];
+                if (typeof value === "string" && value) {
+                    agentAccounts[agent] = value === "inherit" ? null : value;
+                }
+            }
+            if (Object.keys(agentAccounts).length > 0) body.agentAccounts = agentAccounts;
             if (Object.keys(body).length === 0) {
                 process.stderr.write("No update fields provided\n");
                 process.exit(1);
@@ -1133,6 +1143,7 @@ async function handleAgent(args: string[]): Promise<void> {
                 task: "string",
                 label: "string",
                 model: "string",
+                account: "string",
                 // Claude
                 "dangerously-skip-permissions": "boolean",
                 "permission-mode": "string",
@@ -1180,6 +1191,10 @@ async function handleAgent(args: string[]): Promise<void> {
                     agentOptions.reasoningEffort = flags["reasoning-effort"];
             } else if (agentType === "opencode") {
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;
+            }
+
+            if (flags.account && (agentType === "claude" || agentType === "codex")) {
+                agentOptions.account = flags.account;
             }
 
             if (flags.model) agentOptions.model = flags.model;
