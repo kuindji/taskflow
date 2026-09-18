@@ -175,14 +175,13 @@ describe("session handlers", () => {
         await rm(tempDir, { recursive: true, force: true });
     });
 
-    /** Spawn records reduced to the fields these tests pin exactly. */
-    function spawnIdentities(): Array<{
-        id: string;
-        cwd?: string;
-        command?: string;
-        args?: string[];
-    }> {
-        return ptyManager.spawns.map(({ id, cwd, command, args }) => ({ id, cwd, command, args }));
+    /**
+     * Spawn records without `env`, which every session now carries. Everything
+     * else stays pinned, so a stray `initialOutput`/`startSequence`/`cols`/`rows`
+     * on a fresh (non-resume) launch still fails these assertions.
+     */
+    function spawnIdentities(): Array<Omit<FakePtyManager["spawns"][number], "env">> {
+        return ptyManager.spawns.map(({ env: _env, ...rest }) => rest);
     }
 
     it("preserves both session refs when sessions are created concurrently", async () => {
