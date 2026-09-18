@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
     isVersionAtLeast,
+    INHERIT_AGENT_ACCOUNT,
     type AgentLaunchOptions,
     type AgentType,
     type ClaudePermissionMode,
@@ -20,6 +21,7 @@ import { CodexOptions } from "@/components/shared/CodexOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
 import { KimiOptions } from "@/components/shared/KimiOptions";
+import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 
 interface AgentOptionsPanelProps {
@@ -142,6 +144,18 @@ function AgentOptionsPanel({
                               ? (kimiSettings?.defaultModel ?? "")
                               : "default";
 
+    // --- Account (never prefilled from settings: absent means inherit) ---
+    const defaultAccount =
+        matchingValue?.type === "claude" || matchingValue?.type === "codex"
+            ? (matchingValue.account ?? INHERIT_AGENT_ACCOUNT)
+            : INHERIT_AGENT_ACCOUNT;
+    const accountList =
+        agentType === "claude"
+            ? (claudeSettings?.accounts ?? [])
+            : agentType === "codex"
+              ? (codexSettings?.accounts ?? [])
+              : [];
+
     // --- State ---
     const [permissionMode, setPermissionMode] = useState<string>(defaultPermissionMode);
     const [effort, setEffort] = useState<string>(defaultEffort);
@@ -159,6 +173,7 @@ function AgentOptionsPanel({
     const [piTools, setPiTools] = useState<string>(defaultPiTools);
     const [kimiPermissionMode, setKimiPermissionMode] =
         useState<KimiPermissionMode>(defaultKimiPermissionMode);
+    const [account, setAccount] = useState<string>(defaultAccount);
 
     const isFirstRender = useRef(true);
     const onChangeRef = useRef(onChange);
@@ -172,12 +187,14 @@ function AgentOptionsPanel({
             setPermissionMode(defaultPermissionMode);
             setEffort(defaultEffort);
             setModel(defaultModel);
+            setAccount(defaultAccount);
         } else if (agentType === "codex") {
             setDangerouslyBypassApprovalsAndSandbox(defaultDangerouslyBypassApprovalsAndSandbox);
             setCodexReasoningEffort(defaultCodexReasoningEffort);
             setCodexSandbox(defaultCodexSandbox);
             setApprovalPolicy(defaultApprovalPolicy);
             setModel(defaultModel);
+            setAccount(defaultAccount);
         } else if (agentType === "opencode") {
             setOcAutoApprove(defaultOcAutoApprove);
             setModel(defaultModel);
@@ -202,6 +219,7 @@ function AgentOptionsPanel({
         defaultPiTools,
         defaultKimiPermissionMode,
         defaultModel,
+        defaultAccount,
     ]);
 
     const buildClaudeOptions = useCallback(
@@ -211,8 +229,9 @@ function AgentOptionsPanel({
                 permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
             model: model === "default" ? undefined : model || undefined,
             effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
+            account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
-        [permissionMode, model, effort],
+        [permissionMode, model, effort, account],
     );
 
     const buildCodexOptions = useCallback(
@@ -223,6 +242,7 @@ function AgentOptionsPanel({
             sandbox: codexSandbox || undefined,
             approvalPolicy: approvalPolicy || undefined,
             dangerouslyBypassApprovalsAndSandbox: dangerouslyBypassApprovalsAndSandbox || undefined,
+            account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
         [
             model,
@@ -230,6 +250,7 @@ function AgentOptionsPanel({
             codexSandbox,
             approvalPolicy,
             dangerouslyBypassApprovalsAndSandbox,
+            account,
         ],
     );
 
@@ -299,31 +320,55 @@ function AgentOptionsPanel({
     return (
         <div className="flex flex-col gap-3">
             {agentType === "claude" ? (
-                <ClaudeOptions
-                    modelValue={model}
-                    effortValue={effort}
-                    permissionMode={permissionMode}
-                    supportsUltracode={supportsClaudeUltracode}
-                    onModelChange={setModel}
-                    onEffortChange={setEffort}
-                    onPermissionModeChange={setPermissionMode}
-                />
+                <>
+                    <ClaudeOptions
+                        modelValue={model}
+                        effortValue={effort}
+                        permissionMode={permissionMode}
+                        supportsUltracode={supportsClaudeUltracode}
+                        onModelChange={setModel}
+                        onEffortChange={setEffort}
+                        onPermissionModeChange={setPermissionMode}
+                    />
+                    {(accountList.length > 0 || account !== INHERIT_AGENT_ACCOUNT) && (
+                        <AgentAccountSelect
+                            label="Account"
+                            hint="Subscription this session runs under"
+                            accounts={accountList}
+                            value={account}
+                            inheritLabel="Inherit (project → default)"
+                            onChange={setAccount}
+                        />
+                    )}
+                </>
             ) : agentType === "codex" ? (
-                <CodexOptions
-                    backendId={agentBackendId}
-                    modelValue={model}
-                    reasoningEffort={codexReasoningEffort}
-                    sandbox={codexSandbox}
-                    approvalPolicy={approvalPolicy}
-                    dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
-                    onModelChange={setModel}
-                    onReasoningEffortChange={setCodexReasoningEffort}
-                    onSandboxChange={setCodexSandbox}
-                    onApprovalPolicyChange={setApprovalPolicy}
-                    onDangerouslyBypassApprovalsAndSandboxChange={
-                        setDangerouslyBypassApprovalsAndSandbox
-                    }
-                />
+                <>
+                    <CodexOptions
+                        backendId={agentBackendId}
+                        modelValue={model}
+                        reasoningEffort={codexReasoningEffort}
+                        sandbox={codexSandbox}
+                        approvalPolicy={approvalPolicy}
+                        dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
+                        onModelChange={setModel}
+                        onReasoningEffortChange={setCodexReasoningEffort}
+                        onSandboxChange={setCodexSandbox}
+                        onApprovalPolicyChange={setApprovalPolicy}
+                        onDangerouslyBypassApprovalsAndSandboxChange={
+                            setDangerouslyBypassApprovalsAndSandbox
+                        }
+                    />
+                    {(accountList.length > 0 || account !== INHERIT_AGENT_ACCOUNT) && (
+                        <AgentAccountSelect
+                            label="Account"
+                            hint="Subscription this session runs under"
+                            accounts={accountList}
+                            value={account}
+                            inheritLabel="Inherit (project → default)"
+                            onChange={setAccount}
+                        />
+                    )}
+                </>
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
                     backendId={agentBackendId}
