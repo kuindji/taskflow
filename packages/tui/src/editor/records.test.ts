@@ -60,6 +60,20 @@ describe("record YAML", () => {
         ).toThrow('unknown key "typo"');
     });
 
+    it("keeps the account on an action's agent options", () => {
+        const draft = parseActionDraft(
+            "projectId: p1\nname: Review\nprompt: Check it\nsessionType: codex\nagentOptions:\n  type: codex\n  account: work\n",
+            context,
+        );
+        expect(draft.agentOptions).toEqual({ type: "codex", account: "work" });
+        expect(() =>
+            parseActionDraft(
+                "projectId: p1\nname: Review\nprompt: Check it\nsessionType: codex\nagentOptions:\n  type: codex\n  account: 5\n",
+                context,
+            ),
+        ).toThrow("agentOptions.account");
+    });
+
     it("validates flow IDs, inputs, action references, and inline actions", () => {
         const draft = parseFlowDraft(
             "projectId: p1\nname: Release\ndescription: Ship it\ninputs:\n  - id: target\n    label: Target\n    type: filepath\nactions:\n  - id: build\n    actionId: action-1\n  - id: verify\n    inline:\n      name: Verify\n      prompt: bun test\n      sessionType: shell\n",
@@ -79,6 +93,23 @@ describe("record YAML", () => {
                 context,
             ),
         ).toThrow('duplicate id "same"');
+    });
+
+    it("keeps the account on an inline flow action's agent options", () => {
+        const draft = parseFlowDraft(
+            "projectId: p1\nname: Release\ndescription: Ship it\nactions:\n  - id: verify\n    inline:\n      name: Verify\n      prompt: bun test\n      sessionType: claude\n      agentOptions:\n        type: claude\n        account: work\n",
+            context,
+        );
+        expect(draft.actions[0]?.inline?.agentOptions).toEqual({
+            type: "claude",
+            account: "work",
+        });
+        expect(() =>
+            parseFlowDraft(
+                "projectId: p1\nname: Release\ndescription: Ship it\nactions:\n  - id: verify\n    inline:\n      name: Verify\n      prompt: bun test\n      sessionType: claude\n      agentOptions:\n        type: claude\n        account: 5\n",
+                context,
+            ),
+        ).toThrow("agentOptions.account");
     });
 
     it("requires one runnable schedule source and a project on create", () => {
@@ -102,6 +133,22 @@ describe("record YAML", () => {
                 true,
             ),
         ).toThrow("projectId is required");
+    });
+
+    it("keeps the account on a schedule's agent options", () => {
+        const draft = parseScheduleDraft(
+            "projectId: p1\nname: Nightly\nprompt: echo ok\nagentType: codex\nagentOptions:\n  type: codex\n  account: work\nexpression: '0 2 * * *'\nexpressionType: cron\ntimeout: 30\nenabled: false\n",
+            context,
+            true,
+        );
+        expect(draft.agentOptions).toEqual({ type: "codex", account: "work" });
+        expect(() =>
+            parseScheduleDraft(
+                "projectId: p1\nname: Nightly\nprompt: echo ok\nagentType: codex\nagentOptions:\n  type: codex\n  account: 5\nexpression: '0 2 * * *'\nexpressionType: cron\ntimeout: 30\nenabled: false\n",
+                context,
+                true,
+            ),
+        ).toThrow("agentOptions.account");
     });
 
     it("owns IDs and timestamps and emits full schedule updates with null clearing", () => {

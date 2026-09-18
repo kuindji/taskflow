@@ -91,12 +91,13 @@ function validateAgentOptions(
 
     switch (type) {
         case "claude":
-            exactKeys(options, ["type", "permissionMode", "model", "effort"], path);
+            exactKeys(options, ["type", "permissionMode", "model", "effort", "account"], path);
             if (options.permissionMode !== undefined)
                 oneOf(options.permissionMode, CLAUDE_PERMISSION_MODES, `${path}.permissionMode`);
             optionalString(options.model, `${path}.model`);
             if (options.effort !== undefined)
                 oneOf(options.effort, CLAUDE_EFFORT_LEVELS, `${path}.effort`);
+            optionalString(options.account, `${path}.account`);
             break;
         case "codex":
             exactKeys(
@@ -108,6 +109,7 @@ function validateAgentOptions(
                     "sandbox",
                     "approvalPolicy",
                     "dangerouslyBypassApprovalsAndSandbox",
+                    "account",
                 ],
                 path,
             );
@@ -122,6 +124,7 @@ function validateAgentOptions(
                 options.dangerouslyBypassApprovalsAndSandbox,
                 `${path}.dangerouslyBypassApprovalsAndSandbox`,
             );
+            optionalString(options.account, `${path}.account`);
             break;
         case "opencode":
             exactKeys(options, ["type", "model", "autoApprove"], path);

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import type { ActionDefinition, AgentLaunchOptions, SessionType } from "@taskflow/shared";
-import { KIMI_PERMISSION_MODES, isAgentType } from "@taskflow/shared";
+import { isAgentType } from "@taskflow/shared";
 import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useProjectStore } from "@/stores/project-store";
 import { selectableProjectId, selectableProjects } from "@/lib/project-visibility";
+import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 
 interface ActionEditorProps {
     action: ActionDefinition | null;
@@ -32,75 +33,13 @@ interface ActionEditorProps {
     deleteDisabledReason?: string;
 }
 
-function normalizeAgentOptions(
+/** Snapshot shape for change detection: agent types always yield an object. */
+function snapshotAgentOptions(
     sessionType: SessionType,
     agentOptions: AgentLaunchOptions | undefined,
-): AgentLaunchOptions | undefined {
+) {
     if (sessionType === "shell") return undefined;
-
-    const matchingOptions = agentOptions?.type === sessionType ? agentOptions : undefined;
-
-    switch (sessionType) {
-        case "claude": {
-            const opts = matchingOptions?.type === "claude" ? matchingOptions : undefined;
-            const legacyOpts = opts as
-                | (NonNullable<typeof opts> & { dangerouslySkipPermissions?: unknown })
-                | undefined;
-            return {
-                type: "claude",
-                permissionMode:
-                    opts?.permissionMode ??
-                    (legacyOpts?.dangerouslySkipPermissions === true
-                        ? "bypassPermissions"
-                        : undefined),
-                model: opts?.model,
-                effort: opts?.effort,
-            };
-        }
-        case "codex": {
-            const opts = matchingOptions?.type === "codex" ? matchingOptions : undefined;
-            return {
-                type: "codex",
-                model: opts?.model,
-                reasoningEffort: opts?.reasoningEffort,
-                sandbox: opts?.sandbox,
-                approvalPolicy: opts?.approvalPolicy,
-                dangerouslyBypassApprovalsAndSandbox:
-                    opts?.dangerouslyBypassApprovalsAndSandbox || undefined,
-            };
-        }
-        case "opencode": {
-            const opts = matchingOptions?.type === "opencode" ? matchingOptions : undefined;
-            return {
-                type: "opencode",
-                model: opts?.model,
-                autoApprove: opts?.autoApprove || undefined,
-            };
-        }
-        case "pi": {
-            const opts = matchingOptions?.type === "pi" ? matchingOptions : undefined;
-            return {
-                type: "pi",
-                model: opts?.model,
-                thinking: opts?.thinking,
-                tools: opts?.tools,
-            };
-        }
-        case "kimi": {
-            const opts = matchingOptions?.type === "kimi" ? matchingOptions : undefined;
-            return {
-                type: "kimi",
-                model: opts?.model,
-                permissionMode:
-                    opts?.permissionMode &&
-                    (KIMI_PERMISSION_MODES as readonly string[]).includes(opts.permissionMode)
-                        ? opts.permissionMode
-                        : undefined,
-            };
-        }
-        default:
-            return undefined;
-    }
+    return normalizeAgentOptions(sessionType, agentOptions) ?? { type: sessionType };
 }
 
 function ActionEditor({
@@ -174,7 +113,7 @@ function ActionEditor({
                 name: action?.name ?? "",
                 prompt: action?.prompt ?? "",
                 sessionType: action?.sessionType ?? "claude",
-                agentOptions: normalizeAgentOptions(
+                agentOptions: snapshotAgentOptions(
                     action?.sessionType ?? "claude",
                     action?.agentOptions,
                 ),
@@ -187,7 +126,7 @@ function ActionEditor({
         name,
         prompt,
         sessionType,
-        agentOptions: normalizeAgentOptions(sessionType, agentOptions),
+        agentOptions: snapshotAgentOptions(sessionType, agentOptions),
         standalone: standalone || undefined,
     });
     const hasChanges = initialSnapshot !== currentSnapshot;

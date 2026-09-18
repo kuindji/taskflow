@@ -55,3 +55,19 @@ describe("normalizeAgentOptions legacy data tolerance", () => {
         });
     });
 });
+
+describe("normalizeAgentOptions accounts", () => {
+    it("keeps the account for Claude and Codex", () => {
+        expect(normalizeAgentOptions("claude", { type: "claude", account: "a1" })).toMatchObject({
+            account: "a1",
+        });
+        expect(normalizeAgentOptions("codex", { type: "codex", account: "default" })).toMatchObject(
+            { account: "default" },
+        );
+    });
+
+    it("leaves account undefined when inheriting", () => {
+        const normalized = normalizeAgentOptions("codex", { type: "codex" });
+        expect(normalized?.type === "codex" ? normalized.account : "wrong").toBeUndefined();
+    });
+});

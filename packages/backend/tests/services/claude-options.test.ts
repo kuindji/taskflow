@@ -63,4 +63,20 @@ describe("normalizeClaudeLaunchOptions", () => {
         );
         expect(() => normalizeClaudeLaunchOptions({ type: "claude", model: 42 })).toThrow("model");
     });
+
+    it("keeps a trimmed account and drops an empty one", () => {
+        expect(normalizeClaudeLaunchOptions({ type: "claude", account: " work " })).toEqual({
+            type: "claude",
+            account: "work",
+        });
+        expect(normalizeClaudeLaunchOptions({ type: "claude", account: "" })).toEqual({
+            type: "claude",
+        });
+    });
+
+    it("rejects a non-string account", () => {
+        expect(() => normalizeClaudeLaunchOptions({ type: "claude", account: 3 })).toThrow(
+            'Claude option "account" must be a string',
+        );
+    });
 });

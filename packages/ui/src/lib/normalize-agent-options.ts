@@ -30,6 +30,7 @@ function normalizeAgentOptions(
                         : undefined),
                 model: agentOptions.model,
                 effort: agentOptions.effort,
+                account: agentOptions.account,
             };
         }
         case "codex":
@@ -42,6 +43,7 @@ function normalizeAgentOptions(
                 approvalPolicy: agentOptions.approvalPolicy,
                 dangerouslyBypassApprovalsAndSandbox:
                     agentOptions.dangerouslyBypassApprovalsAndSandbox || undefined,
+                account: agentOptions.account,
             };
         case "opencode":
             if (agentOptions.type !== "opencode") return undefined;

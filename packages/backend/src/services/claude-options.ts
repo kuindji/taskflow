@@ -59,6 +59,14 @@ function normalizeClaudeLaunchOptions(value: unknown): ClaudeLaunchOptions | und
         result.effort = value.effort;
     }
 
+    if (value.account !== undefined) {
+        if (typeof value.account !== "string") {
+            throw new Error('Claude option "account" must be a string');
+        }
+        const account = value.account.trim();
+        if (account) result.account = account;
+    }
+
     return result;
 }
 
