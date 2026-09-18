@@ -4,6 +4,7 @@ import {
     ACCOUNT_AGENT_TYPES,
     AGENT_DISPLAY_NAMES,
     DEFAULT_AGENT_ACCOUNT_ID,
+    INHERIT_AGENT_ACCOUNT,
     isAccountAgentType,
 } from "@taskflow/shared";
 import type { AccountAgentType, AgentLaunchOptions, AppSettings, Project } from "@taskflow/shared";
@@ -119,7 +120,13 @@ function mergeProjectAgentAccounts(
         if (value === null) {
             merged[key] = null;
         } else if (typeof value === "string" && value.trim()) {
-            merged[key] = value.trim();
+            const trimmed = value.trim();
+            if (trimmed.toLowerCase() === INHERIT_AGENT_ACCOUNT) {
+                throw new Error(
+                    `agentAccounts.${key} must not be "inherit"; send null to clear the override`,
+                );
+            }
+            merged[key] = trimmed;
         } else {
             throw new Error(`agentAccounts.${key} must be a non-empty string or null`);
         }

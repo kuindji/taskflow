@@ -103,4 +103,34 @@ describe("project handlers", () => {
             payload: { orderedIds: [b.id, a.id] },
         });
     });
+
+    it("sets, pins and clears per-agent project accounts", async () => {
+        const dir = await createProjectDir("accounts");
+        const project = (await router.handle(MSG.PROJECT_ADD, { path: dir })) as { id: string };
+
+        const set = (await router.handle(MSG.PROJECT_UPDATE, {
+            id: project.id,
+            agentAccounts: { claude: "c-work", codex: "default" },
+        })) as { agentAccounts?: Record<string, string> };
+        expect(set.agentAccounts).toEqual({ claude: "c-work", codex: "default" });
+
+        const cleared = (await router.handle(MSG.PROJECT_UPDATE, {
+            id: project.id,
+            agentAccounts: { claude: null },
+        })) as { agentAccounts?: Record<string, string> };
+        expect(cleared.agentAccounts).toEqual({ codex: "default" });
+
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
+        await expect(
+            router.handle(MSG.PROJECT_UPDATE, { id: project.id, agentAccounts: { pi: "x" } }),
+        ).rejects.toThrow('agentAccounts does not support agent "pi"');
+
+        // eslint-disable-next-line @typescript-eslint/await-thenable -- bun:test .rejects.toThrow() returns a Promise at runtime
+        await expect(
+            router.handle(MSG.PROJECT_UPDATE, {
+                id: project.id,
+                agentAccounts: { claude: "inherit" },
+            }),
+        ).rejects.toThrow();
+    });
 });

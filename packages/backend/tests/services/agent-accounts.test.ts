@@ -201,5 +201,7 @@ describe("mergeProjectAgentAccounts", () => {
         expect(() => mergeProjectAgentAccounts(undefined, { opencode: "a" })).toThrow();
         expect(() => mergeProjectAgentAccounts(undefined, { claude: 5 })).toThrow();
         expect(() => mergeProjectAgentAccounts(undefined, { claude: "  " })).toThrow();
+        expect(() => mergeProjectAgentAccounts(undefined, { claude: "inherit" })).toThrow();
+        expect(() => mergeProjectAgentAccounts(undefined, { claude: "Inherit" })).toThrow();
     });
 });

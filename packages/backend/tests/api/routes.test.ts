@@ -561,3 +561,89 @@ describe("project reorder routes", () => {
         expect(res?.status).toBe(400);
     });
 });
+
+describe("project update routes", () => {
+    let apiRouter: ApiRouter;
+    let tempDir: string;
+    let taskStore: TaskStore;
+    let events: WsEvent[];
+    let projectId: string;
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-project-update-"));
+        apiRouter = new ApiRouter();
+        events = [];
+        taskStore = new TaskStore({
+            projectsFile: join(tempDir, "projects.json"),
+            tasksDir: join(tempDir, "tasks"),
+            archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
+        });
+        await taskStore.init();
+
+        const projectPath = await realpath(
+            await mkdir(join(tempDir, "project"), { recursive: true }).then(() =>
+                join(tempDir, "project"),
+            ),
+        );
+        const project = await taskStore.addProject({ name: "project", path: projectPath });
+        projectId = project.id;
+
+        registerApiRoutes({
+            apiRouter,
+            taskStore,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: (event) => {
+                events.push(event);
+            },
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
+            agents: [],
+            ...sharedTestDeps,
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("PATCH /api/projects/:id sets agentAccounts", async () => {
+        const res = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ agentAccounts: { codex: "x-work" } }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(res?.status).toBe(200);
+        const body = (await res?.json()) as { agentAccounts?: Record<string, string> };
+        expect(body.agentAccounts).toEqual({ codex: "x-work" });
+    });
+
+    it("PATCH /api/projects/:id returns 400 for an invalid agentAccounts shape", async () => {
+        const res = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ agentAccounts: "bad" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(res?.status).toBe(400);
+    });
+
+    it("PATCH /api/projects/:id returns 400 for the inherit sentinel", async () => {
+        const res = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ agentAccounts: { claude: "inherit" } }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        expect(res?.status).toBe(400);
+    });
+});

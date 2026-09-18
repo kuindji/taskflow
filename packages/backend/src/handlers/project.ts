@@ -16,6 +16,7 @@ import { stat, rm } from "fs/promises";
 import { dirname, join } from "path";
 import { filterProjectSessions } from "../services/instance-filter";
 import { config } from "../config";
+import { mergeProjectAgentAccounts } from "../services/agent-accounts";
 
 function slugify(branch: string): string {
     return branch
@@ -68,28 +69,44 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_UPDATE, async (payload) => {
-        const { id, name, path, hidden, defaultInitCommand, prompt, linkedProjects } =
-            payload as ProjectUpdatePayload;
+        const {
+            id,
+            name,
+            path,
+            hidden,
+            defaultInitCommand,
+            prompt,
+            linkedProjects,
+            agentAccounts,
+        } = payload as ProjectUpdatePayload;
         const hasDefaultInitCommand = Object.prototype.hasOwnProperty.call(
             payload,
             "defaultInitCommand",
         );
         const hasPrompt = Object.prototype.hasOwnProperty.call(payload, "prompt");
         const hasLinkedProjects = Object.prototype.hasOwnProperty.call(payload, "linkedProjects");
+        const hasAgentAccounts = agentAccounts !== undefined;
         if (
             !name &&
             !path &&
             hidden === undefined &&
             !hasDefaultInitCommand &&
             !hasPrompt &&
-            !hasLinkedProjects
+            !hasLinkedProjects &&
+            !hasAgentAccounts
         ) {
             throw new Error("At least one updatable field must be provided");
         }
         const updates: Partial<
             Pick<
                 Project,
-                "name" | "path" | "hidden" | "defaultInitCommand" | "prompt" | "linkedProjects"
+                | "name"
+                | "path"
+                | "hidden"
+                | "defaultInitCommand"
+                | "prompt"
+                | "linkedProjects"
+                | "agentAccounts"
             >
         > = {};
         if (name) updates.name = name;
@@ -104,6 +121,11 @@ export function registerProjectHandlers(
         }
         if (hasLinkedProjects) {
             updates.linkedProjects = linkedProjects;
+        }
+        if (hasAgentAccounts) {
+            const current = await store.getProject(id);
+            if (!current) throw new Error(`Project not found: ${id}`);
+            updates.agentAccounts = mergeProjectAgentAccounts(current.agentAccounts, agentAccounts);
         }
         const updated = await store.updateProject(id, updates);
         if (path) {

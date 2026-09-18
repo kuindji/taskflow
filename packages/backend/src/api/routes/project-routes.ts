@@ -8,6 +8,7 @@ import { MSG } from "@taskflow/shared";
 import { filterProjectSessions } from "../../services/instance-filter";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
+import { mergeProjectAgentAccounts } from "../../services/agent-accounts";
 
 interface ProjectRouteDeps {
     apiRouter: ApiRouter;
@@ -149,7 +150,13 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         const updates: Partial<
             Pick<
                 Project,
-                "name" | "path" | "hidden" | "defaultInitCommand" | "prompt" | "linkedProjects"
+                | "name"
+                | "path"
+                | "hidden"
+                | "defaultInitCommand"
+                | "prompt"
+                | "linkedProjects"
+                | "agentAccounts"
             >
         > = {};
         if (typeof body.name === "string") updates.name = body.name;
@@ -166,6 +173,21 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             updates.linkedProjects = Array.isArray(body.linkedProjects)
                 ? body.linkedProjects
                 : undefined;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "agentAccounts")) {
+            const current = await taskStore.getProject(params.id);
+            if (!current) return errorResponse(`Project not found: ${params.id}`, 404);
+            try {
+                updates.agentAccounts = mergeProjectAgentAccounts(
+                    current.agentAccounts,
+                    body.agentAccounts,
+                );
+            } catch (err) {
+                return errorResponse(
+                    err instanceof Error ? err.message : "Invalid agentAccounts",
+                    400,
+                );
+            }
         }
 
         if (Object.keys(updates).length === 0) {
