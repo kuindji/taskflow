@@ -1,4 +1,4 @@
-import { MSG, isAgentType, backendHttpOrigin } from "@taskflow/shared";
+import { MSG, isAccountAgentType, isAgentType, backendHttpOrigin } from "@taskflow/shared";
 import type {
     AgentLaunchOptions,
     AgentType,
@@ -27,6 +27,7 @@ import {
     captureNativeSessionIds,
     discoverNativeSessionId,
 } from "./native-session-discovery";
+import { accountEnv, resolveAgentAccount, resumeAccountOverride } from "./agent-accounts";
 
 interface SessionOwner {
     taskId?: string;
@@ -164,7 +165,7 @@ function mergeAgentOptions(
     }
 }
 
-function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
+function getBaseSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "claude") return "Claude";
     if (type === "codex") return "Codex";
     if (type === "opencode") return "OpenCode";
@@ -172,6 +173,14 @@ function getDefaultSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "kimi") return "Kimi";
     if (type === "editor") return "Editor";
     return `${type} session`;
+}
+
+function getDefaultSessionLabel(
+    type: CreateSessionOpts["type"],
+    accountName?: string | null,
+): string {
+    const base = getBaseSessionLabel(type);
+    return accountName ? `${base} · ${accountName}` : base;
 }
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
@@ -342,6 +351,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let specInitialInput: string | undefined;
         let shellSystemPrompt: string | undefined;
         let effectiveAgentOptions: AgentLaunchOptions | undefined;
+        let accountHomeDir: string | undefined;
+        let accountName: string | null = null;
+        let accountSpawnEnv: Record<string, string> = {};
         if (type === "editor") {
             if (!editorId || !filePath) {
                 throw new Error("editorId and filePath are required for editor sessions");
@@ -384,6 +396,27 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined,
                 );
                 effectiveAgentOptions = resolvedAgentOptions;
+                if (isAccountAgentType(type)) {
+                    if (opts.resumeSession) {
+                        // The home dir saved at launch wins, so a session still
+                        // resumes after its account was removed from settings.
+                        accountHomeDir = opts.resumeSession.agentHomeDir;
+                        accountSpawnEnv = accountEnv(
+                            type,
+                            resumeAccountOverride(type, accountHomeDir),
+                        );
+                    } else {
+                        const account = resolveAgentAccount(
+                            type,
+                            resolvedAgentOptions,
+                            project,
+                            settings,
+                        );
+                        accountHomeDir = account.effectiveHomeDir;
+                        accountName = account.accountName;
+                        accountSpawnEnv = accountEnv(type, account.override);
+                    }
+                }
                 if (isAutonomousAgent(resolvedAgentOptions, type)) {
                     effectiveSystemPrompt = effectiveSystemPrompt
                         ? `${effectiveSystemPrompt}\n\n${PROMPT_AUTONOMOUS}`
@@ -476,12 +509,16 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         let appendErrorLogged = false;
         const needsNativeDiscovery = !opts.resumeSession && isAgentType(type) && type !== "claude";
         const releaseNativeLaunchLock = needsNativeDiscovery
-            ? await nativeSessionDiscovery.acquire(type)
+            ? await nativeSessionDiscovery.acquire(type, accountHomeDir)
             : null;
         let nativeSessionBaseline = new Set<string>();
         try {
             if (needsNativeDiscovery) {
-                nativeSessionBaseline = await nativeSessionDiscovery.capture(type, cwd);
+                nativeSessionBaseline = await nativeSessionDiscovery.capture(
+                    type,
+                    cwd,
+                    accountHomeDir,
+                );
             }
         } catch (error) {
             await releaseNativeLaunchLock?.();
@@ -495,7 +532,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 command,
                 args,
                 cwd,
-                env: specEnv ? { ...taskflowEnv, ...specEnv } : taskflowEnv,
+                env: { ...taskflowEnv, ...specEnv, ...accountSpawnEnv },
                 initialInput: specInitialInput,
                 ...(opts.resumeSession && {
                     initialOutput: priorHistory.data,
@@ -569,13 +606,17 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             const sessionRef: SessionRef = {
                 id: sessionId,
                 type,
-                label: opts.label ?? opts.resumeSession?.label ?? getDefaultSessionLabel(type),
+                label:
+                    opts.label ??
+                    opts.resumeSession?.label ??
+                    getDefaultSessionLabel(type, accountName),
                 createdAt: opts.resumeSession?.createdAt ?? new Date().toISOString(),
                 instance: config.instanceId,
                 bootId: config.bootId,
                 state: "live",
                 cwd,
                 ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
+                ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
                 ...(opts.resumeSession?.nativeSessionId
                     ? { nativeSessionId: opts.resumeSession.nativeSessionId }
                     : type === "claude"
@@ -636,7 +677,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         if (needsNativeDiscovery && releaseNativeLaunchLock) {
             void nativeSessionDiscovery
-                .discover(type, cwd, nativeSessionBaseline, nativeDiscoveryStartedAt)
+                .discover(
+                    type,
+                    cwd,
+                    nativeSessionBaseline,
+                    nativeDiscoveryStartedAt,
+                    accountHomeDir,
+                )
                 .then(async (nativeSessionId) => {
                     if (!nativeSessionId || !ptyManager.has(sessionId)) return;
                     if (master) {

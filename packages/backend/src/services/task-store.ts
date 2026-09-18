@@ -549,6 +549,7 @@ export class TaskStore {
                       | "prompt"
                       | "linkedProjects"
                       | "attributes"
+                      | "agentAccounts"
                   >
               >
             | ((
@@ -564,6 +565,7 @@ export class TaskStore {
                       | "prompt"
                       | "linkedProjects"
                       | "attributes"
+                      | "agentAccounts"
                   >
               >),
     ): Promise<Project> {

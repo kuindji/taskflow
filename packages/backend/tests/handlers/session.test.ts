@@ -16,6 +16,7 @@ import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 import { SettingsStore } from "../../src/services/settings-store";
 import { config } from "../../src/config";
+import { inheritedAgentHome } from "../../src/services/agent-accounts";
 
 class FakePtyManager {
     private nextId = 0;
@@ -30,6 +31,7 @@ class FakePtyManager {
         cwd?: string;
         command?: string;
         args?: string[];
+        env?: Record<string, string>;
         initialOutput?: string;
         startSequence?: number;
         cols?: number;
@@ -41,6 +43,7 @@ class FakePtyManager {
         cwd?: string;
         command?: string;
         args?: string[];
+        env?: Record<string, string>;
         initialOutput?: string;
         startSequence?: number;
         cols?: number;
@@ -56,6 +59,7 @@ class FakePtyManager {
             cwd: options.cwd,
             command: options.command,
             args: options.args,
+            env: options.env,
             initialOutput: options.initialOutput,
             startSequence: options.startSequence,
             cols: options.cols,
@@ -105,6 +109,7 @@ describe("session handlers", () => {
     let projectId: string;
     let ptyManager: FakePtyManager;
     let events: { type: string; payload: unknown }[];
+    let discoveryHomes: Array<string | undefined>;
     let settingsStore: SettingsStore;
     let sessionLifecycle: ReturnType<typeof createSessionLifecycle>;
 
@@ -122,6 +127,7 @@ describe("session handlers", () => {
         router = new TestRouter();
         ptyManager = new FakePtyManager();
         events = [];
+        discoveryHomes = [];
 
         registerProjectHandlers(router, store, new GitService());
         registerTaskHandlers({
@@ -144,7 +150,10 @@ describe("session handlers", () => {
             detectedEditors: [],
             trayStateTracker: new TrayStateTracker(),
             nativeSessionDiscovery: {
-                acquire: async () => async () => {},
+                acquire: async (_type, homeDir) => {
+                    discoveryHomes.push(homeDir);
+                    return async () => {};
+                },
                 capture: async () => new Set<string>(),
                 discover: async () => null,
             },
@@ -165,6 +174,16 @@ describe("session handlers", () => {
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
     });
+
+    /** Spawn records reduced to the fields these tests pin exactly. */
+    function spawnIdentities(): Array<{
+        id: string;
+        cwd?: string;
+        command?: string;
+        args?: string[];
+    }> {
+        return ptyManager.spawns.map(({ id, cwd, command, args }) => ({ id, cwd, command, args }));
+    }
 
     it("preserves both session refs when sessions are created concurrently", async () => {
         const task = (await router.handle(MSG.TASK_CREATE, {
@@ -231,7 +250,7 @@ describe("session handlers", () => {
             shell: testShell,
         })) as { sessionId: string };
 
-        expect(ptyManager.spawns).toContainEqual({
+        expect(spawnIdentities()).toContainEqual({
             id: created.sessionId,
             cwd: join(tempDir, "project", ".worktrees", "task"),
             command: testShell,
@@ -292,7 +311,7 @@ describe("session handlers", () => {
             shell: testShell,
         })) as { sessionId: string };
 
-        expect(ptyManager.spawns).toContainEqual({
+        expect(spawnIdentities()).toContainEqual({
             id: created.sessionId,
             cwd: config.baseDir,
             command: testShell,
@@ -460,5 +479,97 @@ describe("session handlers", () => {
         expect(updated?.sessions[0].state).toBe("live");
         expect(updated?.sessions[0].nativeSessionId).toBe("native-session");
         expect(updated?.sessions[0].bootId).toBe(config.bootId);
+    });
+
+    async function addAccounts(): Promise<void> {
+        await settingsStore.update({
+            claude: { accounts: [{ id: "c-work", name: "work", homeDir: "/homes/claude-work" }] },
+            codex: { accounts: [{ id: "x-work", name: "work", homeDir: "/homes/codex-work" }] },
+        });
+    }
+
+    it("launches Claude with the chosen account's config dir and records it", async () => {
+        await addAccounts();
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "claude",
+            agentOptions: { type: "claude", account: "c-work" },
+        });
+
+        const spawn = ptyManager.spawns.at(-1)!;
+        expect(spawn.env?.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
+        const project = await store.getProject(projectId);
+        expect(project?.sessions.at(-1)?.agentHomeDir).toBe("/homes/claude-work");
+        expect(project?.sessions.at(-1)?.agentOptions).toMatchObject({ account: "c-work" });
+        expect(project?.sessions.at(-1)?.label).toBe("Claude · work");
+    });
+
+    it("uses the project account and lets an explicit default override it", async () => {
+        await addAccounts();
+        await store.updateProject(projectId, { agentAccounts: { codex: "x-work" } });
+
+        await router.handle(MSG.SESSION_CREATE, { projectId, type: "codex" });
+        expect(ptyManager.spawns.at(-1)?.env?.CODEX_HOME).toBe("/homes/codex-work");
+        expect(discoveryHomes.at(-1)).toBe("/homes/codex-work");
+
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+            agentOptions: { type: "codex", account: "default" },
+        });
+        expect(ptyManager.spawns.at(-1)?.env?.CODEX_HOME).toBeUndefined();
+        const project = await store.getProject(projectId);
+        expect(project?.sessions.at(-1)?.agentHomeDir).toBe(inheritedAgentHome("codex"));
+        expect(project?.sessions.at(-1)?.label).toBe("Codex");
+    });
+
+    it("fails the launch for an unknown account without spawning", async () => {
+        const before = ptyManager.spawns.length;
+        let error: unknown;
+        try {
+            await router.handle(MSG.SESSION_CREATE, {
+                projectId,
+                type: "claude",
+                agentOptions: { type: "claude", account: "missing" },
+            });
+        } catch (caught) {
+            error = caught;
+        }
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('Unknown Claude account "missing"');
+        expect(ptyManager.spawns.length).toBe(before);
+    });
+
+    it("resumes with the saved home dir even after the account is deleted", async () => {
+        const task = (await router.handle(MSG.TASK_CREATE, {
+            projectId,
+            title: "Task",
+        })) as { id: string };
+        const project = await store.getProject(projectId);
+        await store.updateTask(task.id, {
+            sessions: [
+                {
+                    id: "resumable",
+                    type: "codex",
+                    label: "Codex · work",
+                    createdAt: new Date().toISOString(),
+                    instance: config.instanceId,
+                    bootId: "previous-boot",
+                    state: "interrupted",
+                    nativeSessionId: "native",
+                    cwd: project!.path,
+                    agentOptions: { type: "codex", account: "x-deleted" },
+                    agentHomeDir: "/homes/codex-old",
+                },
+            ],
+        });
+
+        await router.handle(MSG.SESSION_RESUME, { sessionId: "resumable" });
+
+        const spawn = ptyManager.spawns.at(-1)!;
+        expect(spawn.env?.CODEX_HOME).toBe("/homes/codex-old");
+        const updated = await store.getTask(task.id);
+        expect(updated?.sessions[0].agentHomeDir).toBe("/homes/codex-old");
+        expect(updated?.sessions[0].label).toBe("Codex · work");
     });
 });

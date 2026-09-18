@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { mkdir, readdir, readFile, rm, stat } from "fs/promises";
@@ -43,8 +44,11 @@ async function recentFiles(root: string, since: number, depth = 0): Promise<stri
     return files;
 }
 
-async function codexCandidates(since: number): Promise<NativeSessionCandidate[]> {
-    const files = await recentFiles(join(homedir(), ".codex", "sessions"), since);
+async function codexCandidates(
+    since: number,
+    home = join(homedir(), ".codex"),
+): Promise<NativeSessionCandidate[]> {
+    const files = await recentFiles(join(home, "sessions"), since);
     const candidates: NativeSessionCandidate[] = [];
     for (const file of files.filter((path) => path.endsWith(".jsonl"))) {
         try {
@@ -129,16 +133,28 @@ async function kimiCandidates(since: number): Promise<NativeSessionCandidate[]> 
     return [...byId.values()];
 }
 
-async function candidatesFor(type: AgentType, since: number): Promise<NativeSessionCandidate[]> {
-    if (type === "codex") return codexCandidates(since);
+async function candidatesFor(
+    type: AgentType,
+    since: number,
+    homeDir?: string,
+): Promise<NativeSessionCandidate[]> {
+    if (type === "codex") return codexCandidates(since, homeDir);
     if (type === "opencode") return openCodeCandidates(since);
     if (type === "pi") return piCandidates(since);
     if (type === "kimi") return kimiCandidates(since);
     return [];
 }
 
-async function acquireNativeSessionLaunchLock(type: AgentType): Promise<() => Promise<void>> {
-    const lockPath = join(tmpdir(), `taskflow-native-session-launch-${type}.lock`);
+async function acquireNativeSessionLaunchLock(
+    type: AgentType,
+    homeDir?: string,
+): Promise<() => Promise<void>> {
+    // Accounts have their own session stores, so their launches never race; keying
+    // the lock by home dir lets two accounts of the same agent start concurrently.
+    const homeKey = homeDir
+        ? `-${createHash("sha256").update(homeDir).digest("hex").slice(0, 12)}`
+        : "";
+    const lockPath = join(tmpdir(), `taskflow-native-session-launch-${type}${homeKey}.lock`);
     const deadline = Date.now() + LAUNCH_LOCK_TIMEOUT_MS;
     while (Date.now() < deadline) {
         try {
@@ -166,11 +182,12 @@ async function discoverNativeSessionId(
     cwd: string,
     baselineIds: ReadonlySet<string>,
     startedAt: number,
+    homeDir?: string,
 ): Promise<string | null> {
     const since = startedAt - 2_000;
     const deadline = Date.now() + DISCOVERY_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const recent = await candidatesFor(type, since);
+        const recent = await candidatesFor(type, since, homeDir);
         const cwdMatches = recent.filter((candidate) => !candidate.cwd || candidate.cwd === cwd);
         const unique = [
             ...new Set(
@@ -184,8 +201,12 @@ async function discoverNativeSessionId(
     return null;
 }
 
-async function captureNativeSessionIds(type: AgentType, cwd: string): Promise<Set<string>> {
-    const existing = await candidatesFor(type, 0);
+async function captureNativeSessionIds(
+    type: AgentType,
+    cwd: string,
+    homeDir?: string,
+): Promise<Set<string>> {
+    const existing = await candidatesFor(type, 0, homeDir);
     return new Set(
         existing
             .filter((candidate) => !candidate.cwd || candidate.cwd === cwd)
