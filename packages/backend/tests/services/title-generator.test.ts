@@ -6,7 +6,7 @@ import { MSG } from "@taskflow/shared";
 import { TaskStore } from "../../src/services/task-store";
 import { createTitleGenerator } from "../../src/services/title-generator";
 import { createWorktreeSetup } from "../../src/services/worktree-setup";
-import { SettingsStore } from "../../src/services/settings-store";
+import type { BuiltinActionRunner } from "../../src/services/builtin-action-runner";
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
@@ -17,23 +17,13 @@ class FakeGitService {
     }
 }
 
-function makeSpawnResult(output: string, exitCode = 0) {
-    const encoder = new TextEncoder();
-    const stdout = new ReadableStream({
-        start(controller) {
-            controller.enqueue(encoder.encode(output));
-            controller.close();
-        },
-    });
-
+function runnerReturning(result: string | Error, seen: unknown[] = []): BuiltinActionRunner {
     return {
-        stdin: {
-            write() {},
-            end() {},
+        runHeadless: async (id, vars, context) => {
+            seen.push({ id, vars, context });
+            if (result instanceof Error) throw result;
+            return result;
         },
-        stdout,
-        stderr: new ReadableStream(),
-        exited: Promise.resolve(exitCode),
     };
 }
 
@@ -43,8 +33,6 @@ describe("title generator", () => {
     let projectPath: string;
     let gitService: FakeGitService;
     let events: Array<{ type: string; payload: unknown }>;
-    let originalSpawn: typeof Bun.spawn;
-    let settingsStore: SettingsStore;
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-title-test-"));
@@ -62,19 +50,13 @@ describe("title generator", () => {
         await mkdir(projectPath, { recursive: true });
         gitService = new FakeGitService();
         events = [];
-        originalSpawn = Bun.spawn;
-        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
     });
 
     afterEach(async () => {
-        Bun.spawn = originalSpawn;
         await rm(tempDir, { recursive: true, force: true });
     });
 
     it("updates the title and provisions a pending worktree task", async () => {
-        Bun.spawn = (() =>
-            makeSpawnResult("Fix flaky worktree detection\n")) as unknown as typeof Bun.spawn;
-
         const project = await store.addProject({ name: "project", path: projectPath });
         const task = await store.createTask({
             projectId: project.id,
@@ -97,7 +79,7 @@ describe("title generator", () => {
             taskStore: store,
             broadcast,
             createWorktree: worktreeSetup.createWorktreeForTask,
-            settingsStore,
+            builtinActionRunner: runnerReturning("Fix flaky worktree detection"),
         });
 
         await generator.generate(task.id, task.description);
@@ -121,8 +103,6 @@ describe("title generator", () => {
     });
 
     it("updates the title without creating a worktree for non-worktree tasks", async () => {
-        Bun.spawn = (() => makeSpawnResult("Refine task copy\n")) as unknown as typeof Bun.spawn;
-
         const project = await store.addProject({ name: "project", path: projectPath });
         const task = await store.createTask({
             projectId: project.id,
@@ -135,7 +115,7 @@ describe("title generator", () => {
             broadcast: (event) => {
                 events.push(event);
             },
-            settingsStore,
+            builtinActionRunner: runnerReturning("Refine task copy"),
         });
 
         await generator.generate(task.id, task.description);
@@ -148,8 +128,6 @@ describe("title generator", () => {
     });
 
     it("creates worktree using description fallback when title generation fails", async () => {
-        Bun.spawn = (() => makeSpawnResult("", 1)) as unknown as typeof Bun.spawn;
-
         const project = await store.addProject({ name: "project", path: projectPath });
         const task = await store.createTask({
             projectId: project.id,
@@ -172,7 +150,7 @@ describe("title generator", () => {
             taskStore: store,
             broadcast,
             createWorktree: worktreeSetup.createWorktreeForTask,
-            settingsStore,
+            builtinActionRunner: runnerReturning(new Error("exit 1")),
         });
 
         await generator.generate(task.id, task.description);
@@ -190,32 +168,41 @@ describe("title generator", () => {
         expect(gitService.createdWorktrees.length).toBe(1);
     });
 
-    it("runs title generation under the task project's Claude account", async () => {
-        let spawnEnv: Record<string, string | undefined> | undefined;
-        Bun.spawn = ((_cmd: string[], options: { env?: Record<string, string | undefined> }) => {
-            spawnEnv = options.env;
-            return makeSpawnResult("Title\n");
-        }) as unknown as typeof Bun.spawn;
-
-        await settingsStore.update({
-            claude: { accounts: [{ id: "c-work", name: "work", homeDir: "/homes/claude-work" }] },
-        });
+    it("asks the title built-in with the description and the task's project", async () => {
         const project = await store.addProject({ name: "project", path: projectPath });
-        await store.updateProject(project.id, { agentAccounts: { claude: "c-work" } });
         const task = await store.createTask({
             projectId: project.id,
             title: "",
             description: "d",
             worktree: { enabled: false, path: null, branch: null, pr: null },
         });
+        const seen: unknown[] = [];
 
         const generator = createTitleGenerator({
             taskStore: store,
             broadcast: () => {},
-            settingsStore,
+            builtinActionRunner: runnerReturning("Title", seen),
         });
         await generator.generate(task.id, "d");
 
-        expect(spawnEnv?.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
+        expect(seen).toEqual([
+            {
+                id: "builtin:task-title",
+                vars: { description: "d" },
+                context: { project: await store.getProject(project.id) },
+            },
+        ]);
+    });
+
+    it("strips surrounding quotes from the generated title", async () => {
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const task = await store.createTask({ projectId: project.id, title: "", description: "d" });
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast: () => {},
+            builtinActionRunner: runnerReturning('"Quoted title"'),
+        });
+        await generator.generate(task.id, "d");
+        expect((await store.getTask(task.id))?.title).toBe("Quoted title");
     });
 });

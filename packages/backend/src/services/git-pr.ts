@@ -73,7 +73,7 @@ async function generateCommitMessage(
     gitService: GitService,
     repoPath: string,
     includeUnstaged: boolean,
-    env: Record<string, string | undefined>,
+    generate: (diff: string) => Promise<string>,
 ): Promise<string> {
     const diffResult = await gitService.diff(repoPath);
     const files = includeUnstaged ? diffResult.files : diffResult.files.filter((f) => f.staged);
@@ -82,29 +82,11 @@ async function generateCommitMessage(
         throw new Error("No changes to commit");
     }
 
-    const prompt = [
-        "Generate a concise git commit message for the following changes.",
-        "Output ONLY the commit message — no explanation, no markdown, no quotes.",
-        "Use conventional commit format (e.g. feat:, fix:, refactor:).",
-        "",
-        diffText,
-    ].join("\n");
-
-    const proc = Bun.spawn(["claude", "-p", prompt], {
-        cwd: repoPath,
-        stdout: "pipe",
-        stderr: "pipe",
-        env,
-    });
-    const [stdout, , exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-    ]);
-    if (exitCode !== 0 || !stdout.trim()) {
+    try {
+        return await generate(diffText);
+    } catch {
         throw new Error("Failed to generate commit message");
     }
-    return stdout.trim();
 }
 
 export { commit, createPr, checkBranchPr, generateCommitMessage };

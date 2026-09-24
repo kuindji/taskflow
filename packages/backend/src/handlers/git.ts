@@ -23,7 +23,7 @@ import type { Router } from "../ws/router";
 import type { GitService } from "../services/git-service";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
-import type { SettingsStore } from "../services/settings-store";
+import type { BuiltinActionRunner } from "../services/builtin-action-runner";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 import {
@@ -32,14 +32,13 @@ import {
     assertWorktreePath,
     findProjectForPath,
 } from "../utils/path-validation";
-import { headlessClaudeEnv } from "../services/agent-accounts";
 
 interface GitHandlerDeps {
     router: Router;
     git: GitService;
     taskStore: TaskStore;
     broadcast: (message: { type: string; payload: unknown }) => void;
-    settingsStore: SettingsStore;
+    builtinActionRunner: BuiltinActionRunner;
     changeTracker?: ChangeTracker;
 }
 
@@ -53,7 +52,7 @@ function assertCommitHash(hash: string): string {
 }
 
 export function registerGitHandlers(deps: GitHandlerDeps): void {
-    const { router, git, taskStore, broadcast, settingsStore, changeTracker } = deps;
+    const { router, git, taskStore, broadcast, builtinActionRunner, changeTracker } = deps;
 
     router.register(MSG.GIT_STATUS, async (payload) => {
         const { path } = payload as GitStatusPayload;
@@ -189,8 +188,13 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const { path, includeUnstaged } = payload as GitGenerateCommitMsgPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
         const project = await findProjectForPath(taskStore, repoPath);
-        const env = headlessClaudeEnv(await settingsStore.get(), project);
-        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true, env);
+        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true, (diff) =>
+            builtinActionRunner.runHeadless(
+                "builtin:commit-message",
+                { diff },
+                { cwd: repoPath, project },
+            ),
+        );
         return { message };
     });
 

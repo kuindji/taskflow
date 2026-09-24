@@ -493,9 +493,9 @@ export class GitService {
     async generateCommitMessage(
         repoPath: string,
         includeUnstaged: boolean,
-        env: Record<string, string | undefined>,
+        generate: (diff: string) => Promise<string>,
     ): Promise<string> {
-        return generateCommitMessageImpl(this, repoPath, includeUnstaged, env);
+        return generateCommitMessageImpl(this, repoPath, includeUnstaged, generate);
     }
 
     async getRemoteUrl(repoPath: string): Promise<string | null> {

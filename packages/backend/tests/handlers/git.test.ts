@@ -7,7 +7,6 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import type { GitService } from "../../src/services/git-service";
-import { SettingsStore } from "../../src/services/settings-store";
 
 class FakeGitService {
     statusCalls: string[] = [];
@@ -20,7 +19,7 @@ class FakeGitService {
         path: string;
         previousPath?: string;
     }> = [];
-    commitMessageCalls: Array<{ repoPath: string; env: Record<string, string | undefined> }> = [];
+    commitMessageCalls: Array<{ repoPath: string; generated: string }> = [];
 
     async status(repoPath: string) {
         this.statusCalls.push(repoPath);
@@ -49,10 +48,11 @@ class FakeGitService {
     async generateCommitMessage(
         repoPath: string,
         _includeUnstaged: boolean,
-        env: Record<string, string | undefined>,
+        generate: (diff: string) => Promise<string>,
     ) {
-        this.commitMessageCalls.push({ repoPath, env });
-        return "feat: x";
+        const generated = await generate("DIFF");
+        this.commitMessageCalls.push({ repoPath, generated });
+        return generated;
     }
 }
 
@@ -72,7 +72,7 @@ describe("git handlers", () => {
     let projectPath: string;
     let worktreePath: string;
     let git: FakeGitService;
-    let settingsStore: SettingsStore;
+    let runnerCalls: unknown[];
     let projectId: string;
 
     beforeEach(async () => {
@@ -107,13 +107,18 @@ describe("git handlers", () => {
 
         router = new TestRouter();
         git = new FakeGitService();
-        settingsStore = new SettingsStore(join(tempDir, "settings.json"));
+        runnerCalls = [];
         registerGitHandlers({
             router,
             git: git as unknown as GitService,
             taskStore: store,
             broadcast: () => {},
-            settingsStore,
+            builtinActionRunner: {
+                runHeadless: async (id, vars, context) => {
+                    runnerCalls.push({ id, vars, context });
+                    return "feat: generated";
+                },
+            },
         });
     });
 
@@ -240,16 +245,18 @@ describe("git handlers", () => {
         expect(git.commitDiffFileCalls).toEqual([]);
     });
 
-    it("generates commit messages under the project's Claude account", async () => {
-        await settingsStore.update({
-            claude: { accounts: [{ id: "c-work", name: "work", homeDir: "/homes/claude-work" }] },
-        });
-        await store.updateProject(projectId, { agentAccounts: { claude: "c-work" } });
+    it("generates commit messages through the built-in, in the repo, for its project", async () => {
+        const result = (await router.handle(MSG.GIT_GENERATE_COMMIT_MSG, {
+            path: worktreePath,
+        })) as { message: string };
 
-        await router.handle(MSG.GIT_GENERATE_COMMIT_MSG, { path: worktreePath });
-
-        const call = git.commitMessageCalls.at(-1)!;
-        expect(call.env.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
-        expect(call.env.CLAUDECODE).toBeUndefined();
+        expect(result.message).toBe("feat: generated");
+        expect(runnerCalls).toEqual([
+            {
+                id: "builtin:commit-message",
+                vars: { diff: "DIFF" },
+                context: { cwd: worktreePath, project: await store.getProject(projectId) },
+            },
+        ]);
     });
 });

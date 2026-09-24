@@ -100,17 +100,6 @@ function accountEnv(type: AccountAgentType, override: string | null): Record<str
     return override ? { [HOME_ENV_VAR[type]]: override } : {};
 }
 
-/** Env for one-shot `claude -p` helpers: no nested-session markers, full PATH, account home. */
-function headlessClaudeEnv(
-    settings: AppSettings,
-    project: Project | null,
-    env: AgentEnv = process.env,
-): AgentEnv {
-    const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = env;
-    const { override } = resolveAgentAccount("claude", undefined, project, settings, env);
-    return { ...cleanEnv, PATH: buildShellPath(), ...accountEnv("claude", override) };
-}
-
 /**
  * Env for one-shot headless agent runs: no nested-session markers, full PATH,
  * and for Claude/Codex the account home resolved launch options → project → global default.
@@ -179,7 +168,6 @@ export {
     InvalidAgentAccountsError,
     accountEnv,
     headlessAgentEnv,
-    headlessClaudeEnv,
     inheritedAgentHome,
     mergeProjectAgentAccounts,
     resolveAgentAccount,

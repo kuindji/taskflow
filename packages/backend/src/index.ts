@@ -39,6 +39,8 @@ import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
 import { createBuiltinActions } from "./services/builtin-actions";
+import { createBuiltinActionRunner } from "./services/builtin-action-runner";
+import { createScheduleNameGenerator } from "./services/schedule-name";
 import { FlowRunner } from "./services/flow-runner";
 import { createSessionLifecycle } from "./services/session-lifecycle";
 import { registerFlowHandlers } from "./handlers/flow";
@@ -46,7 +48,6 @@ import { registerBuiltinActionHandlers } from "./handlers/builtin-action";
 import { ScheduleStore } from "./services/schedule-store";
 import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-service";
 import { registerScheduleHandlers } from "./handlers/schedule";
-import { headlessClaudeEnv } from "./services/agent-accounts";
 import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
@@ -101,6 +102,7 @@ async function main() {
         const fileWatcher = new FileWatcher();
         const settingsStore = new SettingsStore(config.settingsFile);
         const builtinActions = createBuiltinActions({ flowStore });
+        const builtinActionRunner = createBuiltinActionRunner({ builtinActions, settingsStore });
         const trayStateTracker = new TrayStateTracker();
 
         const shells = await detectShells();
@@ -212,7 +214,7 @@ async function main() {
         const titleGenerator = createTitleGenerator({
             taskStore: store,
             broadcast: server.broadcast,
-            settingsStore,
+            builtinActionRunner,
             createWorktree: worktreeSetup.createWorktreeForTask,
         });
 
@@ -336,7 +338,7 @@ async function main() {
             git: gitService,
             taskStore: store,
             broadcast: server.broadcast,
-            settingsStore,
+            builtinActionRunner,
             changeTracker,
         });
         registerTypeScriptHandlers({
@@ -360,27 +362,7 @@ async function main() {
             notificationStore,
             broadcast: server.broadcast,
         });
-        const generateScheduleName = async (prompt: string): Promise<string> => {
-            try {
-                const aiPrompt = `Generate a concise schedule name (3-7 words) for this scheduled task prompt. Output ONLY the name, nothing else. No quotes, no punctuation at the end.\n\nPrompt: ${prompt}`;
-                const proc = Bun.spawn(["claude", "-p", "--model", "haiku"], {
-                    stdin: "pipe",
-                    stdout: "pipe",
-                    stderr: "pipe",
-                    env: headlessClaudeEnv(await settingsStore.get(), null),
-                });
-                void proc.stdin.write(aiPrompt);
-                void proc.stdin.end();
-                const output = await new Response(proc.stdout).text();
-                const exitCode = await proc.exited;
-                if (exitCode === 0 && output.trim()) {
-                    return output.trim().replace(/^["']|["']$/g, "");
-                }
-            } catch {
-                // Fall through to fallback
-            }
-            return prompt.slice(0, 50).trim() || "Unnamed schedule";
-        };
+        const generateScheduleName = createScheduleNameGenerator({ builtinActionRunner });
 
         registerScheduleHandlers({
             router,

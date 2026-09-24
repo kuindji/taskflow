@@ -3,7 +3,6 @@ import { homedir } from "os";
 import { join } from "path";
 import type { AppSettings, Project } from "@taskflow/shared";
 import {
-    headlessClaudeEnv,
     headlessAgentEnv,
     inheritedAgentHome,
     mergeProjectAgentAccounts,
@@ -162,27 +161,6 @@ describe("accountEnv", () => {
     });
     it("exposes the inherited home", () => {
         expect(inheritedAgentHome("claude", { CLAUDE_CONFIG_DIR: "/x" })).toBe("/x");
-    });
-});
-
-describe("headlessClaudeEnv", () => {
-    it("strips nested-session markers and applies the project account", () => {
-        const env = headlessClaudeEnv(settingsWith({}), projectWith({ claude: "c-work" }), {
-            CLAUDECODE: "1",
-            CLAUDE_CODE_ENTRYPOINT: "cli",
-            HOME: "/Users/me",
-        });
-        expect(env.CLAUDECODE).toBeUndefined();
-        expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
-        expect(env.HOME).toBe("/Users/me");
-        expect(env.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
-        expect(typeof env.PATH).toBe("string");
-    });
-
-    it("throws for an unknown account", () => {
-        expect(() => headlessClaudeEnv(settingsWith({ claudeDefault: "gone" }), null, {})).toThrow(
-            /Unknown Claude account/,
-        );
     });
 });
 
