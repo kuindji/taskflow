@@ -7,6 +7,7 @@ import { BUILTIN_ACTION_DEFAULTS } from "@taskflow/shared";
 import type { BuiltinActionDefinition, BuiltinActionId, Project } from "@taskflow/shared";
 import { SettingsStore } from "../../src/services/settings-store";
 import { createBuiltinActionRunner } from "../../src/services/builtin-action-runner";
+import { expectRejects } from "../expect-rejects";
 
 function closedStream(text = ""): ReadableStream<Uint8Array> {
     const bytes = new TextEncoder().encode(text);
@@ -125,8 +126,9 @@ it("refuses a headless run for a built-in without an agent", async () => {
         }),
         settingsStore,
     });
-    await expect(
+    await expectRejects(
         runner.runHeadless("builtin:task-title", { description: "d" }, { project: null }),
-    ).rejects.toThrow(/no agent/);
+        /no agent/,
+    );
     expect(calls).toHaveLength(0);
 });

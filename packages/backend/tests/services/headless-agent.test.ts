@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, writeFileSync } from "fs";
 import { buildHeadlessCommand, runHeadlessAgent } from "../../src/services/headless-agent";
+import { expectRejects } from "../expect-rejects";
 
 function closedStream(text = ""): ReadableStream<Uint8Array> {
     const bytes = new TextEncoder().encode(text);
@@ -186,11 +187,13 @@ describe("runHeadlessAgent", () => {
 
     it("throws on a non-zero exit and on empty output", async () => {
         stubSpawn(() => ({ stdout: "x", exitCode: 1 }));
-        await expect(runHeadlessAgent({ type: "claude", prompt: "P", env: {} })).rejects.toThrow(
+        await expectRejects(
+            runHeadlessAgent({ type: "claude", prompt: "P", env: {} }),
             /exited with code 1/,
         );
         stubSpawn(() => ({ stdout: "   \n" }));
-        await expect(runHeadlessAgent({ type: "claude", prompt: "P", env: {} })).rejects.toThrow(
+        await expectRejects(
+            runHeadlessAgent({ type: "claude", prompt: "P", env: {} }),
             /no output/,
         );
     });
@@ -214,7 +217,7 @@ describe("runHeadlessAgent", () => {
             writeFileSync(outputFile, "partial");
             return { exitCode: 2 };
         });
-        await expect(runHeadlessAgent({ type: "codex", prompt: "P", env: {} })).rejects.toThrow();
+        await expectRejects(runHeadlessAgent({ type: "codex", prompt: "P", env: {} }));
         expect(existsSync(outputFile)).toBe(false);
     });
 
@@ -240,9 +243,10 @@ describe("runHeadlessAgent", () => {
 
     it("gives up on a run that exceeds the timeout, even when its pipes stay open", async () => {
         const state = stubHungSpawn();
-        await expect(
+        await expectRejects(
             runHeadlessAgent({ type: "claude", prompt: "P", env: {}, timeoutMs: 20 }),
-        ).rejects.toThrow(/timed out/);
+            /timed out/,
+        );
         expect(state.killed).toBe(true);
     });
 
@@ -252,9 +256,10 @@ describe("runHeadlessAgent", () => {
             outputFile = cmd[cmd.indexOf("-o") + 1];
             writeFileSync(outputFile, "partial");
         });
-        await expect(
+        await expectRejects(
             runHeadlessAgent({ type: "codex", prompt: "P", env: {}, timeoutMs: 20 }),
-        ).rejects.toThrow(/timed out/);
+            /timed out/,
+        );
         expect(existsSync(outputFile)).toBe(false);
     });
 });

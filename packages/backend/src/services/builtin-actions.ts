@@ -46,7 +46,8 @@ function parseOverride(value: unknown): BuiltinActionOverride | string {
         if (agentOptions !== undefined) return "Agent options need an agent";
         return { id, prompt, updatedAt: typeof updatedAt === "string" ? updatedAt : "" };
     }
-    if (!isAgentType(sessionType)) return `Unsupported agent "${String(sessionType)}"`;
+    if (!isAgentType(sessionType))
+        return `Unsupported agent "${typeof sessionType === "string" ? sessionType : typeof sessionType}"`;
     if (
         agentOptions !== undefined &&
         (!isRecord(agentOptions) || agentOptions.type !== sessionType)

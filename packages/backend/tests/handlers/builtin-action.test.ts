@@ -8,6 +8,7 @@ import { TestRouter } from "../test-router";
 import { FlowStore } from "../../src/services/flow-store";
 import { createBuiltinActions } from "../../src/services/builtin-actions";
 import { registerBuiltinActionHandlers } from "../../src/handlers/builtin-action";
+import { expectRejects } from "../expect-rejects";
 
 let tempDir: string;
 let router: TestRouter;
@@ -46,7 +47,8 @@ it("lists, saves and resets built-in actions", async () => {
 });
 
 it("rejects a reset for an unknown id", async () => {
-    await expect(router.handle(MSG.BUILTIN_ACTION_RESET, { id: "nope" })).rejects.toThrow(
+    await expectRejects(
+        router.handle(MSG.BUILTIN_ACTION_RESET, { id: "nope" }),
         /Unknown built-in action/,
     );
 });

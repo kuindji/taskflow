@@ -155,7 +155,8 @@ class FlowStore {
     async getBuiltinActionOverrides(): Promise<unknown[]> {
         try {
             const data = await this.readJsonFile<unknown>(this.builtinActionsFile);
-            return Array.isArray(data) ? data : [];
+            const entries: unknown[] = Array.isArray(data) ? data : [];
+            return entries;
         } catch (error) {
             // A hand-broken file must not take the built-ins down; defaults apply.
             if (error instanceof SyntaxError) return [];

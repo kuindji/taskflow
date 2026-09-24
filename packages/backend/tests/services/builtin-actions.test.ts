@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { BUILTIN_ACTION_DEFAULTS } from "@taskflow/shared";
 import { FlowStore } from "../../src/services/flow-store";
 import { createBuiltinActions } from "../../src/services/builtin-actions";
+import { expectRejects } from "../expect-rejects";
 
 let tempDir: string;
 let flowStore: FlowStore;
@@ -64,22 +65,27 @@ describe("builtin actions", () => {
 
     it("rejects invalid overrides", async () => {
         const actions = createBuiltinActions({ flowStore });
-        await expect(actions.save({ ...titleOverride, id: "builtin:nope" })).rejects.toThrow(
+        await expectRejects(
+            actions.save({ ...titleOverride, id: "builtin:nope" }),
             /Unknown built-in action/,
         );
-        await expect(actions.save({ ...titleOverride, prompt: "no placeholder" })).rejects.toThrow(
+        await expectRejects(
+            actions.save({ ...titleOverride, prompt: "no placeholder" }),
             /\{\{description\}\}/,
         );
-        await expect(actions.save({ ...titleOverride, prompt: "   " })).rejects.toThrow(/empty/);
-        await expect(
+        await expectRejects(actions.save({ ...titleOverride, prompt: "   " }), /empty/);
+        await expectRejects(
             actions.save({ ...titleOverride, sessionType: "shell", agentOptions: undefined }),
-        ).rejects.toThrow(/agent/);
-        await expect(
+            /agent/,
+        );
+        await expectRejects(
             actions.save({ ...titleOverride, agentOptions: { type: "claude" } }),
-        ).rejects.toThrow(/options/);
-        await expect(
+            /options/,
+        );
+        await expectRejects(
             actions.save({ ...titleOverride, sessionType: undefined, agentOptions: undefined }),
-        ).rejects.toThrow(/agent/);
+            /agent/,
+        );
     });
 
     it("lets the commit built-in follow the default agent", async () => {
