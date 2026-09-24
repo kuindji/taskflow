@@ -4,6 +4,7 @@ import { join } from "path";
 import type { AppSettings, Project } from "@taskflow/shared";
 import {
     headlessClaudeEnv,
+    headlessAgentEnv,
     inheritedAgentHome,
     mergeProjectAgentAccounts,
     resolveAgentAccount,
@@ -203,5 +204,50 @@ describe("mergeProjectAgentAccounts", () => {
         expect(() => mergeProjectAgentAccounts(undefined, { claude: "  " })).toThrow();
         expect(() => mergeProjectAgentAccounts(undefined, { claude: "inherit" })).toThrow();
         expect(() => mergeProjectAgentAccounts(undefined, { claude: "Inherit" })).toThrow();
+    });
+});
+
+describe("headlessAgentEnv", () => {
+    it("claude: strips nested-session markers and applies the action's account first", () => {
+        const env = headlessAgentEnv(
+            "claude",
+            { type: "claude", account: "c-alt" },
+            settingsWith({}),
+            projectWith({ claude: "c-work" }),
+            { CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "cli", HOME: "/Users/me" },
+        );
+        expect(env.CLAUDECODE).toBeUndefined();
+        expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+        expect(env.HOME).toBe("/Users/me");
+        expect(env.CLAUDE_CONFIG_DIR).toBe("/homes/claude-alt");
+        expect(typeof env.PATH).toBe("string");
+    });
+
+    it("claude: falls back to the project's account", () => {
+        const env = headlessAgentEnv(
+            "claude",
+            undefined,
+            settingsWith({}),
+            projectWith({ claude: "c-work" }),
+            {},
+        );
+        expect(env.CLAUDE_CONFIG_DIR).toBe("/homes/claude-work");
+    });
+
+    it("kimi: disables auto-update and sets no account variables", () => {
+        const env = headlessAgentEnv("kimi", undefined, settingsWith({}), null, {});
+        expect(env.KIMI_CODE_NO_AUTO_UPDATE).toBe("1");
+        expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+        expect(env.CODEX_HOME).toBeUndefined();
+    });
+    it("codex: applies the action's codex account", () => {
+        const env = headlessAgentEnv(
+            "codex",
+            { type: "codex", account: "x-work" },
+            settingsWith({}),
+            null,
+            {},
+        );
+        expect(env.CODEX_HOME).toBe("/homes/codex-work");
     });
 });

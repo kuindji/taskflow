@@ -7,7 +7,13 @@ import {
     INHERIT_AGENT_ACCOUNT,
     isAccountAgentType,
 } from "@taskflow/shared";
-import type { AccountAgentType, AgentLaunchOptions, AppSettings, Project } from "@taskflow/shared";
+import type {
+    AccountAgentType,
+    AgentLaunchOptions,
+    AgentType,
+    AppSettings,
+    Project,
+} from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
 type AgentEnv = Record<string, string | undefined>;
@@ -106,6 +112,27 @@ function headlessClaudeEnv(
 }
 
 /**
+ * Env for one-shot headless agent runs: no nested-session markers, full PATH,
+ * and for Claude/Codex the account home resolved launch options → project → global default.
+ */
+function headlessAgentEnv(
+    type: AgentType,
+    options: AgentLaunchOptions | undefined,
+    settings: AppSettings,
+    project: Project | null,
+    env: AgentEnv = process.env,
+): AgentEnv {
+    const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = env;
+    const base: AgentEnv = { ...cleanEnv, PATH: buildShellPath() };
+    if (isAccountAgentType(type)) {
+        const { override } = resolveAgentAccount(type, options, project, settings, env);
+        return { ...base, ...accountEnv(type, override) };
+    }
+    if (type === "kimi") return { ...base, KIMI_CODE_NO_AUTO_UPDATE: "1" };
+    return base;
+}
+
+/**
  * Thrown for a malformed `agentAccounts` patch. The merge runs inside
  * `TaskStore.updateProject`'s mutation lock, so its callers need to tell a bad
  * request (400) apart from a failed write (500) after the fact.
@@ -151,6 +178,7 @@ function mergeProjectAgentAccounts(
 export {
     InvalidAgentAccountsError,
     accountEnv,
+    headlessAgentEnv,
     headlessClaudeEnv,
     inheritedAgentHome,
     mergeProjectAgentAccounts,

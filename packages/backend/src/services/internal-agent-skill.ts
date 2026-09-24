@@ -83,7 +83,7 @@ export function buildSystemPrompt(
     return `${PROMPT_BASE}${skillBlock}\n${scopeBlock}${flowBlock}`;
 }
 
-function escapeTomlBasicString(value: string): string {
+export function escapeTomlBasicString(value: string): string {
     return value
         .replaceAll("\\", "\\\\")
         .replaceAll("\b", "\\b")
