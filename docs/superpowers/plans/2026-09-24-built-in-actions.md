@@ -27,7 +27,7 @@
 ## Review Focus
 
 1. **Placeholder-like text inside data.** A diff or description containing `{{diff}}`, `$&` or `$1` must appear in the prompt literally, never substituted again. The test is in Task 1.
-2. **Older remote machine.** When the workspace's machine doesn't know `builtin-action:list`, commit-with-agent must fall back to the default template and default agent instead of failing. The test is in Task 7.
+2. **Older remote machine.** When the workspace's machine has no handler for `builtin-action:list`, commit-with-agent falls back to the default template and default agent. Any other lookup error, such as a timeout, is shown and starts no session, so a configured override is never silently skipped. The tests are in Task 7.
 3. **Hand-edited or corrupt `builtin-actions.json`, or an override naming a removed agent.** The list shows defaults and nothing crashes. The test is in Task 3.
 4. **Agent CLI that hangs** (e.g. waiting on a login prompt). The run is killed after the timeout and the caller's fallback runs. The codex temp file is removed on every path. The test is in Task 2.
 5. **Saving only a prompt edit must not bake machine session defaults into the override.** The headless options panel doesn't prefill model, permission or sandbox from settings. The test is in Task 5.
@@ -386,7 +386,13 @@ In `packages/shared/src/constants.ts`, directly after `FLOW_ACTION_DELETE: "flow
     BUILTIN_ACTION_RESET: "builtin-action:reset",
 ```
 
-In `packages/shared/src/types/ws.ts`, after `FlowActionsListResponse`, add the following. Add `BuiltinActionDefinition` to the file's existing `import type` block from `./builtin-action`, following how the file already imports `ActionDefinition`:
+In `packages/shared/src/types/ws.ts`, add a new import line directly below `import type { ActionDefinition, FlowDefinition, FlowRun } from "./flow";` (line 19):
+
+```ts
+import type { BuiltinActionDefinition } from "./builtin-action";
+```
+
+Then, after `FlowActionsListResponse`, add:
 
 ```ts
 export interface BuiltinActionsListResponse {
@@ -2370,10 +2376,17 @@ import type {
 } from "@taskflow/shared";
 import { BUILTIN_ACTION_DEFAULTS } from "@taskflow/shared";
 
+// The editor reads its machine's settings from byBackend.
+interface MockSettingsState {
+    settings: { general: { defaultAgent: AgentType } };
+    byBackend: Record<string, { general: { defaultAgent: AgentType } }>;
+}
 await mock.module("@/stores/settings-store", () => ({
-    useSettingsStore: <T,>(
-        selector: (s: { settings: { general: { defaultAgent: AgentType } } }) => T,
-    ): T => selector({ settings: { general: { defaultAgent: "codex" } } }),
+    useSettingsStore: <T,>(selector: (s: MockSettingsState) => T): T =>
+        selector({
+            settings: { general: { defaultAgent: "claude" } },
+            byBackend: { b1: { general: { defaultAgent: "codex" } } },
+        }),
 }));
 
 // Monaco-backed textarea does not work in happy-dom.
@@ -3231,11 +3244,18 @@ test("an overridden built-in supplies agent, options and prompt", async () => {
 });
 
 test("a machine without built-in actions falls back to the default", async () => {
-    builtinList = new Error("Unknown message type: builtin-action:list");
+    builtinList = new Error("No handler for message type: builtin-action:list");
     await commitWithAgent();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0]?.[1]).toBe("codex");
     expect(createSessionCalls[0]?.[3]).toBe("Create commits for all changes, staged and unstaged.");
+});
+
+test("any other lookup failure shows the error and starts no session", async () => {
+    builtinList = new Error("Request timeout: builtin-action:list");
+    await commitWithAgent();
+    expect(createSessionCalls).toHaveLength(0);
+    expect(document.body.textContent).toContain("Request timeout: builtin-action:list");
 });
 ```
 
@@ -3265,8 +3285,11 @@ import { BUILTIN_ACTION_DEFAULTS, MSG, renderPromptTemplate } from "@taskflow/sh
 
 ```ts
 /**
- * The workspace machine's commit built-in. A machine that predates built-in
- * actions answers with an error; it gets the default, which is what it ran before.
+ * The workspace machine's commit built-in, fetched fresh from that machine
+ * (it may not be primary, whose store the Actions dialog manages). A machine
+ * that predates built-in actions has no handler for the request; it gets the
+ * default, which is what it ran before. Any other failure propagates, so a
+ * transient error never silently replaces a configured override.
  */
 async function loadCommitAction(
     request: <T>(type: string, payload?: unknown) => Promise<T>,
@@ -3278,8 +3301,12 @@ async function loadCommitAction(
     try {
         const { actions } = await request<BuiltinActionsListResponse>(MSG.BUILTIN_ACTIONS_LIST);
         return actions.find((action) => action.id === "builtin:commit") ?? fallback;
-    } catch {
-        return fallback;
+    } catch (error) {
+        // Router text for an unregistered type: packages/backend/src/ws/router.ts:18
+        if (error instanceof Error && error.message.startsWith("No handler for message type")) {
+            return fallback;
+        }
+        throw error;
     }
 }
 ```

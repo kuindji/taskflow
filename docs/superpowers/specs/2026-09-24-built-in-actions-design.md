@@ -239,7 +239,7 @@ Call sites keep their current fallback behaviour:
 - Keep the **Use agent** switch. Beside it, add a muted hint: "Configured in Actions and Flows → Built-in".
 - On submit in agent mode:
   1. build the `instructions` string exactly as today
-  2. read `builtin:commit` for the workspace's `backendId` from the flow store, fetching if not loaded
+  2. fetch `builtin:commit` fresh from the workspace's machine via `BUILTIN_ACTIONS_LIST`. If that machine has no handler for the message (it predates built-ins), use the default. Any other error is shown and no session starts.
   3. set `prompt = renderPromptTemplate(def.prompt, { instructions })`
   4. set `agent = def.sessionType ?? defaultAgent`, and pass `agentOptions` only when `def.sessionType` is set (options belong to that agent)
   5. call `createSession(sessionOwner, agent, "Commit", prompt, undefined, agentOptions)`
