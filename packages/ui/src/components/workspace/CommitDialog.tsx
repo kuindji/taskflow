@@ -1,14 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import type {
-    AgentLaunchOptions,
-    AgentType,
+    BuiltinActionDefinition,
+    BuiltinActionsListResponse,
     GitStatusResponse,
     GitCreatePrResult,
     GitCommitResult,
 } from "@taskflow/shared";
-import { AGENT_DISPLAY_NAMES, ALL_AGENT_TYPES, isAgentType, MSG } from "@taskflow/shared";
+import { BUILTIN_ACTION_DEFAULTS, MSG, renderPromptTemplate } from "@taskflow/shared";
 import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
-import { isAgentAvailable, useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
@@ -23,16 +22,6 @@ import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
-import { ChevronRight } from "lucide-react";
 
 type SessionOwner = { projectId: string } | { taskId: string };
 
@@ -41,6 +30,32 @@ interface CommitDialogProps {
     onOpenChange: (open: boolean) => void;
     repoPath: string;
     sessionOwner: SessionOwner;
+}
+
+/**
+ * The workspace machine's commit built-in, fetched fresh from that machine
+ * (it may not be primary, whose store the Actions dialog manages). A machine
+ * that predates built-in actions has no handler for the request; it gets the
+ * default, which is what it ran before. Any other failure propagates, so a
+ * transient error never silently replaces a configured override.
+ */
+async function loadCommitAction(
+    request: <T>(type: string, payload?: unknown) => Promise<T>,
+): Promise<BuiltinActionDefinition> {
+    const fallback: BuiltinActionDefinition = {
+        ...BUILTIN_ACTION_DEFAULTS["builtin:commit"],
+        isModified: false,
+    };
+    try {
+        const { actions } = await request<BuiltinActionsListResponse>(MSG.BUILTIN_ACTIONS_LIST);
+        return actions.find((action) => action.id === "builtin:commit") ?? fallback;
+    } catch (error) {
+        // Router text for an unregistered type: packages/backend/src/ws/router.ts:18
+        if (error instanceof Error && error.message.startsWith("No handler for message type")) {
+            return fallback;
+        }
+        throw error;
+    }
 }
 
 export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
@@ -53,10 +68,6 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     );
     const [message, setMessage] = useState("");
     const [useAgent, setUseAgent] = useState(false);
-    const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
-    const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
-    const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
-    const [agentOptionsKey, setAgentOptionsKey] = useState(0);
     const [push, setPush] = useState(false);
     const [createPr, setCreatePr] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -68,15 +79,10 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [behind, setBehind] = useState(0);
 
     const createSession = useSessionStore((s) => s.createSession);
-    const agents = useAgentAvailability(backendId);
 
     const resetForm = useCallback(() => {
         setMessage("");
         setUseAgent(false);
-        setAgentType(defaultAgent);
-        setAgentOptions(undefined);
-        setAgentOptionsOpen(false);
-        setAgentOptionsKey(0);
         setPush(false);
         setCreatePr(false);
         setLoading(false);
@@ -86,7 +92,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         setIncludeUnstaged(true);
         setAhead(null);
         setBehind(0);
-    }, [defaultAgent]);
+    }, []);
 
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
@@ -119,18 +125,6 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const handlePushChange = useCallback((checked: boolean) => {
         setPush(checked);
         if (!checked) setCreatePr(false);
-    }, []);
-
-    const handleAgentTypeChange = useCallback((value: string) => {
-        if (!isAgentType(value)) return;
-        setAgentType(value);
-        setAgentOptions(undefined);
-        setAgentOptionsKey((current) => current + 1);
-    }, []);
-
-    const handleResetAgentOptions = useCallback(() => {
-        setAgentOptions(undefined);
-        setAgentOptionsKey((current) => current + 1);
     }, []);
 
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
@@ -194,15 +188,18 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 if (createPr) {
                     parts.push("Create a pull request after pushing.");
                 }
-                const prompt = parts.join(" ");
-
+                const commitAction = await loadCommitAction(request);
+                const prompt = renderPromptTemplate(commitAction.prompt, {
+                    instructions: parts.join(" "),
+                });
+                // Options belong to the built-in's own agent; the default agent gets none.
                 await createSession(
                     sessionOwner,
-                    agentType,
+                    commitAction.sessionType ?? defaultAgent,
                     "Commit",
                     prompt,
                     undefined,
-                    agentOptions,
+                    commitAction.sessionType ? commitAction.agentOptions : undefined,
                 );
                 handleOpenChange(false);
                 return;
@@ -243,8 +240,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     }, [
         message,
         useAgent,
-        agentType,
-        agentOptions,
+        defaultAgent,
         push,
         pushOnly,
         prOnly,
@@ -338,63 +334,9 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                 </div>
 
                                 {useAgent && (
-                                    <div className="ml-6 flex flex-col gap-2">
-                                        <div className="flex flex-col gap-1.5">
-                                            <Label htmlFor="commit-agent">Agent</Label>
-                                            <Select
-                                                value={agentType}
-                                                onValueChange={handleAgentTypeChange}>
-                                                <SelectTrigger
-                                                    id="commit-agent"
-                                                    size="sm"
-                                                    className="w-full">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {ALL_AGENT_TYPES.map((type) => {
-                                                        const available = isAgentAvailable(
-                                                            agents,
-                                                            type,
-                                                        );
-                                                        return (
-                                                            <SelectItem
-                                                                key={type}
-                                                                value={type}
-                                                                disabled={!available}>
-                                                                {AGENT_DISPLAY_NAMES[type]}
-                                                                {!available
-                                                                    ? " (not installed)"
-                                                                    : ""}
-                                                            </SelectItem>
-                                                        );
-                                                    })}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Collapsible
-                                            open={agentOptionsOpen}
-                                            onOpenChange={setAgentOptionsOpen}>
-                                            <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
-                                                <ChevronRight
-                                                    className={`h-4 w-4 transition-transform ${agentOptionsOpen ? "rotate-90" : ""}`}
-                                                />
-                                                Agent Options
-                                            </CollapsibleTrigger>
-                                            <CollapsibleContent>
-                                                <div className="border-border mt-1.5 rounded-md border p-3">
-                                                    <AgentOptionsPanel
-                                                        backendId={backendId ?? undefined}
-                                                        key={`${agentType}-${agentOptionsKey}`}
-                                                        agentType={agentType}
-                                                        value={agentOptions}
-                                                        onChange={setAgentOptions}
-                                                        onReset={handleResetAgentOptions}
-                                                    />
-                                                </div>
-                                            </CollapsibleContent>
-                                        </Collapsible>
-                                    </div>
+                                    <p className="text-muted-foreground ml-6 text-xs">
+                                        Configured in Actions and Flows → Built-in
+                                    </p>
                                 )}
 
                                 <div className="flex items-center gap-2">
