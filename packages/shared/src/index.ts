@@ -9,6 +9,8 @@ export * from "./types/backend";
 export * from "./types/settings";
 export * from "./types/agent";
 export * from "./types/flow";
+export * from "./types/builtin-action";
+export * from "./utils/builtin-actions";
 export * from "./types/schedule";
 export * from "./types/theme";
 export * from "./constants";

@@ -158,6 +158,11 @@ export const MSG = {
     FLOW_DEFINITION_DELETE: "flow:definition-delete",
     FLOW_ACTION_DELETE: "flow:action-delete",
 
+    // Built-in actions
+    BUILTIN_ACTIONS_LIST: "builtin-action:list",
+    BUILTIN_ACTION_SAVE: "builtin-action:save",
+    BUILTIN_ACTION_RESET: "builtin-action:reset",
+
     // Flow execution
     FLOW_START: "flow:start",
     FLOW_STOP: "flow:stop",

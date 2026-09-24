@@ -17,6 +17,7 @@ import type { ThemeRecord, ThemeSource } from "./theme";
 import type { SearchMatch, SearchResult } from "./search";
 import type { Schedule } from "./schedule";
 import type { ActionDefinition, FlowDefinition, FlowRun } from "./flow";
+import type { BuiltinActionDefinition } from "./builtin-action";
 
 // Base message types
 export interface WsRequest<T = unknown> {
@@ -664,6 +665,10 @@ export interface FlowDefinitionsListResponse {
 
 export interface FlowActionsListResponse {
     actions: ActionDefinition[];
+}
+
+export interface BuiltinActionsListResponse {
+    actions: BuiltinActionDefinition[];
 }
 
 export interface FlowRunsListResponse {
