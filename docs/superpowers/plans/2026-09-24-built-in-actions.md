@@ -29,7 +29,7 @@
 1. **Placeholder-like text inside data.** A diff or description containing `{{diff}}`, `$&` or `$1` must appear in the prompt literally, never substituted again. The test is in Task 1.
 2. **Older remote machine.** When the workspace's machine has no handler for `builtin-action:list`, commit-with-agent falls back to the default template and default agent. Any other lookup error, such as a timeout, is shown and starts no session, so a configured override is never silently skipped. The tests are in Task 7.
 3. **Hand-edited or corrupt `builtin-actions.json`, or an override naming a removed agent.** The list shows defaults and nothing crashes. The test is in Task 3.
-4. **Agent CLI that hangs** (e.g. waiting on a login prompt). The run is killed after the timeout and the caller's fallback runs. The codex temp file is removed on every path. The test is in Task 2.
+4. **Agent CLI that hangs** (e.g. waiting on a login prompt). The run is killed after the timeout and the caller's fallback runs, even when a child process of the CLI keeps its pipes open. The codex temp file is removed on every path. The test is in Task 2.
 5. **Saving only a prompt edit must not bake machine session defaults into the override.** The headless options panel doesn't prefill model, permission or sandbox from settings. The test is in Task 5.
 
 ---
@@ -644,34 +644,44 @@ describe("runHeadlessAgent", () => {
         expect(existsSync(outputFile)).toBe(false);
     });
 
-    it("kills a run that exceeds the timeout", async () => {
-        let killed = false;
-        Bun.spawn = (() => {
-            let resolveExit!: (code: number) => void;
-            let closeStdout!: () => void;
+    // A hung CLI whose child process inherited the pipes: kill() stops the CLI,
+    // but stdout, stderr and the exit promise never settle. The runner must
+    // still give up on time.
+    function stubHungSpawn(onSpawn?: (cmd: string[]) => void): { killed: boolean } {
+        const state = { killed: false };
+        Bun.spawn = ((cmd: string[]) => {
+            onSpawn?.(cmd);
             return {
                 stdin: { write() {}, end() {} },
-                stdout: new ReadableStream({
-                    start(controller) {
-                        closeStdout = () => controller.close();
-                    },
-                }),
-                stderr: closedStream(),
-                exited: new Promise<number>((resolve) => {
-                    resolveExit = resolve;
-                }),
+                stdout: new ReadableStream(),
+                stderr: new ReadableStream(),
+                exited: new Promise<number>(() => {}),
                 kill() {
-                    killed = true;
-                    closeStdout();
-                    resolveExit(143);
+                    state.killed = true;
                 },
             };
         }) as unknown as typeof Bun.spawn;
+        return state;
+    }
 
+    it("gives up on a run that exceeds the timeout, even when its pipes stay open", async () => {
+        const state = stubHungSpawn();
         await expect(
             runHeadlessAgent({ type: "claude", prompt: "P", env: {}, timeoutMs: 20 }),
         ).rejects.toThrow(/timed out/);
-        expect(killed).toBe(true);
+        expect(state.killed).toBe(true);
+    });
+
+    it("codex: removes the output file when the run times out", async () => {
+        let outputFile = "";
+        stubHungSpawn((cmd) => {
+            outputFile = cmd[cmd.indexOf("-o") + 1];
+            writeFileSync(outputFile, "partial");
+        });
+        await expect(
+            runHeadlessAgent({ type: "codex", prompt: "P", env: {}, timeoutMs: 20 }),
+        ).rejects.toThrow(/timed out/);
+        expect(existsSync(outputFile)).toBe(false);
     });
 });
 ```
@@ -882,25 +892,32 @@ async function runHeadlessAgent(request: HeadlessRunRequest): Promise<string> {
         if (stdin !== undefined) void proc.stdin.write(stdin);
         void proc.stdin.end();
 
-        let timedOut = false;
-        const timer = setTimeout(() => {
-            timedOut = true;
-            proc.kill();
-        }, request.timeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS);
-        let stdout: string;
-        let stderr: string;
-        let exitCode: number;
+        // Race the run against the timer, as captureCliOutput in runtime-detector.ts
+        // does. Killing the CLI is not enough to end the wait: a child process that
+        // inherited its pipes keeps them open, so the reads would never settle.
+        const run = Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+        ]);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<null>((resolve) => {
+            timer = setTimeout(resolve, request.timeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS, null);
+        });
+        let result: [string, string, number] | null;
         try {
-            [stdout, stderr, exitCode] = await Promise.all([
-                new Response(proc.stdout).text(),
-                new Response(proc.stderr).text(),
-                proc.exited,
-            ]);
+            result = await Promise.race([run, timeout]);
         } finally {
             clearTimeout(timer);
         }
+        if (!result) {
+            proc.kill();
+            // Abandoned, not awaited; keep a late stream error from going unhandled.
+            run.catch(() => {});
+            throw new Error(`${command} timed out`);
+        }
 
-        if (timedOut) throw new Error(`${command} timed out`);
+        const [stdout, stderr, exitCode] = result;
         if (exitCode !== 0) {
             const detail = stderr.trim().slice(0, 500);
             throw new Error(`${command} exited with code ${exitCode}${detail ? `: ${detail}` : ""}`);
@@ -3374,6 +3391,7 @@ Expected: 0 failures.
 - [ ] **Step 3: UI tests touched by this branch, one file per process**
 
 ```bash
+failed=0
 for f in packages/ui/src/components/workspace/AgentOptionsPanel.test.tsx \
          packages/ui/src/components/shared/ClaudeOptions.headless.test.tsx \
          packages/ui/src/components/flows/BuiltinActionEditor.test.tsx \
@@ -3381,11 +3399,12 @@ for f in packages/ui/src/components/workspace/AgentOptionsPanel.test.tsx \
          packages/ui/src/components/flows/FlowEditor.library.test.tsx \
          packages/ui/src/components/flows/FlowEditor.loop.test.tsx \
          packages/ui/src/components/workspace/CommitDialog.test.tsx; do
-  bun test "$f" || echo "FAILED: $f"
+  bun test "$f" || { echo "FAILED: $f"; failed=1; }
 done
+[ "$failed" -eq 0 ]
 ```
 
-Expected: no `FAILED:` lines.
+Expected: exits 0 with no `FAILED:` lines.
 
 - [ ] **Step 4: Dead-code check**
 
