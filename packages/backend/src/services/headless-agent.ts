@@ -28,7 +28,9 @@ interface HeadlessRunRequest {
  * The one-shot command line for each agent. A headless run is read-only text
  * generation, so only model/reasoning options apply; permission, sandbox,
  * approval, auto-approve and tool options are ignored. Kimi rejects an empty
- * `-p`, and Pi's stdin handling is unverified, so both take the prompt as an argument.
+ * `-p`, so it takes the prompt as that option's value. Every other agent reads
+ * it from stdin; Pi must, because it parses positional arguments as options
+ * ("-…") and file attachments ("@…").
  */
 function buildHeadlessCommand(
     type: AgentType,
@@ -78,8 +80,7 @@ function buildHeadlessCommand(
                 if (options.thinking && options.thinking !== "off")
                     args.push("--thinking", options.thinking);
             }
-            args.push(prompt);
-            return { command: "pi", args };
+            return { command: "pi", args, stdin: prompt };
         }
         case "kimi": {
             const args = ["-p", prompt];

@@ -130,7 +130,7 @@ describe("buildHeadlessCommand", () => {
         ).toEqual({ command: "opencode", args: ["run", "-m", "openrouter/x"], stdin: "P" });
     });
 
-    it("pi: -p --no-session, model and thinking, prompt as argument, tools ignored", () => {
+    it("pi: -p --no-session, model and thinking, prompt on stdin, tools ignored", () => {
         expect(
             buildHeadlessCommand(
                 "pi",
@@ -139,11 +139,22 @@ describe("buildHeadlessCommand", () => {
             ),
         ).toEqual({
             command: "pi",
-            args: ["-p", "--no-session", "--model", "openai/gpt", "--thinking", "high", "P"],
+            args: ["-p", "--no-session", "--model", "openai/gpt", "--thinking", "high"],
+            stdin: "P",
         });
         expect(buildHeadlessCommand("pi", { type: "pi", thinking: "off" }, "P").args).not.toContain(
             "--thinking",
         );
+    });
+
+    // Pi parses every argument: a prompt starting with "-" is an unknown option,
+    // and one starting with "@" names a file to attach.
+    it("pi: never passes the prompt as an argument", () => {
+        for (const prompt of ["- Title for: x", "@/etc/hosts"]) {
+            const command = buildHeadlessCommand("pi", undefined, prompt);
+            expect(command.args).not.toContain(prompt);
+            expect(command.stdin).toBe(prompt);
+        }
     });
 
     it("kimi: -p prompt as argument with model, permission mode ignored", () => {
