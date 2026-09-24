@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { FlowDefinition, ActionDefinition } from "@taskflow/shared";
+import type { FlowDefinition, ActionDefinition, BuiltinActionOverride } from "@taskflow/shared";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { useFlowStore } from "@/stores/flow-store";
 import { useProjectStore } from "@/stores/project-store";
 import { FlowEditor } from "./FlowEditor";
 import { ActionEditor } from "./ActionEditor";
+import { BuiltinActionEditor } from "./BuiltinActionEditor";
 import { selectableProjects } from "@/lib/project-visibility";
 
 function FlowManagementDialog() {
@@ -36,6 +37,11 @@ function FlowManagementDialog() {
         () => allActions.filter((action) => action.backendId === primaryId),
         [allActions, primaryId],
     );
+    const allBuiltinActions = useFlowStore((s) => s.builtinActions);
+    const builtinActions = useMemo(
+        () => allBuiltinActions.filter((action) => action.backendId === primaryId),
+        [allBuiltinActions, primaryId],
+    );
     const projects = useMemo(
         () => allProjects.filter((project) => project.backendId === primaryId),
         [allProjects, primaryId],
@@ -45,14 +51,16 @@ function FlowManagementDialog() {
     const [tab, setTab] = useState<"flows" | "actions">("actions");
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
-    // "all" = show everything, "global" = only global, otherwise a projectId
+    // "all" = user flows/actions, "global" = only global, "builtin" = built-in actions, otherwise a projectId
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
+    const isBuiltinFilter = projectFilter === "builtin";
 
     useEffect(() => {
         if (!open || !primaryId) return;
-        const { fetchFlows, fetchActions } = useFlowStore.getState();
+        const { fetchFlows, fetchActions, fetchBuiltinActions } = useFlowStore.getState();
         void fetchFlows(primaryId);
         void fetchActions(primaryId);
+        void fetchBuiltinActions(primaryId);
     }, [open, primaryId]);
 
     const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
@@ -69,30 +77,39 @@ function FlowManagementDialog() {
     );
 
     useEffect(() => {
-        if (projectFilter === "all" || projectFilter === "global") return;
+        if (projectFilter === "all" || projectFilter === "global" || projectFilter === "builtin")
+            return;
         if (projectOptions.some((project) => project.id === projectFilter)) return;
         setProjectFilter("all");
     }, [projectFilter, projectOptions]);
 
     const filteredFlows = useMemo(() => {
+        if (projectFilter === "builtin") return [];
         if (projectFilter === "all") return flows;
         if (projectFilter === "global") return flows.filter((f) => !f.projectId);
         return flows.filter((f) => f.projectId === projectFilter);
     }, [flows, projectFilter]);
 
     const filteredActions = useMemo(() => {
+        if (projectFilter === "builtin") return [];
         if (projectFilter === "all") return actions;
         if (projectFilter === "global") return actions.filter((a) => !a.projectId);
         return actions.filter((a) => a.projectId === projectFilter);
     }, [actions, projectFilter]);
 
     const defaultProjectId =
-        projectFilter !== "all" && projectFilter !== "global" ? projectFilter : undefined;
+        projectFilter !== "all" && projectFilter !== "global" && projectFilter !== "builtin"
+            ? projectFilter
+            : undefined;
 
     const selectedFlow =
         tab === "flows" ? (filteredFlows.find((f) => f.id === selectedId) ?? null) : null;
     const selectedAction =
         tab === "actions" ? (filteredActions.find((s) => s.id === selectedId) ?? null) : null;
+    const selectedBuiltin =
+        tab === "actions" && isBuiltinFilter
+            ? (builtinActions.find((a) => a.id === selectedId) ?? null)
+            : null;
 
     const referencingFlowsByActionId = useMemo(
         () =>
@@ -155,6 +172,19 @@ function FlowManagementDialog() {
         },
         [actions],
     );
+
+    const handleSaveBuiltin = useCallback(
+        async (override: BuiltinActionOverride) => {
+            if (!primaryId) throw new Error("Not connected to a backend");
+            await useFlowStore.getState().saveBuiltinAction(primaryId, override);
+        },
+        [primaryId],
+    );
+
+    const handleResetBuiltin = useCallback(async () => {
+        if (!primaryId || !selectedBuiltin) return;
+        await useFlowStore.getState().resetBuiltinAction(primaryId, selectedBuiltin.id);
+    }, [primaryId, selectedBuiltin]);
 
     const switchTab = useCallback((newTab: "flows" | "actions") => {
         setTab(newTab);
@@ -225,6 +255,7 @@ function FlowManagementDialog() {
                                 <SelectContent>
                                     <SelectItem value="all">All</SelectItem>
                                     <SelectItem value="global">Global</SelectItem>
+                                    <SelectItem value="builtin">Built-in</SelectItem>
                                     {projectOptions.map((p) => (
                                         <SelectItem key={p.id} value={p.id}>
                                             {p.name}
@@ -266,9 +297,14 @@ function FlowManagementDialog() {
                                         </div>
                                     </button>
                                 ))}
-                            {tab === "flows" && filteredFlows.length === 0 && (
+                            {tab === "flows" && !isBuiltinFilter && filteredFlows.length === 0 && (
                                 <div className="text-muted-foreground px-3 py-6 text-center text-xs">
                                     No flows yet
+                                </div>
+                            )}
+                            {tab === "flows" && isBuiltinFilter && (
+                                <div className="text-muted-foreground px-3 py-6 text-center text-xs">
+                                    Built-in actions can&apos;t be used in flows
                                 </div>
                             )}
                             {tab === "actions" &&
@@ -292,22 +328,48 @@ function FlowManagementDialog() {
                                         </div>
                                     </button>
                                 ))}
-                            {tab === "actions" && filteredActions.length === 0 && (
-                                <div className="text-muted-foreground px-3 py-6 text-center text-xs">
-                                    No actions yet
-                                </div>
-                            )}
+                            {tab === "actions" &&
+                                !isBuiltinFilter &&
+                                filteredActions.length === 0 && (
+                                    <div className="text-muted-foreground px-3 py-6 text-center text-xs">
+                                        No actions yet
+                                    </div>
+                                )}
+                            {tab === "actions" &&
+                                isBuiltinFilter &&
+                                builtinActions.map((b) => (
+                                    <button
+                                        key={b.id}
+                                        onClick={() => selectItem(b.id)}
+                                        className={`mb-0.5 w-full rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
+                                            selectedId === b.id
+                                                ? "bg-muted text-foreground font-medium"
+                                                : "text-secondary-foreground hover:bg-muted/50"
+                                        }`}>
+                                        <div className="font-medium">{b.name}</div>
+                                        <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+                                            <span>{b.sessionType ?? "Default agent"}</span>
+                                            {b.isModified && (
+                                                <span className="bg-muted rounded px-1">
+                                                    Modified
+                                                </span>
+                                            )}
+                                        </div>
+                                    </button>
+                                ))}
                         </div>
-                        <div className="flex justify-end p-1">
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={startCreating}
-                                title={tab === "flows" ? "New flow" : "New action"}>
-                                <Plus className="h-4 w-4" />
-                            </Button>
-                        </div>
+                        {!isBuiltinFilter && (
+                            <div className="flex justify-end p-1">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={startCreating}
+                                    title={tab === "flows" ? "New flow" : "New action"}>
+                                    <Plus className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Right editor column */}
@@ -368,10 +430,26 @@ function FlowManagementDialog() {
                                 }
                             />
                         )}
-                        {!creating && !selectedFlow && !selectedAction && (
+                        {selectedBuiltin && (
+                            <BuiltinActionEditor
+                                key={`${selectedBuiltin.id}-${selectedBuiltin.updatedAt ?? "default"}`}
+                                action={selectedBuiltin}
+                                backendId={primaryId}
+                                onSave={handleSaveBuiltin}
+                                onReset={handleResetBuiltin}
+                                onCancel={clearSelection}
+                            />
+                        )}
+                        {!creating && !selectedFlow && !selectedAction && !selectedBuiltin && (
                             <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                                Select an item or click <Plus className="mx-1 inline h-4 w-4" /> to
-                                create
+                                {isBuiltinFilter ? (
+                                    "Select a built-in action"
+                                ) : (
+                                    <>
+                                        Select an item or click{" "}
+                                        <Plus className="mx-1 inline h-4 w-4" /> to create
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
