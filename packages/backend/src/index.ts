@@ -38,9 +38,11 @@ import { createWorktreeSetup } from "./services/worktree-setup";
 import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
+import { createBuiltinActions } from "./services/builtin-actions";
 import { FlowRunner } from "./services/flow-runner";
 import { createSessionLifecycle } from "./services/session-lifecycle";
 import { registerFlowHandlers } from "./handlers/flow";
+import { registerBuiltinActionHandlers } from "./handlers/builtin-action";
 import { ScheduleStore } from "./services/schedule-store";
 import { SchedulerService, SYSTEM_PROMPT_ADDON } from "./services/scheduler-service";
 import { registerScheduleHandlers } from "./handlers/schedule";
@@ -98,6 +100,7 @@ async function main() {
         const gitService = new GitService();
         const fileWatcher = new FileWatcher();
         const settingsStore = new SettingsStore(config.settingsFile);
+        const builtinActions = createBuiltinActions({ flowStore });
         const trayStateTracker = new TrayStateTracker();
 
         const shells = await detectShells();
@@ -351,6 +354,7 @@ async function main() {
         registerScriptsHandlers(router);
         registerAgentCommandsHandlers({ router, taskStore: store, settingsStore });
         registerFlowHandlers({ router, flowStore, flowRunner });
+        registerBuiltinActionHandlers({ router, builtinActions });
         registerNotificationHandlers({
             router,
             notificationStore,

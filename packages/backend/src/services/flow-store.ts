@@ -1,7 +1,13 @@
 import { readFile, writeFile, readdir, unlink, mkdir } from "fs/promises";
 import type { Dirent } from "fs";
 import { join } from "path";
-import type { ActionDefinition, FlowDefinition, FlowRun } from "@taskflow/shared";
+import type {
+    ActionDefinition,
+    BuiltinActionId,
+    BuiltinActionOverride,
+    FlowDefinition,
+    FlowRun,
+} from "@taskflow/shared";
 import { getFlowRunOwnerId } from "@taskflow/shared";
 import { acquireFileMutationLock } from "./file-mutation-lock";
 
@@ -9,6 +15,10 @@ const FLOW_RUN_SEPARATOR = "--";
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
     return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function hasId(entry: unknown, id: string): boolean {
+    return typeof entry === "object" && entry !== null && "id" in entry && entry.id === id;
 }
 
 function assertValidFlowDefinition(flow: FlowDefinition): void {
@@ -131,6 +141,44 @@ class FlowStore {
             const actions = await this.getActions();
             const filtered = actions.filter((s) => s.id !== id);
             await writeFile(this.actionsFile, JSON.stringify(filtered, null, 2));
+        });
+    }
+
+    // --- Built-in action overrides ---
+    // Entries are returned unvalidated; the built-in actions service decides
+    // which are usable. Unknown entries survive writes untouched.
+
+    private get builtinActionsFile(): string {
+        return join(this.flowsDir, "builtin-actions.json");
+    }
+
+    async getBuiltinActionOverrides(): Promise<unknown[]> {
+        try {
+            const data = await this.readJsonFile<unknown>(this.builtinActionsFile);
+            return Array.isArray(data) ? data : [];
+        } catch (error) {
+            // A hand-broken file must not take the built-ins down; defaults apply.
+            if (error instanceof SyntaxError) return [];
+            throw error;
+        }
+    }
+
+    async saveBuiltinActionOverride(override: BuiltinActionOverride): Promise<void> {
+        await this.withMutation("definitions", async () => {
+            const entries = (await this.getBuiltinActionOverrides()).filter(
+                (entry) => !hasId(entry, override.id),
+            );
+            entries.push(override);
+            await writeFile(this.builtinActionsFile, JSON.stringify(entries, null, 2));
+        });
+    }
+
+    async deleteBuiltinActionOverride(id: BuiltinActionId): Promise<void> {
+        await this.withMutation("definitions", async () => {
+            const entries = (await this.getBuiltinActionOverrides()).filter(
+                (entry) => !hasId(entry, id),
+            );
+            await writeFile(this.builtinActionsFile, JSON.stringify(entries, null, 2));
         });
     }
 
