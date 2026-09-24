@@ -6,6 +6,10 @@ import type {
     FlowDefinitionsListResponse,
     FlowActionsListResponse,
     FlowRunsListResponse,
+    BuiltinActionDefinition,
+    BuiltinActionId,
+    BuiltinActionOverride,
+    BuiltinActionsListResponse,
 } from "@taskflow/shared";
 import { MSG, getFlowRunOwnerId } from "@taskflow/shared";
 import { createSlices, type Scoped } from "@/lib/backend-scope";
@@ -58,6 +62,8 @@ interface FlowStartParams {
 interface FlowStore {
     flows: Scoped<FlowDefinition>[];
     actions: Scoped<ActionDefinition>[];
+    /** Built-in action definitions (defaults merged with overrides), per machine. */
+    builtinActions: Scoped<BuiltinActionDefinition>[];
     loadingDefinitions: boolean;
     definitionLoadCount: number;
     /** Keyed by owner id. The value carries its machine: nothing else knows it. */
@@ -69,6 +75,9 @@ interface FlowStore {
     saveAction(backendId: string, action: ActionDefinition): Promise<void>;
     deleteFlow(flow: Scoped<FlowDefinition>): Promise<void>;
     deleteAction(action: Scoped<ActionDefinition>): Promise<void>;
+    fetchBuiltinActions(backendId: string): Promise<void>;
+    saveBuiltinAction(backendId: string, override: BuiltinActionOverride): Promise<void>;
+    resetBuiltinAction(backendId: string, id: BuiltinActionId): Promise<void>;
 
     startFlow(backendId: string, params: FlowStartParams): Promise<FlowRun>;
     stopFlow(backendId: string, ownerId: string, flowId: string): Promise<void>;
@@ -86,9 +95,14 @@ interface FlowStore {
 
 const slices = createSlices<FlowDefinition>();
 const actionSlices = createSlices<ActionDefinition>();
+const builtinSlices = createSlices<BuiltinActionDefinition>();
 
 function publishDefinitions(): void {
-    useFlowStore.setState({ flows: slices.read(), actions: actionSlices.read() });
+    useFlowStore.setState({
+        flows: slices.read(),
+        actions: actionSlices.read(),
+        builtinActions: builtinSlices.read(),
+    });
 }
 
 function upsertById<T extends { id: string }>(items: Scoped<T>[], record: Scoped<T>): Scoped<T>[] {
@@ -134,6 +148,7 @@ function applyRunUpdate(backendId: string, run: FlowRun): void {
 const useFlowStore = create<FlowStore>((set) => ({
     flows: [],
     actions: [],
+    builtinActions: [],
     loadingDefinitions: false,
     definitionLoadCount: 0,
     activeRuns: {},
@@ -186,6 +201,38 @@ const useFlowStore = create<FlowStore>((set) => ({
         publishDefinitions();
     },
 
+    async fetchBuiltinActions(backendId) {
+        await trackDefinitionLoad(() =>
+            builtinSlices.load(backendId, async () => {
+                const { actions } = await sendRequest<BuiltinActionsListResponse>(
+                    backendId,
+                    MSG.BUILTIN_ACTIONS_LIST,
+                );
+                return actions;
+            }),
+        );
+    },
+
+    async saveBuiltinAction(backendId, override) {
+        const saved = await sendRequest<BuiltinActionDefinition>(
+            backendId,
+            MSG.BUILTIN_ACTION_SAVE,
+            override,
+        );
+        builtinSlices.apply(backendId, (items) => upsertById(items, { ...saved, backendId }));
+        publishDefinitions();
+    },
+
+    async resetBuiltinAction(backendId, id) {
+        const reset = await sendRequest<BuiltinActionDefinition>(
+            backendId,
+            MSG.BUILTIN_ACTION_RESET,
+            { id },
+        );
+        builtinSlices.apply(backendId, (items) => upsertById(items, { ...reset, backendId }));
+        publishDefinitions();
+    },
+
     async startFlow(backendId, params) {
         const run = await sendRequest<FlowRun>(backendId, MSG.FLOW_START, params);
         const ownerId = getFlowRunOwnerId(run);
@@ -233,11 +280,13 @@ const useFlowStore = create<FlowStore>((set) => ({
 registerBackendReset("flow-store", (backendId) => {
     slices.drop(backendId);
     actionSlices.drop(backendId);
+    builtinSlices.drop(backendId);
     // A detached machine's runs go with it, or the panel keeps offering
     // controls for a machine that is no longer attached.
     useFlowStore.setState((s) => ({
         flows: slices.read(),
         actions: actionSlices.read(),
+        builtinActions: builtinSlices.read(),
         activeRuns: Object.fromEntries(
             Object.entries(s.activeRuns).filter(([, run]) => run.backendId !== backendId),
         ),

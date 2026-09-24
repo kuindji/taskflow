@@ -21,6 +21,8 @@ interface PiOptionsProps {
     onToolsChange: (value: string) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
+    /** One-shot headless run: hide fields that only matter to an interactive session. */
+    headless?: boolean;
 }
 
 const LABELS = {
@@ -53,6 +55,7 @@ function PiOptions({
     onThinkingChange,
     onToolsChange,
     mode = "session",
+    headless = false,
 }: PiOptionsProps) {
     const l = LABELS[mode];
 
@@ -79,15 +82,17 @@ function PiOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={l.tools} hint={l.toolsHint}>
-                <Input
-                    size="sm"
-                    className="text-[13px]"
-                    placeholder="read,bash,edit,write,grep,find,ls"
-                    value={toolsValue}
-                    onChange={(e) => onToolsChange(e.target.value)}
-                />
-            </SettingRow>
+            {!headless && (
+                <SettingRow label={l.tools} hint={l.toolsHint}>
+                    <Input
+                        size="sm"
+                        className="text-[13px]"
+                        placeholder="read,bash,edit,write,grep,find,ls"
+                        value={toolsValue}
+                        onChange={(e) => onToolsChange(e.target.value)}
+                    />
+                </SettingRow>
+            )}
         </>
     );
 }

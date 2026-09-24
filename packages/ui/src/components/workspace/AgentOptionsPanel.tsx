@@ -33,6 +33,13 @@ interface AgentOptionsPanelProps {
     agentType: AgentType;
     value?: AgentLaunchOptions;
     emitOnMount?: boolean;
+    /**
+     * One-shot text generation (built-in helpers). Hides and omits
+     * session-only fields (permissions, sandbox, approvals, auto-approve,
+     * tools) and does not prefill from the machine's session defaults: an
+     * unset field means the agent CLI's own default.
+     */
+    headless?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
     onChange?: (options: AgentLaunchOptions) => void;
     onReset?: () => void;
@@ -43,6 +50,7 @@ function AgentOptionsPanel({
     agentType,
     value,
     emitOnMount = false,
+    headless = false,
     onRun,
     onChange,
     onReset,
@@ -50,11 +58,13 @@ function AgentOptionsPanel({
     const settings = useSettingsStore((s) =>
         backendId ? (s.byBackend[backendId] ?? null) : s.settings,
     );
-    const claudeSettings = settings?.claude;
-    const codexSettings = settings?.codex;
-    const opencodeSettings = settings?.opencode;
-    const piSettings = settings?.pi;
-    const kimiSettings = settings?.kimi;
+    // Headless runs don't use the machine's session defaults.
+    const defaults = headless ? null : settings;
+    const claudeSettings = defaults?.claude;
+    const codexSettings = defaults?.codex;
+    const opencodeSettings = defaults?.opencode;
+    const piSettings = defaults?.pi;
+    const kimiSettings = defaults?.kimi;
     const primaryId = useBackendStore((s) => s.primaryId);
     const agentBackendId = backendId ?? primaryId;
     const agents = useAgentAvailability(agentBackendId);
@@ -151,9 +161,9 @@ function AgentOptionsPanel({
             : INHERIT_AGENT_ACCOUNT;
     const accountList =
         agentType === "claude"
-            ? (claudeSettings?.accounts ?? [])
+            ? (settings?.claude.accounts ?? [])
             : agentType === "codex"
-              ? (codexSettings?.accounts ?? [])
+              ? (settings?.codex.accounts ?? [])
               : [];
 
     // --- State ---
@@ -226,12 +236,14 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "claude",
             permissionMode:
-                permissionMode === "default" ? undefined : (permissionMode as ClaudePermissionMode),
+                headless || permissionMode === "default"
+                    ? undefined
+                    : (permissionMode as ClaudePermissionMode),
             model: model === "default" ? undefined : model || undefined,
             effort: effort === "default" ? undefined : (effort as ClaudeEffortLevel),
             account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
-        [permissionMode, model, effort, account],
+        [permissionMode, model, effort, account, headless],
     );
 
     const buildCodexOptions = useCallback(
@@ -239,9 +251,11 @@ function AgentOptionsPanel({
             type: "codex",
             model: model || undefined,
             reasoningEffort: codexReasoningEffort === "default" ? undefined : codexReasoningEffort,
-            sandbox: codexSandbox || undefined,
-            approvalPolicy: approvalPolicy || undefined,
-            dangerouslyBypassApprovalsAndSandbox: dangerouslyBypassApprovalsAndSandbox || undefined,
+            sandbox: headless ? undefined : codexSandbox || undefined,
+            approvalPolicy: headless ? undefined : approvalPolicy || undefined,
+            dangerouslyBypassApprovalsAndSandbox: headless
+                ? undefined
+                : dangerouslyBypassApprovalsAndSandbox || undefined,
             account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
         [
@@ -251,6 +265,7 @@ function AgentOptionsPanel({
             approvalPolicy,
             dangerouslyBypassApprovalsAndSandbox,
             account,
+            headless,
         ],
     );
 
@@ -258,9 +273,9 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "opencode",
             model: model || undefined,
-            autoApprove: ocAutoApprove || undefined,
+            autoApprove: headless ? undefined : ocAutoApprove || undefined,
         }),
-        [model, ocAutoApprove],
+        [model, ocAutoApprove, headless],
     );
 
     const buildPiOptions = useCallback(
@@ -268,18 +283,19 @@ function AgentOptionsPanel({
             type: "pi",
             model: model || undefined,
             thinking: piThinking === "off" ? undefined : piThinking,
-            tools: piTools.trim() || undefined,
+            tools: headless ? undefined : piTools.trim() || undefined,
         }),
-        [model, piThinking, piTools],
+        [model, piThinking, piTools, headless],
     );
 
     const buildKimiOptions = useCallback(
         (): AgentLaunchOptions => ({
             type: "kimi",
             model: model || undefined,
-            permissionMode: kimiPermissionMode === "manual" ? undefined : kimiPermissionMode,
+            permissionMode:
+                headless || kimiPermissionMode === "manual" ? undefined : kimiPermissionMode,
         }),
-        [model, kimiPermissionMode],
+        [model, kimiPermissionMode, headless],
     );
 
     const buildOptions = useCallback((): AgentLaunchOptions => {
@@ -322,6 +338,7 @@ function AgentOptionsPanel({
             {agentType === "claude" ? (
                 <>
                     <ClaudeOptions
+                        headless={headless}
                         modelValue={model}
                         effortValue={effort}
                         permissionMode={permissionMode}
@@ -344,6 +361,7 @@ function AgentOptionsPanel({
             ) : agentType === "codex" ? (
                 <>
                     <CodexOptions
+                        headless={headless}
                         backendId={agentBackendId}
                         modelValue={model}
                         reasoningEffort={codexReasoningEffort}
@@ -371,6 +389,7 @@ function AgentOptionsPanel({
                 </>
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
+                    headless={headless}
                     backendId={agentBackendId}
                     modelValue={model}
                     autoApprove={ocAutoApprove}
@@ -379,6 +398,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "pi" ? (
                 <PiOptions
+                    headless={headless}
                     backendId={agentBackendId}
                     modelValue={model}
                     thinkingValue={piThinking}
@@ -389,6 +409,7 @@ function AgentOptionsPanel({
                 />
             ) : agentType === "kimi" ? (
                 <KimiOptions
+                    headless={headless}
                     backendId={agentBackendId}
                     modelValue={model}
                     permissionMode={kimiPermissionMode}

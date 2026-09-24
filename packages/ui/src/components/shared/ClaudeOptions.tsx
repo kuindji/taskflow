@@ -17,6 +17,8 @@ interface ClaudeOptionsProps {
     onPermissionModeChange: (value: string) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
+    /** One-shot headless run: hide fields that only matter to an interactive session. */
+    headless?: boolean;
 }
 
 const LABELS = {
@@ -47,6 +49,7 @@ function ClaudeOptions({
     onEffortChange,
     onPermissionModeChange,
     mode = "session",
+    headless = false,
 }: ClaudeOptionsProps) {
     const l = LABELS[mode];
 
@@ -84,22 +87,24 @@ function ClaudeOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={l.permissionMode} hint={l.permissionModeHint}>
-                <Select value={permissionMode} onValueChange={onPermissionModeChange}>
-                    <SelectTrigger size="sm" className="text-[13px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="default">Inherit Claude Default</SelectItem>
-                        <SelectItem value="manual">Manual</SelectItem>
-                        <SelectItem value="auto">Auto</SelectItem>
-                        <SelectItem value="acceptEdits">Accept Edits</SelectItem>
-                        <SelectItem value="bypassPermissions">Bypass Permissions</SelectItem>
-                        <SelectItem value="dontAsk">Don&apos;t Ask</SelectItem>
-                        <SelectItem value="plan">Plan</SelectItem>
-                    </SelectContent>
-                </Select>
-            </SettingRow>
+            {!headless && (
+                <SettingRow label={l.permissionMode} hint={l.permissionModeHint}>
+                    <Select value={permissionMode} onValueChange={onPermissionModeChange}>
+                        <SelectTrigger size="sm" className="text-[13px]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Inherit Claude Default</SelectItem>
+                            <SelectItem value="manual">Manual</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="acceptEdits">Accept Edits</SelectItem>
+                            <SelectItem value="bypassPermissions">Bypass Permissions</SelectItem>
+                            <SelectItem value="dontAsk">Don&apos;t Ask</SelectItem>
+                            <SelectItem value="plan">Plan</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </SettingRow>
+            )}
         </>
     );
 }

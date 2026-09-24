@@ -9,6 +9,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 interface MockAgentSettings {
     accounts: AgentAccount[];
+    defaultModel?: string;
+    permissionMode?: string;
+    sandbox?: string;
 }
 
 interface MockSettings {
@@ -73,6 +76,26 @@ function mount(agentType: AgentType) {
             <AgentOptionsPanel
                 agentType={agentType}
                 emitOnMount
+                onChange={(options) => emitted.push(options)}
+            />,
+        );
+    });
+}
+
+function mountWith(
+    agentType: AgentType,
+    props: { headless?: boolean; value?: AgentLaunchOptions },
+) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+        root?.render(
+            <AgentOptionsPanel
+                agentType={agentType}
+                emitOnMount
+                headless={props.headless}
+                value={props.value}
                 onChange={(options) => emitted.push(options)}
             />,
         );
@@ -157,4 +180,51 @@ test("agents without accounts build options with no account field", () => {
     mount("pi");
     expect(container.querySelector('[data-testid="account-select"]')).toBeNull();
     expect(lastEmitted()).not.toHaveProperty("account");
+});
+
+test("session mode prefills Claude from the machine's session defaults", () => {
+    settings.claude.defaultModel = "opus";
+    settings.claude.permissionMode = "bypassPermissions";
+    mountWith("claude", {});
+    const options = lastEmitted();
+    if (options.type !== "claude") throw new Error("expected claude options");
+    expect(options.model).toBe("opus");
+    expect(options.permissionMode).toBe("bypassPermissions");
+});
+
+test("headless mode ignores session defaults and omits session-only fields", () => {
+    settings.claude.defaultModel = "opus";
+    settings.claude.permissionMode = "bypassPermissions";
+    mountWith("claude", { headless: true });
+    const options = lastEmitted();
+    if (options.type !== "claude") throw new Error("expected claude options");
+    expect(options.model).toBeUndefined();
+    expect(options.permissionMode).toBeUndefined();
+});
+
+test("headless mode keeps the saved model and account", () => {
+    settings.claude.permissionMode = "bypassPermissions";
+    mountWith("claude", {
+        headless: true,
+        value: { type: "claude", model: "haiku", account: "acc-1", permissionMode: "plan" },
+    });
+    const options = lastEmitted();
+    if (options.type !== "claude") throw new Error("expected claude options");
+    expect(options.model).toBe("haiku");
+    expect(account(options)).toBe("acc-1");
+    expect(options.permissionMode).toBeUndefined();
+});
+
+test("headless codex drops sandbox, approval and bypass", () => {
+    settings.codex.sandbox = "danger-full-access";
+    mountWith("codex", {
+        headless: true,
+        value: { type: "codex", model: "gpt-5.6-luna", approvalPolicy: "never" },
+    });
+    const options = lastEmitted();
+    if (options.type !== "codex") throw new Error("expected codex options");
+    expect(options.model).toBe("gpt-5.6-luna");
+    expect(options.sandbox).toBeUndefined();
+    expect(options.approvalPolicy).toBeUndefined();
+    expect(options.dangerouslyBypassApprovalsAndSandbox).toBeUndefined();
 });

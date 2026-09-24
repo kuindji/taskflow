@@ -18,6 +18,8 @@ interface KimiOptionsProps {
     onPermissionModeChange: (value: KimiPermissionMode) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
+    /** One-shot headless run: hide fields that only matter to an interactive session. */
+    headless?: boolean;
 }
 
 const LABELS = {
@@ -50,6 +52,7 @@ function KimiOptions({
     onModelChange,
     onPermissionModeChange,
     mode = "session",
+    headless = false,
 }: KimiOptionsProps) {
     const l = LABELS[mode];
 
@@ -62,22 +65,24 @@ function KimiOptions({
                     onChange={onModelChange}
                 />
             </SettingRow>
-            <SettingRow label={l.permission} hint={l.permissionHint}>
-                <Select
-                    value={permissionMode}
-                    onValueChange={(v) => onPermissionModeChange(v as KimiPermissionMode)}>
-                    <SelectTrigger size="sm" className="w-[180px] text-[13px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {PERMISSION_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </SettingRow>
+            {!headless && (
+                <SettingRow label={l.permission} hint={l.permissionHint}>
+                    <Select
+                        value={permissionMode}
+                        onValueChange={(v) => onPermissionModeChange(v as KimiPermissionMode)}>
+                        <SelectTrigger size="sm" className="w-[180px] text-[13px]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {PERMISSION_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </SettingRow>
+            )}
         </>
     );
 }

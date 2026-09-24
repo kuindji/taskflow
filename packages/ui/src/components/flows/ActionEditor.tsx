@@ -19,7 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useProjectStore } from "@/stores/project-store";
 import { selectableProjectId, selectableProjects } from "@/lib/project-visibility";
-import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
+import { agentOptionsSnapshot } from "@/lib/normalize-agent-options";
 
 interface ActionEditorProps {
     action: ActionDefinition | null;
@@ -31,15 +31,6 @@ interface ActionEditorProps {
     onDelete?: () => void;
     deleteDisabled?: boolean;
     deleteDisabledReason?: string;
-}
-
-/** Snapshot shape for change detection: agent types always yield an object. */
-function snapshotAgentOptions(
-    sessionType: SessionType,
-    agentOptions: AgentLaunchOptions | undefined,
-) {
-    if (sessionType === "shell") return undefined;
-    return normalizeAgentOptions(sessionType, agentOptions) ?? { type: sessionType };
 }
 
 function ActionEditor({
@@ -113,7 +104,7 @@ function ActionEditor({
                 name: action?.name ?? "",
                 prompt: action?.prompt ?? "",
                 sessionType: action?.sessionType ?? "claude",
-                agentOptions: snapshotAgentOptions(
+                agentOptions: agentOptionsSnapshot(
                     action?.sessionType ?? "claude",
                     action?.agentOptions,
                 ),
@@ -126,7 +117,7 @@ function ActionEditor({
         name,
         prompt,
         sessionType,
-        agentOptions: snapshotAgentOptions(sessionType, agentOptions),
+        agentOptions: agentOptionsSnapshot(sessionType, agentOptions),
         standalone: standalone || undefined,
     });
     const hasChanges = initialSnapshot !== currentSnapshot;

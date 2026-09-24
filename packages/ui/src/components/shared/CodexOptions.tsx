@@ -33,6 +33,8 @@ interface CodexOptionsProps {
     onDangerouslyBypassApprovalsAndSandboxChange: (value: boolean) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
+    /** One-shot headless run: hide fields that only matter to an interactive session. */
+    headless?: boolean;
 }
 
 const LABELS = {
@@ -79,6 +81,7 @@ function CodexOptions({
     onApprovalPolicyChange,
     onDangerouslyBypassApprovalsAndSandboxChange,
     mode = "session",
+    headless = false,
 }: CodexOptionsProps) {
     const labels = LABELS[mode];
     const bypassId = useId();
@@ -164,50 +167,58 @@ function CodexOptions({
                     </SelectContent>
                 </Select>
             </SettingRow>
-            <SettingRow label={labels.bypass} hint={labels.bypassHint} className="h-8">
-                <div className="flex items-center gap-2.5">
-                    <Switch
-                        id={bypassId}
-                        checked={dangerouslyBypassApprovalsAndSandbox}
-                        onCheckedChange={onDangerouslyBypassApprovalsAndSandboxChange}
-                    />
-                    <Label
-                        htmlFor={bypassId}
-                        className={`${dangerouslyBypassApprovalsAndSandbox ? "text-destructive" : "text-muted-foreground"} cursor-pointer text-[13px] font-normal normal-case`}>
-                        {dangerouslyBypassApprovalsAndSandbox ? "YOLO enabled" : "Disabled"}
-                    </Label>
-                </div>
-            </SettingRow>
-            <SettingRow label={labels.sandbox} hint={labels.sandboxHint}>
-                <Select
-                    value={sandbox}
-                    onValueChange={(value) => onSandboxChange(value as CodexSandboxMode)}
-                    disabled={dangerouslyBypassApprovalsAndSandbox}>
-                    <SelectTrigger size="sm" className="w-[220px] text-[13px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="read-only">Read only</SelectItem>
-                        <SelectItem value="workspace-write">Workspace write</SelectItem>
-                        <SelectItem value="danger-full-access">Full access (dangerous)</SelectItem>
-                    </SelectContent>
-                </Select>
-            </SettingRow>
-            <SettingRow label={labels.approvalPolicy} hint={labels.approvalPolicyHint}>
-                <Select
-                    value={approvalPolicy}
-                    onValueChange={(value) => onApprovalPolicyChange(value as CodexApprovalPolicy)}
-                    disabled={dangerouslyBypassApprovalsAndSandbox}>
-                    <SelectTrigger size="sm" className="w-[220px] text-[13px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="untrusted">Untrusted commands</SelectItem>
-                        <SelectItem value="on-request">On request</SelectItem>
-                        <SelectItem value="never">Never</SelectItem>
-                    </SelectContent>
-                </Select>
-            </SettingRow>
+            {!headless && (
+                <>
+                    <SettingRow label={labels.bypass} hint={labels.bypassHint} className="h-8">
+                        <div className="flex items-center gap-2.5">
+                            <Switch
+                                id={bypassId}
+                                checked={dangerouslyBypassApprovalsAndSandbox}
+                                onCheckedChange={onDangerouslyBypassApprovalsAndSandboxChange}
+                            />
+                            <Label
+                                htmlFor={bypassId}
+                                className={`${dangerouslyBypassApprovalsAndSandbox ? "text-destructive" : "text-muted-foreground"} cursor-pointer text-[13px] font-normal normal-case`}>
+                                {dangerouslyBypassApprovalsAndSandbox ? "YOLO enabled" : "Disabled"}
+                            </Label>
+                        </div>
+                    </SettingRow>
+                    <SettingRow label={labels.sandbox} hint={labels.sandboxHint}>
+                        <Select
+                            value={sandbox}
+                            onValueChange={(value) => onSandboxChange(value as CodexSandboxMode)}
+                            disabled={dangerouslyBypassApprovalsAndSandbox}>
+                            <SelectTrigger size="sm" className="w-[220px] text-[13px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="read-only">Read only</SelectItem>
+                                <SelectItem value="workspace-write">Workspace write</SelectItem>
+                                <SelectItem value="danger-full-access">
+                                    Full access (dangerous)
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </SettingRow>
+                    <SettingRow label={labels.approvalPolicy} hint={labels.approvalPolicyHint}>
+                        <Select
+                            value={approvalPolicy}
+                            onValueChange={(value) =>
+                                onApprovalPolicyChange(value as CodexApprovalPolicy)
+                            }
+                            disabled={dangerouslyBypassApprovalsAndSandbox}>
+                            <SelectTrigger size="sm" className="w-[220px] text-[13px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="untrusted">Untrusted commands</SelectItem>
+                                <SelectItem value="on-request">On request</SelectItem>
+                                <SelectItem value="never">Never</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </SettingRow>
+                </>
+            )}
         </>
     );
 }

@@ -12,6 +12,8 @@ interface OpenCodeOptionsProps {
     onAutoApproveChange: (value: boolean) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
+    /** One-shot headless run: hide fields that only matter to an interactive session. */
+    headless?: boolean;
 }
 
 const LABELS = {
@@ -36,6 +38,7 @@ function OpenCodeOptions({
     onModelChange,
     onAutoApproveChange,
     mode = "session",
+    headless = false,
 }: OpenCodeOptionsProps) {
     const l = LABELS[mode];
 
@@ -48,20 +51,22 @@ function OpenCodeOptions({
                     onChange={onModelChange}
                 />
             </SettingRow>
-            <SettingRow label={l.autoApprove} hint={l.autoApproveHint} className="h-8">
-                <div className="flex items-center gap-2.5">
-                    <Switch
-                        id="opencode-auto-approve"
-                        checked={autoApprove}
-                        onCheckedChange={onAutoApproveChange}
-                    />
-                    <Label
-                        htmlFor="opencode-auto-approve"
-                        className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
-                        {autoApprove ? "Enabled" : "Disabled"}
-                    </Label>
-                </div>
-            </SettingRow>
+            {!headless && (
+                <SettingRow label={l.autoApprove} hint={l.autoApproveHint} className="h-8">
+                    <div className="flex items-center gap-2.5">
+                        <Switch
+                            id="opencode-auto-approve"
+                            checked={autoApprove}
+                            onCheckedChange={onAutoApproveChange}
+                        />
+                        <Label
+                            htmlFor="opencode-auto-approve"
+                            className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
+                            {autoApprove ? "Enabled" : "Disabled"}
+                        </Label>
+                    </div>
+                </SettingRow>
+            )}
         </>
     );
 }

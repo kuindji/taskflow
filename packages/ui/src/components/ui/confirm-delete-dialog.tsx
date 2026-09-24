@@ -15,6 +15,7 @@ interface ConfirmDeleteDialogProps {
     onConfirm: () => void;
     title: string;
     description?: string;
+    confirmLabel?: string;
 }
 
 function ConfirmDeleteDialog({
@@ -23,6 +24,7 @@ function ConfirmDeleteDialog({
     onConfirm,
     title,
     description = "This cannot be undone.",
+    confirmLabel = "Delete",
 }: ConfirmDeleteDialogProps) {
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -39,7 +41,7 @@ function ConfirmDeleteDialog({
                             e.preventDefault();
                             onConfirm();
                         }}>
-                        Delete
+                        {confirmLabel}
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>

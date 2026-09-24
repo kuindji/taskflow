@@ -78,4 +78,13 @@ function normalizeAgentOptions(
     }
 }
 
-export { normalizeAgentOptions };
+/** Snapshot shape for change detection: agent types always yield an object. */
+function agentOptionsSnapshot(
+    sessionType: SessionType,
+    agentOptions: AgentLaunchOptions | undefined,
+): AgentLaunchOptions | undefined {
+    if (sessionType === "shell") return undefined;
+    return normalizeAgentOptions(sessionType, agentOptions) ?? { type: sessionType };
+}
+
+export { normalizeAgentOptions, agentOptionsSnapshot };
