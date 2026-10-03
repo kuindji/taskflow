@@ -6,7 +6,7 @@ Plan: `../2026-10-03-move-session.md`. Spec: `docs/superpowers/specs/2026-10-03-
 
 ## Next step
 
-Plan review round 2: triage `reviews/round-2.md` (2 blockers, 7 majors reported) per `chain.md` → Review steps.
+Plan review round 3: triage `reviews/round-3.md` (1 major reported: file links moved into Master fail with a CLI editor) per `chain.md` → Review steps.
 
 ## Status
 
@@ -22,7 +22,8 @@ Plan review round 2: triage `reviews/round-2.md` (2 blockers, 7 majors reported)
 ## Facts for the next section
 
 - Base for the final whole-change review: the last plan/handoff commit before Section 1 starts. The Section 1 session records its hash here.
-- Review artifacts: `reviews/round-N.md` (Codex reports), `reviews/round-N-triage.md`, `reviews/round-2-prompt.md` (template for later round prompts).
+- Review artifacts: `reviews/round-N.md` (Codex reports), `reviews/round-N-triage.md`, `reviews/round-3-prompt.md` (latest round prompt; template for the next one).
+- Round 2: 7 confirmed and folded in (commit 4444ed6d), 2 rejected (shutdown create gating, cross-process owner locks). Don't re-litigate those unless a new reason is factually grounded.
 - The plan was reviewed by gpt-6.1-sol before execution. See "Plan review log" in the plan index.
 
 ## Deviations from the spec
