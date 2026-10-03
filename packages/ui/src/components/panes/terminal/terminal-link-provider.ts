@@ -261,14 +261,18 @@ async function handlePathActivation(
 
     // Finder and the external editor see this machine's files: a path on
     // another machine opens in the app instead.
-    const isExternal =
-        (event.metaKey || event.ctrlKey) &&
-        isLocalBackend(useBackendStore.getState().machines, backendId);
+    const isLocal = isLocalBackend(useBackendStore.getState().machines, backendId);
+    const isExternal = (event.metaKey || event.ctrlKey) && isLocal;
 
     if (stat.isDirectory) {
-        if (isExternal) {
+        // A moved session's directory can lie outside the explorer's tree,
+        // which cannot show it: Finder can, on this machine.
+        const { treePath } = useFileStore.getState();
+        const inTree =
+            treePath !== null && (resolved === treePath || resolved.startsWith(treePath + "/"));
+        if (isExternal || (!inTree && isLocal)) {
             window.taskflow?.showItemInFolder(resolved);
-        } else {
+        } else if (inTree) {
             void useFileStore.getState().expandToPathAndLoad(resolved);
             if (!useUIStore.getState().fileExplorerOpen) {
                 useUIStore.getState().toggleFileExplorer();
