@@ -5,6 +5,7 @@ import type { Task, SessionRef } from "@taskflow/shared";
 import { useShallow } from "zustand/react/shallow";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
+import { useUIStore } from "@/stores/ui-store";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -251,10 +252,14 @@ export function TaskCard({
         ],
     );
 
+    const isSessionDropTarget = useUIStore((s) => s.sessionDropTarget?.key === `task:${task.id}`);
+
     const cardBody = (
         <div
             role="button"
             tabIndex={0}
+            data-session-drop={`task:${task.id}`}
+            data-session-drop-backend={task.backendId}
             onClick={(e) => {
                 e.stopPropagation();
                 onClick();
@@ -271,6 +276,7 @@ export function TaskCard({
                 "group relative min-w-0 overflow-hidden [-webkit-app-region:no-drag]",
                 compact && "py-1.5",
                 isSubtask && "ml-0.5 py-1.5",
+                isSessionDropTarget && "ring-accent ring-2",
             )}>
             <div className="min-w-0 flex-1">
                 <TruncatedText

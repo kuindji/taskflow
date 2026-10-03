@@ -16,6 +16,7 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { WorkspacePane } from "./WorkspacePane";
 import type { WorkspacePaneProps } from "./WorkspacePane";
 import { TabItemOverlay } from "./TabItem";
+import { useSessionMoveDrag } from "./useSessionMoveDrag";
 
 type SharedPaneProps = Omit<
     WorkspacePaneProps,
@@ -67,9 +68,11 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
     );
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+    const sessionMove = useSessionMoveDrag();
 
     const handleDragStart = useCallback(
         (event: DragStartEvent) => {
+            sessionMove.onDragStart(event);
             const activeId = String(event.active.id);
             const store = useSessionStore.getState();
             const lTabs = store.tabsByWorkspace[workspaceKey] ?? [];
@@ -78,12 +81,13 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 lTabs.find((t) => t.id === activeId) ?? rTabs.find((t) => t.id === activeId);
             setDraggedTab(tab ?? null);
         },
-        [workspaceKey, rightKey],
+        [workspaceKey, rightKey, sessionMove],
     );
 
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
             setDraggedTab(null);
+            if (sessionMove.onDragEnd(event)) return;
 
             const { active, over } = event;
             if (!over) return;
@@ -138,10 +142,13 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 setActivePane(workspaceKey, targetPane);
             }
         },
-        [workspaceKey, rightKey, setActivePane],
+        [workspaceKey, rightKey, setActivePane, sessionMove],
     );
 
-    const handleDragCancel = useCallback(() => setDraggedTab(null), []);
+    const handleDragCancel = useCallback(() => {
+        setDraggedTab(null);
+        sessionMove.onDragCancel();
+    }, [sessionMove]);
 
     const isOpen = split?.open ?? false;
     const ratio = split?.ratio ?? 0.5;
@@ -194,6 +201,7 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragStart={handleDragStart}
+                onDragMove={sessionMove.onDragMove}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}>
                 {content}

@@ -194,6 +194,7 @@ export function AppShell({
                             "ring-accent/50 ring-1 transition-shadow duration-500",
                     )}
                     data-panel="sidebar"
+                    data-session-drop-zone=""
                     onPointerDown={handlePanelPointerDown}
                     onClick={() => handlePanelClick("sidebar")}
                     style={{

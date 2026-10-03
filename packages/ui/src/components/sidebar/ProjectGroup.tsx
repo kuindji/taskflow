@@ -24,6 +24,7 @@ import { KeyBadge } from "@/components/ui/key-badge";
 import type { Scoped } from "@/lib/backend-scope";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/stores/session-store";
+import { useUIStore } from "@/stores/ui-store";
 import { useDiffStore } from "@/stores/diff-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -254,8 +255,14 @@ export function ProjectGroup({
         }
     };
 
+    const isSessionDropTarget = useUIStore(
+        (s) => s.sessionDropTarget?.key === `project:${project.id}`,
+    );
+
     const projectHeader = (
         <div
+            data-session-drop={`project:${project.id}`}
+            data-session-drop-backend={project.backendId}
             className={cn(
                 "group flex min-w-0 flex-col overflow-hidden",
                 "rounded-lg transition-colors duration-300 [-webkit-app-region:no-drag]",
@@ -266,6 +273,7 @@ export function ProjectGroup({
                     : open
                       ? "hover:bg-accent/5"
                       : "hover:bg-accent/5",
+                isSessionDropTarget && "ring-accent ring-2",
             )}>
             <div className="flex items-center">
                 <button

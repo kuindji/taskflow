@@ -7,14 +7,22 @@ import type {
     FlowRun,
 } from "@taskflow/shared";
 import type { AgentType } from "@taskflow/shared";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
+import {
+    DndContext,
+    DragOverlay,
+    closestCenter,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from "@dnd-kit/core";
+import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
 import { AgentDropdownMenu } from "./AgentDropdownMenu";
-import { TabItem } from "./TabItem";
+import { TabItem, TabItemOverlay } from "./TabItem";
+import { useSessionMoveDrag } from "./useSessionMoveDrag";
 
 interface TabBarProps {
     tabs: Tab[];
@@ -83,15 +91,33 @@ export function TabBar({
 
     const tabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
 
+    const sessionMove = useSessionMoveDrag();
+    const [draggedTab, setDraggedTab] = useState<Tab | null>(null);
+
+    const handleDragStart = useCallback(
+        (event: DragStartEvent) => {
+            sessionMove.onDragStart(event);
+            setDraggedTab(tabs.find((tab) => tab.id === String(event.active.id)) ?? null);
+        },
+        [tabs, sessionMove],
+    );
+
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
+            setDraggedTab(null);
+            if (sessionMove.onDragEnd(event)) return;
             const { active, over } = event;
             if (over && active.id !== over.id) {
                 onTabReorder(String(active.id), String(over.id));
             }
         },
-        [onTabReorder],
+        [onTabReorder, sessionMove],
     );
+
+    const handleDragCancel = useCallback(() => {
+        setDraggedTab(null);
+        sessionMove.onDragCancel();
+    }, [sessionMove]);
 
     return (
         <div
@@ -143,7 +169,10 @@ export function TabBar({
                 <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}>
+                    onDragStart={handleDragStart}
+                    onDragMove={sessionMove.onDragMove}
+                    onDragEnd={handleDragEnd}
+                    onDragCancel={handleDragCancel}>
                     <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
                         <div
                             className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]"
@@ -163,6 +192,14 @@ export function TabBar({
                             ))}
                         </div>
                     </SortableContext>
+                    <DragOverlay dropAnimation={null}>
+                        {draggedTab && (
+                            <TabItemOverlay
+                                tab={draggedTab}
+                                isActive={draggedTab.id === activeTabId}
+                            />
+                        )}
+                    </DragOverlay>
                 </DndContext>
             )}
         </div>

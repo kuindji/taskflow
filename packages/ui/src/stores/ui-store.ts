@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { SessionDropTarget } from "@/lib/session-drop";
 
 const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 350;
@@ -58,6 +59,8 @@ interface DroppedRecords {
 interface UIStore {
     activeProjectId: string | null;
     masterWorkspaceActive: boolean;
+    /** The sidebar card a dragged session tab would move to on drop. */
+    sessionDropTarget: SessionDropTarget | null;
     fileExplorerOpen: boolean;
     searchPanelOpen: boolean;
     wikiPanelOpen: boolean;
@@ -107,6 +110,7 @@ interface UIStore {
     setSidebarFocusedItem(item: { type: "project" | "task"; id: string } | null): void;
     setFlowPanelOpen(open: boolean): void;
     setMasterWorkspaceActive(active: boolean): void;
+    setSessionDropTarget(target: SessionDropTarget | null): void;
     setActiveProject(id: string | null): void;
     setSidebarWidth(width: number): void;
     setFileExplorerWidth(width: number): void;
@@ -138,6 +142,7 @@ interface UIStore {
 export const useUIStore = create<UIStore>((set, get) => ({
     activeProjectId: null,
     masterWorkspaceActive: false,
+    sessionDropTarget: null,
     fileExplorerOpen: false,
     searchPanelOpen: false,
     wikiPanelOpen: false,
@@ -260,6 +265,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
     },
     setMasterWorkspaceActive(active) {
         set({ masterWorkspaceActive: active });
+    },
+    setSessionDropTarget(target) {
+        set((state) =>
+            state.sessionDropTarget?.key === target?.key ? state : { sessionDropTarget: target },
+        );
     },
     setActiveProject(id) {
         set({ activeProjectId: id, ...(id ? { masterWorkspaceActive: false } : {}) });
