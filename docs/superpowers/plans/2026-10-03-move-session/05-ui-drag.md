@@ -1,30 +1,41 @@
 # Section 5: Desktop drag-to-sidebar
 
-Read first: the plan index, `handoff.md`, and the spec section "Desktop UI". Section 3 has to be done: it provides `MSG.SESSION_MOVE`. Section 4 is not needed.
+Read first: the plan index, `handoff.md`, and the spec sections "Desktop UI" and "Amendments". Section 3 has to be done: it provides `MSG.SESSION_MOVE`. Section 4 is not needed.
 
-Run UI tests **from the repo root**: `bun test packages/ui/src/...`. The DOM preload lives in the root `bunfig.toml`, and running them from `packages/ui` fails before any test runs.
+Run UI tests **from the repo root**: `bun test packages/ui/src/...`. The DOM preload lives in the root `bunfig.toml`. Do **not** use `mock.module` in new tests: it is global and leaks into other files. Inject dependencies instead.
 
-**Design recap.**
+**Design.**
 - Tab dragging uses dnd-kit in one of two contexts: `TabBar`'s own when the workspace isn't split, `SplitContainer`'s when it is.
-- The sidebar has a separate dnd-kit context, so it can't be a droppable for tab drags. Instead, while a tab is dragged, `elementFromPoint` is checked against sidebar elements marked with `data-session-drop`.
-- A valid hovered target is kept in the UI store so the card can highlight.
-- On drop over a target, `SESSION_MOVE` is sent and the existing reorder and pane-move logic is skipped.
-- Refusals show the app's existing `alert()` dialog. The app has no toast system, which is a deliberate deviation from the spec's "toast".
+- The sidebar has a separate dnd-kit context, so it can't be a droppable for tab drags. Instead, the hook tracks the real pointer position with a capturing `pointermove` listener for the length of the drag. It hit-tests with `document.elementsFromPoint`, which returns every element under the point, so the `DragOverlay` sitting under the cursor doesn't hide the sidebar.
+- dnd-kit's `delta` is not used: after the tab strip auto-scrolls, `delta` is scroll-adjusted and no longer equals the cursor's movement.
+- A drop anywhere inside the sidebar (`data-session-drop-zone`) is consumed. It moves the session if it lands on a valid target, and does nothing otherwise. Only drops outside the sidebar fall through to the existing reorder and pane-move logic, because `closestCenter` always reports *some* nearest tab as `over`.
+- Refusals use the app's `alert()` dialog. The app has no toast system.
 
-### Task 8: Movable flag on tabs, and the pure drop resolver
+### Task 8: Tab fields, master tab refresh, and the pure drop resolver
 
 **Files:**
-- Modify: `packages/ui/src/stores/session-helpers.ts`. Add `movable` to `Tab` (lines 6-36), add `isMovableSession`, and set the flag in `createSessionTab` (line 70).
-- Modify: `packages/ui/src/stores/session-sync.ts`. `syncPaneTabs` (lines 37-73) refreshes `movable`.
+- Modify: `packages/ui/src/stores/session-helpers.ts`:
+  - add `movable` and `cwd` to `Tab` (lines 6-36);
+  - add `isMovableSession`;
+  - `createSessionTab` (line 70) sets both fields.
+- Modify: `packages/ui/src/stores/session-sync.ts`. Export `syncPaneTabs` (lines 37-73), and make it refresh `movable` and `cwd`.
+- Modify: `packages/ui/src/stores/session-store.ts`:
+  - the direct tab creation (lines 216-223) sets `movable`;
+  - `syncWithMasterSessions` (lines 616-660) uses `syncPaneTabs` instead of its two hand-written refresh loops;
+  - add an exported `findSessionTab`.
+- Modify: `packages/ui/src/components/panes/terminal/terminal-lifecycle.ts`. Replace the private `findTabForSession` (line 61, used at line 237) with `findSessionTab`.
 - Create: `packages/ui/src/lib/session-drop.ts`
-- Test: `packages/ui/src/lib/session-drop.test.ts`, `packages/ui/src/stores/session-sync.test.ts`
+- Test: `packages/ui/src/lib/session-drop.test.ts`, `packages/ui/src/stores/session-sync.test.ts`, `packages/ui/src/stores/session-store.master-movable.test.ts` (new).
 
 **Interfaces:**
 - Produces:
   - `Tab.movable?: true`. Present only on agent session tabs that are neither flow nor remote-agent sessions.
-  - `isMovableSession(session: SessionRef): boolean` in `session-helpers.ts`.
-  - `interface SessionDropTarget { kind: "task" | "project"; id: string; backendId: string; key: string }`, where `key` is the workspace key (`task:<id>` / `project:<id>`).
-  - `readSessionDropTarget(element: Element | null): SessionDropTarget | null`
+  - `Tab.cwd?: string`, the session's recorded working directory. Section 6 uses it.
+  - `isMovableSession(session: SessionRef): boolean` (`session-helpers.ts`).
+  - `syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): Tab[]`, now exported.
+  - `findSessionTab(sessionId: string): { workspaceKey: string; tab: Tab } | null` (`session-store.ts`).
+  - `interface SessionDropTarget { kind: "task" | "project"; id: string; backendId: string; key: string }`, where `key` is the workspace key (`task:<id>` or `project:<id>`).
+  - `resolveSessionDrop(elements: Element[]): { inZone: boolean; target: SessionDropTarget | null }`. `target` comes from the first element that is, or is inside, a `[data-session-drop]`. `inZone` is true when any element is inside `[data-session-drop-zone]`.
   - `isValidSessionDrop(args: { tab: Tab | undefined; sourceWorkspaceKey: string; sourceBackendId: string | null; target: SessionDropTarget }): boolean`
   - `sessionMovePayload(sessionId: string, target: SessionDropTarget): SessionMovePayload`
 
@@ -35,24 +46,38 @@ Run UI tests **from the repo root**: `bun test packages/ui/src/...`. The DOM pre
 ```ts
 import { describe, expect, it } from "bun:test";
 import type { Tab } from "@/stores/session-helpers";
-import { isValidSessionDrop, readSessionDropTarget, sessionMovePayload } from "./session-drop";
+import { isValidSessionDrop, resolveSessionDrop, sessionMovePayload } from "./session-drop";
 
-function marked(value: string, backendId = "local"): HTMLElement {
-    const host = document.createElement("div");
-    host.dataset.sessionDrop = value;
-    host.dataset.sessionDropBackend = backendId;
-    const child = document.createElement("span");
-    host.appendChild(child);
-    return child;
+function sidebar(): { zone: HTMLElement; card: (value: string, backendId?: string) => HTMLElement } {
+    const zone = document.createElement("div");
+    zone.dataset.sessionDropZone = "";
+    return {
+        zone,
+        card(value, backendId = "local") {
+            const host = document.createElement("div");
+            host.dataset.sessionDrop = value;
+            host.dataset.sessionDropBackend = backendId;
+            const child = document.createElement("span");
+            host.appendChild(child);
+            zone.appendChild(host);
+            return child;
+        },
+    };
 }
 
 const agentTab: Tab = { id: "s1", type: "claude", label: "Claude", sessionId: "s1", movable: true };
 const taskB = { kind: "task" as const, id: "b", backendId: "local", key: "task:b" };
 
-describe("readSessionDropTarget", () => {
-    it("reads the nearest marked ancestor", () => {
-        expect(readSessionDropTarget(marked("task:b"))).toEqual(taskB);
-        expect(readSessionDropTarget(marked("project:p1"))).toEqual({
+describe("resolveSessionDrop", () => {
+    it("finds a card under an overlay and reports the zone", () => {
+        const { card } = sidebar();
+        const overlay = document.createElement("div");
+
+        expect(resolveSessionDrop([overlay, card("task:b")])).toEqual({
+            inZone: true,
+            target: taskB,
+        });
+        expect(resolveSessionDrop([card("project:p1")]).target).toEqual({
             kind: "project",
             id: "p1",
             backendId: "local",
@@ -60,12 +85,20 @@ describe("readSessionDropTarget", () => {
         });
     });
 
-    it("ignores unmarked, malformed and backend-less elements", () => {
-        expect(readSessionDropTarget(null)).toBeNull();
-        expect(readSessionDropTarget(document.createElement("div"))).toBeNull();
-        expect(readSessionDropTarget(marked("master"))).toBeNull();
-        expect(readSessionDropTarget(marked("task:"))).toBeNull();
-        expect(readSessionDropTarget(marked("task:b", ""))).toBeNull();
+    it("reports a sidebar gap as in the zone without a target", () => {
+        const { zone } = sidebar();
+        expect(resolveSessionDrop([zone])).toEqual({ inZone: true, target: null });
+    });
+
+    it("ignores the workspace and malformed markers", () => {
+        const { card } = sidebar();
+        expect(resolveSessionDrop([document.createElement("div")])).toEqual({
+            inZone: false,
+            target: null,
+        });
+        expect(resolveSessionDrop([card("master")]).target).toBeNull();
+        expect(resolveSessionDrop([card("task:")]).target).toBeNull();
+        expect(resolveSessionDrop([card("task:b", "")]).target).toBeNull();
     });
 });
 
@@ -79,7 +112,7 @@ describe("isValidSessionDrop", () => {
 
     it("accepts a movable tab onto another owner on the same machine", () => {
         expect(isValidSessionDrop(base)).toBe(true);
-        expect(isValidSessionDrop({ ...base, sourceWorkspaceKey: "master" })).toBe(true);
+        expect(isValidSessionDrop({ ...base, sourceWorkspaceKey: "master:right" })).toBe(true);
     });
 
     it("rejects shells, unflagged tabs and unknown tabs", () => {
@@ -87,7 +120,10 @@ describe("isValidSessionDrop", () => {
             false,
         );
         expect(
-            isValidSessionDrop({ ...base, tab: { id: "x", type: "shell", label: "zsh", sessionId: "x" } }),
+            isValidSessionDrop({
+                ...base,
+                tab: { id: "x", type: "shell", label: "zsh", sessionId: "x" },
+            }),
         ).toBe(false);
         expect(isValidSessionDrop({ ...base, tab: undefined })).toBe(false);
     });
@@ -109,7 +145,12 @@ describe("sessionMovePayload", () => {
     it("names exactly one owner", () => {
         expect(sessionMovePayload("s1", taskB)).toEqual({ sessionId: "s1", taskId: "b" });
         expect(
-            sessionMovePayload("s1", { kind: "project", id: "p", backendId: "local", key: "project:p" }),
+            sessionMovePayload("s1", {
+                kind: "project",
+                id: "p",
+                backendId: "local",
+                key: "project:p",
+            }),
         ).toEqual({ sessionId: "s1", projectId: "p" });
     });
 });
@@ -118,32 +159,72 @@ describe("sessionMovePayload", () => {
 Add to `packages/ui/src/stores/session-sync.test.ts` (inside `describe("syncOwnerTabs")`):
 
 ```ts
-    test("marks only plain agent sessions movable and refreshes the flag", () => {
-        const agent = makeSession("agent");
+    test("marks only plain agent sessions movable and refreshes movable and cwd", () => {
+        const agent = { ...makeSession("agent"), cwd: "/repo/a" };
         const flow = { ...makeSession("flow"), flow: { flowId: "f", actionEntryId: "e" } };
         const remote = { ...makeSession("remote"), remoteControl: true };
         const shell = { ...makeSession("shell", "zsh"), type: "shell" as const };
 
-        expect(createSessionTab(agent).movable).toBe(true);
+        expect(createSessionTab(agent)).toMatchObject({ movable: true, cwd: "/repo/a" });
         expect(createSessionTab(flow).movable).toBeUndefined();
         expect(createSessionTab(remote).movable).toBeUndefined();
         expect(createSessionTab(shell).movable).toBeUndefined();
 
-        const stale = { ...createSessionTab(agent), movable: undefined };
+        const stale: Tab = { id: "agent", type: "claude", label: "Claude", sessionId: "agent" };
         const result = syncOwnerTabs({
             ...baseArgs,
             owners: [{ id: "t1", sessions: [agent] }],
             tabsByWorkspace: { "task:t1": [stale] },
             activeTabByWorkspace: { "task:t1": stale.id },
         });
-        expect(result.tabsByWorkspace["task:t1"]?.[0]?.movable).toBe(true);
+        expect(result.tabsByWorkspace["task:t1"]?.[0]).toMatchObject({
+            movable: true,
+            cwd: "/repo/a",
+        });
     });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+Import `type Tab` from `./session-helpers` there if it isn't imported yet.
 
-Run (from the repo root): `bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores/session-sync.test.ts`
-Expected: FAIL. The module is missing and `movable` is undefined.
+`packages/ui/src/stores/session-store.master-movable.test.ts`:
+
+```ts
+import { describe, expect, it } from "bun:test";
+import type { SessionRef } from "@taskflow/shared";
+import { useSessionStore } from "./session-store";
+
+describe("master workspace tabs", () => {
+    it("refresh movable and cwd in both panes", () => {
+        const session: SessionRef = {
+            id: "m1",
+            type: "claude",
+            label: "Claude",
+            createdAt: "2026-10-03T00:00:00.000Z",
+            instance: "main",
+            cwd: "/home/me",
+        };
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                "master:right": [{ id: "m1", type: "claude", label: "Claude", sessionId: "m1" }],
+            },
+            activeTabByWorkspace: { "master:right": "m1" },
+        });
+
+        useSessionStore.getState().syncWithMasterSessions("local", [session]);
+
+        expect(useSessionStore.getState().tabsByWorkspace["master:right"]?.[0]).toMatchObject({
+            movable: true,
+            cwd: "/home/me",
+        });
+        expect(useSessionStore.getState().tabsByWorkspace.master).toBeUndefined();
+    });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run (from the repo root): `bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores/session-sync.test.ts packages/ui/src/stores/session-store.master-movable.test.ts`
+Expected: FAIL. The module is missing and the fields are undefined.
 
 - [ ] **Step 3: Implement**
 
@@ -152,9 +233,11 @@ Expected: FAIL. The module is missing and `movable` is undefined.
 ```ts
     /** Agent session tab that can be dragged onto another task or project. */
     movable?: true;
+    /** The session's recorded working directory; it does not change when the session moves. */
+    cwd?: string;
 ```
 
-Add `isAgentType` to the imports (`import { isAgentType } from "@taskflow/shared";`). Then:
+Add `import { isAgentType } from "@taskflow/shared";` and:
 
 ```ts
 /** Flow sessions stay with their flow run; the remote agent belongs to its service. */
@@ -163,9 +246,48 @@ function isMovableSession(session: SessionRef): boolean {
 }
 ```
 
-In `createSessionTab`, add `...(isMovableSession(session) && { movable: true }),`. Export `isMovableSession` with the other helpers (`session-sync.ts` uses it).
+In `createSessionTab`, add:
 
-`session-sync.ts` `syncPaneTabs`. Compute `const movable = isMovableSession(session) ? true : undefined;`, add `tab.movable === movable &&` to the unchanged check, and add `movable,` to the refreshed object. Import `isMovableSession` from `./session-helpers`.
+```ts
+        ...(isMovableSession(session) && { movable: true }),
+        ...(session.cwd && { cwd: session.cwd }),
+```
+
+Export `isMovableSession`. Check that `baseWorkspaceKey` (already imported by `session-sync.ts`) strips `:right`. If it isn't exported, export it.
+
+`session-sync.ts` `syncPaneTabs`. Compute:
+
+```ts
+        const movable = isMovableSession(session) ? true : undefined;
+        const cwd = session.cwd;
+```
+
+Add `tab.movable === movable && tab.cwd === cwd &&` to the unchanged check, and `movable, cwd,` to the refreshed object. Export `syncPaneTabs` next to `syncOwnerTabs`, and import `isMovableSession`.
+
+`session-store.ts`:
+- In the direct tab literal (lines 216-223), add `...(isAgentType(type) && { movable: true }),`. A tab created from the UI is never a flow or remote-agent session. Its `cwd` arrives with the next sync.
+- In `syncWithMasterSessions`, replace both `existing…Tabs.filter(...).map(...)` blocks with:
+
+```ts
+            const rightTabs = syncPaneTabs(state.tabsByWorkspace[rightKey] ?? [], sessionsById);
+            const tabs = [...syncPaneTabs(state.tabsByWorkspace[workspaceKey] ?? [], sessionsById)];
+```
+
+  The copy keeps the `tabs.push(...)` below working. `syncPaneTabs` returns the original array when nothing changed, and that array must not be mutated.
+- Add, after the store definition:
+
+```ts
+/** The workspace and tab showing a session, if any. */
+export function findSessionTab(sessionId: string): { workspaceKey: string; tab: Tab } | null {
+    for (const [workspaceKey, tabs] of Object.entries(useSessionStore.getState().tabsByWorkspace)) {
+        const tab = tabs.find((candidate) => candidate.sessionId === sessionId);
+        if (tab) return { workspaceKey, tab };
+    }
+    return null;
+}
+```
+
+`terminal-lifecycle.ts`: delete `findTabForSession` and use `findSessionTab` from `@/stores/session-store` at its call site. It returns `null` instead of `undefined`, so adjust the check if it compares strictly.
 
 `packages/ui/src/lib/session-drop.ts`:
 
@@ -183,16 +305,29 @@ interface SessionDropTarget {
     key: string;
 }
 
-function readSessionDropTarget(element: Element | null): SessionDropTarget | null {
-    const host = element?.closest<HTMLElement>("[data-session-drop]");
-    const value = host?.dataset.sessionDrop ?? "";
-    const backendId = host?.dataset.sessionDropBackend ?? "";
+function readTarget(host: HTMLElement): SessionDropTarget | null {
+    const value = host.dataset.sessionDrop ?? "";
+    const backendId = host.dataset.sessionDropBackend ?? "";
     const separator = value.indexOf(":");
     const kind = value.slice(0, separator);
     const id = value.slice(separator + 1);
     if (separator < 0 || !id || !backendId) return null;
     if (kind !== "task" && kind !== "project") return null;
     return { kind, id, backendId, key: value };
+}
+
+/** `elements` is the stack under the pointer (document.elementsFromPoint), topmost first. */
+function resolveSessionDrop(elements: Element[]): {
+    inZone: boolean;
+    target: SessionDropTarget | null;
+} {
+    const host = elements
+        .map((element) => element.closest<HTMLElement>("[data-session-drop]"))
+        .find((found) => found !== null);
+    return {
+        inZone: elements.some((element) => element.closest("[data-session-drop-zone]") !== null),
+        target: host ? readTarget(host) : null,
+    };
 }
 
 function isValidSessionDrop(args: {
@@ -216,21 +351,23 @@ function sessionMovePayload(sessionId: string, target: SessionDropTarget): Sessi
         : { sessionId, projectId: target.id };
 }
 
-export { readSessionDropTarget, isValidSessionDrop, sessionMovePayload };
+export { resolveSessionDrop, isValidSessionDrop, sessionMovePayload };
 export type { SessionDropTarget };
 ```
 
-`baseWorkspaceKey` already exists in `session-helpers.ts` (`session-sync.ts` imports it). Check that it strips `:right`. If it isn't exported, export it.
+- [ ] **Step 4: Run the tests**
 
-- [ ] **Step 4: Run the tests to verify they pass**
+```bash
+bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores
+for f in packages/ui/src/components/panes/terminal/*.test.ts; do bun test "$f" || echo "FAILED: $f"; done
+```
 
-Run: `bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores/session-sync.test.ts packages/ui/src/stores/session-sync.backend.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/ui/src/stores/session-helpers.ts packages/ui/src/stores/session-sync.ts packages/ui/src/lib/session-drop.ts packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores/session-sync.test.ts
+git add packages/ui/src/stores packages/ui/src/lib/session-drop.ts packages/ui/src/lib/session-drop.test.ts packages/ui/src/components/panes/terminal/terminal-lifecycle.ts
 git commit -m "feat(ui): mark movable session tabs and resolve sidebar drop targets"
 ```
 
@@ -242,86 +379,89 @@ git commit -m "feat(ui): mark movable session tabs and resolve sidebar drop targ
 - Create: `packages/ui/src/components/workspace/useSessionMoveDrag.test.ts`
 - Modify: `packages/ui/src/components/workspace/SplitContainer.tsx` (handlers lines 71-158, `DndContext` lines 188-200).
 - Modify: `packages/ui/src/components/workspace/TabBar.tsx` (the non-external `DndContext` branch, lines 143-166).
+- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx`. Mark the scrolling list (`TaskDropZone`, line 441) as the drop zone.
 - Modify: `packages/ui/src/components/sidebar/TaskCard.tsx` (the `cardBody` root `div`, lines 255-274).
 - Modify: `packages/ui/src/components/sidebar/ProjectGroup.tsx` (the `projectHeader` root `div`, lines 257-269).
 
 **Interfaces:**
-- Consumes: everything Task 8 produces; `MSG.SESSION_MOVE`; `sendRequest` from `@/lib/connection-registry`; `workspaceBackendId` from `@/hooks/useActiveWorkspace`; `alert` from `@/stores/dialog-store`.
+- Consumes: everything Task 8 produces; `MSG.SESSION_MOVE`; `sendRequest`; `workspaceBackendId`; `alert`.
 - Produces:
   - `useUIStore` state `sessionDropTarget: SessionDropTarget | null` and action `setSessionDropTarget(target: SessionDropTarget | null)`.
-  - `interface TabDragEvent { active: { id: UniqueIdentifier }; activatorEvent: Event; delta: { x: number; y: number } }`, the subset of dnd-kit's events the hook reads.
-  - `useSessionMoveDrag(): { onDragMove(event: TabDragEvent): void; onDragEnd(event: TabDragEvent): boolean; onDragCancel(): void }`. `onDragEnd` returns `true` when it handled the drop, in which case the caller must skip its own logic.
+  - `interface TabDragEvent { active: { id: UniqueIdentifier }; activatorEvent: Event }`, the subset of dnd-kit's drag events the hook reads.
+  - `interface SessionMoveDragDeps { send(backendId: string, payload: SessionMovePayload): Promise<unknown>; report(message: string): void; elementsAt(x: number, y: number): Element[]; pointerEvents: EventTarget }`
+  - `createSessionMoveDrag(deps?: SessionMoveDragDeps)` and `useSessionMoveDrag()`. Each returns `{ onDragStart(event: TabDragEvent): void; onDragMove(event: TabDragEvent): void; onDragEnd(event: TabDragEvent): boolean; onDragCancel(): void }`. When `onDragEnd` returns `true` the drop was in the sidebar and was handled, and the caller must skip its own logic.
 
 - [ ] **Step 1: Write the failing hook tests**
-
-The hook has no React state of its own, so its handlers are plain functions over the stores and the DOM. `createSessionMoveDrag` builds them, and `useSessionMoveDrag` memoises it. The test calls `createSessionMoveDrag` directly. It is exported because the test imports it.
 
 `packages/ui/src/components/workspace/useSessionMoveDrag.test.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { MSG } from "@taskflow/shared";
-import type { Task } from "@taskflow/shared";
-import type { TabDragEvent } from "./useSessionMoveDrag";
+import { beforeEach, describe, expect, it } from "bun:test";
+import type { SessionMovePayload, Task } from "@taskflow/shared";
+import { useSessionStore } from "@/stores/session-store";
+import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
+import { createSessionMoveDrag, type TabDragEvent } from "./useSessionMoveDrag";
 
-const sent: Array<{ backendId: string; type: string; payload: unknown }> = [];
-let reject: Error | null = null;
-await mock.module("@/lib/connection-registry", () => ({
-    sendRequest: (backendId: string, type: string, payload: unknown) => {
-        sent.push({ backendId, type, payload });
-        return reject ? Promise.reject(reject) : Promise.resolve({ success: true });
-    },
-    getPrimary: () => "local",
-    onPrimaryChange: () => () => {},
-    onEvent: () => () => {},
-}));
-const alerts: Array<{ title: string; description: string }> = [];
-await mock.module("@/stores/dialog-store", () => ({
-    alert: (options: { title: string; description: string }) => {
-        alerts.push(options);
-        return Promise.resolve();
-    },
-}));
+const taskA: Task & { backendId: string } = {
+    id: "a",
+    projectId: "p1",
+    title: "A",
+    description: "",
+    notes: "",
+    worktree: { enabled: false, path: null, branch: null, pr: null },
+    sessions: [],
+    attributes: [],
+    createdAt: "2026-10-03T00:00:00.000Z",
+    status: "active",
+    archivedAt: null,
+    pinned: false,
+    backendId: "local",
+};
 
-const { createSessionMoveDrag } = await import("./useSessionMoveDrag");
-const { useSessionStore } = await import("@/stores/session-store");
-const { useTaskStore } = await import("@/stores/task-store");
-const { useUIStore } = await import("@/stores/ui-store");
+const zone = document.createElement("div");
+zone.dataset.sessionDropZone = "";
+const card = document.createElement("div");
+card.dataset.sessionDrop = "task:b";
+card.dataset.sessionDropBackend = "local";
+zone.appendChild(card);
+const workspace = document.createElement("div");
 
-function event(id: string, x: number, y: number): TabDragEvent {
-    return {
-        active: { id },
-        activatorEvent: new MouseEvent("pointerdown", { clientX: 0, clientY: 0 }),
-        delta: { x, y },
-    };
+let sent: Array<{ backendId: string; payload: SessionMovePayload }>;
+let reported: string[];
+let failWith: Error | null;
+let pointerEvents: EventTarget;
+
+function setup() {
+    return createSessionMoveDrag({
+        send: (backendId, payload) => {
+            sent.push({ backendId, payload });
+            return failWith ? Promise.reject(failWith) : Promise.resolve({ success: true });
+        },
+        report: (message) => reported.push(message),
+        // x < 100 is the workspace, 100-199 a sidebar gap, 200+ the card;
+        // an overlay always sits on top, as dnd-kit's DragOverlay does.
+        elementsAt: (x) => [
+            document.createElement("div"),
+            ...(x >= 200 ? [card, zone] : x >= 100 ? [zone] : [workspace]),
+        ],
+        pointerEvents,
+    });
 }
 
-let card: HTMLElement;
+function dragEvent(id: string): TabDragEvent {
+    return { active: { id }, activatorEvent: new MouseEvent("pointerdown", { clientX: 0 }) };
+}
+
+function movePointer(x: number) {
+    pointerEvents.dispatchEvent(new MouseEvent("pointermove", { clientX: x, clientY: 0 }));
+}
 
 beforeEach(() => {
-    sent.length = 0;
-    alerts.length = 0;
-    reject = null;
-    card = document.createElement("div");
-    card.dataset.sessionDrop = "task:b";
-    card.dataset.sessionDropBackend = "local";
-    document.body.appendChild(card);
-    document.elementFromPoint = (x: number) => (x > 100 ? card : document.body);
-    const taskA: Task & { backendId: string } = {
-        id: "a",
-        projectId: "p1",
-        title: "A",
-        description: "",
-        notes: "",
-        worktree: { enabled: false, path: null, branch: null, pr: null },
-        sessions: [],
-        attributes: [],
-        createdAt: "2026-10-03T00:00:00.000Z",
-        status: "active",
-        archivedAt: null,
-        pinned: false,
-        backendId: "local",
-    };
+    sent = [];
+    reported = [];
+    failWith = null;
+    pointerEvents = new EventTarget();
     useTaskStore.setState({ tasks: [taskA] });
     useSessionStore.setState({
         tabsByWorkspace: {
@@ -334,65 +474,81 @@ beforeEach(() => {
     useUIStore.getState().setSessionDropTarget(null);
 });
 
-afterEach(() => {
-    card.remove();
-});
-
 describe("session move drag", () => {
-    it("highlights a valid target and moves the session on drop", async () => {
-        const drag = createSessionMoveDrag();
-        drag.onDragMove(event("s1", 200, 0));
+    it("highlights a valid card under the overlay and moves the session on drop", () => {
+        const drag = setup();
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(250);
+        drag.onDragMove(dragEvent("s1"));
         expect(useUIStore.getState().sessionDropTarget?.key).toBe("task:b");
 
-        expect(drag.onDragEnd(event("s1", 200, 0))).toBe(true);
+        expect(drag.onDragEnd(dragEvent("s1"))).toBe(true);
         expect(useUIStore.getState().sessionDropTarget).toBeNull();
-        expect(sent).toEqual([
-            { backendId: "local", type: MSG.SESSION_MOVE, payload: { sessionId: "s1", taskId: "b" } },
-        ]);
+        expect(sent).toEqual([{ backendId: "local", payload: { sessionId: "s1", taskId: "b" } }]);
     });
 
-    it("leaves drops elsewhere to the existing handlers", () => {
-        const drag = createSessionMoveDrag();
-        drag.onDragMove(event("s1", 10, 0));
+    it("leaves drops in the workspace to the existing handlers", () => {
+        const drag = setup();
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(10);
+        drag.onDragMove(dragEvent("s1"));
 
         expect(useUIStore.getState().sessionDropTarget).toBeNull();
-        expect(drag.onDragEnd(event("s1", 10, 0))).toBe(false);
+        expect(drag.onDragEnd(dragEvent("s1"))).toBe(false);
         expect(sent).toEqual([]);
     });
 
-    it("never targets the sidebar for a shell tab", () => {
-        const drag = createSessionMoveDrag();
-        drag.onDragMove(event("sh", 200, 0));
-
+    it("swallows a drop on a sidebar gap or an invalid card", () => {
+        const drag = setup();
+        drag.onDragStart(dragEvent("sh"));
+        movePointer(250);
+        drag.onDragMove(dragEvent("sh"));
         expect(useUIStore.getState().sessionDropTarget).toBeNull();
-        expect(drag.onDragEnd(event("sh", 200, 0))).toBe(false);
+        expect(drag.onDragEnd(dragEvent("sh"))).toBe(true);
+
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(150);
+        expect(drag.onDragEnd(dragEvent("s1"))).toBe(true);
+        expect(sent).toEqual([]);
     });
 
-    it("clears the target on cancel", () => {
-        const drag = createSessionMoveDrag();
-        drag.onDragMove(event("s1", 200, 0));
+    it("uses where the pointer is at drop time", () => {
+        const drag = setup();
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(250);
+        drag.onDragMove(dragEvent("s1"));
+        movePointer(10);
+
+        expect(drag.onDragEnd(dragEvent("s1"))).toBe(false);
+        expect(sent).toEqual([]);
+    });
+
+    it("stops tracking the pointer and clears the target on cancel", () => {
+        const drag = setup();
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(250);
+        drag.onDragMove(dragEvent("s1"));
         drag.onDragCancel();
 
         expect(useUIStore.getState().sessionDropTarget).toBeNull();
     });
 
-    it("shows the backend's refusal", async () => {
-        reject = new Error("Flow sessions cannot be moved");
-        const drag = createSessionMoveDrag();
-        drag.onDragMove(event("s1", 200, 0));
-        drag.onDragEnd(event("s1", 200, 0));
+    it("reports the backend's refusal", async () => {
+        failWith = new Error("Flow sessions cannot be moved");
+        const drag = setup();
+        drag.onDragStart(dragEvent("s1"));
+        movePointer(250);
+        drag.onDragEnd(dragEvent("s1"));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        expect(alerts).toEqual([
-            { title: "Couldn't move session", description: "Flow sessions cannot be moved" },
-        ]);
+        expect(reported).toEqual(["Flow sessions cannot be moved"]);
     });
 });
 ```
 
-`mock.module` is global and leaks across files (see memory `project_bun_test_mock_module`), so run this file on its own. The stubbed `connection-registry` exports must cover everything the imported stores use at import time. If importing a store throws "is not a function", add that export to the stub.
+If `useTaskStore.setState({ tasks: [taskA] })` doesn't type-check because the store's task type differs from `Task & { backendId: string }`, use that store's exported task type for the fixture (look at `task-store.ts`). Never cast.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Run them to verify they fail**
 
 Run: `bun test packages/ui/src/components/workspace/useSessionMoveDrag.test.ts`
 Expected: FAIL. The module is missing.
@@ -402,16 +558,15 @@ Expected: FAIL. The module is missing.
 `ui-store.ts`:
 - Add `import type { SessionDropTarget } from "@/lib/session-drop";`.
 - Add `sessionDropTarget: SessionDropTarget | null;` to the state interface, `setSessionDropTarget(target: SessionDropTarget | null): void;` to the actions, and `sessionDropTarget: null,` to the initial state.
-- Implementation:
+- Implementation, which keeps the reference stable while the hovered key doesn't change:
 
 ```ts
     setSessionDropTarget(target) {
-        if (get().sessionDropTarget?.key === target?.key) return;
-        set({ sessionDropTarget: target });
+        set((state) =>
+            state.sessionDropTarget?.key === target?.key ? state : { sessionDropTarget: target },
+        );
     },
 ```
-
-If the store's `create` callback doesn't take `get`, use `set((state) => (state.sessionDropTarget?.key === target?.key ? state : { sessionDropTarget: target }))`.
 
 `useSessionMoveDrag.ts`:
 
@@ -419,48 +574,62 @@ If the store's `create` callback doesn't take `get`, use `set((state) => (state.
 import { useMemo } from "react";
 import type { UniqueIdentifier } from "@dnd-kit/core";
 import { MSG } from "@taskflow/shared";
+import type { SessionMovePayload } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
-import { isValidSessionDrop, readSessionDropTarget, sessionMovePayload } from "@/lib/session-drop";
+import { isValidSessionDrop, resolveSessionDrop, sessionMovePayload } from "@/lib/session-drop";
+import type { SessionDropTarget } from "@/lib/session-drop";
 import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
 import { alert } from "@/stores/dialog-store";
-import { useSessionStore } from "@/stores/session-store";
-import type { Tab } from "@/stores/session-store";
+import { findSessionTab } from "@/stores/session-store";
 import { useUIStore } from "@/stores/ui-store";
 
-function findTab(tabId: string): { tab: Tab; workspaceKey: string } | null {
-    for (const [workspaceKey, tabs] of Object.entries(useSessionStore.getState().tabsByWorkspace)) {
-        const tab = tabs.find((candidate) => candidate.id === tabId);
-        if (tab) return { tab, workspaceKey };
-    }
-    return null;
-}
-
-/** The part of dnd-kit's DragMoveEvent / DragEndEvent this hook reads. */
+/** The part of dnd-kit's drag events this hook reads. */
 interface TabDragEvent {
     active: { id: UniqueIdentifier };
     activatorEvent: Event;
-    delta: { x: number; y: number };
 }
 
-function pointerOf(event: TabDragEvent): { x: number; y: number } | null {
-    const start = event.activatorEvent;
-    if (!(start instanceof MouseEvent)) return null;
-    return { x: start.clientX + event.delta.x, y: start.clientY + event.delta.y };
+interface SessionMoveDragDeps {
+    send(backendId: string, payload: SessionMovePayload): Promise<unknown>;
+    report(message: string): void;
+    /** Every element under a point, topmost first. */
+    elementsAt(x: number, y: number): Element[];
+    /** Where pointer moves are observed for the length of a drag. */
+    pointerEvents: EventTarget;
 }
+
+const browserDeps: SessionMoveDragDeps = {
+    send: (backendId, payload) => sendRequest(backendId, MSG.SESSION_MOVE, payload),
+    report: (message) => void alert({ title: "Couldn't move session", description: message }),
+    elementsAt: (x, y) => document.elementsFromPoint(x, y),
+    pointerEvents: window,
+};
 
 /**
  * Drag a session tab onto a sidebar task card or project row. The sidebar
  * lives in another dnd-kit context, so it is hit-tested rather than
- * registered as a droppable. Both tab contexts (TabBar unsplit,
- * SplitContainer split) call these next to their own handlers.
+ * registered as a droppable, at the real pointer position: dnd-kit's delta is
+ * scroll-adjusted, and its DragOverlay sits under the cursor.
  */
-function createSessionMoveDrag() {
-    function onDragMove(event: TabDragEvent): void {
-        const found = findTab(String(event.active.id));
-        const pointer = pointerOf(event);
-        const target = pointer
-            ? readSessionDropTarget(document.elementFromPoint(pointer.x, pointer.y))
-            : null;
+function createSessionMoveDrag(deps: SessionMoveDragDeps = browserDeps) {
+    let pointer: { x: number; y: number } | null = null;
+    const track = (event: Event) => {
+        if (event instanceof MouseEvent) pointer = { x: event.clientX, y: event.clientY };
+    };
+
+    function stopTracking(): void {
+        deps.pointerEvents.removeEventListener("pointermove", track, true);
+        useUIStore.getState().setSessionDropTarget(null);
+    }
+
+    /** Where the pointer is now: outside the sidebar, or in it with a valid target or none. */
+    function hitTest(
+        event: TabDragEvent,
+    ): { inZone: false } | { inZone: true; target: SessionDropTarget | null } {
+        if (!pointer) return { inZone: false };
+        const { inZone, target } = resolveSessionDrop(deps.elementsAt(pointer.x, pointer.y));
+        if (!inZone) return { inZone: false };
+        const found = findSessionTab(String(event.active.id));
         const valid =
             found !== null &&
             target !== null &&
@@ -470,60 +639,75 @@ function createSessionMoveDrag() {
                 sourceBackendId: workspaceBackendId(found.workspaceKey),
                 target,
             });
-        useUIStore.getState().setSessionDropTarget(valid ? target : null);
+        return { inZone: true, target: valid ? target : null };
+    }
+
+    function onDragStart(event: TabDragEvent): void {
+        const start = event.activatorEvent;
+        pointer = start instanceof MouseEvent ? { x: start.clientX, y: start.clientY } : null;
+        deps.pointerEvents.addEventListener("pointermove", track, true);
+    }
+
+    function onDragMove(event: TabDragEvent): void {
+        const hit = hitTest(event);
+        useUIStore.getState().setSessionDropTarget(hit.inZone ? hit.target : null);
     }
 
     function onDragEnd(event: TabDragEvent): boolean {
-        const target = useUIStore.getState().sessionDropTarget;
-        useUIStore.getState().setSessionDropTarget(null);
-        const found = findTab(String(event.active.id));
-        if (!target || !found?.tab.sessionId) return false;
-        sendRequest(
-            target.backendId,
-            MSG.SESSION_MOVE,
-            sessionMovePayload(found.tab.sessionId, target),
-        ).catch((error: unknown) => {
-            void alert({
-                title: "Couldn't move session",
-                description: error instanceof Error ? error.message : String(error),
-            });
-        });
+        const hit = hitTest(event);
+        stopTracking();
+        if (!hit.inZone) return false;
+        const sessionId = findSessionTab(String(event.active.id))?.tab.sessionId;
+        if (hit.target && sessionId) {
+            deps.send(hit.target.backendId, sessionMovePayload(sessionId, hit.target)).catch(
+                (error: unknown) => {
+                    deps.report(error instanceof Error ? error.message : String(error));
+                },
+            );
+        }
         return true;
     }
 
     function onDragCancel(): void {
-        useUIStore.getState().setSessionDropTarget(null);
+        stopTracking();
     }
 
-    return { onDragMove, onDragEnd, onDragCancel };
+    return { onDragStart, onDragMove, onDragEnd, onDragCancel };
 }
 
 function useSessionMoveDrag() {
-    return useMemo(createSessionMoveDrag, []);
+    return useMemo(() => createSessionMoveDrag(), []);
 }
 
 export { useSessionMoveDrag, createSessionMoveDrag };
-export type { TabDragEvent };
+export type { TabDragEvent, SessionMoveDragDeps };
 ```
 
-dnd-kit's `DragMoveEvent` and `DragEndEvent` are structurally assignable to `TabDragEvent`, so the contexts pass their events straight through.
-
-`target.backendId` equals the source backend; `isValidSessionDrop` already checked that.
+dnd-kit's `DragStartEvent`, `DragMoveEvent` and `DragEndEvent` are structurally assignable to `TabDragEvent`, so the contexts pass them straight through. `SessionMoveDragDeps` is exported because the test builds one.
 
 - [ ] **Step 4: Run the hook tests**
 
 Run: `bun test packages/ui/src/components/workspace/useSessionMoveDrag.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the tab contexts**
+- [ ] **Step 5: Wire the tab contexts and the sidebar**
 
 `SplitContainer.tsx`:
-- Import `useSessionMoveDrag`. Add `const sessionMove = useSessionMoveDrag();` after the sensors.
-- In `handleDragEnd`, right after `setDraggedTab(null);`, add `if (sessionMove.onDragEnd(event)) return;`, and add `sessionMove` to its dependency list.
-- Make `handleDragCancel` call `sessionMove.onDragCancel()` as well as `setDraggedTab(null)`, with `[sessionMove]` as deps.
+- Import `useSessionMoveDrag` and add `const sessionMove = useSessionMoveDrag();` after the sensors.
+- In `handleDragStart`, call `sessionMove.onDragStart(event);` first, and add `sessionMove` to its deps.
+- In `handleDragEnd`, right after `setDraggedTab(null);`, add `if (sessionMove.onDragEnd(event)) return;`, and add `sessionMove` to its deps.
+- `handleDragCancel` becomes:
+
+```ts
+    const handleDragCancel = useCallback(() => {
+        setDraggedTab(null);
+        sessionMove.onDragCancel();
+    }, [sessionMove]);
+```
+
 - Pass `onDragMove={sessionMove.onDragMove}` to the `DndContext`.
 
-`TabBar.tsx`, the non-external branch. It needs a drag overlay so the tab stays visible outside the clipped strip, and the same three handlers:
+`TabBar.tsx`, the non-external branch. It gets a drag overlay (so the tab is visible outside the clipped strip) and the same handlers:
 
 ```tsx
     const sessionMove = useSessionMoveDrag();
@@ -531,9 +715,10 @@ Expected: PASS.
 
     const handleDragStart = useCallback(
         (event: DragStartEvent) => {
+            sessionMove.onDragStart(event);
             setDraggedTab(tabs.find((tab) => tab.id === String(event.active.id)) ?? null);
         },
-        [tabs],
+        [tabs, sessionMove],
     );
 
     const handleDragEnd = useCallback(
@@ -554,7 +739,7 @@ Expected: PASS.
     }, [sessionMove]);
 ```
 
-Then give the non-external `DndContext` these props: `onDragStart={handleDragStart}`, `onDragMove={sessionMove.onDragMove}`, `onDragEnd={handleDragEnd}`, `onDragCancel={handleDragCancel}`. After the `SortableContext`, inside the `DndContext`, add:
+Give the non-external `DndContext` these props: `onDragStart={handleDragStart}`, `onDragMove={sessionMove.onDragMove}`, `onDragEnd={handleDragEnd}`, `onDragCancel={handleDragCancel}`. After its `SortableContext`, add:
 
 ```tsx
                     <DragOverlay dropAnimation={null}>
@@ -564,38 +749,40 @@ Then give the non-external `DndContext` these props: `onDragStart={handleDragSta
                     </DragOverlay>
 ```
 
-Update the imports: `DragOverlay` and the `DragStartEvent` type from `@dnd-kit/core`; `useState` from `react`; `TabItemOverlay` from `./TabItem` (it is already exported, as `SplitContainer` imports it).
+Imports: `DragOverlay` and the `DragStartEvent` type from `@dnd-kit/core`; `useState`; `TabItemOverlay` from `./TabItem`.
 
-`TaskCard.tsx`. On the `cardBody` root `div` (the one with `role="button"`), add:
+`TaskSidebar.tsx`: add `data-session-drop-zone=""` to the `TaskDropZone` at line 441. If `TaskDropZone` doesn't pass unknown props through to its root element, add a `...rest: HTMLAttributes<HTMLDivElement>` passthrough to it rather than wrapping it in another `div`. Its layout classes must keep applying to the scrolling element.
+
+`TaskCard.tsx`: on the `cardBody` root `div` (the one with `role="button"`), add:
 
 ```tsx
             data-session-drop={`task:${task.id}`}
             data-session-drop-backend={task.backendId}
 ```
 
-Then add a highlight. Above the JSX, add `const isSessionDropTarget = useUIStore((s) => s.sessionDropTarget?.key === \`task:${task.id}\`);` (import `useUIStore` if it isn't imported yet), and add `isSessionDropTarget && "ring-accent ring-2"` to the `cn(...)` list.
+Above the JSX, add `const isSessionDropTarget = useUIStore((s) => s.sessionDropTarget?.key === \`task:${task.id}\`);` (import `useUIStore` if it isn't already). Add `isSessionDropTarget && "ring-accent ring-2"` to that `div`'s `cn(...)`.
 
-`ProjectGroup.tsx`. On the `projectHeader` root `div`, add `data-session-drop={\`project:${project.id}\`}` and `data-session-drop-backend={project.backendId}`. Then add the same highlight: `const isSessionDropTarget = useUIStore((s) => s.sessionDropTarget?.key === \`project:${project.id}\`);` and `isSessionDropTarget && "ring-accent ring-2"` in its `cn(...)`.
+`ProjectGroup.tsx`: on the `projectHeader` root `div`, add `data-session-drop={\`project:${project.id}\`}` and `data-session-drop-backend={project.backendId}`. Add the same highlight using `project:${project.id}`.
 
 The selectors return booleans, so they are stable (memory `project_zustand_reactivity`).
 
 - [ ] **Step 6: Run the UI tests**
 
 ```bash
-bun test packages/ui/src/components/workspace/useSessionMoveDrag.test.ts
-bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores
+bun test packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/lib packages/ui/src/stores
 for f in packages/ui/src/components/sidebar/*.test.tsx packages/ui/src/components/workspace/*.test.tsx; do bun test "$f" || echo "FAILED: $f"; done
+bun test packages/ui
 ```
 
-Expected: everything passes. Component tests run one file at a time because of `mock.module` leakage.
+Expected: PASS. `bun test packages/ui` runs everything together, and the new tests use no `mock.module`, so they can't leak.
 
 - [ ] **Step 7: Typecheck, lint, format, commit**
 
 ```bash
 bun run typecheck
-bunx eslint packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace/useSessionMoveDrag.ts packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/components/workspace/SplitContainer.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
-bunx prettier --check packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace/useSessionMoveDrag.ts packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/components/workspace/SplitContainer.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
-git add packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
+bunx eslint packages/ui/src
+bunx prettier --check packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace/useSessionMoveDrag.ts packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/components/workspace/SplitContainer.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/sidebar/TaskSidebar.tsx packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
+git add packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace packages/ui/src/components/sidebar
 git commit -m "feat(ui): drag an agent tab onto a sidebar task or project to move it"
 ```
 

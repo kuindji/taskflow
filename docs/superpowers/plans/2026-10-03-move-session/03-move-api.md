@@ -1,25 +1,36 @@
-# Section 3: `moveSession`, `getSessionOwner`, WS and REST
+# Section 3: `moveSession`, owner lookup, entry-point locks, WS and REST
 
-Read first: the plan index, `handoff.md`, and the spec sections "`moveSession`", "Owner lookup" and "API". Section 2 has to be done: it provides `owners`, `broadcastOwner` and `patchOwnedSessionRef` inside `createSessionLifecycle`.
+Read first: the plan index, `handoff.md`, and the spec sections "`moveSession`", "Owner lookup", "API" and "Amendments". Sections 1 and 2 have to be done.
 
-### Task 4: `moveSession` and `getSessionOwner` in the lifecycle
+**Lock order.** Every lock in this feature is taken in this order, never the reverse:
+
+1. the session's queue (`sessionQueue`, Section 2);
+2. the owner locks (`taskStore.withOwnerLocks`, Section 1);
+3. the store's own file locks.
+
+Archive, delete and project removal take owner locks and never wait on a session queue. Closing a PTY only *queues* that session's exit cleanup.
+
+### Task 5: `moveSession` and `getSessionOwner`
 
 **Files:**
-- Modify: `packages/backend/src/services/session-lifecycle.ts`. Add the two functions before `return {` (around line 820) and export them from the returned object.
+- Modify: `packages/backend/src/services/session-lifecycle.ts`:
+  - shutdown gate fields next to `preservingSessionsForShutdown` (line 201);
+  - `prepareForShutdown` (line 800);
+  - new functions before `return {`, which are also exported from it.
 - Test: `packages/backend/tests/handlers/session.test.ts`. Add a new `describe("session move")` inside `describe("session handlers")`.
 
 **Interfaces:**
 - Consumes:
-  - `owners: SessionOwnerRegistry`, `broadcastOwner`, `patchOwnedSessionRef` (Section 2);
-  - `normalizeOwner`, `ownerIdOf`, `sameOwner` from `./session-owner-registry`;
-  - `TaskStore.moveSessionHistory` (Section 1).
-- Produces (on the lifecycle object):
+  - Section 2: `owners`, `sessionQueue`, `currentOwnerOf`, `broadcastOwner`;
+  - Section 1: `normalizeOwner`, `ownerIdOf`, `ownerKey` and `sameOwner` from `./session-owner`, plus `taskStore.moveSessionHistory` and `taskStore.withOwnerLocks`.
+- Produces on the lifecycle object:
   - `moveSession(sessionId: string, target: SessionOwnerRef): Promise<void>`
   - `getSessionOwner(sessionId: string): Promise<SessionOwnerRef | null>`. For a task, the result also includes `projectId`.
+- Move order (the spec "Amendments" section explains why): **rename the log → add the ref to the target → remove it from the source → update the registry**. Each step undoes the earlier ones if it fails. Section 1's boot repair covers a process that dies in between.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plus `store`, `ptyManager`, `events`, `sessionLifecycle` and `projectId` from the fixture.
+Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@taskflow/shared";` if missing. Inside `describe("session handlers")`:
 
 ```ts
     describe("session move", () => {
@@ -29,23 +40,24 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
             return { a, b };
         }
 
+        async function codexIn(taskId: string): Promise<string> {
+            return sessionLifecycle.createSession({ owner: { taskId }, type: "codex" });
+        }
+
         it("moves a task session to another task with its log and cwd", async () => {
             const { a, b } = await twoTasks();
-            const sessionId = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const sessionId = await codexIn(a.id);
             const before = (await store.getTask(a.id))?.sessions[0];
             ptyManager.emit(sessionId, "before\r\n");
 
             await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
             ptyManager.emit(sessionId, "after\r\n");
+            await sessionLifecycle.drainSessionOutput();
 
             expect((await store.getTask(a.id))?.sessions).toEqual([]);
             expect((await store.getTask(b.id))?.sessions).toEqual([before]);
-            await waitFor(
-                async () =>
-                    (await store.getSessionHistory(b.id, sessionId)).data === "before\r\nafter\r\n",
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe(
+                "before\r\nafter\r\n",
             );
             expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("");
             expect(ptyManager.spawns).toHaveLength(1);
@@ -53,10 +65,7 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
 
         it("broadcasts both owners", async () => {
             const { a, b } = await twoTasks();
-            const sessionId = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const sessionId = await codexIn(a.id);
             events.length = 0;
 
             await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
@@ -94,20 +103,27 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
 
         it("removes the session from its new owner when it exits after a move", async () => {
             const { a, b } = await twoTasks();
-            const sessionId = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const sessionId = await codexIn(a.id);
             ptyManager.emit(sessionId, "output\r\n");
             await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
 
             ptyManager.close(sessionId);
+            await sessionLifecycle.drainSessionOutput();
 
-            await waitFor(async () => (await store.getTask(b.id))?.sessions.length === 0);
-            await waitFor(
-                async () => (await store.getSessionHistory(b.id, sessionId)).data === "",
-            );
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("");
             expect(await sessionLifecycle.getSessionOwner(sessionId)).toBeNull();
+        });
+
+        it("serves history from the new owner even when the client names the old one", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "hello\r\n");
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+
+            expect(
+                await router.handle(MSG.SESSION_HISTORY, { taskId: a.id, sessionId }),
+            ).toEqual({ data: "hello\r\n", lastSequence: 1 });
         });
 
         it("records a late native session id on the new owner", async () => {
@@ -137,11 +153,9 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
 
             await lifecycle.moveSession(sessionId, { taskId: b.id });
             resolveDiscovery("native-1");
+            await lifecycle.drainSessionOutput();
 
-            await waitFor(
-                async () =>
-                    (await store.getTask(b.id))?.sessions[0]?.nativeSessionId === "native-1",
-            );
+            expect((await store.getTask(b.id))?.sessions[0]?.nativeSessionId).toBe("native-1");
         });
 
         it("refuses sessions and targets it cannot move", async () => {
@@ -151,10 +165,7 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
                 type: "shell",
                 shell: "/bin/sh",
             });
-            const agent = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const agent = await codexIn(a.id);
 
             await expect(sessionLifecycle.moveSession(shell, { taskId: b.id })).rejects.toThrow(
                 "Only agent sessions can be moved",
@@ -188,10 +199,7 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
                 type: "claude",
                 remoteControl: true,
             });
-            const agent = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const agent = await codexIn(a.id);
             await router.handle(MSG.TASK_ARCHIVE, { id: b.id });
 
             await expect(sessionLifecycle.moveSession(flow, { projectId })).rejects.toThrow(
@@ -218,10 +226,7 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
             };
             await store.updateTask(a.id, { sessions: [foreign] });
             await store.updateTask(b.id, { sessions: [{ ...foreign, id: "foreign-b" }] });
-            const sessionId = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const sessionId = await codexIn(a.id);
 
             await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
 
@@ -231,27 +236,105 @@ Add inside `describe("session handlers")`. It uses `waitFor` from Section 2, plu
                 sessionId,
             ]);
         });
+
+        it("leaves the session where it was when the target cannot be written", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "kept\r\n");
+            await sessionLifecycle.drainSessionOutput();
+            spyOn(store, "updateTask").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expect(sessionLifecycle.moveSession(sessionId, { taskId: b.id })).rejects.toThrow(
+                "disk full",
+            );
+
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+            expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("kept\r\n");
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({
+                taskId: a.id,
+                projectId,
+            });
+        });
+
+        it("undoes the target write when the source cannot be cleared", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            const realUpdate = store.updateTask.bind(store);
+            spyOn(store, "updateTask")
+                .mockImplementationOnce(realUpdate)
+                .mockImplementationOnce(() => Promise.reject(new Error("disk full")));
+
+            await expect(sessionLifecycle.moveSession(sessionId, { taskId: b.id })).rejects.toThrow(
+                "disk full",
+            );
+
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+        });
+
+        it("finishes an in-flight move before shutdown marks sessions, then refuses moves", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${b.id}`], () => gate);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            let prepared = false;
+            const prepare = sessionLifecycle.prepareForShutdown().then(() => {
+                prepared = true;
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(prepared).toBe(false);
+            release();
+            await Promise.all([held, move, prepare]);
+
+            expect((await store.getTask(b.id))?.sessions[0]?.state).toBe("interrupted");
+            await expect(
+                sessionLifecycle.moveSession(sessionId, { taskId: a.id }),
+            ).rejects.toThrow("Taskflow is shutting down");
+        });
     });
 ```
 
-Add `SessionRef` to the test file's imports (`import type { SessionRef } from "@taskflow/shared";`) if it isn't there yet.
+`spyOn` restores automatically between tests only if the test file calls `mock.restore()`. Add `afterEach(() => mock.restore())` to this `describe` (import `mock` from `bun:test`) so a spy can't leak into the next test.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Run them to verify they fail**
 
 Run: `cd packages/backend && bun test tests/handlers/session.test.ts -t "session move"`
 Expected: FAIL. `sessionLifecycle.moveSession is not a function`.
 
 - [ ] **Step 3: Implement**
 
-In `session-lifecycle.ts`, extend the registry import:
+Extend the imports:
 
 ```ts
-import {
-    SessionOwnerRegistry,
-    normalizeOwner,
-    ownerIdOf,
-    sameOwner,
-} from "./session-owner-registry";
+import { normalizeOwner, ownerIdOf, ownerKey, sameOwner } from "./session-owner";
+```
+
+Next to `let preservingSessionsForShutdown = false;`:
+
+```ts
+    let acceptingMoves = true;
+    const movesInFlight = new Set<Promise<SessionOwner>>();
+```
+
+Replace `prepareForShutdown`:
+
+```ts
+    async function prepareForShutdown(): Promise<void> {
+        // A move still writing refs would otherwise land a "live" ref in an
+        // owner the interrupted-marking pass has already visited.
+        acceptingMoves = false;
+        await Promise.allSettled([...movesInFlight]);
+        preservingSessionsForShutdown = true;
+        await taskStore.markBootSessionsInterrupted(config.instanceId, config.bootId);
+    }
 ```
 
 Add before `return {`:
@@ -310,20 +393,19 @@ Add before `return {`:
         }
     }
 
-    /**
-     * Re-home a live agent session: its ref, its output log and the owner the
-     * lifecycle reads. The process and its cwd are untouched. Runs on the
-     * session's queue, so output, exit and discovery see either the old owner
-     * or the new one, never a half-moved session. The target is written
-     * before the source is cleared, so a crash leaves a duplicate (which boot
-     * reconcile tolerates) rather than a lost session.
-     */
-    async function moveSession(sessionId: string, target: SessionOwner): Promise<void> {
-        const destination = normalizeOwner(target);
-        const source = await owners.run(sessionId, async () => {
-            const current = owners.get(sessionId);
-            if (!current || !ptyManager.has(sessionId)) throw new Error("Session is not running");
-            const ref = await findOwnedSessionRef(current, sessionId);
+    /** Best-effort undo of a step a failed move already made. */
+    async function undoMoveStep(step: () => Promise<void>): Promise<void> {
+        await step().catch((error: unknown) => {
+            console.error("[session] Failed to roll back a session move:", error);
+        });
+    }
+
+    /** Runs on the session's queue: no output, history read, exit or discovery interleaves. */
+    async function moveQueued(sessionId: string, destination: SessionOwner): Promise<SessionOwner> {
+        const source = currentOwnerOf(sessionId);
+        if (!source || !ptyManager.has(sessionId)) throw new Error("Session is not running");
+        return taskStore.withOwnerLocks([ownerKey(source), ownerKey(destination)], async () => {
+            const ref = await findOwnedSessionRef(source, sessionId);
             if (!ref) throw new Error("Session is not running");
             if (!isAgentType(ref.type)) throw new Error("Only agent sessions can be moved");
             if (ref.flow) throw new Error("Flow sessions cannot be moved");
@@ -332,24 +414,50 @@ Add before `return {`:
                 throw new Error("Session belongs to another instance");
             }
             await assertOwnerExists(destination);
-            if (sameOwner(current, destination)) throw new Error("Session is already there");
+            if (sameOwner(source, destination)) throw new Error("Session is already there");
 
-            await addOwnedSessionRef(destination, ref);
-            await removeOwnedSessionRef(current, sessionId);
-            await taskStore.moveSessionHistory(
-                ownerIdOf(current),
-                ownerIdOf(destination),
-                sessionId,
-            );
+            // Order matters for boot repair (TaskStore.repairMovedSessions):
+            // log first, then target, then source.
+            const fromId = ownerIdOf(source);
+            const toId = ownerIdOf(destination);
+            await taskStore.moveSessionHistory(fromId, toId, sessionId);
+            try {
+                await addOwnedSessionRef(destination, ref);
+                try {
+                    await removeOwnedSessionRef(source, sessionId);
+                } catch (error) {
+                    await undoMoveStep(() => removeOwnedSessionRef(destination, sessionId));
+                    throw error;
+                }
+            } catch (error) {
+                await undoMoveStep(() => taskStore.moveSessionHistory(toId, fromId, sessionId));
+                throw error;
+            }
             owners.set(sessionId, destination);
-            return current;
+            return source;
         });
-        await broadcastOwner(source);
-        await broadcastOwner(destination);
+    }
+
+    /**
+     * Re-home a live agent session: its ref, its output log and the owner the
+     * lifecycle reads. The process and its cwd are untouched.
+     */
+    async function moveSession(sessionId: string, target: SessionOwner): Promise<void> {
+        if (!acceptingMoves) throw new Error("Taskflow is shutting down");
+        const destination = normalizeOwner(target);
+        const move = sessionQueue.run(sessionId, () => moveQueued(sessionId, destination));
+        movesInFlight.add(move);
+        try {
+            const source = await move;
+            await broadcastOwner(source);
+            await broadcastOwner(destination);
+        } finally {
+            movesInFlight.delete(move);
+        }
     }
 
     async function getSessionOwner(sessionId: string): Promise<SessionOwner | null> {
-        const owner = owners.get(sessionId);
+        const owner = currentOwnerOf(sessionId);
         if (!owner) return null;
         if (!owner.taskId) return { ...owner };
         const task = await taskStore.getTask(owner.taskId);
@@ -359,12 +467,12 @@ Add before `return {`:
 
 Add `moveSession` and `getSessionOwner` to the returned object.
 
-Note: `normalizeOwner` throws the "Exactly one…" error before anything is queued, so a malformed target never touches the session.
+The mutation calls in `moveQueued` must use `taskStore.updateTask` (not a cached reference), so the spies in the rollback tests take effect.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 4: Run the tests**
 
 Run: `cd packages/backend && bun test tests/handlers/session.test.ts`
-Expected: PASS. Run it three times; the `waitFor`-based tests must not flake.
+Expected: PASS. Run it three times.
 
 - [ ] **Step 5: Commit**
 
@@ -373,28 +481,149 @@ git add packages/backend/src/services/session-lifecycle.ts packages/backend/test
 git commit -m "feat(backend): move a live agent session to another owner"
 ```
 
-### Task 5: WS handler and REST routes
+### Task 6: Take owner locks where sessions are stopped with their owner
+
+Archive, delete and project removal read an owner's sessions, then close them and mutate the owner. Without a lock, a move landing in between can either be killed by an archive of the task it just left, or be archived with its process still running by an archive of the task it just joined (spec "Amendments").
+
+**Files:**
+- Modify: `packages/backend/src/services/task-store.ts`. Add two helpers after `withOwnerLocks`.
+- Modify: `packages/backend/src/handlers/task.ts` (`TASK_ARCHIVE` lines 138-156, `TASK_DELETE` lines 183-230).
+- Modify: `packages/backend/src/handlers/project.ts` (`PROJECT_REMOVE` lines 54-68).
+- Modify: `packages/backend/src/api/routes/task-routes.ts` (archive lines 342-380, delete lines 413-470).
+- Modify: `packages/backend/src/api/routes/project-routes.ts` (`DELETE /api/projects/:id` lines 92-115).
+- Test: `packages/backend/tests/handlers/session.test.ts`
+
+**Interfaces:**
+- Produces:
+  - `TaskStore.withTaskCascadeLock<T>(taskId: string, work: () => Promise<T>): Promise<T>`. Locks the task and its active and archived subtasks.
+  - `TaskStore.withProjectRemovalLock<T>(projectId: string, work: () => Promise<T>): Promise<T>`. Locks the project and its tasks.
+
+- [ ] **Step 1: Write the failing tests**
+
+Inside `describe("session move")`:
+
+```ts
+        it("archiving the target after a move stops the moved session", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${b.id}`], () => gate);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            // Let the move queue on B's lock before the archive asks for it.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const archive = router.handle(MSG.TASK_ARCHIVE, { id: b.id });
+
+            release();
+            await Promise.all([held, move, archive]);
+
+            expect(ptyManager.closed).toContain(sessionId);
+            expect((await store.getArchived(b.id))?.sessions).toEqual([]);
+        });
+
+        it("deleting the source during a move keeps the moved transcript", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "keep me\r\n");
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${a.id}`], () => gate);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const remove = router.handle(MSG.TASK_DELETE, { id: a.id });
+
+            release();
+            await Promise.all([held, move, remove]);
+            await sessionLifecycle.drainSessionOutput();
+
+            expect(ptyManager.closed).not.toContain(sessionId);
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("keep me\r\n");
+        });
+```
+
+The first test passes only when the archive waits for the move (lock queued second), then reads B fresh and finds the moved session. The second passes only when the delete waits until the session has left A.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `cd packages/backend && bun test tests/handlers/session.test.ts -t "archiving the target|deleting the source"`
+Expected: FAIL. The archive reads B before the move lands, and the delete closes the session.
+
+- [ ] **Step 3: Implement**
+
+`task-store.ts`. Import `ownerKey` from `./session-owner` and add after `withOwnerLocks`:
+
+```ts
+    /** Lock a task and its subtasks (active and archived) for an archive or delete cascade. */
+    async withTaskCascadeLock<T>(taskId: string, work: () => Promise<T>): Promise<T> {
+        const [subtasks, archived] = await Promise.all([
+            this.getSubtasks(taskId),
+            this.getArchivedSubtasks(taskId),
+        ]);
+        const keys = [taskId, ...subtasks.map((t) => t.id), ...archived.map((t) => t.id)].map(
+            (id) => ownerKey({ taskId: id }),
+        );
+        return this.withOwnerLocks(keys, work);
+    }
+
+    /** Lock a project and its tasks for removal. */
+    async withProjectRemovalLock<T>(projectId: string, work: () => Promise<T>): Promise<T> {
+        const tasks = await this.listTasks(projectId);
+        const keys = [
+            ownerKey({ projectId }),
+            ...tasks.map((task) => ownerKey({ taskId: task.id })),
+        ];
+        return this.withOwnerLocks(keys, work);
+    }
+```
+
+A subtask or task created between the key read and the lock isn't locked. That would take a create racing a removal and a move at the same moment, and it is accepted.
+
+Wrap each entry point's whole existing body (from its first store read to its last mutation) without changing what is inside:
+
+- `handlers/task.ts` `TASK_ARCHIVE`: `return store.withTaskCascadeLock(id, async () => { …existing body… });`, with `id` destructured from the payload before the call.
+- `handlers/task.ts` `TASK_DELETE`: the same with `withTaskCascadeLock(id, …)`. The background worktree cleanup at the end can stay inside; it is not awaited.
+- `handlers/project.ts` `PROJECT_REMOVE`: `return store.withProjectRemovalLock(id, async () => { …existing body… });`
+- `task-routes.ts` archive and delete: inside each `try`, `return await taskStore.withTaskCascadeLock(params.taskId, async () => { …existing try body… });`. The `catch` stays outside, and the early `return errorResponse(…)` lines stay inside (they return from the inner function, which is then returned).
+- `project-routes.ts` delete: the same with `withProjectRemovalLock(params.id, …)`.
+
+Every body already reads its task or project at the top, so wrapping makes those reads happen under the lock.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `cd packages/backend && bun test tests/handlers tests/api`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/backend/src/services/task-store.ts packages/backend/src/handlers/task.ts packages/backend/src/handlers/project.ts packages/backend/src/api/routes/task-routes.ts packages/backend/src/api/routes/project-routes.ts packages/backend/tests/handlers/session.test.ts
+git commit -m "fix(backend): serialize archive, delete and project removal with session moves"
+```
+
+### Task 7: WS handler and REST routes
 
 **Files:**
 - Modify: `packages/backend/src/handlers/session.ts`. Register `MSG.SESSION_MOVE` after `MSG.SESSION_RENAME`.
-- Modify: `packages/backend/src/api/routes/session-routes.ts`:
-  - deps type (lines 17-32);
-  - routes after the resume route (around line 208).
+- Modify: `packages/backend/src/api/routes/session-routes.ts`. Deps type (lines 17-32) and routes after the resume route (around line 208).
 - Modify: `packages/backend/src/api/routes.ts`. The `sessionLifecycle` dep type (lines 45-52) reuses the session-routes type.
 - Modify: `packages/backend/tests/api/routes.test.ts`. Extend the stub at lines 36-40 and add route tests.
-- Check: `packages/backend/tests/api/flow-artifact-raw.test.ts`. If it builds a `sessionLifecycle` stub for `registerApiRoutes`, extend it the same way so typecheck passes.
+- Check: `packages/backend/tests/api/flow-artifact-raw.test.ts` and `packages/backend/tests/services/remote-agent-service.test.ts`. If either builds a `sessionLifecycle` for `registerApiRoutes`, extend it the same way so typecheck passes.
 
 **Interfaces:**
-- Consumes: `moveSession` and `getSessionOwner` (Task 4); `SessionMovePayload` and `SessionOwnerRef` (Section 1).
+- Consumes: `moveSession` and `getSessionOwner` (Task 5); `SessionMovePayload` and `SessionOwnerRef`.
 - Produces:
   - WS `MSG.SESSION_MOVE`, which returns `{ success: true }`;
   - `POST /api/sessions/:sessionId/move` with body `SessionOwnerRef`. Returns 200 `{ success: true }`, or 400 `{ error }`.
   - `GET /api/sessions/:sessionId/owner`. Returns 200 `SessionOwnerRef`, or 404 `{ error: "Session not found" }`.
   - `type SessionRouteLifecycle`, exported from `session-routes.ts` and used by `routes.ts`.
 
-- [ ] **Step 1: Write the failing route tests**
+- [ ] **Step 1: Write the failing tests**
 
-In `tests/api/routes.test.ts`, replace the `sessionLifecycle` stub in `sharedTestDeps` with one that records moves and answers owner lookups:
+In `tests/api/routes.test.ts`, add `type SessionOwnerRef` to the `@taskflow/shared` import, then replace the `sessionLifecycle` stub in `sharedTestDeps`:
 
 ```ts
 const moveCalls: Array<{ sessionId: string; target: SessionOwnerRef }> = [];
@@ -408,12 +637,12 @@ const sharedTestDeps = {
             if (target.taskId === "archived") throw new Error("Task not found");
             moveCalls.push({ sessionId, target });
         },
-        getSessionOwner: async (sessionId: string) =>
+        getSessionOwner: async (sessionId: string): Promise<SessionOwnerRef | null> =>
             sessionId === "session-1" ? { taskId: "t1", projectId: "p1" } : null,
     },
 ```
 
-Add `type SessionOwnerRef` to the file's `@taskflow/shared` import. The rest of `sharedTestDeps` stays as it is. Add `moveCalls.length = 0;` at the top of `beforeEach`. Then add these tests to `describe("api routes")`:
+The rest of `sharedTestDeps` stays unchanged. Add `moveCalls.length = 0;` at the top of `beforeEach`. Then add these tests to `describe("api routes")`:
 
 ```ts
     it("moves a session to the requested owner", async () => {
@@ -455,15 +684,12 @@ Add `type SessionOwnerRef` to the file's `@taskflow/shared` import. The rest of 
     });
 ```
 
-Add a WS handler test to `tests/handlers/session.test.ts` (inside `describe("session move")`):
+In `tests/handlers/session.test.ts`, inside `describe("session move")`:
 
 ```ts
         it("moves through the SESSION_MOVE message", async () => {
             const { a, b } = await twoTasks();
-            const sessionId = await sessionLifecycle.createSession({
-                owner: { taskId: a.id },
-                type: "codex",
-            });
+            const sessionId = await codexIn(a.id);
 
             expect(
                 await router.handle(MSG.SESSION_MOVE, { sessionId, taskId: b.id }),
@@ -472,14 +698,14 @@ Add a WS handler test to `tests/handlers/session.test.ts` (inside `describe("ses
         });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Run them to verify they fail**
 
 Run: `cd packages/backend && bun test tests/api/routes.test.ts tests/handlers/session.test.ts -t "move|owner"`
-Expected: FAIL. The routes return 404 (no route) and the WS handler is not registered.
+Expected: FAIL. There is no route and no WS handler.
 
 - [ ] **Step 3: Implement**
 
-`handlers/session.ts`: add `SessionMovePayload` to the type import, then after the `SESSION_RENAME` registration add:
+`handlers/session.ts`: add `SessionMovePayload` to the type import, then after `SESSION_RENAME` add:
 
 ```ts
     router.register(MSG.SESSION_MOVE, async (payload) => {
@@ -489,32 +715,24 @@ Expected: FAIL. The routes return 404 (no route) and the WS handler is not regis
     });
 ```
 
-`api/routes/session-routes.ts`: replace the inline `sessionLifecycle` type in `SessionRouteDeps` with:
+`api/routes/session-routes.ts`: replace the inline `sessionLifecycle` type with an exported structural type, extending today's fields:
 
 ```ts
-type SessionRouteLifecycle = Pick<
-    ReturnType<typeof createSessionLifecycle>,
-    "createSession" | "resumeSession" | "removeSessionFromOwner" | "moveSession" | "getSessionOwner"
->;
-
-interface SessionRouteDeps {
-    // ...existing fields unchanged...
-    sessionLifecycle: SessionRouteLifecycle;
+interface SessionRouteLifecycle {
+    createSession: (opts: CreateSessionOpts) => Promise<string>;
+    resumeSession: (sessionId: string) => Promise<string>;
+    removeSessionFromOwner: (
+        sessionId: string,
+        owner?: { taskId?: string; projectId?: string },
+    ) => Promise<void>;
+    moveSession: (sessionId: string, target: SessionOwnerRef) => Promise<void>;
+    getSessionOwner: (sessionId: string) => Promise<SessionOwnerRef | null>;
 }
 ```
 
-Use `import type { createSessionLifecycle, CreateSessionOpts } from "../../services/session-lifecycle";`, and export `SessionRouteLifecycle` next to the existing exports. Remove the now-unused `CreateSessionOpts` import if nothing else in the file uses it.
+Use it as `sessionLifecycle: SessionRouteLifecycle;` in `SessionRouteDeps`, and add `export type { SessionRouteLifecycle };`. In `api/routes.ts`, replace its inline `sessionLifecycle: { … }` with `sessionLifecycle: SessionRouteLifecycle;`, imported from `./routes/session-routes`, so the shape is written once. Add `SessionOwnerRef` to session-routes' `@taskflow/shared` type import.
 
-`resumeSession` in the lifecycle takes `(sessionId, cols?, rows?)`. The route only passes `sessionId`, so the `Pick` is compatible with the existing call. If the test stubs fail to type-check against `Pick`, keep the explicit structural type instead, extended with:
-
-```ts
-        moveSession: (sessionId: string, target: SessionOwnerRef) => Promise<void>;
-        getSessionOwner: (sessionId: string) => Promise<SessionOwnerRef | null>;
-```
-
-Then export that type under the same name. Either way, `routes.ts` must import `SessionRouteLifecycle` instead of repeating the shape.
-
-Add the routes after the resume route:
+Routes, after the resume route:
 
 ```ts
     // ── Session move / owner ───────────────────────────────────────
@@ -545,21 +763,12 @@ Add the routes after the resume route:
     });
 ```
 
-Add `SessionOwnerRef` to the file's `@taskflow/shared` type import.
-
-`api/routes.ts`: replace the inline `sessionLifecycle: { … }` type with `sessionLifecycle: SessionRouteLifecycle;`, imported from `./routes/session-routes`.
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `cd packages/backend && bun test tests/api tests/handlers/session.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Full suite, typecheck, lint, format, commit**
+- [ ] **Step 4: Full suite, typecheck, lint, format, commit**
 
 ```bash
 cd packages/backend && bun test && cd ../..
 bun run typecheck
-bunx eslint packages/backend/src/handlers/session.ts packages/backend/src/api/routes/session-routes.ts packages/backend/src/api/routes.ts packages/backend/tests/api/routes.test.ts packages/backend/tests/handlers/session.test.ts
+bunx eslint packages/backend/src packages/backend/tests/api packages/backend/tests/handlers
 bunx prettier --check packages/backend/src/handlers/session.ts packages/backend/src/api/routes/session-routes.ts packages/backend/src/api/routes.ts packages/backend/tests/api/routes.test.ts packages/backend/tests/handlers/session.test.ts
 git add packages/backend/src/handlers/session.ts packages/backend/src/api packages/backend/tests/api packages/backend/tests/handlers/session.test.ts
 git commit -m "feat(backend): expose session move and owner lookup over WS and REST"

@@ -279,3 +279,16 @@ broadcasts. If they don't, that is fixed as part of this work
   task, then from that task onto another project; check that the transcript
   replays in the target; run `taskflow-cli session move --task` from inside an
   agent and confirm `taskflow-cli task` then reports the new task.
+
+## Amendments (plan review, 2026-10-03)
+
+The plan review (gpt-6.1-sol, each finding verified against the code) changed these points. Where they conflict with the sections above, these win.
+
+- **Move order:** rename the log → add the ref to the target → remove it from the source → update the registry. Each step undoes the earlier ones if it fails (best effort). The earlier "target before source" note stands, but the log now moves first.
+- **Boot repair:** `TaskStore.repairMovedSessions` runs before reconcile and the orphan sweep. A session listed by two owners keeps the copy whose log exists. A log filed under an owner that doesn't list its session is re-filed under the one owner that does. The earlier claim that boot reconcile "tolerates" a duplicate was wrong; this replaces it.
+- **Owner locks:** a move holds `TaskStore.withOwnerLocks` on its source and target. Task archive and delete (WS and REST) and project removal (WS and REST) hold the same locks for their whole read → close → mutate sequence. Without this, archiving the task a session just joined could archive it with its process still running.
+- **One queue per session:** output appends, history reads (`SESSION_HISTORY`), moves, exit cleanup and native-id discovery all run on it. A session is registered for moves only after its `SessionRef` is persisted, so a move can't copy the ref of a session still being created or resumed.
+- **Shutdown:** `prepareForShutdown` stops admitting moves (`Taskflow is shutting down`) and waits for in-flight moves before marking sessions interrupted. Shutdown drains queued output after closing the PTYs.
+- **UI hit-testing:** uses the real pointer position (a capturing `pointermove` listener), not dnd-kit's scroll-adjusted delta, and `document.elementsFromPoint`, so the drag overlay under the cursor doesn't hide the sidebar. A drop anywhere inside the sidebar is consumed (it moves on a valid target, otherwise does nothing). Only drops outside the sidebar reach the existing reorder and pane-move logic.
+- **UI refusals:** use the existing `alert()` dialog, titled "Couldn't move session". There is no toast system.
+- **Tabs:** they carry the session's `cwd`. Master tabs refresh through the shared `syncPaneTabs`. Terminal file links and in-app URL opening look the session's tab up when a link is used, so they follow the session after a move, including into Master.

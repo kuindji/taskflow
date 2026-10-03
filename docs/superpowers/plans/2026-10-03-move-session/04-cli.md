@@ -185,9 +185,19 @@ Add the tests to `describe("taskflow-cli")`:
             ...env,
             TASKFLOW_SESSION_ID: "s1",
         });
+        const repeated = runCli(cliPath, ["session", "move", "--task", "t", "--task", "u"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+        });
+        const stray = runCli(cliPath, ["session", "move", "t2"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+        });
 
         expect(none.status).toBe(1);
         expect(two.status).toBe(1);
+        expect(repeated.status).toBe(1);
+        expect(stray.status).toBe(1);
         expect(String(two.stderr)).toContain("Usage: taskflow-cli session move");
     });
 
@@ -439,16 +449,17 @@ describe("taskflow-cli binary: session owner", () => {
         });
     });
 
-    it("rejects zero or several targets", async () => {
+    it("rejects zero, several, repeated or stray targets", async () => {
         startServer(null);
-        expect((await runBin(["session", "move"], { TASKFLOW_SESSION_ID: "s1" })).status).toBe(1);
-        expect(
-            (
-                await runBin(["session", "move", "--task", "t", "--project", "p"], {
-                    TASKFLOW_SESSION_ID: "s1",
-                })
-            ).status,
-        ).toBe(1);
+        for (const args of [
+            [],
+            ["--task", "t", "--project", "p"],
+            ["--task", "t", "--task", "u"],
+            ["t2"],
+        ]) {
+            const result = await runBin(["session", "move", ...args], { TASKFLOW_SESSION_ID: "s1" });
+            expect(result.status).toBe(1);
+        }
     });
 
     it("surfaces the backend refusal", async () => {
@@ -502,25 +513,37 @@ In `handleSession`, add before `default:`:
         case "move": {
             const usage =
                 "Usage: taskflow-cli session move --task <id> | --project <id> | --master [--session <id>]\n";
-            const { flags } = parseFlags(subArgs, {
+            // consumeFlags keeps only the last of a repeated flag, so count
+            // the target flags here to reject `--task a --task b` like the sh CLI.
+            const targetFlags = subArgs.filter(
+                (arg) => arg === "--task" || arg === "--project" || arg === "--master",
+            );
+            const { flags, positional, unknown } = consumeFlags(subArgs, {
                 task: "string",
                 project: "string",
                 master: "boolean",
                 session: "string",
             });
-            const targets: SessionOwnerRef[] = [
-                ...(typeof flags.task === "string" ? [{ taskId: flags.task }] : []),
-                ...(typeof flags.project === "string" ? [{ projectId: flags.project }] : []),
-                ...(flags.master === true ? [{ master: true }] : []),
-            ];
+            const target: SessionOwnerRef | null =
+                typeof flags.task === "string"
+                    ? { taskId: flags.task }
+                    : typeof flags.project === "string"
+                      ? { projectId: flags.project }
+                      : flags.master === true
+                        ? { master: true }
+                        : null;
             const sessId = typeof flags.session === "string" ? flags.session : sessionId;
-            if (targets.length !== 1 || !sessId) {
+            if (
+                targetFlags.length !== 1 ||
+                positional.length > 0 ||
+                unknown.length > 0 ||
+                !target ||
+                !sessId
+            ) {
                 process.stderr.write(usage);
                 process.exit(1);
             }
-            process.stdout.write(
-                await api("POST", `/api/sessions/${sessId}/move`, { ...targets[0] }),
-            );
+            process.stdout.write(await api("POST", `/api/sessions/${sessId}/move`, { ...target }));
             break;
         }
 ```

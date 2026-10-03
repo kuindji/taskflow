@@ -4,7 +4,12 @@
 
 **Goal:** Move a live agent session to another task, project or the Master Workspace without restarting it. Moves can be made from `taskflow-cli` or by dragging a tab onto the desktop sidebar.
 
-**Architecture:** The backend keeps a registry of each registered live session's current owner. A per-session queue serializes everything that depends on the owner: output appends, moves, exit cleanup and native-id discovery. A move swaps the `SessionRef` between owner lists, renames the session's output log and broadcasts both owners. The CLI asks the backend for the session's current owner, so a stale `TASKFLOW_TASK_ID` stops mattering. The desktop UI hit-tests the sidebar while a tab is being dragged and sends `SESSION_MOVE`.
+**Architecture:**
+- The backend records each registered live session's current owner. A per-session queue serializes everything that depends on that owner: output appends, history reads, moves, exit cleanup and native-id discovery.
+- A move takes owner locks (shared with archive, delete and project removal). It renames the output log, adds the ref to the target, removes it from the source, and rolls back on failure.
+- A boot repair finishes a move the process died in the middle of.
+- The CLI asks the backend for the session's current owner, so a stale `TASKFLOW_TASK_ID` stops mattering.
+- The desktop UI hit-tests the sidebar at the real pointer position while a tab is dragged, and sends `SESSION_MOVE`.
 
 **Tech Stack:** Bun, TypeScript, POSIX sh, React + zustand, dnd-kit, bun:test (happy-dom preload for UI tests).
 
@@ -18,12 +23,12 @@ Each section is a separate file in `2026-10-03-move-session/`. Each is written t
 
 | # | Section | File | Depends on |
 |---|---|---|---|
-| 1 | Shared types + `TaskStore.moveSessionHistory` | `01-store-log-move.md` | — |
-| 2 | Owner registry and per-session queue in the lifecycle | `02-owner-registry.md` | 1 |
-| 3 | `moveSession`, `getSessionOwner`, WS + REST | `03-move-api.md` | 1, 2 |
+| 1 | Shared types, owner helpers, keyed queue; store log move, owner locks, boot repair | `01-store-log-move.md` | — |
+| 2 | Owner registry and per-session queue in the lifecycle (output, history, exit, discovery, drain) | `02-owner-registry.md` | 1 |
+| 3 | `moveSession` (+ rollback, shutdown gate), owner lookup, entry-point locks, WS + REST | `03-move-api.md` | 1, 2 |
 | 4 | CLI: owner lookup + `session move` (sh and TS) + docs | `04-cli.md` | 3 |
 | 5 | Desktop drag-to-sidebar | `05-ui-drag.md` | 3 |
-| 6 | Terminal link cwd, TUI check, manual verification | `06-links-and-verify.md` | 5 |
+| 6 | Terminal links follow the session; TUI check; manual verification; final review | `06-links-and-verify.md` | 5 |
 
 Sections 4 and 5 are independent of each other.
 
@@ -37,6 +42,8 @@ Sections 4 and 5 are independent of each other.
 - `bun run format` rewrites the whole repo, so never run it. Use `bunx prettier --write <files>` on changed files only. `packages/tui` has pre-existing prettier drift; leave it alone.
 - `taskflow-cli` has two implementations. The POSIX script is what runs on macOS/Linux. Both must change identically.
 - A move must never change the session's `cwd`, PTY, `instance` or `bootId`.
+- Lock order, never reversed: the session queue, then the owner locks (`TaskStore.withOwnerLocks`), then the store's file locks. Archive, delete and project removal take owner locks and must never wait on a session queue.
+- New tests must not use `mock.module`. Inject dependencies instead (it leaks across files).
 - Error messages (exact strings, shown to users):
   - `Session is not running`
   - `Only agent sessions can be moved`
@@ -47,13 +54,15 @@ Sections 4 and 5 are independent of each other.
   - `Project not found`
   - `Session is already there`
   - `Exactly one of taskId, projectId, or master is required`
+  - `Taskflow is shutting down`
+  - UI dialog title: `Couldn't move session`
 
 ## Review Focus
 
 1. **Output written during a move.** The agent keeps printing while it moves. Every chunk must end up in exactly one log file: before the rename in the old one, after it in the new one. Nothing may recreate the old file after the rename. Pinned in Section 2 (queue ordering test) and Section 3 (output before and after a move test).
 2. **A session that exits right after moving.** Its ref must leave the *new* owner and the new log must be deleted, with no live ref left behind. Pinned in Section 3 (exit after move test).
 3. **An agent calling the CLI after it moved itself.** `taskflow-cli task` must report the new task. A session moved to project level must not keep its old task id. Pinned in Section 4 (owner lookup replaces both ids; task→project clears the task id).
-4. **Dropping a tab somewhere other than a sidebar target.** Reordering and moving between panes must behave exactly as before. Pinned in Section 5 (an `onDragEnd` with no target returns `false` and the existing handlers run).
+4. **Dropping a tab outside the sidebar, or on a sidebar spot that isn't a valid target.** Outside the sidebar, reordering and moving between panes behave exactly as before. Inside the sidebar, nothing happens, and in particular the tabs don't reorder towards whatever `closestCenter` picked. Pinned in Section 5 (the hook tests "leaves drops in the workspace…" and "swallows a drop on a sidebar gap or an invalid card").
 5. **Shell tabs, flow sessions and the remote agent.** Nothing in the sidebar highlights for them, and the backend refuses them anyway. Pinned in Section 3 (refusal tests) and Section 5 (`isMovableTab` / `isValidSessionDrop` tests).
 
 ## Execution notes
@@ -61,3 +70,7 @@ Sections 4 and 5 are independent of each other.
 - After every section: `bun run typecheck`, `bunx eslint <changed files>`, `bunx prettier --check <changed files>`, the section's tests, and the full suite of the package you touched (`cd packages/backend && bun test`, or `bun test packages/ui` from the root).
 - The backend suite has one known flaky test that fails occasionally and passes on rerun. Rerun once before investigating.
 - When all sections are done, run a whole-change review (`codex-review` skill, gpt-6.1-sol) before marking TSK-3 done.
+
+## Plan review log
+
+- Round 1 (gpt-6.1-sol, 2026-10-03): 13 findings, all verified against the code and folded in. Covered: archive, delete and close races; rollback; crash repair; shutdown gating and drain; registration timing during resume; history reads overtaking queued output; DragOverlay hiding the sidebar; scroll-adjusted delta; invalid sidebar drops falling through; master tabs missing the flag; terminal links for master and cached terminals; `mock.module` leakage; TS CLI flag validation.
