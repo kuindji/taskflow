@@ -668,7 +668,7 @@ describe("OpenTuiApp", () => {
                     parentId: undefined,
                     title: "New task",
                     description: "Do work",
-                    worktree: false,
+                    worktree: true,
                     initCommand: undefined,
                 },
             },

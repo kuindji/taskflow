@@ -31,7 +31,7 @@ class TaskCreate {
         description: "",
         initCommand: "",
     };
-    private worktree = false;
+    private worktree = true;
     private pending = false;
     private error: string | null = null;
 

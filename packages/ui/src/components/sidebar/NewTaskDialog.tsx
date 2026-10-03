@@ -71,7 +71,7 @@ export function NewTaskDialog({
     const [projectId, setProjectId] = useState(defaultSelection ?? "");
     const [description, setDescription] = useState("");
     const [title, setTitle] = useState("");
-    const [worktree, setWorktree] = useState(false);
+    const [worktree, setWorktree] = useState(true);
     const [initCommand, setInitCommand] = useState("");
     const [startWith, setStartWith] = useState("none");
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
@@ -120,7 +120,7 @@ export function NewTaskDialog({
     const resetForm = useCallback(() => {
         setDescription("");
         setTitle("");
-        setWorktree(false);
+        setWorktree(true);
         setInitCommand("");
         setStartWith("none");
         setAgentOptions(undefined);

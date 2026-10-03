@@ -120,3 +120,12 @@ describe("new task dialog prefill", () => {
         expect(field("new-task-description").value).toBe("");
     });
 });
+
+describe("new task dialog defaults", () => {
+    it("opens with the worktree switch on", () => {
+        render(false, null);
+        render(true, null);
+
+        expect(field("new-task-worktree").getAttribute("aria-checked")).toBe("true");
+    });
+});
