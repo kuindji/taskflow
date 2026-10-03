@@ -80,6 +80,7 @@ export const MSG = {
     SESSION_RESUME: "session:resume",
     SESSION_CLOSE: "session:close",
     SESSION_RENAME: "session:rename",
+    SESSION_MOVE: "session:move",
     SESSION_INPUT: "session:input",
     SESSION_STATUS: "session:status",
     SESSION_EXITED: "session:exited",

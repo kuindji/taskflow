@@ -220,10 +220,21 @@ export interface TerminalResizePayload {
     rows: number;
 }
 
-export interface SessionHistoryPayload {
+/**
+ * Where a session lives. As a target, exactly one field is set. The owner
+ * lookup (`GET /api/sessions/:id/owner`) also fills `projectId` for a task.
+ */
+export interface SessionOwnerRef {
     taskId?: string;
     projectId?: string;
     master?: boolean;
+}
+
+export interface SessionHistoryPayload extends SessionOwnerRef {
+    sessionId: string;
+}
+
+export interface SessionMovePayload extends SessionOwnerRef {
     sessionId: string;
 }
 
