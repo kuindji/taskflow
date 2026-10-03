@@ -1,7 +1,7 @@
 import type { Terminal, ILink, ILinkProvider } from "@xterm/xterm";
 import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
-import type { FileStatResponse } from "@taskflow/shared";
+import type { FileStatResponse, SessionOwnerRef } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useUIStore } from "@/stores/ui-store";
 import { openFileInApp } from "@/lib/open-file";
@@ -10,7 +10,7 @@ import { registerBackendReset } from "@/stores/store-reset";
 import { useBackendStore } from "@/stores/backend-store";
 import { isLocalBackend } from "@/hooks/useIsLocalBackend";
 import { getWrappedLineWindow, getWrappedRangeForMatch } from "@/lib/terminal-wrapped-links";
-import { getWorkspaceKey, getWorkingDir, openExternalFile } from "./terminal-links";
+import { getWorkingDir, openExternalFile, sessionWorkspace } from "./terminal-links";
 
 // Absolute: /path/to/file with optional :line:col
 const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/g;
@@ -118,11 +118,16 @@ async function cachedFileStat(
 
 function createFilePathLinkProvider(
     term: Terminal,
+    sessionId: string,
     taskId?: string,
     projectId?: string,
     master?: boolean,
 ): ILinkProvider {
-    const workspaceKey = getWorkspaceKey(taskId, projectId, master);
+    // Resolved at click time: the session may have moved since this terminal mounted.
+    const activate = (text: string, workingDir: string | null, event: MouseEvent) => {
+        const { workspaceKey, owner } = sessionWorkspace(sessionId, taskId, projectId, master);
+        void handlePathActivation(text, workingDir, workspaceKey, event, owner);
+    };
 
     return {
         provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
@@ -132,7 +137,7 @@ function createFilePathLinkProvider(
                 return;
             }
 
-            const workingDir = getWorkingDir(taskId, projectId, master);
+            const workingDir = getWorkingDir(sessionId, taskId, projectId, master);
             const lineText = wrappedLine.text;
             const links: ILink[] = [];
             const seen = new Set<string>();
@@ -166,14 +171,7 @@ function createFilePathLinkProvider(
                         range,
                         text: trimmed,
                         activate(event: MouseEvent, text: string) {
-                            void handlePathActivation(
-                                text,
-                                workingDir,
-                                workspaceKey,
-                                event,
-                                taskId,
-                                projectId,
-                            );
+                            activate(text, workingDir, event);
                         },
                     });
                 }
@@ -217,7 +215,7 @@ function createFilePathLinkProvider(
                         range,
                         text: trimmed,
                         activate(event: MouseEvent, text: string) {
-                            void handlePathActivation(text, workingDir, workspaceKey, event);
+                            activate(text, workingDir, event);
                         },
                     },
                 });
@@ -229,6 +227,7 @@ function createFilePathLinkProvider(
             }
 
             // Validate bare candidates against filesystem before exposing as links
+            const { workspaceKey } = sessionWorkspace(sessionId, taskId, projectId, master);
             const backendId = workspaceKey ? workspaceBackendId(workspaceKey) : null;
             void Promise.all(bareCandidates.map((c) => cachedFileStat(backendId, c.resolved))).then(
                 (results) => {
@@ -247,8 +246,7 @@ async function handlePathActivation(
     workingDir: string | null,
     workspaceKey: string | null,
     event: MouseEvent,
-    taskId?: string,
-    projectId?: string,
+    owner?: SessionOwnerRef,
 ): Promise<void> {
     const resolved = resolvePath(text, workingDir);
     if (!resolved) return;
@@ -280,7 +278,7 @@ async function handlePathActivation(
         if (isExternal) {
             openExternalFile(resolved, { line, col });
         } else {
-            void openFileInApp(resolved, workspaceKey, { taskId, projectId }, line);
+            void openFileInApp(resolved, workspaceKey, owner, line);
         }
     }
 }

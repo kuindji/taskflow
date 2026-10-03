@@ -1,8 +1,13 @@
-import { useSessionStore } from "@/stores/session-store";
+import type { SessionOwnerRef } from "@taskflow/shared";
+import { findSessionTab, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
-import { getTaskWorkspaceKey, getProjectWorkspaceKey } from "@/hooks/useActiveWorkspace";
+import {
+    getTaskWorkspaceKey,
+    getProjectWorkspaceKey,
+    workspaceOwner,
+} from "@/hooks/useActiveWorkspace";
 
 function getWorkspaceKey(taskId?: string, projectId?: string, master?: boolean): string | null {
     if (taskId) return getTaskWorkspaceKey(taskId);
@@ -11,7 +16,7 @@ function getWorkspaceKey(taskId?: string, projectId?: string, master?: boolean):
     return null;
 }
 
-function getWorkingDir(taskId?: string, projectId?: string, master?: boolean): string | null {
+function ownerWorkingDir(taskId?: string, projectId?: string, master?: boolean): string | null {
     if (taskId) {
         const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
         if (!task) return null;
@@ -27,6 +32,31 @@ function getWorkingDir(taskId?: string, projectId?: string, master?: boolean): s
         return null;
     }
     return null;
+}
+
+/** The session's own cwd wherever its tab now is, else its owner's directory. */
+function getWorkingDir(
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): string | null {
+    return findSessionTab(sessionId)?.tab.cwd ?? ownerWorkingDir(taskId, projectId, master);
+}
+
+/**
+ * The workspace (pane) key of the session's tab now, else the one its
+ * terminal was mounted with, and that workspace's owner ids.
+ */
+function sessionWorkspace(
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): { workspaceKey: string | null; owner: SessionOwnerRef } {
+    const workspaceKey =
+        findSessionTab(sessionId)?.workspaceKey ?? getWorkspaceKey(taskId, projectId, master);
+    return { workspaceKey, owner: workspaceKey ? workspaceOwner(workspaceKey) : {} };
 }
 
 function openUrlInApp(url: string, workspaceKey: string | null) {
@@ -68,20 +98,24 @@ function openExternalFile(filePath: string, opts?: { line?: number; col?: number
     }
 }
 
-function createWebLinkHandler(taskId?: string, projectId?: string, master?: boolean) {
-    const workspaceKey = getWorkspaceKey(taskId, projectId, master);
+function createWebLinkHandler(
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+) {
     return (event: MouseEvent, uri: string) => {
         if (event.metaKey || event.ctrlKey) {
             openExternalUrl(uri);
         } else {
-            openUrlInApp(uri, workspaceKey);
+            openUrlInApp(uri, sessionWorkspace(sessionId, taskId, projectId, master).workspaceKey);
         }
     };
 }
 
 export {
-    getWorkspaceKey,
     getWorkingDir,
+    sessionWorkspace,
     openUrlInApp,
     openExternalUrl,
     openExternalFile,

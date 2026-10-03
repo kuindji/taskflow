@@ -1,22 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { createRequire } from "node:module";
-import type { Terminal } from "@xterm/xterm";
+import { createTerminalWithText } from "./test-headless-terminal";
 import { getWrappedLineWindow, getWrappedRangeForMatch } from "./terminal-wrapped-links";
-
-const require = createRequire(import.meta.url);
-const { Terminal: HeadlessTerminal } =
-    require("../../../../node_modules/.bun/@xterm+headless@5.5.0/node_modules/@xterm/headless/lib-headless/xterm-headless.js") as {
-        Terminal: new (options: { cols: number; rows: number; allowProposedApi: boolean }) => {
-            write(data: string): void;
-        };
-    };
-
-async function createTerminalWithText(text: string, cols = 20): Promise<Terminal> {
-    const term = new HeadlessTerminal({ cols, rows: 10, allowProposedApi: true });
-    term.write(text);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    return term as unknown as Terminal;
-}
 
 describe("terminal wrapped links", () => {
     it("reconstructs a wrapped relative file path from a continuation row", async () => {

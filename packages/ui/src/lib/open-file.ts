@@ -2,7 +2,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
-import type { EditorInfo, SystemInfoResponse } from "@taskflow/shared";
+import type { EditorInfo, SessionOwnerRef, SystemInfoResponse } from "@taskflow/shared";
 import { setPendingLine } from "@/components/panes/editor-dirty-state";
 import { planFileOpen } from "@/lib/open-file-plan";
 import { createPerBackendCache } from "@/lib/per-backend-cache";
@@ -43,7 +43,7 @@ async function getInternalEditorId(
 async function openFileInApp(
     filePath: string,
     workspaceKey: string | null,
-    owner?: { taskId?: string; projectId?: string },
+    owner?: SessionOwnerRef,
     line?: number,
 ): Promise<void> {
     if (!workspaceKey) return;
@@ -60,7 +60,7 @@ async function openFileInApp(
 
     if (plan.kind === "cli-editor") {
         if (!owner) return;
-        void store.createSession(
+        await store.createSession(
             owner,
             "editor",
             `${internalEditor}: ${label}`,
@@ -68,6 +68,8 @@ async function openFileInApp(
             undefined,
             undefined,
             { editorId: internalEditor, filePath, line: plan.line },
+            undefined,
+            workspaceKey,
         );
         return;
     }

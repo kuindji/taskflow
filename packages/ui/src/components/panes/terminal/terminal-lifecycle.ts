@@ -167,7 +167,7 @@ function getOrCreateTerminal(
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon(createWebLinkHandler(taskId, projectId, master)));
+    term.loadAddon(new WebLinksAddon(createWebLinkHandler(sessionId, taskId, projectId, master)));
 
     // Create a dedicated wrapper div that persists across mounts
     const element = document.createElement("div");
@@ -177,7 +177,7 @@ function getOrCreateTerminal(
 
     // File path link provider (registered after open so buffer is available)
     const filePathLinkDisposable = term.registerLinkProvider(
-        createFilePathLinkProvider(term, taskId, projectId, master),
+        createFilePathLinkProvider(term, sessionId, taskId, projectId, master),
     );
 
     // Renderer addons must load before Unicode (renderer initialization first)

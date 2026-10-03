@@ -193,26 +193,32 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
 
         const lastTerminalSize = get().lastTerminalSize;
-        const { sessionId } = await sendRequest<SessionCreateResponse>(
-            backendId,
-            MSG.SESSION_CREATE,
-            {
-                ...ownerIds,
-                type,
-                label,
-                prompt,
-                shell,
-                cwd,
-                cols: lastTerminalSize?.cols,
-                rows: lastTerminalSize?.rows,
-                agentOptions,
-                ...(editorOpts && {
-                    editorId: editorOpts.editorId,
-                    filePath: editorOpts.filePath,
-                    line: editorOpts.line,
-                }),
-            },
-        );
+        let sessionId: string;
+        try {
+            ({ sessionId } = await sendRequest<SessionCreateResponse>(
+                backendId,
+                MSG.SESSION_CREATE,
+                {
+                    ...ownerIds,
+                    type,
+                    label,
+                    prompt,
+                    shell,
+                    cwd,
+                    cols: lastTerminalSize?.cols,
+                    rows: lastTerminalSize?.rows,
+                    agentOptions,
+                    ...(editorOpts && {
+                        editorId: editorOpts.editorId,
+                        filePath: editorOpts.filePath,
+                        line: editorOpts.line,
+                    }),
+                },
+            ));
+        } finally {
+            // A failed create must not keep syncs from placing the owner's sessions.
+            if (pendingKey) pendingSessionCreates.delete(pendingKey);
+        }
         const tab: Tab = {
             id: sessionId,
             type,
@@ -224,7 +230,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         };
         noteSessionBackend(sessionId, backendId);
         get().addTab(targetWorkspaceKey ?? ownerWorkspaceKey, tab);
-        if (pendingKey) pendingSessionCreates.delete(pendingKey);
         await refetchRecords(backendId, { tasks: !!owner.taskId, projects: !!owner.projectId });
         return sessionId;
     },

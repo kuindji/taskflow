@@ -3,7 +3,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { MSG } from "@taskflow/shared";
-import type { SystemInfoResponse } from "@taskflow/shared";
+import type { SessionOwnerRef, SystemInfoResponse } from "@taskflow/shared";
 import { getPrimary, onPrimaryChange, sendRequest } from "@/lib/connection-registry";
 import { createPerBackendCache } from "@/lib/per-backend-cache";
 
@@ -17,22 +17,31 @@ export function getProjectWorkspaceKey(projectId: string): string {
 
 export const MASTER_WORKSPACE_KEY = "master";
 
+/** The owner a workspace (or pane) key belongs to; `{}` for an unknown key. */
+export function workspaceOwner(workspaceKey: string): SessionOwnerRef {
+    const key = workspaceKey.endsWith(":right")
+        ? workspaceKey.slice(0, -":right".length)
+        : workspaceKey;
+    if (key === MASTER_WORKSPACE_KEY) return { master: true };
+    if (key.startsWith("task:")) return { taskId: key.slice("task:".length) };
+    if (key.startsWith("project:")) return { projectId: key.slice("project:".length) };
+    return {};
+}
+
 /**
  * The machine a workspace (or pane) key's record lives on; master is
  * primary's. For code that holds a key rather than a record.
  */
 export function workspaceBackendId(workspaceKey: string): string | null {
-    const key = workspaceKey.endsWith(":right")
-        ? workspaceKey.slice(0, -":right".length)
-        : workspaceKey;
-    if (key === MASTER_WORKSPACE_KEY) return getPrimary();
-    if (key.startsWith("task:")) {
-        const id = key.slice("task:".length);
-        return useTaskStore.getState().tasks.find((t) => t.id === id)?.backendId ?? null;
+    const { taskId, projectId, master } = workspaceOwner(workspaceKey);
+    if (master) return getPrimary();
+    if (taskId) {
+        return useTaskStore.getState().tasks.find((t) => t.id === taskId)?.backendId ?? null;
     }
-    if (key.startsWith("project:")) {
-        const id = key.slice("project:".length);
-        return useProjectStore.getState().projects.find((p) => p.id === id)?.backendId ?? null;
+    if (projectId) {
+        return (
+            useProjectStore.getState().projects.find((p) => p.id === projectId)?.backendId ?? null
+        );
     }
     return null;
 }
