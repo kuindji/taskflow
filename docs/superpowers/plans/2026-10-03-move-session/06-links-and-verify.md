@@ -9,7 +9,8 @@ Read first: the plan index, `handoff.md`, and the spec sections "Terminal links"
 - relative file links resolve against the *new* owner's worktree, while the agent still runs in its original directory;
 - master sessions resolve nothing, because `getWorkingDir` returns `null` for master;
 - a URL opened in-app goes to the workspace the terminal was first mounted in;
-- a file link checks the file on, and opens it in, the workspace the terminal was first mounted in (`terminal-link-provider.ts` captures `workspaceKey` at line 125 and passes it, with the mounted owner ids, to `handlePathActivation`). If that owner is later deleted, `workspaceBackendId` returns null and the link stops working.
+- a file link checks the file on, and opens it in, the workspace the terminal was first mounted in (`terminal-link-provider.ts` captures `workspaceKey` at line 125 and passes it, with the mounted owner ids, to `handlePathActivation`). If that owner is later deleted, `workspaceBackendId` returns null and the link stops working;
+- with a CLI editor configured (`settings.editor.internalEditor`, detected on the machine), a non-Markdown file link in Master opens nothing. Activation forwards only `taskId` and `projectId` (`terminal-link-provider.ts:283`), so `openFileInApp` calls `createSession({})`, which throws `Either taskId, projectId, or master is required` (`session-store.ts:175`) into a `void`ed promise. The editor session also ignores the pane: `openFileInApp` never passes `targetWorkspaceKey`, so it lands in the owner's left pane even when the link was clicked in the right one.
 
 Section 5 put the session's recorded `cwd` on its tab and added `findSessionTab`. The providers now look the session up **when a link is used**, and fall back to today's owner-based behaviour only when the tab has no `cwd` (legacy records).
 
@@ -17,14 +18,17 @@ Section 5 put the session's recorded `cwd` on its tab and added `findSessionTab`
 - Modify: `packages/ui/src/components/panes/terminal/terminal-links.ts`, `getWorkingDir` (lines 14-30) and `createWebLinkHandler` (lines 71-80).
 - Modify: `packages/ui/src/components/panes/terminal/terminal-link-provider.ts`. `createFilePathLinkProvider` (line 119) takes `sessionId`. It resolves the working dir and the workspace through the session on every `provideLinks` call and again in each link's `activate`.
 - Modify: `packages/ui/src/components/panes/terminal/terminal-lifecycle.ts`. Pass `sessionId` to both provider factories (lines 179 and 189).
+- Modify: `packages/ui/src/lib/open-file.ts`. `openFileInApp` takes a `SessionOwnerRef` and creates the CLI editor session in `workspaceKey`.
 - Test: `packages/ui/src/components/panes/terminal/terminal-links.test.ts` (new).
+- Test: `packages/ui/src/lib/open-file.test.ts` (new).
 
 **Interfaces:**
 - Consumes: `Tab.cwd` and `findSessionTab` (Section 5).
 - Produces:
   - `getWorkingDir(sessionId: string, taskId?: string, projectId?: string, master?: boolean): string | null`
   - `createWebLinkHandler(sessionId: string, taskId?: string, projectId?: string, master?: boolean)`
-  - `sessionWorkspace(sessionId: string, taskId?: string, projectId?: string, master?: boolean): { workspaceKey: string | null; owner: { taskId?: string; projectId?: string } }`. The workspace (pane) key of the session's tab now, else the key it was mounted with, plus that workspace's owner ids. Exported for `terminal-link-provider.ts`.
+  - `sessionWorkspace(sessionId: string, taskId?: string, projectId?: string, master?: boolean): { workspaceKey: string | null; owner: SessionOwnerRef }`. The workspace (pane) key of the session's tab now, else the key it was mounted with, plus that workspace's owner: `{ taskId }`, `{ projectId }`, `{ master: true }`, or `{}` when there is no workspace. Exported for `terminal-link-provider.ts`.
+  - `openFileInApp(filePath: string, workspaceKey: string | null, owner?: SessionOwnerRef, line?: number)`. Same callers; the owner type widens from `{ taskId?; projectId? }`. A CLI editor session is created with `targetWorkspaceKey: workspaceKey`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -122,11 +126,94 @@ describe("sessionWorkspace", () => {
         });
         expect(sessionWorkspace("s1", undefined, undefined, true)).toEqual({
             workspaceKey: "master",
-            owner: {},
+            owner: { master: true },
+        });
+    });
+
+    it("reports Master for a session whose tab moved there", () => {
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                master: [{ id: "s1", type: "claude", label: "Claude", sessionId: "s1" }],
+            },
+        });
+
+        expect(sessionWorkspace("s1", "some-old-task")).toEqual({
+            workspaceKey: "master",
+            owner: { master: true },
         });
     });
 });
 ```
+
+`packages/ui/src/lib/open-file.test.ts` drives `openFileInApp` against a real socket. `startTestServer` (`@/lib/test-ws-server`) stands in for the backend, and `openConnection` + `setPrimary` (`@/lib/connection-registry`) make it the primary, which is the machine `workspaceBackendId("master")` returns:
+
+```ts
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { MSG } from "@taskflow/shared";
+import type { Settings } from "@taskflow/shared";
+import { closeConnection, openConnection, setPrimary } from "@/lib/connection-registry";
+import { startTestServer } from "@/lib/test-ws-server";
+import type { TestServer } from "@/lib/test-ws-server";
+import { useSessionStore } from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useTaskStore } from "@/stores/task-store";
+import { openFileInApp } from "./open-file";
+
+let server: TestServer;
+let created = 0;
+
+beforeAll(async () => {
+    server = startTestServer("local", (type) => {
+        if (type === MSG.SYSTEM_INFO) {
+            return { editors: [{ id: "nvim", name: "Neovim", type: "internal" }] };
+        }
+        if (type === MSG.SESSION_CREATE) return { sessionId: `editor-${++created}` };
+        return {};
+    });
+    await openConnection("local", server.origin);
+    setPrimary("local");
+});
+
+afterAll(() => {
+    closeConnection("local", "detach");
+    server.stop();
+});
+
+beforeEach(() => {
+    server.received.length = 0;
+    useSessionStore.setState({ tabsByWorkspace: {}, activeTabByWorkspace: {} });
+    useSettingsStore.setState({ settings: settingsWith("nvim") });
+    useTaskStore.setState({ tasks: [{ ...target, backendId: "local" }] });
+});
+
+function sessionCreates() {
+    return server.received.filter((r) => r.type === MSG.SESSION_CREATE).map((r) => r.payload);
+}
+
+describe("openFileInApp with a CLI editor", () => {
+    it("opens a file from Master in a Master editor session", async () => {
+        await openFileInApp("/repo/src/a.ts", "master", { master: true }, 3);
+
+        expect(sessionCreates()).toEqual([
+            expect.objectContaining({ master: true, type: "editor", filePath: "/repo/src/a.ts" }),
+        ]);
+        expect(useSessionStore.getState().tabsByWorkspace.master?.map((t) => t.sessionId)).toEqual([
+            "editor-1",
+        ]);
+    });
+
+    it("puts the editor session in the pane the link was clicked in", async () => {
+        await openFileInApp("/repo/src/a.ts", "task:target:right", { taskId: "target" });
+
+        const tabs = useSessionStore.getState().tabsByWorkspace;
+        expect(tabs["task:target:right"]?.map((t) => t.sessionId)).toEqual(["editor-2"]);
+        expect(tabs["task:target"] ?? []).toEqual([]);
+    });
+});
+```
+
+Build `settingsWith(internalEditor)` and `target` as the smallest `Settings` and `Task` fixtures the types accept (copy `target` from `terminal-links.test.ts`; for `Settings`, start from the defaults the settings store tests use, if any, and set `editor.internalEditor`). Don't cast. Match the `SESSION_CREATE` payload field names to what `createSession` actually sends (`editorId`/`filePath` may sit under an editor options object); assert on the real shape. If `openFileInApp` returns before the tab is added (it `void`s `createSession`), await `createSession` inside it instead: `await store.createSession(...)`, which every caller already `void`s.
+`createSession` ends with `refetchRecords`, which asks for `TASK_LIST` and resyncs the task's tabs. If that resync drops the editor tab, make the server answer `TASK_LIST` with `target` whose `sessions` hold a live `editor` ref for each id it handed out, rather than skipping the refetch.
 
 If `Project` requires more fields than this fixture has, add them with their empty values. Don't cast.
 
@@ -137,7 +224,7 @@ Expected: FAIL. `getWorkingDir` ignores the session.
 
 - [ ] **Step 3: Implement**
 
-In `terminal-links.ts`, import `findSessionTab` from `@/stores/session-store` and `baseWorkspaceKey` from `@/stores/session-helpers`. Rename the existing owner-based body to `ownerWorkingDir(taskId?, projectId?, master?)` (unchanged), then add:
+In `terminal-links.ts`, import `findSessionTab` from `@/stores/session-store`, `baseWorkspaceKey` from `@/stores/session-helpers`, and the type `SessionOwnerRef` from `@taskflow/shared` (Section 1). Rename the existing owner-based body to `ownerWorkingDir(taskId?, projectId?, master?)` (unchanged), then add:
 
 ```ts
 function getWorkingDir(
@@ -158,7 +245,7 @@ function sessionWorkspace(
     taskId?: string,
     projectId?: string,
     master?: boolean,
-): { workspaceKey: string | null; owner: { taskId?: string; projectId?: string } } {
+): { workspaceKey: string | null; owner: SessionOwnerRef } {
     const workspaceKey =
         findSessionTab(sessionId)?.workspaceKey ?? getWorkspaceKey(taskId, projectId, master);
     const base = workspaceKey ? baseWorkspaceKey(workspaceKey) : null;
@@ -166,6 +253,7 @@ function sessionWorkspace(
     if (base?.startsWith("project:")) {
         return { workspaceKey, owner: { projectId: base.slice(8) } };
     }
+    if (base === "master") return { workspaceKey, owner: { master: true } };
     return { workspaceKey, owner: {} };
 }
 
@@ -201,19 +289,14 @@ Export `sessionWorkspace`. `findSessionTab` may return a `:right` pane key. `ope
                                 projectId,
                                 master,
                             );
-                            void handlePathActivation(
-                                text,
-                                workingDir,
-                                workspaceKey,
-                                event,
-                                owner.taskId,
-                                owner.projectId,
-                            );
+                            void handlePathActivation(text, workingDir, workspaceKey, event, owner);
                         },
 ```
 
-  The bare-name link's `activate` does the same but keeps passing no owner ids, as today: `void handlePathActivation(text, workingDir, sessionWorkspace(sessionId, taskId, projectId, master).workspaceKey, event);`.
-- `handlePathActivation` itself doesn't change.
+  The bare-name link's `activate` does the same but keeps passing no owner, as today: `void handlePathActivation(text, workingDir, sessionWorkspace(sessionId, taskId, projectId, master).workspaceKey, event);`.
+- `handlePathActivation` replaces its `taskId?, projectId?` parameters with one `owner?: SessionOwnerRef` and passes it straight to `openFileInApp(resolved, workspaceKey, owner, line)`. Nothing else in it changes.
+
+`open-file.ts`: type the `owner` parameter as `SessionOwnerRef` (import from `@taskflow/shared`), and pass `workspaceKey` as `createSession`'s `targetWorkspaceKey` (its ninth argument, after `cwd`, which stays `undefined`). The other callers (`FileExplorer`, `SearchPanel`, `EditedFilesList`, `MarkdownPaneImpl`, `WikiPanel`, `EditorPaneImpl`) pass base workspace keys, where the target equals the owner's default key, so their behaviour is unchanged. An owner of `{}` still reaches `createSession` and throws there; the terminal link never sends one, because `sessionWorkspace` returns `{}` only when `workspaceKey` is null and `openFileInApp` returns first.
 
 `terminal-lifecycle.ts`: `getOrCreateTerminal` already has `sessionId`, so pass it as the new first or second argument of `createWebLinkHandler(...)` and `createFilePathLinkProvider(...)`.
 
@@ -221,6 +304,7 @@ Export `sessionWorkspace`. `findSessionTab` may return a `:right` pane key. `ope
 
 ```bash
 bun test packages/ui/src/components/panes/terminal/terminal-links.test.ts
+bun test packages/ui/src/lib/open-file.test.ts
 for f in packages/ui/src/components/panes/terminal/*.test.ts packages/ui/src/lib/terminal-wrapped-links.test.ts; do bun test "$f" || echo "FAILED: $f"; done
 ```
 
@@ -230,9 +314,9 @@ Expected: PASS.
 
 ```bash
 bun run typecheck
-bunx eslint packages/ui/src/components/panes/terminal
-bunx prettier --check packages/ui/src/components/panes/terminal/terminal-links.ts packages/ui/src/components/panes/terminal/terminal-link-provider.ts packages/ui/src/components/panes/terminal/terminal-lifecycle.ts packages/ui/src/components/panes/terminal/terminal-links.test.ts
-git add packages/ui/src/components/panes/terminal
+bunx eslint packages/ui/src/components/panes/terminal packages/ui/src/lib/open-file.ts packages/ui/src/lib/open-file.test.ts
+bunx prettier --check packages/ui/src/components/panes/terminal/terminal-links.ts packages/ui/src/components/panes/terminal/terminal-link-provider.ts packages/ui/src/components/panes/terminal/terminal-lifecycle.ts packages/ui/src/components/panes/terminal/terminal-links.test.ts packages/ui/src/lib/open-file.ts packages/ui/src/lib/open-file.test.ts
+git add packages/ui/src/components/panes/terminal packages/ui/src/lib/open-file.ts packages/ui/src/lib/open-file.test.ts
 git commit -m "fix(ui): terminal links follow the session's own cwd and workspace"
 ```
 
@@ -255,7 +339,7 @@ Follow memory `project_dev_backend_sandbox`: fake `HOME` plus `TASKFLOW_DEV_PORT
 5. Split the workspace (right pane) and drag a tab from the right pane onto a card. The move works the same.
 6. Drag a tab, wait for the tab strip to scroll (many tabs), then drop on a card. The card that highlighted is the one that receives the session.
 7. Drop a shell tab on a sidebar gap, then an agent tab on the sidebar's top toolbar and on its bottom toolbar: nothing happens each time, and the tabs don't reorder.
-8. Move a session into Master with the CLI (`taskflow-cli session move --master`), then click a relative file path it prints. It opens relative to the session's original directory, in a Master editor tab. Delete the task the session came from and click the path again: it still opens.
+8. Move a session into Master with the CLI (`taskflow-cli session move --master`), then click a relative file path it prints. It opens relative to the session's original directory, in a Master editor tab. Delete the task the session came from and click the path again: it still opens. Set Settings → Editor → internal editor to a detected CLI editor (e.g. nvim) and click a non-Markdown path again: a Master editor session opens on that file.
 9. Quit the dev app with Cmd+Q and start it again. The moved session is offered for restore in the task it was moved to (expected behaviour for interrupted agent sessions). Resuming it starts in its original cwd.
 
 Record the result of each step in `handoff.md`.

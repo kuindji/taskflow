@@ -304,3 +304,9 @@ The plan review (gpt-6.1-sol, each finding verified against the code) changed th
 - **Failed undo:** a move whose undo also fails logs it and rethrows the original error. Boot repair fixes a duplicate ref. A transcript left under the target's log name is lost from replay. This is accepted.
 - **UI:** the drop zone is the whole sidebar panel (`AppShell`'s `data-panel="sidebar"` wrapper), including both toolbars. Terminal file links resolve the workspace and owner of the session's current tab at click time, not the ones the terminal was mounted with.
 - **Not changed:** creates and resumes are not gated at shutdown. Boot reconcile marks a same-instance live ref from an earlier boot interrupted, so a late ref recovers the same way. Owner locks are per process. A cross-instance archive or delete already races with every live session, and each move step fails closed under the cross-process file locks.
+
+### Round 3 (2026-10-03)
+
+- **File links into Master:** `sessionWorkspace()` returns the owner as a `SessionOwnerRef`, `{ master: true }` for Master. Link activation passes it to `openFileInApp`, which takes a `SessionOwnerRef`. Before this, a CLI editor (`settings.editor.internalEditor`) opened nothing for a Master session's file link, because `createSession` rejects an empty owner.
+- **Editor sessions follow the pane:** `openFileInApp` creates a CLI editor session in the workspace key it was given (`targetWorkspaceKey`), so a link clicked in a right pane opens its editor there.
+- **Master write test seam:** `TaskStore` takes optional `FileOperations` for the Master list's write. Store tests make the write fail and check that the cache still matches disk after add, remove, update and reconcile.

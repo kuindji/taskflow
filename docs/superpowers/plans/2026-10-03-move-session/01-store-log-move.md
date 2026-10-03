@@ -227,13 +227,15 @@ git commit -m "feat(backend): owner helpers and keyed queue for session moves"
   - add `rename` to the `fs/promises` import (line 17);
   - add a private `ownerLockTails` field next to `sessionLogSizes` (around line 709);
   - add `moveSessionHistory` and `withOwnerLocks` after `deleteSessionHistory` (around line 793);
-  - make the three Master mutations (`addMasterSession`, `removeMasterSession`, `updateMasterSession`, lines 238-263) replace the cache only after the write succeeds.
-- Test: `packages/backend/tests/services/task-store.test.ts`. Add `stat` to its `fs/promises` import.
+  - make the three Master mutations (`addMasterSession`, `removeMasterSession`, `updateMasterSession`, lines 238-263) and the Master branch of `reconcileAllSessionLists` (around line 336) replace the cache only after the write succeeds;
+  - take an optional second constructor argument, `masterFileOperations?: FileOperations`, used only for the Master list's write. It is the test seam for a failing write.
+- Test: `packages/backend/tests/services/task-store.test.ts`. Add `rename`, `stat` and `unlink` to its `fs/promises` import, and `import type { FileOperations } from "../../src/services/write-file-atomic";`.
 
 **Interfaces:**
 - Produces:
   - `TaskStore.moveSessionHistory(fromOwnerId: string, toOwnerId: string, sessionId: string): Promise<void>`
   - `TaskStore.withOwnerLocks<T>(keys: string[], work: () => Promise<T>): Promise<T>`. `keys` come from `ownerKey()`. It reserves every key synchronously, at call time, so calls are served in call order on each key. The method is not reentrant, and `work` must never wait on a session's queue (Section 2).
+  - `new TaskStore(config, masterFileOperations?)`. Existing callers pass one argument and don't change.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -308,12 +310,84 @@ Inside `describe("TaskStore", ...)`:
             ]);
         });
     });
+
+    describe("master session writes", () => {
+        let failWrites = false;
+        const operations: FileOperations = {
+            writeFile: (path, data) => writeFile(path, data),
+            // EIO, not EACCES: a permission error would take the in-place fallback.
+            rename: (from, to) =>
+                failWrites
+                    ? Promise.reject(Object.assign(new Error("disk full"), { code: "EIO" }))
+                    : rename(from, to),
+            unlink: (path) => unlink(path),
+        };
+        const masterRef = (id: string, bootId = "boot-1") => ({
+            id,
+            type: "claude" as const,
+            label: "Claude",
+            createdAt: "2026-10-03T00:00:00.000Z",
+            instance: "main",
+            bootId,
+            state: "live" as const,
+            nativeSessionId: `${id}-native`,
+        });
+        let masterFile: string;
+        let master: TaskStore;
+
+        beforeEach(async () => {
+            failWrites = false;
+            masterFile = join(tempDir, "sessions", "main", "master.json");
+            master = new TaskStore(
+                {
+                    projectsFile: join(tempDir, "projects.json"),
+                    tasksDir: join(tempDir, "tasks"),
+                    archiveDir: join(tempDir, "archive"),
+                    sessionLogsDir: join(tempDir, "session-logs"),
+                    taskLogsDir: join(tempDir, "task-logs"),
+                    masterSessionsFile: masterFile,
+                },
+                operations,
+            );
+            await master.init();
+        });
+
+        const onDisk = async () => JSON.parse(await readFile(masterFile, "utf-8")) as unknown;
+
+        it("leaves the cache as on disk when a write fails", async () => {
+            await master.addMasterSession(masterRef("kept"));
+            failWrites = true;
+
+            await expect(master.addMasterSession(masterRef("added"))).rejects.toThrow("disk full");
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            await expect(master.removeMasterSession("kept")).rejects.toThrow("disk full");
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            await expect(master.updateMasterSession("kept", { label: "Renamed" })).rejects.toThrow(
+                "disk full",
+            );
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            expect(await onDisk()).toEqual([masterRef("kept")]);
+        });
+
+        it("leaves the cache as on disk when a reconcile write fails", async () => {
+            await master.addMasterSession(masterRef("stale", "old-boot"));
+            failWrites = true;
+
+            await expect(master.reconcileInterruptedSessions("main", "new-boot")).rejects.toThrow(
+                "disk full",
+            );
+            expect(master.getMasterSessions()).toEqual([masterRef("stale", "old-boot")]);
+            expect(await onDisk()).toEqual([masterRef("stale", "old-boot")]);
+        });
+    });
 ```
+
+Each assertion follows the failed call directly, because the next mutation reloads the cache from disk and would hide a stale one. Both tests fail on today's code (it assigns the cache before it writes); that is the regression they pin.
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd packages/backend && bun test tests/services/task-store.test.ts -t "session history move|owner locks"`
-Expected: FAIL. The methods don't exist.
+Run: `cd packages/backend && bun test tests/services/task-store.test.ts -t "session history move|owner locks|master session writes"`
+Expected: FAIL. The methods don't exist, the constructor ignores the second argument, and the Master mutations assign the cache before they write.
 
 - [ ] **Step 3: Implement**
 
@@ -321,6 +395,18 @@ Change line 17 to:
 
 ```ts
 import { appendFile, open, readFile, readdir, mkdir, realpath, rename, rm, stat } from "fs/promises";
+```
+
+Add `type FileOperations` to the `./write-file-atomic` import (line 24), and give the constructor the seam:
+
+```ts
+    constructor(
+        config: TaskStoreConfig,
+        /** Only the Master list's write uses these; tests inject a failing write. */
+        private readonly masterFileOperations?: FileOperations,
+    ) {
+        this.config = config;
+    }
 ```
 
 Next to `sessionLogSizes`, add:
@@ -424,7 +510,7 @@ and replace `persistMasterSessions` with:
 ```ts
     /** Write the list, then make it the cache, so a failed write leaves the cache as on disk. */
     private async commitMasterSessions(next: SessionRef[]): Promise<void> {
-        await writeJsonAtomic(this.masterSessionsFile, next);
+        await writeJsonAtomic(this.masterSessionsFile, next, this.masterFileOperations);
         this.masterSessions = next;
     }
 ```
@@ -437,7 +523,9 @@ The reconcile pass (`reconcileAllSessionLists`, around line 337) also calls `per
                 dropped = latest.dropped;
                 if (latest.changed) await this.commitMasterSessions(latest.sessions);
             });
-``` There is no seam to make `writeJsonAtomic` fail inside the store, so this change has no failure test of its own; the existing master-session tests guard it, and Section 3's Master rollback tests cover the move side.
+```
+
+The "master session writes" tests guard this ordering. Section 3's Master rollback tests check the move's rollback, not the cache order: their spies reject before the store's body runs.
 ```
 
 - [ ] **Step 4: Run the tests, then commit**
