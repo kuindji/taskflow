@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
-import { MSG, type AppSettings, type WsEvent } from "@taskflow/shared";
+import { MSG, type AppSettings, type SessionOwnerRef, type WsEvent } from "@taskflow/shared";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
 import { SettingsStore } from "../../src/services/settings-store";
@@ -32,11 +32,19 @@ class FakeTrayStateTracker {
     }
 }
 
+const moveCalls: Array<{ sessionId: string; target: SessionOwnerRef }> = [];
+
 const sharedTestDeps = {
     sessionLifecycle: {
         createSession: async () => "",
         resumeSession: async (sessionId: string) => sessionId,
         removeSessionFromOwner: async () => {},
+        moveSession: async (sessionId: string, target: SessionOwnerRef) => {
+            if (target.taskId === "archived") throw new Error("Task not found");
+            moveCalls.push({ sessionId, target });
+        },
+        getSessionOwner: async (sessionId: string): Promise<SessionOwnerRef | null> =>
+            sessionId === "session-1" ? { taskId: "t1", projectId: "p1" } : null,
     },
     schedulerService: {} as never,
     scheduleStore: {} as never,
@@ -60,6 +68,7 @@ describe("api routes", () => {
     let trayStateTracker: FakeTrayStateTracker;
 
     beforeEach(async () => {
+        moveCalls.length = 0;
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-routes-"));
         apiRouter = new ApiRouter();
         events = [];
@@ -84,6 +93,44 @@ describe("api routes", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("moves a session to the requested owner", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/session-1/move", {
+                method: "POST",
+                body: JSON.stringify({ taskId: "t2" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(moveCalls).toEqual([{ sessionId: "session-1", target: { taskId: "t2" } }]);
+    });
+
+    it("returns the move refusal as a 400 with its message", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/session-1/move", {
+                method: "POST",
+                body: JSON.stringify({ taskId: "archived" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(400);
+        expect(await response?.json()).toEqual({ error: "Task not found" });
+    });
+
+    it("reports a session's current owner, or 404", async () => {
+        const found = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/session-1/owner", { method: "GET" }),
+        );
+        const missing = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/other/owner", { method: "GET" }),
+        );
+
+        expect(await found?.json()).toEqual({ taskId: "t1", projectId: "p1" });
+        expect(missing?.status).toBe(404);
     });
 
     it("broadcasts explicit session status updates", async () => {

@@ -1051,5 +1051,15 @@ describe("session handlers", () => {
             expect(ptyManager.closed).not.toContain(sessionId);
             expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("keep me\r\n");
         });
+
+        it("moves through the SESSION_MOVE message", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+
+            expect(await router.handle(MSG.SESSION_MOVE, { sessionId, taskId: b.id })).toEqual({
+                success: true,
+            });
+            expect((await store.getTask(b.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+        });
     });
 });

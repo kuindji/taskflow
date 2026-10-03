@@ -6,6 +6,7 @@ import type { TrayStateTracker } from "../../services/tray-state-tracker";
 import type {
     AgentAvailability,
     AgentType,
+    SessionOwnerRef,
     SessionRef,
     SessionStatus,
     WsEvent,
@@ -13,6 +14,17 @@ import type {
 import { MSG } from "@taskflow/shared";
 import type { CreateSessionOpts } from "../../services/session-lifecycle";
 import { jsonResponse, errorResponse } from "./response-helpers";
+
+interface SessionRouteLifecycle {
+    createSession: (opts: CreateSessionOpts) => Promise<string>;
+    resumeSession: (sessionId: string) => Promise<string>;
+    removeSessionFromOwner: (
+        sessionId: string,
+        owner?: { taskId?: string; projectId?: string },
+    ) => Promise<void>;
+    moveSession: (sessionId: string, target: SessionOwnerRef) => Promise<void>;
+    getSessionOwner: (sessionId: string) => Promise<SessionOwnerRef | null>;
+}
 
 interface SessionRouteDeps {
     apiRouter: ApiRouter;
@@ -22,14 +34,7 @@ interface SessionRouteDeps {
     settingsStore: SettingsStore;
     trayStateTracker: TrayStateTracker;
     agents: AgentAvailability[];
-    sessionLifecycle: {
-        createSession: (opts: CreateSessionOpts) => Promise<string>;
-        resumeSession: (sessionId: string) => Promise<string>;
-        removeSessionFromOwner: (
-            sessionId: string,
-            owner?: { taskId?: string; projectId?: string },
-        ) => Promise<void>;
-    };
+    sessionLifecycle: SessionRouteLifecycle;
 }
 
 function registerSessionRoutes(deps: SessionRouteDeps): void {
@@ -207,6 +212,33 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
         }
     });
 
+    // ── Session move / owner ───────────────────────────────────────
+
+    apiRouter.register("POST", "/api/sessions/:sessionId/move", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        const target: SessionOwnerRef = {
+            ...(typeof body.taskId === "string" && { taskId: body.taskId }),
+            ...(typeof body.projectId === "string" && { projectId: body.projectId }),
+            ...(body.master === true && { master: true }),
+        };
+        try {
+            await sessionLifecycle.moveSession(params.sessionId, target);
+            return jsonResponse({ success: true });
+        } catch (err) {
+            return errorResponse(err instanceof Error ? err.message : "Unknown error", 400);
+        }
+    });
+
+    apiRouter.register("GET", "/api/sessions/:sessionId/owner", async (_req, params) => {
+        const owner = await sessionLifecycle.getSessionOwner(params.sessionId);
+        return owner ? jsonResponse(owner) : errorResponse("Session not found", 404);
+    });
+
     // ── Session rename ─────────────────────────────────────────────
 
     apiRouter.register("POST", "/api/sessions/:sessionId/rename", async (req, params) => {
@@ -281,4 +313,4 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
 }
 
 export { registerSessionRoutes };
-export type { SessionRouteDeps };
+export type { SessionRouteDeps, SessionRouteLifecycle };

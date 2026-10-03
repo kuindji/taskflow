@@ -18,9 +18,9 @@ import type {
     ShellInfo,
     WsEvent,
 } from "@taskflow/shared";
-import type { CreateSessionOpts } from "../services/session-lifecycle";
 import { registerTaskRoutes } from "./routes/task-routes";
 import { registerSessionRoutes } from "./routes/session-routes";
+import type { SessionRouteLifecycle } from "./routes/session-routes";
 import { registerProjectRoutes } from "./routes/project-routes";
 import { registerFlowRoutes } from "./routes/flow-routes";
 import { registerScheduleRoutes } from "./routes/schedule-routes";
@@ -42,14 +42,7 @@ interface ApiRouteDeps {
     createWorktree?: (taskId: string, nameSource: string, initCommand?: string) => Promise<void>;
     changeTracker?: ChangeTracker;
     agents: AgentAvailability[];
-    sessionLifecycle: {
-        createSession: (opts: CreateSessionOpts) => Promise<string>;
-        resumeSession: (sessionId: string) => Promise<string>;
-        removeSessionFromOwner: (
-            sessionId: string,
-            owner?: { taskId?: string; projectId?: string },
-        ) => Promise<void>;
-    };
+    sessionLifecycle: SessionRouteLifecycle;
     schedulerService: SchedulerService;
     trayStateTracker: TrayStateTracker;
     notificationStore: NotificationStore;

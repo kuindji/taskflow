@@ -4,6 +4,7 @@ import type {
     SessionResumePayload,
     SessionClosePayload,
     SessionRenamePayload,
+    SessionMovePayload,
     SessionInputPayload,
     SessionHistoryPayload,
     SessionSnapshotPayload,
@@ -108,6 +109,12 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         }
 
         throw new Error(`Session not found: ${sessionId}`);
+    });
+
+    router.register(MSG.SESSION_MOVE, async (payload) => {
+        const { sessionId, taskId, projectId, master } = payload as SessionMovePayload;
+        await sessionLifecycle.moveSession(sessionId, { taskId, projectId, master });
+        return { success: true };
     });
 
     router.register(MSG.TERMINAL_RESIZE, async (payload) => {
