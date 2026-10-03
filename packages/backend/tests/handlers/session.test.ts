@@ -303,6 +303,18 @@ describe("session handlers", () => {
         expect(args).toContain("Taskflow Test");
     });
 
+    it("marks a registered Remote Control session so it is never offered for restore", async () => {
+        const sessionId = await sessionLifecycle.createSession({
+            owner: { master: true },
+            type: "claude",
+            cwd: tempDir,
+            remoteControl: true,
+        });
+
+        const session = store.getMasterSessions().find((s) => s.id === sessionId);
+        expect(session?.remoteControl).toBe(true);
+    });
+
     it("uses the configured root as the default master-session cwd", async () => {
         const created = (await router.handle(MSG.SESSION_CREATE, {
             master: true,

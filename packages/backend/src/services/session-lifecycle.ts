@@ -624,6 +624,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                       : {}),
                 ...(flow && { flow }),
                 ...(opts.trayExclude && { trayExclude: true }),
+                ...(opts.remoteControl && type === "claude" && { remoteControl: true }),
             };
             if (master) {
                 if (opts.resumeSession) {

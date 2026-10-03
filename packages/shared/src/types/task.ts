@@ -10,6 +10,8 @@ export interface SessionRef {
     createdAt: string;
     instance?: string;
     trayExclude?: boolean;
+    /** The remote agent's Claude Remote Control session. It dies with its backend and is never restored. */
+    remoteControl?: boolean;
     /** Backend lifetime that most recently owned the live PTY. */
     bootId?: string;
     /** Durable lifecycle state. Missing on legacy records and treated as live. */

@@ -279,13 +279,15 @@ export class TaskStore {
                 next.push(session);
                 continue;
             }
-            if (!isAgentType(session.type)) {
-                changed = true;
-                dropped.push(session.id);
+            if (session.bootId === bootId && isAgentType(session.type)) {
+                next.push(session);
                 continue;
             }
-            if (session.bootId === bootId) {
-                next.push(session);
+            // The remote agent starts a fresh session on its own, so a stale one
+            // is dropped like a shell rather than offered for restore.
+            if (!isAgentType(session.type) || session.remoteControl) {
+                changed = true;
+                dropped.push(session.id);
                 continue;
             }
             const reconciled: SessionRef = {

@@ -406,6 +406,43 @@ describe("TaskStore", () => {
             expect(second.getMasterSessions()[0].nativeSessionId).toBe("master-native");
         });
 
+        it("drops remote control sessions instead of offering them for restore", async () => {
+            const remoteAgent = (id: string, bootId: string) => ({
+                id,
+                type: "claude" as const,
+                label: "Remote Agent",
+                createdAt: new Date().toISOString(),
+                instance: "main",
+                bootId,
+                state: "live" as const,
+                nativeSessionId: id,
+                remoteControl: true,
+            });
+            await store.addMasterSession(remoteAgent("remote-crashed", "old-boot"));
+            await store.addMasterSession(remoteAgent("remote-quitting", "current-boot"));
+            await store.addMasterSession({
+                id: "master-agent",
+                type: "claude",
+                label: "Claude",
+                createdAt: new Date().toISOString(),
+                instance: "main",
+                bootId: "current-boot",
+                state: "live",
+                nativeSessionId: "master-agent",
+            });
+
+            await store.reconcileInterruptedSessions("main", "current-boot");
+            expect(store.getMasterSessions().map((session) => session.id)).toEqual([
+                "remote-quitting",
+                "master-agent",
+            ]);
+
+            await store.markBootSessionsInterrupted("main", "current-boot");
+            const remaining = store.getMasterSessions();
+            expect(remaining.map((session) => session.id)).toEqual(["master-agent"]);
+            expect(remaining[0].state).toBe("interrupted");
+        });
+
         it("keeps concurrent session updates from two backend stores", async () => {
             const projectDir = await createProjectDir("shared-store");
             const project = await store.addProject({ name: "shared", path: projectDir });
