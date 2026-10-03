@@ -6,7 +6,7 @@ Plan: `../2026-10-03-move-session.md`. Spec: `docs/superpowers/specs/2026-10-03-
 
 ## Next step
 
-Plan review round 5: triage `reviews/round-5.md` per `chain.md` → Review steps. Codex reports no blocker or major, only 1 minor: Section 5 Task 8 Step 4 globs `components/panes/terminal/*.test.ts`, which matches nothing before Section 6 and fails under zsh (`no matches found`). If it confirms, fold it in and set Next step to "Implement Section 1". Round 5 is the cap: a confirmed blocker or major here stops the chain.
+Implement Section 1: follow `01-store-log-move.md` per `chain.md` → Implementation steps. Plan reviews are closed (round 5: one minor, folded in). First, record the base hash for the final review below.
 
 ## Status
 
@@ -21,7 +21,8 @@ Plan review round 5: triage `reviews/round-5.md` per `chain.md` → Review steps
 
 ## Facts for the next section
 
-- Base for the final whole-change review: the last plan/handoff commit before Section 1 starts. The Section 1 session records its hash here.
+- Base for the final whole-change review: the last plan/handoff commit before Section 1 starts (the handoff commit right after 135c0ea9). The Section 1 session records its exact hash here.
+- Round 5: 1 minor confirmed and folded in (commit 135c0ea9): Section 5 Task 8 Step 4 runs `terminal-wrapped-links.test.ts` instead of an empty glob.
 - Review artifacts: `reviews/round-N.md` (Codex reports), `reviews/round-N-triage.md`, `reviews/round-5-prompt.md` (latest round prompt).
 - Round 4: all 4 findings confirmed and folded in (commit 8a4e3a04), all in Section 6 Task 10: bare-name links pass the owner, `createSession` releases its pending mark in `finally` (new `session-store.create.test.ts`), `open-file.test.ts` uses `AppSettings`, answers `TASK_LIST` and calls `syncWithTasks` itself, plus a bare-name test on a headless terminal (helper moved to `lib/test-headless-terminal.ts`).
 - Round 3: both findings confirmed and folded in (commit 571d4be5). Section 6 Task 10 now threads `SessionOwnerRef` through file links into `openFileInApp` and forwards `targetWorkspaceKey`. Section 1 Task 2 adds a `masterFileOperations` seam with failing-write tests.
