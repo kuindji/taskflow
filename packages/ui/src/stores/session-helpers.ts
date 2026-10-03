@@ -1,4 +1,5 @@
 import type { SessionRef } from "@taskflow/shared";
+import { isAgentType } from "@taskflow/shared";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
 import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
@@ -25,6 +26,10 @@ interface Tab {
     trayExclude?: boolean;
     sessionState?: SessionRef["state"];
     resumeAvailable?: boolean;
+    /** Agent session tab that can be dragged onto another task or project. */
+    movable?: true;
+    /** The session's recorded working directory; it does not change when the session moves. */
+    cwd?: string;
     /** markdown tabs only — which pane the tab currently shows. Absent means "preview". */
     mode?: "preview" | "edit";
     /** markdown tabs only — scroll offset of the preview pane, restored across pane swaps. */
@@ -67,6 +72,11 @@ function isKnownSessionType(session: SessionRef): boolean {
     return KNOWN_TAB_SESSION_TYPES.has(session.type);
 }
 
+/** Flow sessions stay with their flow run; the remote agent belongs to its service. */
+function isMovableSession(session: SessionRef): boolean {
+    return isAgentType(session.type) && !session.flow && !session.remoteControl;
+}
+
 function createSessionTab(session: SessionRef): Tab {
     return {
         id: session.id,
@@ -77,6 +87,8 @@ function createSessionTab(session: SessionRef): Tab {
         resumeAvailable: session.state === "interrupted" && Boolean(session.nativeSessionId),
         ...(session.type === "shell" && { autoTitle: true }),
         ...(session.trayExclude && { trayExclude: true }),
+        ...(isMovableSession(session) && { movable: true }),
+        ...(session.cwd && { cwd: session.cwd }),
     };
 }
 
@@ -209,6 +221,7 @@ export {
     getDefaultSessionLabel,
     normalizeSessionLabel,
     createSessionTab,
+    isMovableSession,
     isKnownSessionType,
     exitedSessions,
     isSessionExited,

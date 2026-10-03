@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionRef } from "@taskflow/shared";
 import { syncOwnerTabs } from "./session-sync";
 import { createSessionTab } from "./session-helpers";
+import type { Tab } from "./session-helpers";
 
 function makeSession(id: string, label = "Claude"): SessionRef {
     return {
@@ -161,5 +162,29 @@ describe("syncOwnerTabs", () => {
         });
         expect(result.tabsByWorkspace[rightKey]).toBeUndefined();
         expect(result.activeTabByWorkspace[rightKey]).toBeUndefined();
+    });
+
+    test("marks only plain agent sessions movable and refreshes movable and cwd", () => {
+        const agent = { ...makeSession("agent"), cwd: "/repo/a" };
+        const flow = { ...makeSession("flow"), flow: { flowId: "f", actionEntryId: "e" } };
+        const remote = { ...makeSession("remote"), remoteControl: true };
+        const shell = { ...makeSession("shell", "zsh"), type: "shell" as const };
+
+        expect(createSessionTab(agent)).toMatchObject({ movable: true, cwd: "/repo/a" });
+        expect(createSessionTab(flow).movable).toBeUndefined();
+        expect(createSessionTab(remote).movable).toBeUndefined();
+        expect(createSessionTab(shell).movable).toBeUndefined();
+
+        const stale: Tab = { id: "agent", type: "claude", label: "Claude", sessionId: "agent" };
+        const result = syncOwnerTabs({
+            ...baseArgs,
+            owners: [{ id: "t1", sessions: [agent] }],
+            tabsByWorkspace: { "task:t1": [stale] },
+            activeTabByWorkspace: { "task:t1": stale.id },
+        });
+        expect(result.tabsByWorkspace["task:t1"]?.[0]).toMatchObject({
+            movable: true,
+            cwd: "/repo/a",
+        });
     });
 });

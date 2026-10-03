@@ -4,6 +4,7 @@ import {
     baseWorkspaceKey,
     createSessionTab,
     isKnownSessionType,
+    isMovableSession,
     normalizeSessionLabel,
 } from "./session-helpers";
 
@@ -51,11 +52,15 @@ function syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): T
             tab.autoTitle !== true ? normalizeSessionLabel(session.type, session.label) : tab.label;
         const sessionState = session.state;
         const resumeAvailable = sessionState === "interrupted" && Boolean(session.nativeSessionId);
+        const movable = isMovableSession(session) ? true : undefined;
+        const cwd = session.cwd;
         if (
             tab.type === session.type &&
             tab.label === label &&
             tab.sessionState === sessionState &&
-            tab.resumeAvailable === resumeAvailable
+            tab.resumeAvailable === resumeAvailable &&
+            tab.movable === movable &&
+            tab.cwd === cwd
         ) {
             next.push(tab);
         } else {
@@ -65,6 +70,8 @@ function syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): T
                 type: session.type,
                 sessionState,
                 resumeAvailable,
+                movable,
+                cwd,
                 ...(tab.autoTitle !== true && { label }),
             });
         }
@@ -158,4 +165,4 @@ function syncOwnerTabs(args: SyncOwnerTabsArgs): WorkspaceTabState {
     return { tabsByWorkspace: nextTabs, activeTabByWorkspace: nextActive };
 }
 
-export { syncOwnerTabs };
+export { syncOwnerTabs, syncPaneTabs };

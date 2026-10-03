@@ -8,7 +8,7 @@ import type {
     SessionCreateResponse,
     SessionResumeResponse,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { isAgentType, MSG } from "@taskflow/shared";
 import { getPrimary, sendFireAndForget, sendRequest } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useProjectStore } from "./project-store";
@@ -27,7 +27,7 @@ import {
     pushHistory,
     stepHistory,
 } from "./session-helpers";
-import { syncOwnerTabs } from "./session-sync";
+import { syncOwnerTabs, syncPaneTabs } from "./session-sync";
 import type { Tab } from "./session-helpers";
 import {
     forgetSession,
@@ -219,6 +219,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             label: normalizeSessionLabel(type, label),
             sessionId,
             ...(type === "shell" && { autoTitle: true }),
+            ...(isAgentType(type) && { movable: true }),
             ...(editorOpts && { filePath: editorOpts.filePath }),
         };
         noteSessionBackend(sessionId, backendId);
@@ -620,45 +621,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             const rightKey = "master:right";
             const sessionsById = new Map(sessions.map((s) => [s.id, s]));
 
-            // Process right-pane tabs: filter by session existence only, no new sessions added
-            const existingRightTabs = state.tabsByWorkspace[rightKey] ?? [];
-            const rightTabs = existingRightTabs
-                .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                .map((tab) => {
-                    if (!tab.sessionId) return tab;
-                    const session = sessionsById.get(tab.sessionId);
-                    if (!session) return tab;
-                    return {
-                        ...tab,
-                        type: session.type,
-                        sessionState: session.state,
-                        resumeAvailable:
-                            session.state === "interrupted" && Boolean(session.nativeSessionId),
-                        ...(tab.autoTitle !== true && {
-                            label: normalizeSessionLabel(session.type, session.label),
-                        }),
-                    };
-                });
-
-            // Process base-pane tabs
-            const existingTabs = state.tabsByWorkspace[workspaceKey] ?? [];
-            const tabs = existingTabs
-                .filter((tab) => !tab.sessionId || sessionsById.has(tab.sessionId))
-                .map((tab) => {
-                    if (!tab.sessionId) return tab;
-                    const session = sessionsById.get(tab.sessionId);
-                    if (!session) return tab;
-                    return {
-                        ...tab,
-                        type: session.type,
-                        sessionState: session.state,
-                        resumeAvailable:
-                            session.state === "interrupted" && Boolean(session.nativeSessionId),
-                        ...(tab.autoTitle !== true && {
-                            label: normalizeSessionLabel(session.type, session.label),
-                        }),
-                    };
-                });
+            // Right-pane tabs: filter by session existence only, no new sessions added.
+            // The base list is copied because new sessions are pushed onto it below.
+            const rightTabs = syncPaneTabs(state.tabsByWorkspace[rightKey] ?? [], sessionsById);
+            const tabs = [...syncPaneTabs(state.tabsByWorkspace[workspaceKey] ?? [], sessionsById)];
 
             if (!pendingSessionCreates.has("master")) {
                 for (const session of sessions) {
@@ -712,6 +678,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         });
     },
 }));
+
+/** The workspace and tab showing a session, if any. */
+export function findSessionTab(sessionId: string): { workspaceKey: string; tab: Tab } | null {
+    for (const [workspaceKey, tabs] of Object.entries(useSessionStore.getState().tabsByWorkspace)) {
+        const tab = tabs.find((candidate) => candidate.sessionId === sessionId);
+        if (tab) return { workspaceKey, tab };
+    }
+    return null;
+}
 
 // Initialize all event subscriptions after store creation
 initSessionSubscriptions(useSessionStore);

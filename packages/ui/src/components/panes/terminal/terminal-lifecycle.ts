@@ -3,8 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CanvasAddon } from "@xterm/addon-canvas";
-import { sessionBackend, useSessionStore } from "@/stores/session-store";
-import type { Tab } from "@/stores/session-store";
+import { findSessionTab, sessionBackend, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { onEvent, sendRequest } from "@/lib/connection-registry";
@@ -57,15 +56,6 @@ const DETACH_GRACE_MS = 50;
 const SHELL_TITLE_MAX_LEN = 30;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function findTabForSession(sessionId: string): { workspaceKey: string; tab: Tab } | undefined {
-    const store = useSessionStore.getState();
-    for (const [workspaceKey, tabs] of Object.entries(store.tabsByWorkspace)) {
-        const tab = tabs.find((t) => t.sessionId === sessionId);
-        if (tab) return { workspaceKey, tab };
-    }
-    return undefined;
-}
 
 function applyThemeToCachedTerminal(cached: CachedTerminal, theme: XtermTheme): void {
     cached.term.options.theme = { ...theme };
@@ -234,7 +224,7 @@ function getOrCreateTerminal(
 
     const titleDisposable = term.onTitleChange((newTitle) => {
         if (!newTitle) return;
-        const found = findTabForSession(sessionId);
+        const found = findSessionTab(sessionId);
         if (!found || found.tab.type !== "shell") return;
         const truncated = middleTruncate(newTitle, SHELL_TITLE_MAX_LEN);
         useSessionStore.getState().updateAutoTitle(found.workspaceKey, found.tab.id, truncated);
