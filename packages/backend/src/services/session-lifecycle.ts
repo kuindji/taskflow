@@ -251,25 +251,35 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         }
     }
 
+    /** Rewrite a task's or project's session list. Master sessions have their own store calls. */
+    async function updateOwnerSessions(
+        owner: SessionOwner,
+        change: (sessions: SessionRef[]) => SessionRef[],
+    ): Promise<void> {
+        if (owner.taskId) {
+            await taskStore.updateTask(owner.taskId, (task) => ({
+                sessions: change(task.sessions),
+            }));
+        } else if (owner.projectId) {
+            await taskStore.updateProject(owner.projectId, (project) => ({
+                sessions: change(project.sessions),
+            }));
+        }
+    }
+
     async function patchOwnedSessionRef(
         owner: SessionOwner,
         sessionId: string,
         patch: Partial<SessionRef>,
     ): Promise<void> {
-        const apply = (sessions: SessionRef[]) =>
-            sessions.map((session) =>
-                session.id === sessionId ? { ...session, ...patch } : session,
-            );
         if (owner.master) {
             await taskStore.updateMasterSession(sessionId, patch);
-        } else if (owner.taskId) {
-            await taskStore.updateTask(owner.taskId, (task) => ({
-                sessions: apply(task.sessions),
-            }));
-        } else if (owner.projectId) {
-            await taskStore.updateProject(owner.projectId, (project) => ({
-                sessions: apply(project.sessions),
-            }));
+        } else {
+            await updateOwnerSessions(owner, (sessions) =>
+                sessions.map((session) =>
+                    session.id === sessionId ? { ...session, ...patch } : session,
+                ),
+            );
         }
         await broadcastOwner(owner);
     }
@@ -922,37 +932,24 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
     }
 
     async function addOwnedSessionRef(owner: SessionOwner, ref: SessionRef): Promise<void> {
-        const append = (sessions: SessionRef[]) => [
-            ...sessions.filter((session) => session.id !== ref.id),
-            ref,
-        ];
         if (owner.master) {
             // Master is never the source here (sameOwner was checked), so it can't list the ref.
             await taskStore.addMasterSession(ref);
-        } else if (owner.taskId) {
-            await taskStore.updateTask(owner.taskId, (task) => ({
-                sessions: append(task.sessions),
-            }));
-        } else if (owner.projectId) {
-            await taskStore.updateProject(owner.projectId, (project) => ({
-                sessions: append(project.sessions),
-            }));
+        } else {
+            await updateOwnerSessions(owner, (sessions) => [
+                ...sessions.filter((session) => session.id !== ref.id),
+                ref,
+            ]);
         }
     }
 
     async function removeOwnedSessionRef(owner: SessionOwner, sessionId: string): Promise<void> {
-        const without = (sessions: SessionRef[]) =>
-            sessions.filter((session) => session.id !== sessionId);
         if (owner.master) {
             await taskStore.removeMasterSession(sessionId);
-        } else if (owner.taskId) {
-            await taskStore.updateTask(owner.taskId, (task) => ({
-                sessions: without(task.sessions),
-            }));
-        } else if (owner.projectId) {
-            await taskStore.updateProject(owner.projectId, (project) => ({
-                sessions: without(project.sessions),
-            }));
+        } else {
+            await updateOwnerSessions(owner, (sessions) =>
+                sessions.filter((session) => session.id !== sessionId),
+            );
         }
     }
 
