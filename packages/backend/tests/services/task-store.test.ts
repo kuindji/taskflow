@@ -722,6 +722,69 @@ describe("TaskStore", () => {
             expect(await onDisk()).toEqual([masterRef("stale", "old-boot")]);
         });
     });
+
+    describe("repairing an unfinished move", () => {
+        const ref = (id: string) => ({
+            id,
+            type: "claude" as const,
+            label: "Claude",
+            createdAt: new Date().toISOString(),
+            instance: "main",
+            bootId: "old-boot",
+            state: "live" as const,
+            nativeSessionId: id,
+        });
+
+        async function twoTasks() {
+            const projectDir = await createProjectDir("repair");
+            const project = await store.addProject({ name: "repair", path: projectDir });
+            const a = await store.createTask({
+                projectId: project.id,
+                title: "A",
+                description: "",
+            });
+            const b = await store.createTask({
+                projectId: project.id,
+                title: "B",
+                description: "",
+            });
+            return { a, b };
+        }
+
+        it("keeps the copy whose log exists when two owners list a session", async () => {
+            const { a, b } = await twoTasks();
+            await store.updateTask(a.id, { sessions: [ref("s1")] });
+            await store.updateTask(b.id, { sessions: [ref("s1")] });
+            await store.appendSessionOutput(b.id, "s1", 1, "moved\r\n");
+
+            await store.repairMovedSessions("main");
+
+            expect((await store.getTask(a.id))?.sessions).toEqual([]);
+            expect((await store.getTask(b.id))?.sessions.map((s) => s.id)).toEqual(["s1"]);
+        });
+
+        it("re-files a log under the one owner that lists its session", async () => {
+            const { a, b } = await twoTasks();
+            await store.updateTask(a.id, { sessions: [ref("s1")] });
+            await store.appendSessionOutput(b.id, "s1", 1, "renamed early\r\n");
+
+            await store.repairMovedSessions("main");
+
+            expect((await store.getSessionHistory(a.id, "s1")).data).toBe("renamed early\r\n");
+            expect(await store.sweepOrphanSessionLogs()).toBe(0);
+        });
+
+        it("leaves other instances' refs alone", async () => {
+            const { a, b } = await twoTasks();
+            await store.updateTask(a.id, { sessions: [{ ...ref("s1"), instance: "dev-x" }] });
+            await store.updateTask(b.id, { sessions: [{ ...ref("s1"), instance: "dev-x" }] });
+
+            await store.repairMovedSessions("main");
+
+            expect((await store.getTask(a.id))?.sessions).toHaveLength(1);
+            expect((await store.getTask(b.id))?.sessions).toHaveLength(1);
+        });
+    });
 });
 
 describe("TaskStore.reorderProjects", () => {

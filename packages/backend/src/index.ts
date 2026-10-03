@@ -87,6 +87,7 @@ async function main() {
             masterSessionsFile: config.masterSessionsFile,
         });
         await store.init();
+        await store.repairMovedSessions(config.instanceId);
         await store.reconcileInterruptedSessions(config.instanceId, config.bootId);
         await store.cleanExpiredArchives();
         const sweptLogs = await store.sweepOrphanSessionLogs();

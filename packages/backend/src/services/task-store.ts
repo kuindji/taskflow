@@ -181,6 +181,72 @@ export class TaskStore {
     }
 
     /**
+     * Finish what an interrupted session move left behind. A move renames the
+     * log, then adds the ref to its target, then removes it from its source,
+     * so a session listed by two owners keeps the copy whose log exists, and a
+     * log filed under an owner that does not list its session is re-filed
+     * under the one owner that does. Runs at boot, before reconcile and the
+     * orphan sweep.
+     */
+    async repairMovedSessions(instanceId: string): Promise<void> {
+        let files: string[];
+        try {
+            files = await readdir(this.config.sessionLogsDir);
+        } catch (error) {
+            if (isMissingFileError(error)) return;
+            throw error;
+        }
+        const logs = new Set(
+            files.filter((file) => file.endsWith(".jsonl")).map((file) => file.slice(0, -6)),
+        );
+        const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
+        type Holder = { kind: "task" | "project" | "master"; id: string };
+        const holders = new Map<string, Holder[]>();
+        const note = (holder: Holder, sessions: SessionRef[]) => {
+            for (const session of sessions) {
+                if (session.instance !== instanceId) continue;
+                holders.set(session.id, [...(holders.get(session.id) ?? []), holder]);
+            }
+        };
+        for (const task of tasks) note({ kind: "task", id: task.id }, task.sessions);
+        for (const project of projects) note({ kind: "project", id: project.id }, project.sessions);
+        note({ kind: "master", id: "master" }, this.masterSessions);
+
+        for (const [sessionId, owners] of holders) {
+            if (owners.length < 2) continue;
+            const keep = owners.find((owner) => logs.has(`${owner.id}--${sessionId}`)) ?? owners[0];
+            for (const owner of owners) {
+                if (owner === keep) continue;
+                const without = (sessions: SessionRef[]) =>
+                    sessions.filter((session) => session.id !== sessionId);
+                if (owner.kind === "task") {
+                    await this.updateTask(owner.id, (task) => ({
+                        sessions: without(task.sessions),
+                    }));
+                } else if (owner.kind === "project") {
+                    await this.updateProject(owner.id, (project) => ({
+                        sessions: without(project.sessions),
+                    }));
+                } else {
+                    await this.removeMasterSession(sessionId);
+                }
+            }
+            holders.set(sessionId, [keep]);
+        }
+
+        for (const name of logs) {
+            const separator = name.indexOf("--");
+            if (separator < 0) continue;
+            const ownerId = name.slice(0, separator);
+            const sessionId = name.slice(separator + 2);
+            const owners = holders.get(sessionId);
+            if (owners?.length !== 1 || owners[0].id === ownerId) continue;
+            if (logs.has(`${owners[0].id}--${sessionId}`)) continue;
+            await this.moveSessionHistory(ownerId, owners[0].id, sessionId);
+        }
+    }
+
+    /**
      * Remove session logs that no task, archived task, project, or master
      * session references any more. Sessions are dropped from their owners on
      * several paths (archive, restart reconciliation, internal sessions that
