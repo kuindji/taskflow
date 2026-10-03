@@ -609,6 +609,35 @@ describe("TaskStore", () => {
             expect(await exists(logPath("task-b", "missing"))).toBe(false);
         });
 
+        it("copies the log and clears the source where the storage refuses renames", async () => {
+            const refused = () =>
+                Promise.reject(Object.assign(new Error("not permitted"), { code: "EPERM" }));
+            // macOS File Provider (Dropbox): writes work, rename and unlink do not.
+            const fileProvider = new TaskStore(
+                {
+                    projectsFile: join(tempDir, "projects.json"),
+                    tasksDir: join(tempDir, "tasks"),
+                    archiveDir: join(tempDir, "archive"),
+                    sessionLogsDir: join(tempDir, "session-logs"),
+                    taskLogsDir: join(tempDir, "task-logs"),
+                },
+                {
+                    writeFile: (path, data) => writeFile(path, data),
+                    rename: refused,
+                    unlink: refused,
+                },
+            );
+            await fileProvider.appendSessionOutput("task-a", "s1", 1, "before\r\n");
+
+            await fileProvider.moveSessionHistory("task-a", "task-b", "s1");
+            await fileProvider.appendSessionOutput("task-b", "s1", 2, "after\r\n");
+
+            expect(await readFile(logPath("task-a", "s1"), "utf-8")).toBe("");
+            const history = await fileProvider.getSessionHistory("task-b", "s1");
+            expect(history.data).toBe("before\r\nafter\r\n");
+            expect(history.lastSequence).toBe(2);
+        });
+
         it("waits for an append already queued on the source log", async () => {
             const pending = store.appendSessionOutput("task-a", "s1", 1, "queued\r\n");
             const moved = store.moveSessionHistory("task-a", "task-b", "s1");
@@ -755,6 +784,19 @@ describe("TaskStore", () => {
             const { a, b } = await twoTasks();
             await store.updateTask(a.id, { sessions: [ref("s1")] });
             await store.updateTask(b.id, { sessions: [ref("s1")] });
+            await store.appendSessionOutput(b.id, "s1", 1, "moved\r\n");
+
+            await store.repairMovedSessions("main");
+
+            expect((await store.getTask(a.id))?.sessions).toEqual([]);
+            expect((await store.getTask(b.id))?.sessions.map((s) => s.id)).toEqual(["s1"]);
+        });
+
+        it("ignores the empty log a refused rename leaves at the source", async () => {
+            const { a, b } = await twoTasks();
+            await store.updateTask(a.id, { sessions: [ref("s1")] });
+            await store.updateTask(b.id, { sessions: [ref("s1")] });
+            await writeFile(join(tempDir, "session-logs", `${a.id}--s1.jsonl`), "");
             await store.appendSessionOutput(b.id, "s1", 1, "moved\r\n");
 
             await store.repairMovedSessions("main");

@@ -107,6 +107,7 @@ async function removeFileOrWriteJson(
 
 export type { FileOperations };
 export {
+    defaultFileOperations,
     isMacOsFileProviderPath,
     isPermissionError,
     removeFileOrWrite,

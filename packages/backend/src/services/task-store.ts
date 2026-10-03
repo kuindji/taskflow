@@ -14,17 +14,7 @@ import {
     orderProjectsByIds,
     sortTasksByCreatedAtDesc,
 } from "@taskflow/shared";
-import {
-    appendFile,
-    open,
-    readFile,
-    readdir,
-    mkdir,
-    realpath,
-    rename,
-    rm,
-    stat,
-} from "fs/promises";
+import { appendFile, open, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
@@ -33,7 +23,9 @@ import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
 import { ownerKey } from "./session-owner";
 import {
+    defaultFileOperations,
     type FileOperations,
+    isPermissionError,
     removeFileOrWrite,
     removeFileOrWriteJson,
     writeFileAtomic,
@@ -119,8 +111,8 @@ export class TaskStore {
 
     constructor(
         config: TaskStoreConfig,
-        /** Only the Master list's write uses these; tests inject a failing write. */
-        private readonly masterFileOperations?: FileOperations,
+        /** The Master list's write and session log moves use these; tests inject failures. */
+        private readonly fileOperations: FileOperations = defaultFileOperations,
     ) {
         this.config = config;
     }
@@ -197,9 +189,18 @@ export class TaskStore {
             if (isMissingFileError(error)) return;
             throw error;
         }
-        const logs = new Set(
-            files.filter((file) => file.endsWith(".jsonl")).map((file) => file.slice(0, -6)),
+        // An empty log is what a refused rename leaves at the source: no log.
+        const sized = await Promise.all(
+            files
+                .filter((file) => file.endsWith(".jsonl"))
+                .map(async (file) => {
+                    const info = await stat(join(this.config.sessionLogsDir, file)).catch(
+                        () => null,
+                    );
+                    return info && info.size > 0 ? file.slice(0, -6) : null;
+                }),
         );
+        const logs = new Set(sized.filter((name) => name !== null));
         const [tasks, projects] = await Promise.all([this.listTasks(), this.listProjects()]);
         type Holder = { kind: "task" | "project" | "master"; id: string };
         const holders = new Map<string, Holder[]>();
@@ -294,7 +295,7 @@ export class TaskStore {
 
     /** Write the list, then make it the cache, so a failed write leaves the cache as on disk. */
     private async commitMasterSessions(next: SessionRef[]): Promise<void> {
-        await writeJsonAtomic(this.masterSessionsFile, next, this.masterFileOperations);
+        await writeJsonAtomic(this.masterSessionsFile, next, this.fileOperations);
         this.masterSessions = next;
     }
 
@@ -896,17 +897,37 @@ export class TaskStore {
         const [first, second] = from < to ? [from, to] : [to, from];
         await this.withSessionLogMutation(first, () =>
             this.withSessionLogMutation(second, async () => {
-                try {
-                    await rename(from, to);
-                } catch (error) {
-                    if (!isMissingFileError(error)) throw error;
-                }
+                await this.renameSessionLog(from, to);
                 const size = this.sessionLogSizes.get(from);
                 this.sessionLogSizes.delete(from);
                 if (size === undefined) this.sessionLogSizes.delete(to);
                 else this.sessionLogSizes.set(to, size);
             }),
         );
+    }
+
+    /**
+     * Some macOS File Provider mounts (Dropbox) refuse rename and unlink but
+     * allow writes: copy the log instead and empty the source. Boot repair
+     * ignores the empty file; the orphan sweep clears it like any other.
+     */
+    private async renameSessionLog(from: string, to: string): Promise<void> {
+        try {
+            await this.fileOperations.rename(from, to);
+            return;
+        } catch (error) {
+            if (isMissingFileError(error)) return;
+            if (!isPermissionError(error)) throw error;
+        }
+        let data: string;
+        try {
+            data = await readFile(from, "utf-8");
+        } catch (error) {
+            if (isMissingFileError(error)) return;
+            throw error;
+        }
+        await this.fileOperations.writeFile(to, data);
+        await removeFileOrWrite(from, "", this.fileOperations);
     }
 
     /**
