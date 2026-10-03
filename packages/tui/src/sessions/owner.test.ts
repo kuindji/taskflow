@@ -88,4 +88,23 @@ describe("session owners", () => {
             resolveOwner({ ...view, projects: [] }, { kind: "task", taskId: "t", projectId: "p" }),
         ).toBe(MASTER_OWNER);
     });
+
+    it("follows a session moved from one task to another", () => {
+        const moved = session("moved");
+        const a = { kind: "task" as const, taskId: "a", projectId: "p" };
+        const b = { kind: "task" as const, taskId: "b", projectId: "p" };
+        const before: OwnerStoreView = {
+            masterSessions: [],
+            projects: [project("p")],
+            tasks: [task("a", "p", [moved]), task("b", "p")],
+        };
+        const after: OwnerStoreView = {
+            ...before,
+            tasks: [task("a", "p"), task("b", "p", [moved])],
+        };
+
+        expect(sessionsForOwner(before, a).map((s) => s.id)).toEqual(["moved"]);
+        expect(sessionsForOwner(after, a)).toEqual([]);
+        expect(sessionsForOwner(after, b).map((s) => s.id)).toEqual(["moved"]);
+    });
 });
