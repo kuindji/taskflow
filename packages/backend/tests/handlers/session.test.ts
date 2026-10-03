@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 
 const isWindows = process.platform === "win32";
 const testShell = isWindows ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh";
@@ -8,15 +8,17 @@ import { registerProjectHandlers } from "../../src/handlers/project";
 import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { createSessionLifecycle } from "../../src/services/session-lifecycle";
-import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
+import { mkdtemp, mkdir, rm, realpath, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
+import type { SessionRef } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 import { SettingsStore } from "../../src/services/settings-store";
 import { config } from "../../src/config";
 import { inheritedAgentHome } from "../../src/services/agent-accounts";
+import { expectRejects } from "../expect-rejects";
 
 class FakePtyManager {
     private nextId = 0;
@@ -618,5 +620,377 @@ describe("session handlers", () => {
         const updated = await store.getTask(task.id);
         expect(updated?.sessions[0].agentHomeDir).toBe("/homes/codex-old");
         expect(updated?.sessions[0].label).toBe("Codex · work");
+    });
+
+    describe("session move", () => {
+        afterEach(() => {
+            mock.restore();
+        });
+
+        async function twoTasks() {
+            const a = await store.createTask({ projectId, title: "A", description: "" });
+            const b = await store.createTask({ projectId, title: "B", description: "" });
+            return { a, b };
+        }
+
+        async function codexIn(taskId: string): Promise<string> {
+            return sessionLifecycle.createSession({ owner: { taskId }, type: "codex" });
+        }
+
+        const logPath = (ownerId: string, sessionId: string) =>
+            join(tempDir, "session-logs", `${ownerId}--${sessionId}.jsonl`);
+        const exists = (path: string) =>
+            stat(path).then(
+                () => true,
+                () => false,
+            );
+
+        it("moves a task session to another task with its log and cwd", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            const before = (await store.getTask(a.id))!.sessions[0];
+            ptyManager.emit(sessionId, "before\r\n");
+
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            ptyManager.emit(sessionId, "after\r\n");
+            await sessionLifecycle.drainSessionOutput();
+
+            expect((await store.getTask(a.id))?.sessions).toEqual([]);
+            expect((await store.getTask(b.id))?.sessions).toEqual([before]);
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe(
+                "before\r\nafter\r\n",
+            );
+            expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("");
+            expect(ptyManager.spawns).toHaveLength(1);
+        });
+
+        it("broadcasts both owners", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            events.length = 0;
+
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+
+            const updatedIds = events
+                .filter((event) => event.type === MSG.TASK_UPDATED)
+                .map((event) => (event.payload as { id: string }).id);
+            expect(updatedIds).toEqual([a.id, b.id]);
+        });
+
+        it("moves between project level, a task and master", async () => {
+            const task = await store.createTask({ projectId, title: "T", description: "" });
+            const sessionId = await sessionLifecycle.createSession({
+                owner: { projectId },
+                type: "claude",
+            });
+
+            await sessionLifecycle.moveSession(sessionId, { taskId: task.id });
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({
+                taskId: task.id,
+                projectId,
+            });
+
+            await sessionLifecycle.moveSession(sessionId, { master: true });
+            expect(store.getMasterSessions().map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(task.id))?.sessions).toEqual([]);
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({ master: true });
+
+            await sessionLifecycle.moveSession(sessionId, { projectId });
+            expect(store.getMasterSessions()).toEqual([]);
+            expect((await store.getProject(projectId))?.sessions.map((s) => s.id)).toEqual([
+                sessionId,
+            ]);
+        });
+
+        it("removes the session from its new owner when it exits after a move", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "output\r\n");
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+
+            ptyManager.close(sessionId);
+            await sessionLifecycle.drainSessionOutput();
+
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("");
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toBeNull();
+        });
+
+        it("serves history from the new owner even when the client names the old one", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "hello\r\n");
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+
+            expect(await router.handle(MSG.SESSION_HISTORY, { taskId: a.id, sessionId })).toEqual({
+                data: "hello\r\n",
+                lastSequence: 1,
+            });
+        });
+
+        it("frees the launch lock behind a blocked move and records the native id on the new owner", async () => {
+            let resolveDiscovery!: (id: string) => void;
+            const discovered = new Promise<string>((resolve) => {
+                resolveDiscovery = resolve;
+            });
+            let markReleased!: () => void;
+            const released = new Promise<void>((resolve) => {
+                markReleased = resolve;
+            });
+            const lifecycle = createSessionLifecycle({
+                ptyManager: ptyManager as never,
+                taskStore: store,
+                settingsStore,
+                broadcast: () => {},
+                getPort: () => 0,
+                detectedEditors: [],
+                trayStateTracker: new TrayStateTracker(),
+                nativeSessionDiscovery: {
+                    acquire: async () => async () => {
+                        markReleased();
+                    },
+                    capture: async () => new Set<string>(),
+                    discover: () => discovered,
+                },
+            });
+            const { a, b } = await twoTasks();
+            const sessionId = await lifecycle.createSession({
+                owner: { taskId: a.id },
+                type: "codex",
+            });
+            let openB!: () => void;
+            const bHeld = store.withOwnerLocks(
+                [`task:${b.id}`],
+                () =>
+                    new Promise<void>((resolve) => {
+                        openB = resolve;
+                    }),
+            );
+            // The move takes the session's queue, then blocks on B's owner lock.
+            const move = lifecycle.moveSession(sessionId, { taskId: b.id });
+
+            resolveDiscovery("native-1");
+            // Hangs (test timeout) if the launch lock waits for the session's queue.
+            await released;
+            openB();
+            await Promise.all([bHeld, move]);
+
+            await waitFor(
+                async () =>
+                    (await store.getTask(b.id))?.sessions[0]?.nativeSessionId === "native-1",
+            );
+        });
+
+        it("writes a moved session's last output to its new owner during shutdown", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            await sessionLifecycle.prepareForShutdown();
+
+            // The PTY flushes its last output, then exits, as closeAll does.
+            ptyManager.emit(sessionId, "last words\r\n");
+            ptyManager.close(sessionId);
+            await sessionLifecycle.drainSessionOutput();
+
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("last words\r\n");
+            expect(await exists(logPath(a.id, sessionId))).toBe(false);
+        });
+
+        it("refuses sessions and targets it cannot move", async () => {
+            const { a, b } = await twoTasks();
+            const shell = await sessionLifecycle.createSession({
+                owner: { taskId: a.id },
+                type: "shell",
+                shell: testShell,
+            });
+            const agent = await codexIn(a.id);
+
+            await expectRejects(
+                sessionLifecycle.moveSession(shell, { taskId: b.id }),
+                "Only agent sessions can be moved",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(agent, { taskId: a.id }),
+                "Session is already there",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(agent, { taskId: "missing" }),
+                "Task not found",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(agent, { projectId: "missing" }),
+                "Project not found",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(agent, { taskId: b.id, master: true }),
+                "Exactly one of taskId, projectId, or master is required",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession("nope", { taskId: b.id }),
+                "Session is not running",
+            );
+        });
+
+        it("refuses flow and remote agent sessions and archived targets", async () => {
+            const { a, b } = await twoTasks();
+            const flow = await sessionLifecycle.createSession({
+                owner: { taskId: a.id },
+                type: "codex",
+                flow: { flowId: "f1", actionEntryId: "e1" },
+            });
+            const remote = await sessionLifecycle.createSession({
+                owner: { master: true },
+                type: "claude",
+                remoteControl: true,
+            });
+            const agent = await codexIn(a.id);
+            await router.handle(MSG.TASK_ARCHIVE, { id: b.id });
+
+            await expectRejects(
+                sessionLifecycle.moveSession(flow, { projectId }),
+                "Flow sessions cannot be moved",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(remote, { projectId }),
+                "The remote agent session cannot be moved",
+            );
+            await expectRejects(
+                sessionLifecycle.moveSession(agent, { taskId: b.id }),
+                "Task not found",
+            );
+        });
+
+        it("keeps another instance's session refs on both owners", async () => {
+            const { a, b } = await twoTasks();
+            const foreign: SessionRef = {
+                id: "foreign",
+                type: "claude",
+                label: "Claude",
+                createdAt: new Date().toISOString(),
+                instance: "dev-other",
+                bootId: "other-boot",
+                state: "live",
+            };
+            await store.updateTask(a.id, { sessions: [foreign] });
+            await store.updateTask(b.id, { sessions: [{ ...foreign, id: "foreign-b" }] });
+            const sessionId = await codexIn(a.id);
+
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual(["foreign"]);
+            expect((await store.getTask(b.id))?.sessions.map((s) => s.id)).toEqual([
+                "foreign-b",
+                sessionId,
+            ]);
+        });
+
+        it("leaves the session where it was when the target cannot be written", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "kept\r\n");
+            await sessionLifecycle.drainSessionOutput();
+            spyOn(store, "updateTask").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expectRejects(
+                sessionLifecycle.moveSession(sessionId, { taskId: b.id }),
+                "disk full",
+            );
+
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+            expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("kept\r\n");
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({
+                taskId: a.id,
+                projectId,
+            });
+        });
+
+        it("undoes the target write when the source cannot be cleared", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            const realUpdate = store.updateTask.bind(store);
+            spyOn(store, "updateTask")
+                .mockImplementationOnce(realUpdate)
+                .mockImplementationOnce(() => Promise.reject(new Error("disk full")));
+
+            await expectRejects(
+                sessionLifecycle.moveSession(sessionId, { taskId: b.id }),
+                "disk full",
+            );
+
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(b.id))?.sessions).toEqual([]);
+        });
+
+        it("rolls back a move into Master whose write fails", async () => {
+            const { a } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "kept\r\n");
+            await sessionLifecycle.drainSessionOutput();
+            spyOn(store, "addMasterSession").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expectRejects(
+                sessionLifecycle.moveSession(sessionId, { master: true }),
+                "disk full",
+            );
+
+            expect(store.getMasterSessions()).toEqual([]);
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("kept\r\n");
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({
+                taskId: a.id,
+                projectId,
+            });
+        });
+
+        it("rolls back a move out of Master whose source removal fails", async () => {
+            const { a } = await twoTasks();
+            const sessionId = await sessionLifecycle.createSession({
+                owner: { master: true },
+                type: "codex",
+            });
+            spyOn(store, "removeMasterSession").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expectRejects(
+                sessionLifecycle.moveSession(sessionId, { taskId: a.id }),
+                "disk full",
+            );
+
+            expect(store.getMasterSessions().map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(a.id))?.sessions).toEqual([]);
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({ master: true });
+        });
+
+        it("finishes an in-flight move before shutdown marks sessions, then refuses moves", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${b.id}`], () => gate);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            let prepared = false;
+            const prepare = sessionLifecycle.prepareForShutdown().then(() => {
+                prepared = true;
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(prepared).toBe(false);
+            release();
+            await Promise.all([held, move, prepare]);
+
+            expect((await store.getTask(b.id))?.sessions[0]?.state).toBe("interrupted");
+            await expectRejects(
+                sessionLifecycle.moveSession(sessionId, { taskId: a.id }),
+                "Taskflow is shutting down",
+            );
+        });
     });
 });

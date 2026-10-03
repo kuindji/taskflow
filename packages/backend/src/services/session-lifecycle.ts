@@ -30,7 +30,7 @@ import {
 } from "./native-session-discovery";
 import { accountEnv, resolveAgentAccount, resumeAccountOverride } from "./agent-accounts";
 import { KeyedQueue } from "./keyed-queue";
-import { normalizeOwner, ownerIdOf } from "./session-owner";
+import { normalizeOwner, ownerIdOf, ownerKey, sameOwner } from "./session-owner";
 
 type SessionOwner = SessionOwnerRef;
 
@@ -198,6 +198,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         discover: discoverNativeSessionId,
     };
     let preservingSessionsForShutdown = false;
+    let acceptingMoves = true;
+    const movesInFlight = new Set<Promise<SessionOwner>>();
     let recoveredSessionExitHandler:
         | ((session: SessionRef, owner: SessionOwner, exitCode: number) => void)
         | undefined;
@@ -854,6 +856,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
     }
 
     async function prepareForShutdown(): Promise<void> {
+        // A move still writing refs would otherwise land a "live" ref in an
+        // owner the interrupted-marking pass has already visited.
+        acceptingMoves = false;
+        await Promise.allSettled([...movesInFlight]);
         preservingSessionsForShutdown = true;
         await taskStore.markBootSessionsInterrupted(config.instanceId, config.bootId);
     }
@@ -902,6 +908,134 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         ptyManager.close(sessionId);
     }
 
+    async function findOwnedSessionRef(
+        owner: SessionOwner,
+        sessionId: string,
+    ): Promise<SessionRef | undefined> {
+        const match = (session: SessionRef) => session.id === sessionId;
+        if (owner.master) return taskStore.getMasterSessions().find(match);
+        if (owner.taskId) return (await taskStore.getTask(owner.taskId))?.sessions.find(match);
+        if (owner.projectId) {
+            return (await taskStore.getProject(owner.projectId))?.sessions.find(match);
+        }
+        return undefined;
+    }
+
+    async function addOwnedSessionRef(owner: SessionOwner, ref: SessionRef): Promise<void> {
+        const append = (sessions: SessionRef[]) => [
+            ...sessions.filter((session) => session.id !== ref.id),
+            ref,
+        ];
+        if (owner.master) {
+            // Master is never the source here (sameOwner was checked), so it can't list the ref.
+            await taskStore.addMasterSession(ref);
+        } else if (owner.taskId) {
+            await taskStore.updateTask(owner.taskId, (task) => ({
+                sessions: append(task.sessions),
+            }));
+        } else if (owner.projectId) {
+            await taskStore.updateProject(owner.projectId, (project) => ({
+                sessions: append(project.sessions),
+            }));
+        }
+    }
+
+    async function removeOwnedSessionRef(owner: SessionOwner, sessionId: string): Promise<void> {
+        const without = (sessions: SessionRef[]) =>
+            sessions.filter((session) => session.id !== sessionId);
+        if (owner.master) {
+            await taskStore.removeMasterSession(sessionId);
+        } else if (owner.taskId) {
+            await taskStore.updateTask(owner.taskId, (task) => ({
+                sessions: without(task.sessions),
+            }));
+        } else if (owner.projectId) {
+            await taskStore.updateProject(owner.projectId, (project) => ({
+                sessions: without(project.sessions),
+            }));
+        }
+    }
+
+    async function assertOwnerExists(owner: SessionOwner): Promise<void> {
+        if (owner.taskId && !(await taskStore.getTask(owner.taskId))) {
+            throw new Error("Task not found");
+        }
+        if (owner.projectId && !(await taskStore.getProject(owner.projectId))) {
+            throw new Error("Project not found");
+        }
+    }
+
+    /** Best-effort undo of a step a failed move already made. */
+    async function undoMoveStep(step: () => Promise<void>): Promise<void> {
+        await step().catch((error: unknown) => {
+            console.error("[session] Failed to roll back a session move:", error);
+        });
+    }
+
+    /** Runs on the session's queue: no output, history read, exit or discovery interleaves. */
+    async function moveQueued(sessionId: string, destination: SessionOwner): Promise<SessionOwner> {
+        const source = currentOwnerOf(sessionId);
+        if (!source || !ptyManager.has(sessionId)) throw new Error("Session is not running");
+        return taskStore.withOwnerLocks([ownerKey(source), ownerKey(destination)], async () => {
+            const ref = await findOwnedSessionRef(source, sessionId);
+            if (!ref) throw new Error("Session is not running");
+            if (!isAgentType(ref.type)) throw new Error("Only agent sessions can be moved");
+            if (ref.flow) throw new Error("Flow sessions cannot be moved");
+            if (ref.remoteControl) throw new Error("The remote agent session cannot be moved");
+            if (ref.instance !== config.instanceId) {
+                throw new Error("Session belongs to another instance");
+            }
+            await assertOwnerExists(destination);
+            if (sameOwner(source, destination)) throw new Error("Session is already there");
+
+            // Order matters for boot repair (TaskStore.repairMovedSessions):
+            // log first, then target, then source.
+            const fromId = ownerIdOf(source);
+            const toId = ownerIdOf(destination);
+            await taskStore.moveSessionHistory(fromId, toId, sessionId);
+            try {
+                await addOwnedSessionRef(destination, ref);
+                try {
+                    await removeOwnedSessionRef(source, sessionId);
+                } catch (error) {
+                    await undoMoveStep(() => removeOwnedSessionRef(destination, sessionId));
+                    throw error;
+                }
+            } catch (error) {
+                await undoMoveStep(() => taskStore.moveSessionHistory(toId, fromId, sessionId));
+                throw error;
+            }
+            owners.set(sessionId, destination);
+            return source;
+        });
+    }
+
+    /**
+     * Re-home a live agent session: its ref, its output log and the owner the
+     * lifecycle reads. The process and its cwd are untouched.
+     */
+    async function moveSession(sessionId: string, target: SessionOwner): Promise<void> {
+        if (!acceptingMoves) throw new Error("Taskflow is shutting down");
+        const destination = normalizeOwner(target);
+        const move = sessionQueue.run(sessionId, () => moveQueued(sessionId, destination));
+        movesInFlight.add(move);
+        try {
+            const source = await move;
+            await broadcastOwner(source);
+            await broadcastOwner(destination);
+        } finally {
+            movesInFlight.delete(move);
+        }
+    }
+
+    async function getSessionOwner(sessionId: string): Promise<SessionOwner | null> {
+        const owner = currentOwnerOf(sessionId);
+        if (!owner) return null;
+        if (!owner.taskId) return { ...owner };
+        const task = await taskStore.getTask(owner.taskId);
+        return task ? { taskId: task.id, projectId: task.projectId } : { taskId: owner.taskId };
+    }
+
     return {
         createSession,
         removeSessionFromOwner,
@@ -909,6 +1043,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         readSessionHistory,
         drainSessionOutput,
         closeClientSession,
+        moveSession,
+        getSessionOwner,
         prepareForShutdown,
         setRecoveredSessionExitHandler,
         setRecoveredSessionResumeHandler,
