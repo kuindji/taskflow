@@ -316,3 +316,7 @@ The plan review (gpt-6.1-sol, each finding verified against the code) changed th
 - **Bare filename links** pass the session's owner too. Before this, a CLI editor never opened a bare filename (`a.ts`), in any workspace.
 - **Failed editor creates:** `createSession` releases its `pendingSessionCreates` mark in `finally`. A failed create aimed at a pane used to leave the mark set, and syncs then stopped giving that owner's new sessions a tab, including sessions moved into it.
 - **Markdown links:** `MarkdownPaneImpl` passes its own pane key, so a CLI editor opened from a right-pane Markdown link opens in the right pane too.
+
+### Round 5 (2026-10-03)
+
+- No design change. The one finding was a test command in the plan.

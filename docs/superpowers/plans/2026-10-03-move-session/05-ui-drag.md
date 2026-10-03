@@ -359,10 +359,10 @@ export type { SessionDropTarget };
 
 ```bash
 bun test packages/ui/src/lib/session-drop.test.ts packages/ui/src/stores
-for f in packages/ui/src/components/panes/terminal/*.test.ts; do bun test "$f" || echo "FAILED: $f"; done
+bun test packages/ui/src/lib/terminal-wrapped-links.test.ts
 ```
 
-Expected: PASS.
+Expected: PASS. `components/panes/terminal/` has no test files until Section 6, so don't glob it (zsh fails with `no matches found`). No test covers `terminal-lifecycle.ts`; the section's typecheck covers the `findSessionTab` swap.
 
 - [ ] **Step 5: Commit**
 
