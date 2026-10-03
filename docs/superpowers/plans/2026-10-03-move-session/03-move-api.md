@@ -6,9 +6,11 @@ Read first: the plan index, `handoff.md`, and the spec sections "`moveSession`",
 
 1. the session's queue (`sessionQueue`, Section 2);
 2. the owner locks (`taskStore.withOwnerLocks`, Section 1);
-3. the store's own file locks.
+3. FlowRunner's per-owner lock (archive and delete call `failFlowByIds` under the owner locks);
+4. the native launch lock (a flow launch takes it under FlowRunner's lock);
+5. the store's own file locks.
 
-Archive, delete and project removal take owner locks and never wait on a session queue. Closing a PTY only *queues* that session's exit cleanup.
+Archive, delete and project removal take owner locks and never wait on a session queue. Closing a PTY only *queues* that session's exit cleanup. Native discovery releases the launch lock before it queues on the session (Section 2), so nothing holds lock 4 while waiting on lock 1.
 
 ### Task 5: `moveSession` and `getSessionOwner`
 
@@ -30,7 +32,7 @@ Archive, delete and project removal take owner locks and never wait on a session
 
 - [ ] **Step 1: Write the failing tests**
 
-Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@taskflow/shared";` if missing. Inside `describe("session handlers")`:
+Add `spyOn` and `mock` to the `bun:test` import, `stat` from `fs/promises`, `join` from `path`, and `import type { SessionRef } from "@taskflow/shared";`, each if missing. `tempDir` is the file's data dir, and the store's `sessionLogsDir` is `join(tempDir, "session-logs")`. Inside `describe("session handlers")`:
 
 ```ts
     describe("session move", () => {
@@ -42,6 +44,30 @@ Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@task
 
         async function codexIn(taskId: string): Promise<string> {
             return sessionLifecycle.createSession({ owner: { taskId }, type: "codex" });
+        }
+
+        const logPath = (ownerId: string, sessionId: string) =>
+            join(tempDir, "session-logs", `${ownerId}--${sessionId}.jsonl`);
+        const exists = (path: string) =>
+            stat(path).then(
+                () => true,
+                () => false,
+            );
+
+        /**
+         * Resolves once a withOwnerLocks call covering every key in `keys` has
+         * been made. withOwnerLocks reserves its keys synchronously (Section 1),
+         * so by then that caller is ahead of any later one on those keys.
+         */
+        function lockRequested(keys: string[]): Promise<void> {
+            const realLocks = store.withOwnerLocks.bind(store);
+            return new Promise((resolve) => {
+                spyOn(store, "withOwnerLocks").mockImplementation((requested, work) => {
+                    const result = realLocks(requested, work);
+                    if (keys.every((key) => requested.includes(key))) resolve();
+                    return result;
+                });
+            });
         }
 
         it("moves a task session to another task with its log and cwd", async () => {
@@ -126,10 +152,14 @@ Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@task
             ).toEqual({ data: "hello\r\n", lastSequence: 1 });
         });
 
-        it("records a late native session id on the new owner", async () => {
+        it("frees the launch lock behind a blocked move and records the native id on the new owner", async () => {
             let resolveDiscovery!: (id: string) => void;
             const discovered = new Promise<string>((resolve) => {
                 resolveDiscovery = resolve;
+            });
+            let markReleased!: () => void;
+            const released = new Promise<void>((resolve) => {
+                markReleased = resolve;
             });
             const lifecycle = createSessionLifecycle({
                 ptyManager: ptyManager as never,
@@ -140,7 +170,9 @@ Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@task
                 detectedEditors: [],
                 trayStateTracker: new TrayStateTracker(),
                 nativeSessionDiscovery: {
-                    acquire: async () => async () => {},
+                    acquire: async () => async () => {
+                        markReleased();
+                    },
                     capture: async () => new Set<string>(),
                     discover: () => discovered,
                 },
@@ -150,12 +182,41 @@ Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@task
                 owner: { taskId: a.id },
                 type: "codex",
             });
+            let openB!: () => void;
+            const bHeld = store.withOwnerLocks(
+                [`task:${b.id}`],
+                () =>
+                    new Promise<void>((resolve) => {
+                        openB = resolve;
+                    }),
+            );
+            // The move takes the session's queue, then blocks on B's owner lock.
+            const move = lifecycle.moveSession(sessionId, { taskId: b.id });
 
-            await lifecycle.moveSession(sessionId, { taskId: b.id });
             resolveDiscovery("native-1");
-            await lifecycle.drainSessionOutput();
+            // Hangs (test timeout) if the launch lock waits for the session's queue.
+            await released;
+            openB();
+            await Promise.all([bHeld, move]);
 
-            expect((await store.getTask(b.id))?.sessions[0]?.nativeSessionId).toBe("native-1");
+            await waitFor(
+                async () => (await store.getTask(b.id))?.sessions[0]?.nativeSessionId === "native-1",
+            );
+        });
+
+        it("writes a moved session's last output to its new owner during shutdown", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            await sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            await sessionLifecycle.prepareForShutdown();
+
+            // The PTY flushes its last output, then exits, as closeAll does.
+            ptyManager.emit(sessionId, "last words\r\n");
+            ptyManager.close(sessionId);
+            await sessionLifecycle.drainSessionOutput();
+
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("last words\r\n");
+            expect(await exists(logPath(a.id, sessionId))).toBe(false);
         });
 
         it("refuses sessions and targets it cannot move", async () => {
@@ -275,6 +336,47 @@ Add `spyOn` to the `bun:test` import and `import type { SessionRef } from "@task
             expect((await store.getTask(b.id))?.sessions).toEqual([]);
         });
 
+        it("rolls back a move into Master whose write fails", async () => {
+            const { a } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "kept\r\n");
+            await sessionLifecycle.drainSessionOutput();
+            spyOn(store, "addMasterSession").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expect(sessionLifecycle.moveSession(sessionId, { master: true })).rejects.toThrow(
+                "disk full",
+            );
+
+            expect(store.getMasterSessions()).toEqual([]);
+            expect((await store.getTask(a.id))?.sessions.map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getSessionHistory(a.id, sessionId)).data).toBe("kept\r\n");
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({
+                taskId: a.id,
+                projectId,
+            });
+        });
+
+        it("rolls back a move out of Master whose source removal fails", async () => {
+            const { a } = await twoTasks();
+            const sessionId = await sessionLifecycle.createSession({
+                owner: { master: true },
+                type: "codex",
+            });
+            spyOn(store, "removeMasterSession").mockImplementationOnce(() =>
+                Promise.reject(new Error("disk full")),
+            );
+
+            await expect(sessionLifecycle.moveSession(sessionId, { taskId: a.id })).rejects.toThrow(
+                "disk full",
+            );
+
+            expect(store.getMasterSessions().map((s) => s.id)).toEqual([sessionId]);
+            expect((await store.getTask(a.id))?.sessions).toEqual([]);
+            expect(await sessionLifecycle.getSessionOwner(sessionId)).toEqual({ master: true });
+        });
+
         it("finishes an in-flight move before shutdown marks sessions, then refuses moves", async () => {
             const { a, b } = await twoTasks();
             const sessionId = await codexIn(a.id);
@@ -359,7 +461,7 @@ Add before `return {`:
             ref,
         ];
         if (owner.master) {
-            await taskStore.removeMasterSession(ref.id);
+            // Master is never the source here (sameOwner was checked), so it can't list the ref.
             await taskStore.addMasterSession(ref);
         } else if (owner.taskId) {
             await taskStore.updateTask(owner.taskId, (task) => ({ sessions: append(task.sessions) }));
@@ -467,7 +569,9 @@ Add before `return {`:
 
 Add `moveSession` and `getSessionOwner` to the returned object.
 
-The mutation calls in `moveQueued` must use `taskStore.updateTask` (not a cached reference), so the spies in the rollback tests take effect.
+The mutation calls in `moveQueued` must use `taskStore.updateTask`, `taskStore.addMasterSession` and `taskStore.removeMasterSession` (not cached references), so the spies in the rollback tests take effect. For a Master target, `addOwnedSessionRef` must call `addMasterSession` before anything else can fail; the "into Master" test rejects that call.
+
+**When an undo fails.** `undoMoveStep` logs and carries on, and the move rethrows the original error. That needs two write failures in a row. The worst outcome is a ref listed by both owners, or the pre-move transcript left under the target's log name. Boot repair (Section 1) fixes the first. The second loses that transcript from history replay. The process and the ref are unaffected. This is accepted; don't add more recovery.
 
 - [ ] **Step 4: Run the tests**
 
@@ -511,9 +615,10 @@ Inside `describe("session move")`:
                 release = resolve;
             });
             const held = store.withOwnerLocks([`task:${b.id}`], () => gate);
+            const moveQueued = lockRequested([`task:${a.id}`, `task:${b.id}`]);
             const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
-            // Let the move queue on B's lock before the archive asks for it.
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            // The move holds its place on B's lock before the archive asks for it.
+            await moveQueued;
             const archive = router.handle(MSG.TASK_ARCHIVE, { id: b.id });
 
             release();
@@ -532,8 +637,9 @@ Inside `describe("session move")`:
                 release = resolve;
             });
             const held = store.withOwnerLocks([`task:${a.id}`], () => gate);
+            const moveQueued = lockRequested([`task:${a.id}`, `task:${b.id}`]);
             const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await moveQueued;
             const remove = router.handle(MSG.TASK_DELETE, { id: a.id });
 
             release();
@@ -545,7 +651,7 @@ Inside `describe("session move")`:
         });
 ```
 
-The first test passes only when the archive waits for the move (lock queued second), then reads B fresh and finds the moved session. The second passes only when the delete waits until the session has left A.
+The first test passes only when the archive waits for the move (lock queued second), then reads B fresh and finds the moved session. The second passes only when the delete waits until the session has left A. `lockRequested` replaces sleeps: it resolves when the move's `withOwnerLocks` call has reserved both keys, so the archive or delete is queued behind it. If TypeScript can't type the `mockImplementation` arrow against the generic `withOwnerLocks`, give it explicit generics (`<T,>(requested: string[], work: () => Promise<T>): Promise<T> => …`). Don't cast.
 
 - [ ] **Step 2: Run them to verify they fail**
 

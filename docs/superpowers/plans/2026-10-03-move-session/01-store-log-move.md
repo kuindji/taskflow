@@ -225,15 +225,15 @@ git commit -m "feat(backend): owner helpers and keyed queue for session moves"
 **Files:**
 - Modify: `packages/backend/src/services/task-store.ts`:
   - add `rename` to the `fs/promises` import (line 17);
-  - import `KeyedQueue`;
-  - add a private `ownerLocks` field next to `sessionLogSizes` (around line 709);
-  - add `moveSessionHistory` and `withOwnerLocks` after `deleteSessionHistory` (around line 793).
+  - add a private `ownerLockTails` field next to `sessionLogSizes` (around line 709);
+  - add `moveSessionHistory` and `withOwnerLocks` after `deleteSessionHistory` (around line 793);
+  - make the three Master mutations (`addMasterSession`, `removeMasterSession`, `updateMasterSession`, lines 238-263) replace the cache only after the write succeeds.
 - Test: `packages/backend/tests/services/task-store.test.ts`. Add `stat` to its `fs/promises` import.
 
 **Interfaces:**
 - Produces:
   - `TaskStore.moveSessionHistory(fromOwnerId: string, toOwnerId: string, sessionId: string): Promise<void>`
-  - `TaskStore.withOwnerLocks<T>(keys: string[], work: () => Promise<T>): Promise<T>`. `keys` come from `ownerKey()`. The method is not reentrant, and `work` must never wait on a session's queue (Section 2).
+  - `TaskStore.withOwnerLocks<T>(keys: string[], work: () => Promise<T>): Promise<T>`. `keys` come from `ownerKey()`. It reserves every key synchronously, at call time, so calls are served in call order on each key. The method is not reentrant, and `work` must never wait on a session's queue (Section 2).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -323,10 +323,11 @@ Change line 17 to:
 import { appendFile, open, readFile, readdir, mkdir, realpath, rename, rm, stat } from "fs/promises";
 ```
 
-Add `import { KeyedQueue } from "./keyed-queue";`. Next to `sessionLogSizes`, add:
+Next to `sessionLogSizes`, add:
 
 ```ts
-    private readonly ownerLocks = new KeyedQueue();
+    // Owner lock tails: the promise each owner key's last holder resolves on release.
+    private readonly ownerLockTails = new Map<string, Promise<void>>();
 ```
 
 After `deleteSessionHistory`:
@@ -364,17 +365,79 @@ After `deleteSessionHistory`:
     /**
      * Serialize work that changes which sessions an owner holds: a session
      * move, and archiving, deleting or removing its source or target. Keys
-     * come from ownerKey() and are taken in sorted order. Not reentrant, and
-     * nothing run under it may wait on a session's queue.
+     * come from ownerKey(). Every key is reserved synchronously when this is
+     * called, so each key serves its callers in call order and two calls can
+     * never hold each other's keys (no deadlock). Not reentrant, and nothing
+     * run under it may wait on a session's queue.
      */
     async withOwnerLocks<T>(keys: string[], work: () => Promise<T>): Promise<T> {
-        const sorted = [...new Set(keys)].sort();
-        const acquire = (index: number): Promise<T> =>
-            index === sorted.length
-                ? work()
-                : this.ownerLocks.run(sorted[index], () => acquire(index + 1));
-        return acquire(0);
+        const unique = [...new Set(keys)];
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const previous = unique.map((key) => {
+            const tail = this.ownerLockTails.get(key) ?? Promise.resolve();
+            this.ownerLockTails.set(key, held);
+            return tail;
+        });
+        try {
+            await Promise.all(previous);
+            return await work();
+        } finally {
+            release();
+            for (const key of unique) {
+                if (this.ownerLockTails.get(key) === held) this.ownerLockTails.delete(key);
+            }
+        }
     }
+```
+
+Why not nest `KeyedQueue.run` per key: a nested acquisition reserves its second key only after it holds the first, so a later caller on the second key can overtake it. The order then depends on timing, and the "serializes work on a shared key" test fails.
+
+Master mutations. `withMasterSessionsMutation` reloads `this.masterSessions` from disk, but the three mutations change the cache before they write it. If the write fails, the cache keeps a ref that isn't on disk (or loses one that is), and `getMasterSessions()` serves it to broadcasts and to the move's checks until the next mutation reloads. Build the next list, write it, then assign:
+
+```ts
+    async addMasterSession(session: SessionRef): Promise<void> {
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions([...this.masterSessions, session]),
+        );
+    }
+
+    async removeMasterSession(sessionId: string): Promise<void> {
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions(this.masterSessions.filter((s) => s.id !== sessionId)),
+        );
+    }
+
+    async updateMasterSession(sessionId: string, updates: Partial<SessionRef>): Promise<void> {
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions(
+                this.masterSessions.map((s) => (s.id === sessionId ? { ...s, ...updates } : s)),
+            ),
+        );
+    }
+```
+
+and replace `persistMasterSessions` with:
+
+```ts
+    /** Write the list, then make it the cache, so a failed write leaves the cache as on disk. */
+    private async commitMasterSessions(next: SessionRef[]): Promise<void> {
+        await writeJsonAtomic(this.masterSessionsFile, next);
+        this.masterSessions = next;
+    }
+```
+
+The reconcile pass (`reconcileAllSessionLists`, around line 337) also calls `persistMasterSessions`. Convert it the same way:
+
+```ts
+            await this.withMasterSessionsMutation(async () => {
+                const latest = reconcile(this.masterSessions);
+                dropped = latest.dropped;
+                if (latest.changed) await this.commitMasterSessions(latest.sessions);
+            });
+``` There is no seam to make `writeJsonAtomic` fail inside the store, so this change has no failure test of its own; the existing master-session tests guard it, and Section 3's Master rollback tests cover the move side.
 ```
 
 - [ ] **Step 4: Run the tests, then commit**

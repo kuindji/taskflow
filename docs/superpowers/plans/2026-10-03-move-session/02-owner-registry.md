@@ -8,7 +8,8 @@ Read first: the plan index, `handoff.md`, and the spec sections "Current owner r
 - history reads;
 - moves (Section 3);
 - exit cleanup;
-- native-id discovery.
+- native-id discovery;
+- the owner removal a client's `SESSION_CLOSE` does before it kills the PTY.
 
 History reads have to join the queue too. Otherwise a read issued right after output would overtake the append that output is waiting on: `tests/handlers/session.test.ts` "returns session history while session is active" emits output and reads it immediately.
 
@@ -22,7 +23,7 @@ History reads have to join the queue too. Otherwise a read issued right after ou
   - registration after the `SessionRef` write (around line 668);
   - the native discovery `.then` (lines 688-715);
   - the returned object (line 820).
-- Modify: `packages/backend/src/handlers/session.ts`. `SESSION_HISTORY` (lines 120-127) reads through the lifecycle.
+- Modify: `packages/backend/src/handlers/session.ts`. `SESSION_HISTORY` (lines 120-127) reads through the lifecycle, and `SESSION_CLOSE` (lines 73-78) closes through it.
 - Modify: `packages/backend/src/index.ts`. `shutdown` (line 556) drains session output after closing the PTYs.
 - Test: `packages/backend/tests/handlers/session.test.ts`
 
@@ -37,6 +38,7 @@ History reads have to join the queue too. Otherwise a read issued right after ou
 - Produces on the lifecycle object:
   - `readSessionHistory(sessionId: string, fallbackOwnerId: string): Promise<{ data: string; lastSequence: number }>`. Uses the live owner if registered, and `fallbackOwnerId` otherwise.
   - `drainSessionOutput(): Promise<void>`
+  - `closeClientSession(sessionId: string): Promise<void>`. Removes the session from its current owner on the session's queue, then kills the PTY.
 - Unchanged behaviour:
   - internal sessions are never registered and use the owner captured at spawn;
   - a session is registered only after its `SessionRef` is persisted, so a move can't copy the ref of a session still being created or resumed;
@@ -195,7 +197,12 @@ import { normalizeOwner, ownerIdOf } from "./session-owner";
                 },
                 onExit: (exitCode) => {
                     if (preservingSessionsForShutdown) {
-                        owners.delete(sessionId);
+                        // The PTY flushed its last output just before this
+                        // callback, and those appends are still queued. They
+                        // must read the current owner, so deregister behind them.
+                        void sessionQueue.run(sessionId, async () => {
+                            owners.delete(sessionId);
+                        });
                         return;
                     }
                     // The owner may already have dropped this session (archive
@@ -238,10 +245,38 @@ The local `ownerId` is still used for `priorHistory` (resume). Keep it there onl
 
 The `ptyManager.has` guard stops a session that already exited (its cleanup ran on the queue with `spawnOwner`) from being registered after it died.
 
-6. Replace the native discovery `.then` body (lines 688-715):
+6. Native discovery (lines 678-722). The launch lock only has to cover identifying the native id. Release it as soon as `discover` returns, **before** waiting on the session's queue. Otherwise there is a lock cycle: a move holds this session's queue while it waits for an owner lock; an archive holds that owner lock while `failFlowByIds` waits for FlowRunner's owner lock; FlowRunner holds that while its launch waits for this native launch lock (`acquireNativeSessionLaunchLock` is per agent type, not per session). The lock's release removes a directory, so it must run only once, or it could remove a lock the next launch has taken.
+
+Wrap the release right after it is acquired (around line 511), and use the wrapper everywhere below, including the existing `catch` around `capture`:
 
 ```ts
+        const acquiredNativeLaunchLock = needsNativeDiscovery
+            ? await nativeSessionDiscovery.acquire(type, accountHomeDir)
+            : null;
+        let nativeLaunchLockReleased = false;
+        const releaseNativeLaunchLock = acquiredNativeLaunchLock
+            ? async () => {
+                  if (nativeLaunchLockReleased) return;
+                  nativeLaunchLockReleased = true;
+                  await acquiredNativeLaunchLock();
+              }
+            : null;
+```
+
+Then replace the discovery chain:
+
+```ts
+            void nativeSessionDiscovery
+                .discover(
+                    type,
+                    cwd,
+                    nativeSessionBaseline,
+                    nativeDiscoveryStartedAt,
+                    accountHomeDir,
+                )
                 .then(async (nativeSessionId) => {
+                    // Identified: free the launch lock before queueing behind a move.
+                    await releaseNativeLaunchLock();
                     if (!nativeSessionId) return;
                     await sessionQueue.run(sessionId, async () => {
                         if (!ptyManager.has(sessionId)) return;
@@ -250,7 +285,7 @@ The `ptyManager.has` guard stops a session that already exited (its cleanup ran 
                 })
 ```
 
-The `.catch` and `.finally` that follow stay unchanged.
+The `.catch` and `.finally(() => { void releaseNativeLaunchLock(); })` that follow stay as they are; the `finally` is now a no-op unless `discover` threw. Section 3's test "records a late native session id on the new owner" pins the early release with a barrier.
 
 7. Add these to the lifecycle object:
 
@@ -268,11 +303,25 @@ The `.catch` and `.finally` that follow stay unchanged.
     function drainSessionOutput(): Promise<void> {
         return sessionQueue.drain();
     }
+
+    /**
+     * A client closing a session: drop its ref from the owner it has now, on
+     * its queue so a move can't interleave, then kill the process. The exit
+     * cleanup that follows finds nothing left to remove but the log.
+     */
+    async function closeClientSession(sessionId: string): Promise<void> {
+        await sessionQueue.run(sessionId, () =>
+            removeSessionFromOwner(sessionId, currentOwnerOf(sessionId)),
+        );
+        ptyManager.close(sessionId);
+    }
 ```
 
-Return both from `createSessionLifecycle`.
+Return all three from `createSessionLifecycle`. `removeSessionFromOwner` falls back to scanning every owner when the owner is unknown (an interrupted ref, which is never registered), as today.
 
-`handlers/session.ts` `SESSION_HISTORY`: replace `return taskStore.getSessionHistory(ownerId, sessionId);` with `return sessionLifecycle.readSessionHistory(sessionId, ownerId);`.
+`handlers/session.ts`:
+- `SESSION_HISTORY`: replace `return taskStore.getSessionHistory(ownerId, sessionId);` with `return sessionLifecycle.readSessionHistory(sessionId, ownerId);`.
+- `SESSION_CLOSE`: replace the `removeSessionFromOwner` call and `ptyManager.close(sessionId)` with `await sessionLifecycle.closeClientSession(sessionId);`. The existing close tests (`tests/handlers/session.test.ts`, the two `SESSION_CLOSE` calls) must keep passing unchanged.
 
 `index.ts` `shutdown`: right after `ptyManager.closeAll();`, add:
 

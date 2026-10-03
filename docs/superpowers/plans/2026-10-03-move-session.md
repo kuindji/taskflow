@@ -42,7 +42,7 @@ Sections 4 and 5 are independent of each other.
 - `bun run format` rewrites the whole repo, so never run it. Use `bunx prettier --write <files>` on changed files only. `packages/tui` has pre-existing prettier drift; leave it alone.
 - `taskflow-cli` has two implementations. The POSIX script is what runs on macOS/Linux. Both must change identically.
 - A move must never change the session's `cwd`, PTY, `instance` or `bootId`.
-- Lock order, never reversed: the session queue, then the owner locks (`TaskStore.withOwnerLocks`), then the store's file locks. Archive, delete and project removal take owner locks and must never wait on a session queue.
+- Lock order, never reversed: the session queue, then the owner locks (`TaskStore.withOwnerLocks`), then FlowRunner's owner lock, then the native launch lock, then the store's file locks. Archive, delete and project removal take owner locks and must never wait on a session queue. Native discovery releases the launch lock before it queues on the session.
 - New tests must not use `mock.module`. Inject dependencies instead (it leaks across files).
 - Error messages (exact strings, shown to users):
   - `Session is not running`
@@ -74,3 +74,4 @@ Sections 4 and 5 are independent of each other.
 ## Plan review log
 
 - Round 1 (gpt-6.1-sol, 2026-10-03): 13 findings, all verified against the code and folded in. Covered: archive, delete and close races; rollback; crash repair; shutdown gating and drain; registration timing during resume; history reads overtaking queued output; DragOverlay hiding the sidebar; scroll-adjusted delta; invalid sidebar drops falling through; master tabs missing the flag; terminal links for master and cached terminals; `mock.module` leakage; TS CLI flag validation.
+- Round 2 (gpt-6.1-sol, 2026-10-03): 9 findings. Confirmed 7 (one downgraded to minor), rejected 2. See `reviews/round-2-triage.md`. Fixed: owner locks reserve keys atomically; Master cache commits after the write; native launch lock released before queueing (lock cycle); shutdown exit deregisters behind queued output; `SESSION_CLOSE` on the session queue; Master rollback tests; barrier-based race tests; terminal file links follow the session's workspace; the drop zone covers the whole sidebar.

@@ -292,3 +292,15 @@ The plan review (gpt-6.1-sol, each finding verified against the code) changed th
 - **UI hit-testing:** uses the real pointer position (a capturing `pointermove` listener), not dnd-kit's scroll-adjusted delta, and `document.elementsFromPoint`, so the drag overlay under the cursor doesn't hide the sidebar. A drop anywhere inside the sidebar is consumed (it moves on a valid target, otherwise does nothing). Only drops outside the sidebar reach the existing reorder and pane-move logic.
 - **UI refusals:** use the existing `alert()` dialog, titled "Couldn't move session". There is no toast system.
 - **Tabs:** they carry the session's `cwd`. Master tabs refresh through the shared `syncPaneTabs`. Terminal file links and in-app URL opening look the session's tab up when a link is used, so they follow the session after a move, including into Master.
+
+### Round 2 (2026-10-03)
+
+- **Owner locks** reserve all their keys at call time, so each key serves callers in call order. Nested per-key acquisition let a later caller overtake.
+- **Master store:** add, remove and update write the new list first and only then replace the cached list. A failed write no longer leaves the cache disagreeing with disk.
+- **Native discovery** releases the agent's launch lock as soon as the native id is identified, before it queues on the session. Holding it until the write finished made a lock cycle: move → archive → FlowRunner launch → discovery → move.
+- **Shutdown:** an exit during shutdown deregisters the session on its queue, behind the output the PTY flushed just before exiting. That output lands in the current owner's log.
+- **Client close:** `SESSION_CLOSE` removes the ref from the current owner on the session's queue, then kills the PTY.
+- **Lock order:** the session queue, then owner locks, then FlowRunner's owner lock, then the native launch lock, then file locks.
+- **Failed undo:** a move whose undo also fails logs it and rethrows the original error. Boot repair fixes a duplicate ref. A transcript left under the target's log name is lost from replay. This is accepted.
+- **UI:** the drop zone is the whole sidebar panel (`AppShell`'s `data-panel="sidebar"` wrapper), including both toolbars. Terminal file links resolve the workspace and owner of the session's current tab at click time, not the ones the terminal was mounted with.
+- **Not changed:** creates and resumes are not gated at shutdown. Boot reconcile marks a same-instance live ref from an earlier boot interrupted, so a late ref recovers the same way. Owner locks are per process. A cross-instance archive or delete already races with every live session, and each move step fails closed under the cross-process file locks.

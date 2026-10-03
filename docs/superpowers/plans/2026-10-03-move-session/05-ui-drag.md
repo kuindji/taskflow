@@ -379,7 +379,7 @@ git commit -m "feat(ui): mark movable session tabs and resolve sidebar drop targ
 - Create: `packages/ui/src/components/workspace/useSessionMoveDrag.test.ts`
 - Modify: `packages/ui/src/components/workspace/SplitContainer.tsx` (handlers lines 71-158, `DndContext` lines 188-200).
 - Modify: `packages/ui/src/components/workspace/TabBar.tsx` (the non-external `DndContext` branch, lines 143-166).
-- Modify: `packages/ui/src/components/sidebar/TaskSidebar.tsx`. Mark the scrolling list (`TaskDropZone`, line 441) as the drop zone.
+- Modify: `packages/ui/src/components/AppShell.tsx`. Mark the whole sidebar panel (`data-panel="sidebar"`, around line 196) as the drop zone.
 - Modify: `packages/ui/src/components/sidebar/TaskCard.tsx` (the `cardBody` root `div`, lines 255-274).
 - Modify: `packages/ui/src/components/sidebar/ProjectGroup.tsx` (the `projectHeader` root `div`, lines 257-269).
 
@@ -751,7 +751,7 @@ Give the non-external `DndContext` these props: `onDragStart={handleDragStart}`,
 
 Imports: `DragOverlay` and the `DragStartEvent` type from `@dnd-kit/core`; `useState`; `TabItemOverlay` from `./TabItem`.
 
-`TaskSidebar.tsx`: add `data-session-drop-zone=""` to the `TaskDropZone` at line 441. If `TaskDropZone` doesn't pass unknown props through to its root element, add a `...rest: HTMLAttributes<HTMLDivElement>` passthrough to it rather than wrapping it in another `div`. Its layout classes must keep applying to the scrolling element.
+`AppShell.tsx`: add `data-session-drop-zone=""` to the sidebar panel wrapper, the `div` with `data-panel="sidebar"` (around line 196) that renders `{sidebar}`. That wrapper covers the whole sidebar: the top toolbar, the scrolling task list and the bottom toolbar. Marking only the task list (`TaskDropZone`) would let a drop on either toolbar fall through to the tab reorder. Don't add a wrapper element; the attribute goes on the existing `div`.
 
 `TaskCard.tsx`: on the `cardBody` root `div` (the one with `role="button"`), add:
 
@@ -781,8 +781,8 @@ Expected: PASS. `bun test packages/ui` runs everything together, and the new tes
 ```bash
 bun run typecheck
 bunx eslint packages/ui/src
-bunx prettier --check packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace/useSessionMoveDrag.ts packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/components/workspace/SplitContainer.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/sidebar/TaskSidebar.tsx packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
-git add packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace packages/ui/src/components/sidebar
+bunx prettier --check packages/ui/src/stores/ui-store.ts packages/ui/src/components/workspace/useSessionMoveDrag.ts packages/ui/src/components/workspace/useSessionMoveDrag.test.ts packages/ui/src/components/workspace/SplitContainer.tsx packages/ui/src/components/workspace/TabBar.tsx packages/ui/src/components/AppShell.tsx packages/ui/src/components/sidebar/TaskCard.tsx packages/ui/src/components/sidebar/ProjectGroup.tsx
+git add packages/ui/src/stores/ui-store.ts packages/ui/src/components/AppShell.tsx packages/ui/src/components/workspace packages/ui/src/components/sidebar
 git commit -m "feat(ui): drag an agent tab onto a sidebar task or project to move it"
 ```
 
