@@ -3,6 +3,8 @@ set -e
 
 # Taskflow CLI — lightweight wrapper for the Taskflow internal API.
 # Environment: TASKFLOW_API_URL, TASKFLOW_TASK_ID, TASKFLOW_SESSION_ID, TASKFLOW_PROJECT_ID
+# When TASKFLOW_SESSION_ID is set, TASKFLOW_TASK_ID / TASKFLOW_PROJECT_ID are
+# replaced by the session's current owner, so a moved session acts on its new one.
 
 if [ -z "$TASKFLOW_API_URL" ]; then
   echo "Error: TASKFLOW_API_URL is not set" >&2
@@ -38,11 +40,35 @@ resolve_owner_id() {
   fi
 }
 
+# Unlike `curl -sf` used elsewhere in this script, this prints the API's
+# error body. Some writes fail for actionable reasons (duplicate attribute
+# name, an unmovable session) and an agent needs to read them.
+api_request() {
+  req_method="$1"
+  req_url="$2"
+  req_body="${3:-}"
+  if [ -n "$req_body" ]; then
+    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
+      -H "Content-Type: application/json" -d "$req_body") \
+      || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
+  else
+    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url") \
+      || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
+  fi
+  req_code=$(printf '%s' "$req_out" | tail -n1)
+  printf '%s' "$req_out" | sed '$d'
+  case "$req_code" in
+    2*) ;;
+    *) echo "Error: $req_method $req_url returned $req_code" >&2; exit 1 ;;
+  esac
+}
+
 # Parse global flags before the command
+owner_flag_given=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --task) TASKFLOW_TASK_ID="${2:-}"; shift 2 ;;
-    --project-id) TASKFLOW_PROJECT_ID="${2:-}"; shift 2 ;;
+    --task) TASKFLOW_TASK_ID="${2:-}"; owner_flag_given=1; shift 2 ;;
+    --project-id) TASKFLOW_PROJECT_ID="${2:-}"; owner_flag_given=1; shift 2 ;;
     *) break ;;
   esac
 done
@@ -55,6 +81,16 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# A moved session's env still names the owner it started in. Unless the
+# caller named one, ask the backend where this session lives now. Any
+# failure (headless sessions are unknown to it) keeps the env values.
+if [ -z "$owner_flag_given" ] && [ -n "$TASKFLOW_SESSION_ID" ]; then
+  if owner_json=$(curl -sf "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/owner" 2>/dev/null); then
+    TASKFLOW_TASK_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p')
+    TASKFLOW_PROJECT_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"projectId":"\([^"]*\)".*/\1/p')
+  fi
+fi
 
 cmd="${1:-}"
 shift 2>/dev/null || true
@@ -1319,8 +1355,34 @@ case "$cmd" in
         fi
         curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/tail?lines=$tail_lines"
         ;;
+      move)
+        move_body=""
+        move_count=0
+        move_session="$TASKFLOW_SESSION_ID"
+        move_usage="Usage: taskflow-cli session move --task <id> | --project <id> | --master [--session <id>]"
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --task|--project|--session)
+              if [ $# -lt 2 ]; then echo "$move_usage" >&2; exit 1; fi
+              case "$1" in
+                --task) move_body=$(printf '{"taskId":%s}' "$(json_string "$2")"); move_count=$((move_count + 1)) ;;
+                --project) move_body=$(printf '{"projectId":%s}' "$(json_string "$2")"); move_count=$((move_count + 1)) ;;
+                --session) move_session="$2" ;;
+              esac
+              shift 2
+              ;;
+            --master) move_body='{"master":true}'; move_count=$((move_count + 1)); shift ;;
+            *) echo "$move_usage" >&2; exit 1 ;;
+          esac
+        done
+        if [ "$move_count" -ne 1 ] || [ -z "$move_session" ]; then
+          echo "$move_usage" >&2
+          exit 1
+        fi
+        api_request POST "$TASKFLOW_API_URL/api/sessions/$move_session/move" "$move_body"
+        ;;
       *)
-        echo "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail>" >&2
+        echo "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail|move>" >&2
         exit 1
         ;;
     esac
@@ -1418,29 +1480,6 @@ case "$cmd" in
       fi
     }
 
-    # Unlike `curl -sf` used elsewhere in this script, this prints the API's
-    # error body. Attribute writes fail for actionable reasons (duplicate
-    # name, inherited attribute, empty name) and an agent needs to read them.
-    attr_request() {
-      attr_method="$1"
-      attr_url="$2"
-      attr_body="${3:-}"
-      if [ -n "$attr_body" ]; then
-        attr_out=$(curl -s -w '\n%{http_code}' -X "$attr_method" "$attr_url" \
-          -H "Content-Type: application/json" -d "$attr_body") \
-          || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
-      else
-        attr_out=$(curl -s -w '\n%{http_code}' -X "$attr_method" "$attr_url") \
-          || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
-      fi
-      attr_code=$(printf '%s' "$attr_out" | tail -n1)
-      printf '%s' "$attr_out" | sed '$d'
-      case "$attr_code" in
-        2*) ;;
-        *) echo "Error: $attr_method $attr_url returned $attr_code" >&2; exit 1 ;;
-      esac
-    }
-
     case "$subcmd" in
       list)
         attr_parse 0 0 "$@"
@@ -1453,7 +1492,7 @@ case "$cmd" in
         if [ -n "$attr_own" ]; then
           attr_query="?own=1"
         fi
-        attr_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes$attr_query"
+        api_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes$attr_query"
         ;;
       get)
         attr_parse 1 1 "$@"
@@ -1462,7 +1501,7 @@ case "$cmd" in
           exit 1
         fi
         attr_resolve_scope
-        attr_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
+        api_request GET "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
         ;;
       create)
         attr_parse 1 2 "$@"
@@ -1473,7 +1512,7 @@ case "$cmd" in
         attr_resolve_scope
         attr_payload=$(printf '{"name":%s,"value":%s}' \
           "$(json_string "$attr_pos1")" "$(json_string "$attr_pos2")")
-        attr_request POST "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes" "$attr_payload"
+        api_request POST "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes" "$attr_payload"
         ;;
       set|rename)
         attr_parse 2 2 "$@"
@@ -1491,7 +1530,7 @@ case "$cmd" in
         else
           attr_payload=$(printf '{"name":%s}' "$(json_string "$attr_pos2")")
         fi
-        attr_request PATCH "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1" "$attr_payload"
+        api_request PATCH "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1" "$attr_payload"
         ;;
       delete)
         attr_parse 1 1 "$@"
@@ -1500,7 +1539,7 @@ case "$cmd" in
           exit 1
         fi
         attr_resolve_scope
-        attr_request DELETE "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
+        api_request DELETE "$TASKFLOW_API_URL/api/$attr_collection/$attr_owner/attributes/$attr_pos1"
         ;;
       *)
         echo "Usage: taskflow-cli attr <list|get|create|set|rename|delete> [--task-id <id>] [--project-id <id>]" >&2

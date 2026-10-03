@@ -23,6 +23,7 @@ interface CapturedRequest {
 async function setupCliHarness(): Promise<{
     cliPath: string;
     captureFile: string;
+    ownerCaptureFile: string;
     env: NodeJS.ProcessEnv;
 }> {
     const tempDir = await mkdtemp(join(tmpdir(), "taskflow-cli-test-"));
@@ -31,6 +32,7 @@ async function setupCliHarness(): Promise<{
     const cliDir = join(tempDir, "cli");
     const fakeBinDir = join(tempDir, "fake-bin");
     const captureFile = join(tempDir, "curl-request.txt");
+    const ownerCaptureFile = join(tempDir, "owner-requests.txt");
 
     await ensureCliScript(cliDir);
     await mkdir(fakeBinDir, { recursive: true });
@@ -41,6 +43,7 @@ set -e
 method="GET"
 url=""
 data=""
+write_status=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -X)
@@ -54,7 +57,11 @@ while [ $# -gt 0 ]; do
     -H)
       shift 2
       ;;
-    -s|-f)
+    -w)
+      write_status=1
+      shift 2
+      ;;
+    -s|-f|-sf)
       shift
       ;;
     *)
@@ -63,12 +70,21 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+case "$url" in
+  */owner)
+    printf '%s\\n' "$url" >> "$OWNER_CAPTURE_FILE"
+    if [ -z "$OWNER_RESPONSE" ]; then exit 22; fi
+    printf '%s' "$OWNER_RESPONSE"
+    exit 0
+    ;;
+esac
 {
   printf 'METHOD=%s\\n' "$method"
   printf 'URL=%s\\n' "$url"
   printf 'DATA=%s\\n' "$data"
 } > "$CAPTURE_FILE"
 printf '%s' "$CURL_RESPONSE"
+if [ -n "$write_status" ]; then printf '\\n%s' "\${CURL_STATUS:-200}"; fi
 `,
         "utf8",
     );
@@ -77,10 +93,14 @@ printf '%s' "$CURL_RESPONSE"
     return {
         cliPath: join(cliDir, "taskflow-cli"),
         captureFile,
+        ownerCaptureFile,
         env: {
             ...process.env,
             PATH: `${fakeBinDir}${delimiter}${process.env.PATH ?? ""}`,
             CAPTURE_FILE: captureFile,
+            OWNER_CAPTURE_FILE: ownerCaptureFile,
+            OWNER_RESPONSE: "",
+            CURL_STATUS: "200",
             TASKFLOW_API_URL: "http://localhost:1234",
             CURL_RESPONSE: "{}",
             TASKFLOW_TASK_ID: "",
@@ -447,5 +467,144 @@ describe("taskflow-cli", () => {
             threw = true;
         }
         expect(threw).toBe(true);
+    });
+    it("acts on the session's current owner instead of the stale env task", async () => {
+        const { cliPath, captureFile, ownerCaptureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["task"], {
+            ...env,
+            TASKFLOW_TASK_ID: "old-task",
+            TASKFLOW_PROJECT_ID: "p1",
+            TASKFLOW_SESSION_ID: "s1",
+            OWNER_RESPONSE: '{"taskId":"new-task","projectId":"p1"}',
+        });
+
+        expect(result.status).toBe(0);
+        expect(await readFile(ownerCaptureFile, "utf8")).toBe(
+            "http://localhost:1234/api/sessions/s1/owner\n",
+        );
+        expect((await readCapturedRequest(captureFile)).url).toBe(
+            "http://localhost:1234/api/tasks/new-task",
+        );
+    });
+
+    it("drops the env task when the session moved to project level", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["log", "info", "hello"], {
+            ...env,
+            TASKFLOW_TASK_ID: "old-task",
+            TASKFLOW_PROJECT_ID: "p1",
+            TASKFLOW_SESSION_ID: "s1",
+            OWNER_RESPONSE: '{"projectId":"p2"}',
+        });
+
+        // `log` is task-only: with the stale task id dropped it must refuse
+        // rather than write to the task the session left.
+        expect(result.status).toBe(1);
+        expect(String(result.stderr)).toContain("TASKFLOW_TASK_ID is not set");
+    });
+
+    it("keeps the env owner when the lookup fails", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["task"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_SESSION_ID: "s1",
+        });
+
+        expect(result.status).toBe(0);
+        expect((await readCapturedRequest(captureFile)).url).toBe(
+            "http://localhost:1234/api/tasks/task-1",
+        );
+    });
+
+    it("skips the lookup when the caller names the task", async () => {
+        const { cliPath, captureFile, ownerCaptureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["--task", "explicit", "task"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+            OWNER_RESPONSE: '{"taskId":"other"}',
+        });
+
+        expect(result.status).toBe(0);
+        expect(
+            await stat(ownerCaptureFile).then(
+                () => true,
+                () => false,
+            ),
+        ).toBe(false);
+        expect((await readCapturedRequest(captureFile)).url).toBe(
+            "http://localhost:1234/api/tasks/explicit",
+        );
+    });
+
+    it("moves the caller's own session to a task, project or master", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const cases: Array<[string[], string]> = [
+            [["--task", "t2"], '{"taskId":"t2"}'],
+            [["--project", "p2"], '{"projectId":"p2"}'],
+            [["--master"], '{"master":true}'],
+        ];
+        for (const [flags, body] of cases) {
+            const result = runCli(cliPath, ["session", "move", ...flags], {
+                ...env,
+                TASKFLOW_SESSION_ID: "s1",
+                CURL_RESPONSE: '{"success":true}',
+            });
+            expect(result.status).toBe(0);
+            expect(await readCapturedRequest(captureFile)).toEqual({
+                method: "POST",
+                url: "http://localhost:1234/api/sessions/s1/move",
+                data: body,
+            });
+        }
+    });
+
+    it("moves another session with --session", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["session", "move", "--task", "t2", "--session", "s9"], {
+            ...env,
+            CURL_RESPONSE: '{"success":true}',
+        });
+
+        expect(result.status).toBe(0);
+        expect((await readCapturedRequest(captureFile)).url).toBe(
+            "http://localhost:1234/api/sessions/s9/move",
+        );
+    });
+
+    it("rejects zero or several move targets", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const none = runCli(cliPath, ["session", "move"], { ...env, TASKFLOW_SESSION_ID: "s1" });
+        const two = runCli(cliPath, ["session", "move", "--task", "t", "--master"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+        });
+        const repeated = runCli(cliPath, ["session", "move", "--task", "t", "--task", "u"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+        });
+        const stray = runCli(cliPath, ["session", "move", "t2"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+        });
+
+        expect(none.status).toBe(1);
+        expect(two.status).toBe(1);
+        expect(repeated.status).toBe(1);
+        expect(stray.status).toBe(1);
+        expect(String(two.stderr)).toContain("Usage: taskflow-cli session move");
+    });
+
+    it("prints the backend's refusal and exits non-zero", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["session", "move", "--task", "t2"], {
+            ...env,
+            TASKFLOW_SESSION_ID: "s1",
+            CURL_RESPONSE: '{"error":"Flow sessions cannot be moved"}',
+            CURL_STATUS: "400",
+        });
+
+        expect(result.status).toBe(1);
+        expect(String(result.stdout)).toContain("Flow sessions cannot be moved");
     });
 });
