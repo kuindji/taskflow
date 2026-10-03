@@ -3,6 +3,7 @@ import type {
     AgentLaunchOptions,
     AgentType,
     AppSettings,
+    SessionOwnerRef,
     SessionRef,
     WsEvent,
 } from "@taskflow/shared";
@@ -28,12 +29,10 @@ import {
     discoverNativeSessionId,
 } from "./native-session-discovery";
 import { accountEnv, resolveAgentAccount, resumeAccountOverride } from "./agent-accounts";
+import { KeyedQueue } from "./keyed-queue";
+import { normalizeOwner, ownerIdOf } from "./session-owner";
 
-interface SessionOwner {
-    taskId?: string;
-    projectId?: string;
-    master?: boolean;
-}
+type SessionOwner = SessionOwnerRef;
 
 interface CreateSessionOpts {
     owner: SessionOwner;
@@ -225,6 +224,52 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 payload: filterProjectSessions(updated, config.instanceId),
             });
         }
+    }
+
+    // The current owner of every registered live session, and one queue per
+    // session that output, history reads, moves, exit cleanup and native-id
+    // discovery all go through, reading the owner when they run.
+    const owners = new Map<string, SessionOwner>();
+    const sessionQueue = new KeyedQueue();
+
+    function currentOwnerOf(sessionId: string): SessionOwner | undefined {
+        return owners.get(sessionId);
+    }
+
+    async function broadcastOwner(owner: SessionOwner): Promise<void> {
+        if (owner.master) {
+            broadcast({
+                type: MSG.MASTER_SESSIONS_LIST,
+                payload: { sessions: taskStore.getMasterSessions() },
+            });
+        } else if (owner.taskId) {
+            await broadcastTaskUpdate(owner.taskId);
+        } else if (owner.projectId) {
+            await broadcastProjectUpdate(owner.projectId);
+        }
+    }
+
+    async function patchOwnedSessionRef(
+        owner: SessionOwner,
+        sessionId: string,
+        patch: Partial<SessionRef>,
+    ): Promise<void> {
+        const apply = (sessions: SessionRef[]) =>
+            sessions.map((session) =>
+                session.id === sessionId ? { ...session, ...patch } : session,
+            );
+        if (owner.master) {
+            await taskStore.updateMasterSession(sessionId, patch);
+        } else if (owner.taskId) {
+            await taskStore.updateTask(owner.taskId, (task) => ({
+                sessions: apply(task.sessions),
+            }));
+        } else if (owner.projectId) {
+            await taskStore.updateProject(owner.projectId, (project) => ({
+                sessions: apply(project.sessions),
+            }));
+        }
+        await broadcastOwner(owner);
     }
 
     async function removeSessionFromOwner(sessionId: string, owner?: SessionOwner): Promise<void> {
@@ -508,8 +553,16 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         let appendErrorLogged = false;
         const needsNativeDiscovery = !opts.resumeSession && isAgentType(type) && type !== "claude";
-        const releaseNativeLaunchLock = needsNativeDiscovery
+        const acquiredNativeLaunchLock = needsNativeDiscovery
             ? await nativeSessionDiscovery.acquire(type, accountHomeDir)
+            : null;
+        let nativeLaunchLockReleased = false;
+        const releaseNativeLaunchLock = acquiredNativeLaunchLock
+            ? async () => {
+                  if (nativeLaunchLockReleased) return;
+                  nativeLaunchLockReleased = true;
+                  await acquiredNativeLaunchLock();
+              }
             : null;
         let nativeSessionBaseline = new Set<string>();
         try {
@@ -525,6 +578,14 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             throw error;
         }
         const nativeDiscoveryStartedAt = Date.now();
+        const spawnOwner: SessionOwner = normalizeOwner(
+            master
+                ? { master: true }
+                : task
+                  ? { taskId: task.id }
+                  : { projectId: resolvedProjectId },
+        );
+        const ownerNow = (): SessionOwner => owners.get(sessionId) ?? spawnOwner;
 
         try {
             ptyManager.spawn({
@@ -541,8 +602,15 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 cols,
                 rows,
                 onData: (data, sequence) => {
-                    void taskStore
-                        .appendSessionOutput(ownerId, sessionId, sequence, data)
+                    void sessionQueue
+                        .run(sessionId, () =>
+                            taskStore.appendSessionOutput(
+                                ownerIdOf(ownerNow()),
+                                sessionId,
+                                sequence,
+                                data,
+                            ),
+                        )
                         .catch((err: unknown) => {
                             if (!appendErrorLogged) {
                                 appendErrorLogged = true;
@@ -563,24 +631,26 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     );
                 },
                 onExit: (exitCode) => {
-                    if (preservingSessionsForShutdown) return;
+                    if (preservingSessionsForShutdown) {
+                        // The PTY flushed its last output just before this
+                        // callback, and those appends are still queued. They
+                        // must read the current owner, so deregister behind them.
+                        void sessionQueue.run(sessionId, async () => {
+                            owners.delete(sessionId);
+                        });
+                        return;
+                    }
                     // The owner may already have dropped this session (archive
                     // clears the list before closing PTYs; internal sessions are
                     // never registered), so removeSessionFromOwner alone would
                     // leave the log behind. Delete it by the owner id we know.
-                    const removal = opts.internal
-                        ? Promise.resolve()
-                        : removeSessionFromOwner(
-                              sessionId,
-                              master
-                                  ? { master: true }
-                                  : {
-                                        taskId: task?.id,
-                                        projectId: resolvedProjectId,
-                                    },
-                          );
-                    void removal
-                        .then(() => taskStore.deleteSessionHistory(ownerId, sessionId))
+                    void sessionQueue
+                        .run(sessionId, async () => {
+                            const owner = ownerNow();
+                            owners.delete(sessionId);
+                            if (!opts.internal) await removeSessionFromOwner(sessionId, owner);
+                            await taskStore.deleteSessionHistory(ownerIdOf(owner), sessionId);
+                        })
                         .catch((err: unknown) => {
                             console.error(
                                 `[session] Failed to clean up exited session ${sessionId}:`,
@@ -674,6 +744,10 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     payload: { sessionId, status: "initializing" },
                 });
             }
+
+            // Registered only once the ref is persisted: a move must never copy
+            // the ref of a session that is still being created or resumed.
+            if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
         }
 
         if (needsNativeDiscovery && releaseNativeLaunchLock) {
@@ -686,32 +760,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     accountHomeDir,
                 )
                 .then(async (nativeSessionId) => {
-                    if (!nativeSessionId || !ptyManager.has(sessionId)) return;
-                    if (master) {
-                        await taskStore.updateMasterSession(sessionId, { nativeSessionId });
-                        broadcast({
-                            type: MSG.MASTER_SESSIONS_LIST,
-                            payload: { sessions: taskStore.getMasterSessions() },
-                        });
-                        return;
-                    }
-                    if (task) {
-                        await taskStore.updateTask(task.id, (currentTask) => ({
-                            sessions: currentTask.sessions.map((session) =>
-                                session.id === sessionId
-                                    ? { ...session, nativeSessionId }
-                                    : session,
-                            ),
-                        }));
-                        await broadcastTaskUpdate(task.id);
-                        return;
-                    }
-                    await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
-                        sessions: currentProject.sessions.map((session) =>
-                            session.id === sessionId ? { ...session, nativeSessionId } : session,
-                        ),
-                    }));
-                    await broadcastProjectUpdate(resolvedProjectId);
+                    // Identified: free the launch lock before queueing behind a move.
+                    await releaseNativeLaunchLock();
+                    if (!nativeSessionId) return;
+                    await sessionQueue.run(sessionId, async () => {
+                        if (!ptyManager.has(sessionId)) return;
+                        await patchOwnedSessionRef(ownerNow(), sessionId, { nativeSessionId });
+                    });
                 })
                 .catch((error: unknown) => {
                     console.error(
@@ -818,10 +873,42 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         recoveredSessionResumeHandler = handler;
     }
 
+    function readSessionHistory(
+        sessionId: string,
+        fallbackOwnerId: string,
+    ): Promise<{ data: string; lastSequence: number }> {
+        return sessionQueue.run(sessionId, () => {
+            const owner = currentOwnerOf(sessionId);
+            return taskStore.getSessionHistory(
+                owner ? ownerIdOf(owner) : fallbackOwnerId,
+                sessionId,
+            );
+        });
+    }
+
+    function drainSessionOutput(): Promise<void> {
+        return sessionQueue.drain();
+    }
+
+    /**
+     * A client closing a session: drop its ref from the owner it has now, on
+     * its queue so a move can't interleave, then kill the process. The exit
+     * cleanup that follows finds nothing left to remove but the log.
+     */
+    async function closeClientSession(sessionId: string): Promise<void> {
+        await sessionQueue.run(sessionId, () =>
+            removeSessionFromOwner(sessionId, currentOwnerOf(sessionId)),
+        );
+        ptyManager.close(sessionId);
+    }
+
     return {
         createSession,
         removeSessionFromOwner,
         resumeSession,
+        readSessionHistory,
+        drainSessionOutput,
+        closeClientSession,
         prepareForShutdown,
         setRecoveredSessionExitHandler,
         setRecoveredSessionResumeHandler,

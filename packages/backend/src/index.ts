@@ -567,6 +567,7 @@ async function main() {
             schedulerService.shutdown();
             changeTracker.dispose();
             ptyManager.closeAll();
+            await sessionLifecycle.drainSessionOutput();
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
             advertiser.stop();
             await releaseInstancePort(config.instancePortFile, startedServer.port, stop);

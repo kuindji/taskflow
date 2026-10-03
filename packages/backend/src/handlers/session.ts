@@ -72,8 +72,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
     router.register(MSG.SESSION_CLOSE, async (payload) => {
         const { sessionId } = payload as SessionClosePayload;
-        await sessionLifecycle.removeSessionFromOwner(sessionId);
-        ptyManager.close(sessionId);
+        await sessionLifecycle.closeClientSession(sessionId);
         return { success: true };
     });
 
@@ -123,7 +122,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
         if (!ownerId || (!master && taskId && projectId)) {
             throw new Error("Exactly one of taskId, projectId, or master is required");
         }
-        return taskStore.getSessionHistory(ownerId, sessionId);
+        return sessionLifecycle.readSessionHistory(sessionId, ownerId);
     });
 
     router.register(MSG.SESSION_SNAPSHOT, async (payload) => {

@@ -102,6 +102,14 @@ class FakePtyManager {
     }
 }
 
+async function waitFor(check: () => Promise<boolean>, timeoutMs = 1000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!(await check())) {
+        if (Date.now() > deadline) throw new Error("waitFor timed out");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+}
+
 describe("session handlers", () => {
     let router: TestRouter;
     let store: TaskStore;
@@ -173,6 +181,34 @@ describe("session handlers", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("deletes output that was still being written when the session exited", async () => {
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+        const sessionId = await sessionLifecycle.createSession({
+            owner: { taskId: task.id },
+            type: "codex",
+        });
+
+        ptyManager.emit(sessionId, "last words\r\n");
+        ptyManager.close(sessionId);
+
+        await waitFor(async () => (await store.getTask(task.id))?.sessions.length === 0);
+        await sessionLifecycle.drainSessionOutput();
+        expect((await store.getSessionHistory(task.id, sessionId)).data).toBe("");
+    });
+
+    it("drains output still queued when asked", async () => {
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+        const sessionId = await sessionLifecycle.createSession({
+            owner: { taskId: task.id },
+            type: "codex",
+        });
+
+        for (let i = 0; i < 50; i += 1) ptyManager.emit(sessionId, `line ${i}\n`);
+        await sessionLifecycle.drainSessionOutput();
+
+        expect((await store.getSessionHistory(task.id, sessionId)).lastSequence).toBe(50);
     });
 
     /**
