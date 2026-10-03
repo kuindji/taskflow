@@ -14,7 +14,17 @@ import {
     orderProjectsByIds,
     sortTasksByCreatedAtDesc,
 } from "@taskflow/shared";
-import { appendFile, open, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
+import {
+    appendFile,
+    open,
+    readFile,
+    readdir,
+    mkdir,
+    realpath,
+    rename,
+    rm,
+    stat,
+} from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
@@ -22,6 +32,7 @@ import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutati
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
 import {
+    type FileOperations,
     removeFileOrWrite,
     removeFileOrWriteJson,
     writeFileAtomic,
@@ -105,7 +116,11 @@ export class TaskStore {
     private projectsMutation: Promise<unknown> = Promise.resolve();
     private masterSessionsMutation: Promise<unknown> = Promise.resolve();
 
-    constructor(config: TaskStoreConfig) {
+    constructor(
+        config: TaskStoreConfig,
+        /** Only the Master list's write uses these; tests inject a failing write. */
+        private readonly masterFileOperations?: FileOperations,
+    ) {
         this.config = config;
     }
 
@@ -210,8 +225,10 @@ export class TaskStore {
 
     // --- Master Sessions ---
 
-    private async persistMasterSessions(): Promise<void> {
-        await writeJsonAtomic(this.masterSessionsFile, this.masterSessions);
+    /** Write the list, then make it the cache, so a failed write leaves the cache as on disk. */
+    private async commitMasterSessions(next: SessionRef[]): Promise<void> {
+        await writeJsonAtomic(this.masterSessionsFile, next, this.masterFileOperations);
+        this.masterSessions = next;
     }
 
     private async withMasterSessionsMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -236,17 +253,15 @@ export class TaskStore {
     }
 
     async addMasterSession(session: SessionRef): Promise<void> {
-        await this.withMasterSessionsMutation(async () => {
-            this.masterSessions.push(session);
-            await this.persistMasterSessions();
-        });
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions([...this.masterSessions, session]),
+        );
     }
 
     async removeMasterSession(sessionId: string): Promise<void> {
-        await this.withMasterSessionsMutation(async () => {
-            this.masterSessions = this.masterSessions.filter((s) => s.id !== sessionId);
-            await this.persistMasterSessions();
-        });
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions(this.masterSessions.filter((s) => s.id !== sessionId)),
+        );
     }
 
     getMasterSessions(): SessionRef[] {
@@ -254,12 +269,11 @@ export class TaskStore {
     }
 
     async updateMasterSession(sessionId: string, updates: Partial<SessionRef>): Promise<void> {
-        await this.withMasterSessionsMutation(async () => {
-            this.masterSessions = this.masterSessions.map((s) =>
-                s.id === sessionId ? { ...s, ...updates } : s,
-            );
-            await this.persistMasterSessions();
-        });
+        await this.withMasterSessionsMutation(() =>
+            this.commitMasterSessions(
+                this.masterSessions.map((s) => (s.id === sessionId ? { ...s, ...updates } : s)),
+            ),
+        );
     }
 
     private reconcileSessionList(
@@ -337,9 +351,8 @@ export class TaskStore {
             let dropped: string[] = [];
             await this.withMasterSessionsMutation(async () => {
                 const latest = reconcile(this.masterSessions);
-                this.masterSessions = latest.sessions;
                 dropped = latest.dropped;
-                if (latest.changed) await this.persistMasterSessions();
+                if (latest.changed) await this.commitMasterSessions(latest.sessions);
             });
             await this.deleteSessionHistories("master", dropped);
         }
@@ -707,6 +720,8 @@ export class TaskStore {
      * disk on first append and dropped when the log is deleted.
      */
     private sessionLogSizes = new Map<string, number>();
+    // Owner lock tails: the promise each owner key's last holder resolves on release.
+    private readonly ownerLockTails = new Map<string, Promise<void>>();
 
     async appendSessionOutput(
         taskId: string,
@@ -796,6 +811,65 @@ export class TaskStore {
             this.sessionLogSizes.delete(logPath);
             await this.unlinkIfPresent(logPath);
         });
+    }
+
+    /**
+     * Re-key a session's log to a new owner. Holds both paths' mutation
+     * queues (in a fixed order, so two opposite moves cannot deadlock), so an
+     * append already queued on the old path lands before the rename.
+     */
+    async moveSessionHistory(
+        fromOwnerId: string,
+        toOwnerId: string,
+        sessionId: string,
+    ): Promise<void> {
+        const from = this.sessionLogPath(fromOwnerId, sessionId);
+        const to = this.sessionLogPath(toOwnerId, sessionId);
+        if (from === to) return;
+        const [first, second] = from < to ? [from, to] : [to, from];
+        await this.withSessionLogMutation(first, () =>
+            this.withSessionLogMutation(second, async () => {
+                try {
+                    await rename(from, to);
+                } catch (error) {
+                    if (!isMissingFileError(error)) throw error;
+                }
+                const size = this.sessionLogSizes.get(from);
+                this.sessionLogSizes.delete(from);
+                if (size === undefined) this.sessionLogSizes.delete(to);
+                else this.sessionLogSizes.set(to, size);
+            }),
+        );
+    }
+
+    /**
+     * Serialize work that changes which sessions an owner holds: a session
+     * move, and archiving, deleting or removing its source or target. Keys
+     * come from ownerKey(). Every key is reserved synchronously when this is
+     * called, so each key serves its callers in call order and two calls can
+     * never hold each other's keys (no deadlock). Not reentrant, and nothing
+     * run under it may wait on a session's queue.
+     */
+    async withOwnerLocks<T>(keys: string[], work: () => Promise<T>): Promise<T> {
+        const unique = [...new Set(keys)];
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const previous = unique.map((key) => {
+            const tail = this.ownerLockTails.get(key) ?? Promise.resolve();
+            this.ownerLockTails.set(key, held);
+            return tail;
+        });
+        try {
+            await Promise.all(previous);
+            return await work();
+        } finally {
+            release();
+            for (const key of unique) {
+                if (this.ownerLockTails.get(key) === held) this.ownerLockTails.delete(key);
+            }
+        }
     }
 
     private async deleteSessionHistories(ownerId: string, sessionIds: string[]): Promise<void> {

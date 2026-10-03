@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { TaskStore } from "../../src/services/task-store";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "fs/promises";
+import {
+    mkdtemp,
+    mkdir,
+    readFile,
+    realpath,
+    rename,
+    rm,
+    stat,
+    unlink,
+    writeFile,
+} from "fs/promises";
+import type { FileOperations } from "../../src/services/write-file-atomic";
+import { expectRejects } from "../expect-rejects";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -567,6 +579,147 @@ describe("TaskStore", () => {
 
             const updatedTask = await store.getTask(task.id);
             expect(updatedTask!.sessions).toHaveLength(0);
+        });
+    });
+
+    describe("session history move", () => {
+        const logPath = (ownerId: string, sessionId: string) =>
+            join(tempDir, "session-logs", `${ownerId}--${sessionId}.jsonl`);
+        const exists = (path: string) =>
+            stat(path).then(
+                () => true,
+                () => false,
+            );
+
+        it("renames the log so history and later appends follow the session", async () => {
+            await store.appendSessionOutput("task-a", "s1", 1, "before\r\n");
+
+            await store.moveSessionHistory("task-a", "task-b", "s1");
+            await store.appendSessionOutput("task-b", "s1", 2, "after\r\n");
+
+            expect(await exists(logPath("task-a", "s1"))).toBe(false);
+            const history = await store.getSessionHistory("task-b", "s1");
+            expect(history.data).toBe("before\r\nafter\r\n");
+            expect(history.lastSequence).toBe(2);
+        });
+
+        it("treats a missing source log as nothing to move", async () => {
+            await store.moveSessionHistory("task-a", "task-b", "missing");
+
+            expect(await exists(logPath("task-b", "missing"))).toBe(false);
+        });
+
+        it("waits for an append already queued on the source log", async () => {
+            const pending = store.appendSessionOutput("task-a", "s1", 1, "queued\r\n");
+            const moved = store.moveSessionHistory("task-a", "task-b", "s1");
+            await Promise.all([pending, moved]);
+
+            expect(await exists(logPath("task-a", "s1"))).toBe(false);
+            expect((await store.getSessionHistory("task-b", "s1")).data).toBe("queued\r\n");
+        });
+    });
+
+    describe("owner locks", () => {
+        it("serializes work on a shared key and not on disjoint keys", async () => {
+            const seen: string[] = [];
+            let releaseFirst!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const first = store.withOwnerLocks(["task:a", "task:b"], async () => {
+                await gate;
+                seen.push("move");
+            });
+            const second = store.withOwnerLocks(["task:b"], async () => {
+                seen.push("archive b");
+            });
+            const third = store.withOwnerLocks(["task:c"], async () => {
+                seen.push("archive c");
+            });
+            await third;
+            expect(seen).toEqual(["archive c"]);
+            releaseFirst();
+            await Promise.all([first, second]);
+            expect(seen).toEqual(["archive c", "move", "archive b"]);
+        });
+
+        it("does not deadlock on opposite key orders", async () => {
+            await Promise.all([
+                store.withOwnerLocks(["task:a", "task:b"], async () => {}),
+                store.withOwnerLocks(["task:b", "task:a"], async () => {}),
+            ]);
+        });
+    });
+
+    describe("master session writes", () => {
+        let failWrites = false;
+        const operations: FileOperations = {
+            writeFile: (path, data) => writeFile(path, data),
+            // EIO, not EACCES: a permission error would take the in-place fallback.
+            rename: (from, to) =>
+                failWrites
+                    ? Promise.reject(Object.assign(new Error("disk full"), { code: "EIO" }))
+                    : rename(from, to),
+            unlink: (path) => unlink(path),
+        };
+        const masterRef = (id: string, bootId = "boot-1") => ({
+            id,
+            type: "claude" as const,
+            label: "Claude",
+            createdAt: "2026-10-03T00:00:00.000Z",
+            instance: "main",
+            bootId,
+            state: "live" as const,
+            nativeSessionId: `${id}-native`,
+        });
+        let masterFile: string;
+        let master: TaskStore;
+
+        beforeEach(async () => {
+            failWrites = false;
+            masterFile = join(tempDir, "sessions", "main", "master.json");
+            master = new TaskStore(
+                {
+                    projectsFile: join(tempDir, "projects.json"),
+                    tasksDir: join(tempDir, "tasks"),
+                    archiveDir: join(tempDir, "archive"),
+                    sessionLogsDir: join(tempDir, "session-logs"),
+                    taskLogsDir: join(tempDir, "task-logs"),
+                    masterSessionsFile: masterFile,
+                },
+                operations,
+            );
+            await master.init();
+        });
+
+        const onDisk = async () => JSON.parse(await readFile(masterFile, "utf-8")) as unknown;
+
+        it("leaves the cache as on disk when a write fails", async () => {
+            await master.addMasterSession(masterRef("kept"));
+            failWrites = true;
+
+            await expectRejects(master.addMasterSession(masterRef("added")), "disk full");
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            await expectRejects(master.removeMasterSession("kept"), "disk full");
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            await expectRejects(
+                master.updateMasterSession("kept", { label: "Renamed" }),
+                "disk full",
+            );
+            expect(master.getMasterSessions()).toEqual([masterRef("kept")]);
+            expect(await onDisk()).toEqual([masterRef("kept")]);
+        });
+
+        it("leaves the cache as on disk when a reconcile write fails", async () => {
+            await master.addMasterSession(masterRef("stale", "old-boot"));
+            failWrites = true;
+
+            await expectRejects(
+                master.reconcileInterruptedSessions("main", "new-boot"),
+                "disk full",
+            );
+            expect(master.getMasterSessions()).toEqual([masterRef("stale", "old-boot")]);
+            expect(await onDisk()).toEqual([masterRef("stale", "old-boot")]);
         });
     });
 });
