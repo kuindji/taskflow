@@ -92,22 +92,24 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
 
     apiRouter.register("DELETE", "/api/projects/:id", async (_req, params) => {
         try {
-            const project = await taskStore.getProject(params.id);
-            if (!project) return errorResponse("Project not found", 404);
+            return await taskStore.withProjectRemovalLock(params.id, async () => {
+                const project = await taskStore.getProject(params.id);
+                if (!project) return errorResponse("Project not found", 404);
 
-            const tasks = await taskStore.listTasks(params.id);
-            for (const session of project.sessions) {
-                ptyManager.close(session.id);
-            }
-            for (const task of tasks) {
-                for (const session of task.sessions) {
+                const tasks = await taskStore.listTasks(params.id);
+                for (const session of project.sessions) {
                     ptyManager.close(session.id);
                 }
-            }
-            await taskStore.removeProject(params.id);
-            changeTracker?.untrack(params.id);
-            broadcast({ type: MSG.PROJECT_REMOVED, payload: { id: params.id } });
-            return jsonResponse({ success: true });
+                for (const task of tasks) {
+                    for (const session of task.sessions) {
+                        ptyManager.close(session.id);
+                    }
+                }
+                await taskStore.removeProject(params.id);
+                changeTracker?.untrack(params.id);
+                broadcast({ type: MSG.PROJECT_REMOVED, payload: { id: params.id } });
+                return jsonResponse({ success: true });
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] DELETE /api/projects/:id failed:", err);

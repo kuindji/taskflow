@@ -645,6 +645,22 @@ describe("session handlers", () => {
                 () => false,
             );
 
+        /**
+         * Resolves once a withOwnerLocks call covering every key in `keys` has
+         * been made. withOwnerLocks reserves its keys synchronously, so by then
+         * that caller is ahead of any later one on those keys.
+         */
+        function lockRequested(keys: string[]): Promise<void> {
+            const realLocks = store.withOwnerLocks.bind(store);
+            return new Promise((resolve) => {
+                spyOn(store, "withOwnerLocks").mockImplementation((requested, work) => {
+                    const result = realLocks(requested, work);
+                    if (keys.every((key) => requested.includes(key))) resolve();
+                    return result;
+                });
+            });
+        }
+
         it("moves a task session to another task with its log and cwd", async () => {
             const { a, b } = await twoTasks();
             const sessionId = await codexIn(a.id);
@@ -991,6 +1007,49 @@ describe("session handlers", () => {
                 sessionLifecycle.moveSession(sessionId, { taskId: a.id }),
                 "Taskflow is shutting down",
             );
+        });
+
+        it("archiving the target after a move stops the moved session", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${b.id}`], () => gate);
+            const moveQueued = lockRequested([`task:${a.id}`, `task:${b.id}`]);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            // The move holds its place on B's lock before the archive asks for it.
+            await moveQueued;
+            const archive = router.handle(MSG.TASK_ARCHIVE, { id: b.id });
+
+            release();
+            await Promise.all([held, move, archive]);
+
+            expect(ptyManager.closed).toContain(sessionId);
+            expect((await store.getArchived(b.id))?.sessions).toEqual([]);
+        });
+
+        it("deleting the source during a move keeps the moved transcript", async () => {
+            const { a, b } = await twoTasks();
+            const sessionId = await codexIn(a.id);
+            ptyManager.emit(sessionId, "keep me\r\n");
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const held = store.withOwnerLocks([`task:${a.id}`], () => gate);
+            const moveQueued = lockRequested([`task:${a.id}`, `task:${b.id}`]);
+            const move = sessionLifecycle.moveSession(sessionId, { taskId: b.id });
+            await moveQueued;
+            const remove = router.handle(MSG.TASK_DELETE, { id: a.id });
+
+            release();
+            await Promise.all([held, move, remove]);
+            await sessionLifecycle.drainSessionOutput();
+
+            expect(ptyManager.closed).not.toContain(sessionId);
+            expect((await store.getSessionHistory(b.id, sessionId)).data).toBe("keep me\r\n");
         });
     });
 });

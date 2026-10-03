@@ -341,40 +341,42 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
 
     apiRouter.register("POST", "/api/tasks/:taskId/archive", async (_req, params) => {
         try {
-            const task = await taskStore.getTask(params.taskId);
-            if (!task) return errorResponse(`Task not found: ${params.taskId}`, 404);
+            return await taskStore.withTaskCascadeLock(params.taskId, async () => {
+                const task = await taskStore.getTask(params.taskId);
+                if (!task) return errorResponse(`Task not found: ${params.taskId}`, 404);
 
-            // Cascade: stop sessions and archive subtasks before parent
-            if (!task.parentId) {
-                const subtasks = await taskStore.getSubtasks(task.id);
-                for (const subtask of subtasks) {
-                    if (subtask.sessions.length > 0) {
-                        await taskStore.updateTask(subtask.id, { sessions: [] });
-                        for (const session of subtask.sessions) ptyManager.close(session.id);
+                // Cascade: stop sessions and archive subtasks before parent
+                if (!task.parentId) {
+                    const subtasks = await taskStore.getSubtasks(task.id);
+                    for (const subtask of subtasks) {
+                        if (subtask.sessions.length > 0) {
+                            await taskStore.updateTask(subtask.id, { sessions: [] });
+                            for (const session of subtask.sessions) ptyManager.close(session.id);
+                        }
+                        await taskStore.archiveTask(subtask.id);
                     }
-                    await taskStore.archiveTask(subtask.id);
                 }
-            }
 
-            // Fail active flows
-            const runs = await flowStore.getFlowRunsForOwner(task.id);
-            for (const run of runs) {
-                if (run.status === "running" || run.status === "paused") {
-                    await flowRunner.failFlowByIds(task.id, run.flowId);
+                // Fail active flows
+                const runs = await flowStore.getFlowRunsForOwner(task.id);
+                for (const run of runs) {
+                    if (run.status === "running" || run.status === "paused") {
+                        await flowRunner.failFlowByIds(task.id, run.flowId);
+                    }
                 }
-            }
 
-            // Stop sessions
-            if (task.sessions.length > 0) {
-                await taskStore.updateTask(task.id, { sessions: [] });
-                for (const session of task.sessions) ptyManager.close(session.id);
-            }
+                // Stop sessions
+                if (task.sessions.length > 0) {
+                    await taskStore.updateTask(task.id, { sessions: [] });
+                    for (const session of task.sessions) ptyManager.close(session.id);
+                }
 
-            const archived = await taskStore.archiveTask(params.taskId);
-            changeTracker?.untrack(params.taskId);
-            const filtered = filterTaskSessions(archived, config.instanceId);
-            broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
-            return jsonResponse(filtered);
+                const archived = await taskStore.archiveTask(params.taskId);
+                changeTracker?.untrack(params.taskId);
+                const filtered = filterTaskSessions(archived, config.instanceId);
+                broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
+                return jsonResponse(filtered);
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] POST /api/tasks/:taskId/archive failed:", err);
@@ -420,66 +422,68 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         const deleteWorktree = body.deleteWorktree === true;
 
         try {
-            const task =
-                (await taskStore.getTask(params.taskId)) ??
-                (await taskStore.getArchived(params.taskId));
-            if (!task) return errorResponse(`Task not found: ${params.taskId}`, 404);
+            return await taskStore.withTaskCascadeLock(params.taskId, async () => {
+                const task =
+                    (await taskStore.getTask(params.taskId)) ??
+                    (await taskStore.getArchived(params.taskId));
+                if (!task) return errorResponse(`Task not found: ${params.taskId}`, 404);
 
-            // Cascade: delete subtasks
-            if (!task.parentId) {
-                const [subtasks, archivedSubtasks] = await Promise.all([
-                    taskStore.getSubtasks(params.taskId),
-                    taskStore.getArchivedSubtasks(params.taskId),
-                ]);
-                for (const subtask of subtasks) {
-                    for (const session of subtask.sessions) ptyManager.close(session.id);
-                    await taskStore.deleteTask(subtask.id);
-                }
-                for (const subtask of archivedSubtasks) {
-                    await taskStore.deleteArchived(subtask.id);
-                }
-            }
-
-            if (task.status === "active") {
-                // Fail active flows
-                const runs = await flowStore.getFlowRunsForOwner(params.taskId);
-                for (const run of runs) {
-                    if (run.status === "running" || run.status === "paused") {
-                        await flowRunner.failFlowByIds(params.taskId, run.flowId);
+                // Cascade: delete subtasks
+                if (!task.parentId) {
+                    const [subtasks, archivedSubtasks] = await Promise.all([
+                        taskStore.getSubtasks(params.taskId),
+                        taskStore.getArchivedSubtasks(params.taskId),
+                    ]);
+                    for (const subtask of subtasks) {
+                        for (const session of subtask.sessions) ptyManager.close(session.id);
+                        await taskStore.deleteTask(subtask.id);
+                    }
+                    for (const subtask of archivedSubtasks) {
+                        await taskStore.deleteArchived(subtask.id);
                     }
                 }
-                for (const session of task.sessions) ptyManager.close(session.id);
-                await taskStore.deleteTask(params.taskId);
-            } else {
-                await taskStore.deleteArchived(params.taskId);
-            }
-            changeTracker?.untrack(params.taskId);
 
-            // Clean up worktree in the background — don't block the response
-            if (
-                !task.parentId &&
-                deleteWorktree &&
-                task.worktree.enabled &&
-                task.worktree.path &&
-                task.worktree.branch
-            ) {
-                const worktreePath = task.worktree.path;
-                const branch = task.worktree.branch;
-                void taskStore.getProject(task.projectId).then((project) => {
-                    if (!project) return;
-                    gitService
-                        .removeWorktree(project.path, worktreePath)
-                        .then(() => gitService.deleteBranch(project.path, branch))
-                        .catch((error: unknown) =>
-                            console.error(
-                                `Failed to clean up worktree for task ${params.taskId}:`,
-                                error,
-                            ),
-                        );
-                });
-            }
+                if (task.status === "active") {
+                    // Fail active flows
+                    const runs = await flowStore.getFlowRunsForOwner(params.taskId);
+                    for (const run of runs) {
+                        if (run.status === "running" || run.status === "paused") {
+                            await flowRunner.failFlowByIds(params.taskId, run.flowId);
+                        }
+                    }
+                    for (const session of task.sessions) ptyManager.close(session.id);
+                    await taskStore.deleteTask(params.taskId);
+                } else {
+                    await taskStore.deleteArchived(params.taskId);
+                }
+                changeTracker?.untrack(params.taskId);
 
-            return jsonResponse({ success: true });
+                // Clean up worktree in the background — don't block the response
+                if (
+                    !task.parentId &&
+                    deleteWorktree &&
+                    task.worktree.enabled &&
+                    task.worktree.path &&
+                    task.worktree.branch
+                ) {
+                    const worktreePath = task.worktree.path;
+                    const branch = task.worktree.branch;
+                    void taskStore.getProject(task.projectId).then((project) => {
+                        if (!project) return;
+                        gitService
+                            .removeWorktree(project.path, worktreePath)
+                            .then(() => gitService.deleteBranch(project.path, branch))
+                            .catch((error: unknown) =>
+                                console.error(
+                                    `Failed to clean up worktree for task ${params.taskId}:`,
+                                    error,
+                                ),
+                            );
+                    });
+                }
+
+                return jsonResponse({ success: true });
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] DELETE /api/tasks/:taskId failed:", err);

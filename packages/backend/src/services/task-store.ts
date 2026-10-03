@@ -31,6 +31,7 @@ import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
 import { NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
+import { ownerKey } from "./session-owner";
 import {
     type FileOperations,
     removeFileOrWrite,
@@ -936,6 +937,28 @@ export class TaskStore {
                 if (this.ownerLockTails.get(key) === held) this.ownerLockTails.delete(key);
             }
         }
+    }
+
+    /** Lock a task and its subtasks (active and archived) for an archive or delete cascade. */
+    async withTaskCascadeLock<T>(taskId: string, work: () => Promise<T>): Promise<T> {
+        const [subtasks, archived] = await Promise.all([
+            this.getSubtasks(taskId),
+            this.getArchivedSubtasks(taskId),
+        ]);
+        const keys = [taskId, ...subtasks.map((t) => t.id), ...archived.map((t) => t.id)].map(
+            (id) => ownerKey({ taskId: id }),
+        );
+        return this.withOwnerLocks(keys, work);
+    }
+
+    /** Lock a project and its tasks for removal. */
+    async withProjectRemovalLock<T>(projectId: string, work: () => Promise<T>): Promise<T> {
+        const tasks = await this.listTasks(projectId);
+        const keys = [
+            ownerKey({ projectId }),
+            ...tasks.map((task) => ownerKey({ taskId: task.id })),
+        ];
+        return this.withOwnerLocks(keys, work);
     }
 
     private async deleteSessionHistories(ownerId: string, sessionIds: string[]): Promise<void> {

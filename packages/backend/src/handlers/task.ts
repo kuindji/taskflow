@@ -138,23 +138,25 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_ARCHIVE, async (payload) => {
         const { id } = payload as TaskArchivePayload;
-        const task = await store.getTask(id);
-        if (!task) throw new Error(`Task not found: ${id}`);
+        return store.withTaskCascadeLock(id, async () => {
+            const task = await store.getTask(id);
+            if (!task) throw new Error(`Task not found: ${id}`);
 
-        // Cascade: stop sessions and archive subtasks before parent
-        if (!task.parentId) {
-            const subtasks = await store.getSubtasks(id);
-            for (const subtask of subtasks) {
-                await stopTaskSessions(subtask, true);
-                await store.archiveTask(subtask.id);
+            // Cascade: stop sessions and archive subtasks before parent
+            if (!task.parentId) {
+                const subtasks = await store.getSubtasks(id);
+                for (const subtask of subtasks) {
+                    await stopTaskSessions(subtask, true);
+                    await store.archiveTask(subtask.id);
+                }
             }
-        }
 
-        await failActiveFlows(id);
-        await stopTaskSessions(task, true);
-        const archived = await store.archiveTask(id);
-        changeTracker?.untrack(id);
-        return filterTaskSessions(archived, config.instanceId);
+            await failActiveFlows(id);
+            await stopTaskSessions(task, true);
+            const archived = await store.archiveTask(id);
+            changeTracker?.untrack(id);
+            return filterTaskSessions(archived, config.instanceId);
+        });
     });
 
     router.register(MSG.TASK_LIST_ARCHIVED, async () => {
@@ -183,55 +185,57 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
 
     router.register(MSG.TASK_DELETE, async (payload) => {
         const { id, deleteWorktree } = payload as TaskDeletePayload;
-        const task = (await store.getTask(id)) ?? (await store.getArchived(id));
-        if (!task) throw new Error(`Task not found: ${id}`);
+        return store.withTaskCascadeLock(id, async () => {
+            const task = (await store.getTask(id)) ?? (await store.getArchived(id));
+            if (!task) throw new Error(`Task not found: ${id}`);
 
-        // Cascade: delete all subtasks for top-level tasks
-        if (!task.parentId) {
-            const [subtasks, archivedSubtasks] = await Promise.all([
-                store.getSubtasks(id),
-                store.getArchivedSubtasks(id),
-            ]);
-            for (const subtask of subtasks) {
-                await stopTaskSessions(subtask, false);
-                await store.deleteTask(subtask.id);
+            // Cascade: delete all subtasks for top-level tasks
+            if (!task.parentId) {
+                const [subtasks, archivedSubtasks] = await Promise.all([
+                    store.getSubtasks(id),
+                    store.getArchivedSubtasks(id),
+                ]);
+                for (const subtask of subtasks) {
+                    await stopTaskSessions(subtask, false);
+                    await store.deleteTask(subtask.id);
+                }
+                for (const subtask of archivedSubtasks) {
+                    await store.deleteArchived(subtask.id);
+                }
             }
-            for (const subtask of archivedSubtasks) {
-                await store.deleteArchived(subtask.id);
+
+            if (task.status === "active") {
+                await failActiveFlows(id);
+                await stopTaskSessions(task, false);
+                await store.deleteTask(id);
+            } else {
+                await store.deleteArchived(id);
             }
-        }
+            changeTracker?.untrack(id);
 
-        if (task.status === "active") {
-            await failActiveFlows(id);
-            await stopTaskSessions(task, false);
-            await store.deleteTask(id);
-        } else {
-            await store.deleteArchived(id);
-        }
-        changeTracker?.untrack(id);
+            // Clean up worktree in the background — don't block the response
+            if (
+                !task.parentId &&
+                deleteWorktree &&
+                task.worktree.enabled &&
+                task.worktree.path &&
+                task.worktree.branch
+            ) {
+                const worktreePath = task.worktree.path;
+                const branch = task.worktree.branch;
+                void store.getProject(task.projectId).then((project) => {
+                    if (!project) return;
+                    gitService
+                        .removeWorktree(project.path, worktreePath)
+                        .then(() => gitService.deleteBranch(project.path, branch))
+                        .catch((error: unknown) =>
+                            console.error(`Failed to clean up worktree for task ${id}:`, error),
+                        );
+                });
+            }
 
-        // Clean up worktree in the background — don't block the response
-        if (
-            !task.parentId &&
-            deleteWorktree &&
-            task.worktree.enabled &&
-            task.worktree.path &&
-            task.worktree.branch
-        ) {
-            const worktreePath = task.worktree.path;
-            const branch = task.worktree.branch;
-            void store.getProject(task.projectId).then((project) => {
-                if (!project) return;
-                gitService
-                    .removeWorktree(project.path, worktreePath)
-                    .then(() => gitService.deleteBranch(project.path, branch))
-                    .catch((error: unknown) =>
-                        console.error(`Failed to clean up worktree for task ${id}:`, error),
-                    );
-            });
-        }
-
-        return { success: true };
+            return { success: true };
+        });
     });
 
     router.register(MSG.TASK_LOG_LIST, async (payload) => {
