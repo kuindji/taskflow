@@ -6,7 +6,7 @@
 `taskflow-cli task create "Feature branch work" --worktree` Create task with worktree enabled
 `taskflow-cli task create "Feature branch work" --worktree --init "bun install"` Create task with worktree and run init command
 
-When running in task context, the following commands work as is. When not running in task context (TASKFLOW_TASK_ID env variable is not available), the following commands require `--task <id>` before any command: `taskflow-cli --task <id> command`. This applies to agent and session commands as well.
+When running in task context, the following commands work as is. Inside a session, the task context is the session's current owner, so it follows a session moved with `session move`. When not running in task context (TASKFLOW_TASK_ID env variable is not available), the following commands require `--task <id>` before any command: `taskflow-cli --task <id> command`. This applies to agent and session commands as well.
 
 `taskflow-cli task` Get task info. `task.attributes` is the task's own attributes; `resolvedAttributes` is the effective set after inheriting from the project and the parent task (see the attribute commands doc).
 `taskflow-cli task update --title "New title"` Update task title

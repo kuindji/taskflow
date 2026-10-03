@@ -517,6 +517,21 @@ describe("taskflow-cli", () => {
         );
     });
 
+    it("keeps the env owner when the lookup names no owner", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["task"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_SESSION_ID: "s1",
+            OWNER_RESPONSE: "{}",
+        });
+
+        expect(result.status).toBe(0);
+        expect((await readCapturedRequest(captureFile)).url).toBe(
+            "http://localhost:1234/api/tasks/task-1",
+        );
+    });
+
     it("skips the lookup when the caller names the task", async () => {
         const { cliPath, captureFile, ownerCaptureFile, env } = await setupCliHarness();
         const result = runCli(cliPath, ["--task", "explicit", "task"], {

@@ -84,9 +84,11 @@ done
 
 # A moved session's env still names the owner it started in. Unless the
 # caller named one, ask the backend where this session lives now. Any
-# failure (headless sessions are unknown to it) keeps the env values.
+# failure (headless sessions are unknown to it) or a reply that names no
+# owner keeps the env values.
 if [ -z "$owner_flag_given" ] && [ -n "$TASKFLOW_SESSION_ID" ]; then
-  if owner_json=$(curl -sf "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/owner" 2>/dev/null); then
+  if owner_json=$(curl -sf "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/owner" 2>/dev/null) \
+    && printf '%s' "$owner_json" | grep -Eq '"(taskId|projectId)":"|"master":true'; then
     TASKFLOW_TASK_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p')
     TASKFLOW_PROJECT_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"projectId":"\([^"]*\)".*/\1/p')
   fi

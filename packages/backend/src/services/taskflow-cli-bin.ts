@@ -6,7 +6,7 @@ import { splitAttrArgs } from "./attr-args";
 import { consumeFlags } from "./cli-flags";
 import { computeMovedOrder } from "./project-move";
 import { ACCOUNT_AGENT_TYPES, INHERIT_AGENT_ACCOUNT } from "@taskflow/shared";
-import type { ProjectAgentAccountsPatch } from "@taskflow/shared";
+import type { ProjectAgentAccountsPatch, SessionOwnerRef } from "@taskflow/shared";
 
 const API_URL = process.env.TASKFLOW_API_URL;
 if (!API_URL) {
@@ -109,16 +109,39 @@ function findById(items: ParsedItem[], id: string, label: string): ParsedItem {
     return item;
 }
 
+/**
+ * A moved session's env still names the owner it started in. Unless the
+ * caller named one, ask the backend where this session lives now. Any failure
+ * (headless sessions are unknown to it) or a reply that names no owner keeps
+ * the env values.
+ */
+async function adoptSessionOwner(): Promise<void> {
+    if (ownerFlagGiven || !sessionId) return;
+    try {
+        const resp = await fetch(`${API_URL}/api/sessions/${sessionId}/owner`);
+        if (!resp.ok) return;
+        const owner = (await resp.json()) as SessionOwnerRef;
+        if (!owner.taskId && !owner.projectId && owner.master !== true) return;
+        taskId = owner.taskId ?? "";
+        projectId = owner.projectId ?? "";
+    } catch {
+        // keep the env values
+    }
+}
+
 // --- Parse global flags (--task, --project-id) ---
 const rawArgs = process.argv.slice(2);
 let argIndex = 0;
+let ownerFlagGiven = false;
 
 while (argIndex < rawArgs.length) {
     if (rawArgs[argIndex] === "--task") {
         taskId = rawArgs[argIndex + 1] ?? "";
+        ownerFlagGiven = true;
         argIndex += 2;
     } else if (rawArgs[argIndex] === "--project-id") {
         projectId = rawArgs[argIndex + 1] ?? "";
+        ownerFlagGiven = true;
         argIndex += 2;
     } else {
         break;
@@ -1294,9 +1317,45 @@ async function handleSession(args: string[]): Promise<void> {
             process.stdout.write(await api("GET", `/api/sessions/${sessId}/tail?lines=${lines}`));
             break;
         }
+        case "move": {
+            const usage =
+                "Usage: taskflow-cli session move --task <id> | --project <id> | --master [--session <id>]\n";
+            // consumeFlags keeps only the last of a repeated flag, so count
+            // the target flags here to reject `--task a --task b` like the sh CLI.
+            const targetFlags = subArgs.filter(
+                (arg) => arg === "--task" || arg === "--project" || arg === "--master",
+            );
+            const { flags, positional, unknown } = consumeFlags(subArgs, {
+                task: "string",
+                project: "string",
+                master: "boolean",
+                session: "string",
+            });
+            const target: SessionOwnerRef | null =
+                typeof flags.task === "string"
+                    ? { taskId: flags.task }
+                    : typeof flags.project === "string"
+                      ? { projectId: flags.project }
+                      : flags.master === true
+                        ? { master: true }
+                        : null;
+            const sessId = typeof flags.session === "string" ? flags.session : sessionId;
+            if (
+                targetFlags.length !== 1 ||
+                positional.length > 0 ||
+                unknown.length > 0 ||
+                !target ||
+                !sessId
+            ) {
+                process.stderr.write(usage);
+                process.exit(1);
+            }
+            process.stdout.write(await api("POST", `/api/sessions/${sessId}/move`, { ...target }));
+            break;
+        }
         default:
             process.stderr.write(
-                "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail>\n",
+                "Usage: taskflow-cli session <rename|snapshot|close|status|input|tail|move>\n",
             );
             process.exit(1);
     }
@@ -1339,6 +1398,7 @@ async function main(): Promise<void> {
         process.stdout.write(await api("GET", "/api/cli-help"));
         return;
     }
+    await adoptSessionOwner();
     switch (cmd) {
         case "task":
             await handleTask(rest);
