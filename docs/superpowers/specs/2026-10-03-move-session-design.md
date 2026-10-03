@@ -310,3 +310,9 @@ The plan review (gpt-6.1-sol, each finding verified against the code) changed th
 - **File links into Master:** `sessionWorkspace()` returns the owner as a `SessionOwnerRef`, `{ master: true }` for Master. Link activation passes it to `openFileInApp`, which takes a `SessionOwnerRef`. Before this, a CLI editor (`settings.editor.internalEditor`) opened nothing for a Master session's file link, because `createSession` rejects an empty owner.
 - **Editor sessions follow the pane:** `openFileInApp` creates a CLI editor session in the workspace key it was given (`targetWorkspaceKey`), so a link clicked in a right pane opens its editor there.
 - **Master write test seam:** `TaskStore` takes optional `FileOperations` for the Master list's write. Store tests make the write fail and check that the cache still matches disk after add, remove, update and reconcile.
+
+### Round 4 (2026-10-03)
+
+- **Bare filename links** pass the session's owner too. Before this, a CLI editor never opened a bare filename (`a.ts`), in any workspace.
+- **Failed editor creates:** `createSession` releases its `pendingSessionCreates` mark in `finally`. A failed create aimed at a pane used to leave the mark set, and syncs then stopped giving that owner's new sessions a tab, including sessions moved into it.
+- **Markdown links:** `MarkdownPaneImpl` passes its own pane key, so a CLI editor opened from a right-pane Markdown link opens in the right pane too.

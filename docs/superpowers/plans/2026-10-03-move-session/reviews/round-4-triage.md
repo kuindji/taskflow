@@ -1,0 +1,12 @@
+# Round 4 triage
+
+Each finding was checked against the code on main (ba324618).
+
+1. **A failed targeted create hides later sessions.** Confirmed, major. `createSession` adds the owner to `pendingSessionCreates` when it gets a `targetWorkspaceKey` (`session-store.ts:190-192`). It deletes the mark only after `sendRequest` resolves (line 226), so a rejection (detached machine, timeout, backend error) leaves it set. `syncWithTasks`/`syncWithProjects` then skip base-pane additions for that owner (`session-sync.ts:123`), and a session moved into it never gets a tab. The bug exists today for right-pane creates, but Task 10 sends every CLI editor opened from a file link down this path. Fixed in Section 6: the request runs in `try` and `finally` releases the mark. New `session-store.create.test.ts` makes a targeted create fail on a detached machine, then syncs a live session into the owner.
+2. **Bare filename links still pass no owner.** Confirmed, major. The bare-name `activate` (`terminal-link-provider.ts:219`) calls `handlePathActivation` without owner ids, and `openFileInApp` returns at `if (!owner) return` (`open-file.ts:62`) for a CLI editor. The plan kept that on purpose, which was wrong. Fixed: both activation branches resolve `{ workspaceKey, owner }` through `sessionWorkspace`. `open-file.test.ts` now drives a bare-name link from a real provider on a headless terminal, with a CLI editor detected.
+3. **`Settings` isn't a shared type.** Confirmed, minor. The type is `AppSettings` (`packages/shared/src/types/settings.ts:119`). Fixed in the test import and fixture text.
+4. **The editor test never exercises the resync.** Confirmed, minor. `{}` for `TASK_LIST` makes `requestTasks` throw on `sortTasksByCreatedAtDesc(undefined)` (`task-store.ts:57-59`), which `refetchRecords` swallows (`session-store.ts:82`). The resync runs from `useSidebarData`'s effect (line 86), which the test doesn't mount. Fixed: the server answers `TASK_LIST` with `target` holding a live editor ref for each id it handed out, and the test calls `syncWithTasks` itself, then checks that the tab stays in its pane exactly once.
+
+Also confirmed from the report's closing note: `MarkdownPaneImpl` passes its own tab's pane key, which can be `:right`. Its CLI editor session now opens in that pane. The plan's claim that every other caller passes a base key is corrected.
+
+Findings 1 and 2 are confirmed majors, so round 5 runs. It's the last round under the cap.
