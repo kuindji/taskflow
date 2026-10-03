@@ -2,7 +2,11 @@
 
 Keep this file short. It is the only state carried between sessions. Update the row and add facts the next section needs. Don't add narrative.
 
-Plan: `../2026-10-03-move-session.md`. Spec: `docs/superpowers/specs/2026-10-03-move-session-design.md`. TaskTray: `TSK-3`.
+Plan: `../2026-10-03-move-session.md`. Spec: `docs/superpowers/specs/2026-10-03-move-session-design.md`. TaskTray: `TSK-3`. Chain protocol: `chain.md`.
+
+## Next step
+
+Plan review round 2: triage `reviews/round-2.md` (2 blockers, 7 majors reported) per `chain.md` → Review steps.
 
 ## Status
 
@@ -17,7 +21,8 @@ Plan: `../2026-10-03-move-session.md`. Spec: `docs/superpowers/specs/2026-10-03-
 
 ## Facts for the next section
 
-- Commit before Section 1 (base for the final review): `642ce64f`. The spec commit is already in it.
+- Base for the final whole-change review: the last plan/handoff commit before Section 1 starts. The Section 1 session records its hash here.
+- Review artifacts: `reviews/round-N.md` (Codex reports), `reviews/round-N-triage.md`, `reviews/round-2-prompt.md` (template for later round prompts).
 - The plan was reviewed by gpt-6.1-sol before execution. See "Plan review log" in the plan index.
 
 ## Deviations from the spec
