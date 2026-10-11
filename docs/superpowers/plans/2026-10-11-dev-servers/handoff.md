@@ -6,7 +6,7 @@ Plan: `../2026-10-11-dev-servers.md`. Spec: `docs/superpowers/specs/2026-10-11-d
 
 ## Next step
 
-Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`.
+Implement Section 5 (`05-verify.md`). Run it yourself, not through Sol ("Implementation steps" item 7 in `chain.md`): manual verification, the final whole-change review from the final-review base, then close-out. Afterwards stop the chain and notify the user that TSK-4 is ready for review and push.
 
 ## Status
 
@@ -15,7 +15,7 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 | 1 | Shared types, store, stopper, service | done, reviewed | `d71ac82c`, `57a36915`, `e0cb88e1`, fix `bbf73d40` |
 | 2 | Config, HTTP routes, WS handlers, wiring | done, reviewed (clean) | `7d12f5f6`, `c2d06a89` |
 | 3 | CLI (sh, TS bin), doc, prompt | done, reviewed (clean) | `99d98f43`, `0c56612a`, `71a3f273`, handoff `c836a270` |
-| 4 | Desktop UI | not started | |
+| 4 | Desktop UI | done, reviewed (clean) | `3e6bfc6a`, `ea6f37cf` |
 | 5 | Manual verification, final review | not started | |
 
 ## Facts for the next section
@@ -32,6 +32,8 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 - `api_request` (sh) now always sends the `X-Taskflow-*` context headers that are set. `contextHeaders()` (TS bin) is shared by `notify` and `devserver`.
 - OpenCode now loads `taskflow-agent-prompt.md` (`PROMPT_BASE`), written next to `SKILL.md`, before the skill.
 - The fake curl in `taskflow-cli.test.ts` records headers (`readCapturedHeaders`).
+- Section 4 code matches the plan snippets exactly. Verified: typecheck, scoped eslint/prettier, store 12, popover 12, relative-time 1; all 69 UI test files pass one at a time. No bootstrap test needed a `DEV_SERVER_LIST` expectation. The button's `textContent` is the bare count, so the tooltip doesn't render inline. Review clean (`reviews/impl-4-triage.md`).
+- Section 4 left these for Section 5's manual check (Radix portal timing in happy-dom): the icon opens the popover; stopping the last server leaves it open on `No dev servers running`; closing hides the icon and clears errors; a stop pending at close that fails afterwards shows no error on reopen.
 - Section 5's manual check should run `sh packages/backend/src/services/taskflow-cli.sh devserver add|list|remove` against the real backend with the session env.
 - Section 3 CLI headers: `X-Taskflow-Project-Id`, `X-Taskflow-Task-Id`, `X-Taskflow-Session-Id`; HTTP header names are case-insensitive. GET without `all=1` requires the project header.
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage; every UI test file passes alone. Judge UI tests file by file.
@@ -43,6 +45,7 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 
 - Section 1 (review fix `bbf73d40`, spec Amendment 12): stopping the backend's own PID (or `<= 0`) fails `operation not permitted` with no process command run; the tree walk prunes the backend's subtree. Two stopper tests added (31 total).
 - Section 3: no code deviations.
+- Section 4: no code deviations.
 - Section 2: no code deviations. The smoke test needed a readiness poll instead of a fixed 3s sleep, plus explicit `TASKFLOW_CONFIG_DIR` / `TASKFLOW_PORT_FILE` (see "Sandboxed backend").
 
 ## Sandboxed backend (for Section 5)
