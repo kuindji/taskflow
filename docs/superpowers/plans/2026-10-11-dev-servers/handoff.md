@@ -6,7 +6,7 @@ Plan: `../2026-10-11-dev-servers.md`. Spec: `docs/superpowers/specs/2026-10-11-d
 
 ## Next step
 
-Plan review round 2 (report: `reviews/round-2.md`; prompt `reviews/round-2-prompt.md`).
+Implement Section 1 (`01-backend-core.md`), following "Implementation steps" in `chain.md`.
 
 ## Status
 
@@ -20,6 +20,7 @@ Plan review round 2 (report: `reviews/round-2.md`; prompt `reviews/round-2-promp
 
 ## Facts for the next section
 
+- Plan reviews are done. Round 2: 6 confirmed (`reviews/round-2-triage.md`), spec Amendments 9-11. Round 3: all round 2 fixes hold, plus 1 minor (Section 5 item 10), fixed (`reviews/round-3-triage.md`).
 - Round 1 triaged in `reviews/round-1-triage.md` (all 11 confirmed; DS-08's promptless-Kimi part rejected as a known limitation). Fixes are in the section files, the plan index ("Plan review log", Review Focus) and the spec's new "Amendments" (items 1-8). Section 1 and 4 no longer write spec amendments for plan-time refinements; they only add implementation deviations.
 - The revised Section 1 stopper snippet + test were run from a scratch copy on macOS: 29/29 pass; tsc and eslint clean.
 
