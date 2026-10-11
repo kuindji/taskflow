@@ -179,6 +179,12 @@ export const config = {
     /** Stable, spawner-independent port file. Read over ssh when multicast is unavailable. */
     instancePortFile: join(BASE_DIR, `${instanceId}.port`),
     /**
+     * Dev servers agents registered. Local and per instance, never in the data
+     * dir: a PID only means something on the machine that issued it, and the
+     * data dir can be moved or synced.
+     */
+    devServersFile: join(BASE_DIR, `dev-servers-${instanceId}.json`),
+    /**
      * Stable backend identity. See readOrCreateBackendUid. Minted on first read,
      * not at import, so the many modules and tests that import config write
      * nothing into the config directory.
