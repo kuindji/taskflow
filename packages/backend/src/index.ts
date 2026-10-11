@@ -51,6 +51,9 @@ import { registerScheduleHandlers } from "./handlers/schedule";
 import { TrayStateTracker } from "./services/tray-state-tracker";
 import { NotificationStore } from "./services/notification-store";
 import { registerNotificationHandlers } from "./handlers/notification";
+import { DevServerStore } from "./services/dev-server-store";
+import { createDevServerService } from "./services/dev-server-service";
+import { registerDevServerHandlers } from "./handlers/dev-server";
 import { RemoteAgentService } from "./services/remote-agent-service";
 import { ConnectivityService } from "./services/connectivity-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
@@ -363,6 +366,11 @@ async function main() {
             notificationStore,
             broadcast: server.broadcast,
         });
+        const devServerService = createDevServerService({
+            store: new DevServerStore(config.devServersFile),
+            broadcast: server.broadcast,
+        });
+        registerDevServerHandlers({ router, devServerService });
         const generateScheduleName = createScheduleNameGenerator({ builtinActionRunner });
 
         registerScheduleHandlers({
@@ -404,6 +412,7 @@ async function main() {
             schedulerService,
             trayStateTracker,
             notificationStore,
+            devServerService,
             scheduleStore,
             shells,
             systemShellPath,

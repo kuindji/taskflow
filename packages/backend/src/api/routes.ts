@@ -8,6 +8,7 @@ import type { GitService } from "../services/git-service";
 import type { ChangeTracker } from "../services/change-tracker";
 import type { TrayStateTracker } from "../services/tray-state-tracker";
 import type { NotificationStore } from "../services/notification-store";
+import type { DevServerService } from "../services/dev-server-service";
 import type { ScheduleStore } from "../services/schedule-store";
 import type { RemoteAgentService } from "../services/remote-agent-service";
 import type { SchedulerService } from "../services/scheduler-service";
@@ -26,6 +27,7 @@ import { registerFlowRoutes } from "./routes/flow-routes";
 import { registerScheduleRoutes } from "./routes/schedule-routes";
 import { registerSettingsRoutes } from "./routes/settings-routes";
 import { registerNotificationRoutes } from "./routes/notification-routes";
+import { registerDevServerRoutes } from "./routes/dev-server-routes";
 import { registerAttributeRoutes } from "./routes/attribute-routes";
 import { registerFileRoutes } from "./routes/file-routes";
 
@@ -46,6 +48,7 @@ interface ApiRouteDeps {
     schedulerService: SchedulerService;
     trayStateTracker: TrayStateTracker;
     notificationStore: NotificationStore;
+    devServerService: DevServerService;
     scheduleStore: ScheduleStore;
     shells: ShellInfo[];
     systemShellPath: string | null;
@@ -64,6 +67,7 @@ function registerApiRoutes(deps: ApiRouteDeps): void {
     registerScheduleRoutes(deps);
     registerSettingsRoutes(deps);
     registerNotificationRoutes(deps);
+    registerDevServerRoutes(deps);
     registerFileRoutes(deps);
 }
 

@@ -53,6 +53,15 @@ const sharedTestDeps = {
     runtimes: [],
     editors: [],
     generateScheduleName: async (prompt: string) => prompt.slice(0, 50),
+    devServerService: {
+        list: async () => [],
+        add: async () => {
+            throw new Error("not used in these tests");
+        },
+        remove: async () => false,
+        removeByPid: async () => false,
+        stop: async () => ({ ok: true as const }),
+    },
     remoteAgentService: {
         getAppName: async () => "Test",
         getStatus: () => ({ running: false }),
@@ -131,6 +140,15 @@ describe("api routes", () => {
 
         expect(await found?.json()).toEqual({ taskId: "t1", projectId: "p1" });
         expect(missing?.status).toBe(404);
+    });
+
+    it("registers the dev server routes", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/dev-servers?all=1", { method: "GET" }),
+        );
+
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toEqual({ devServers: [] });
     });
 
     it("broadcasts explicit session status updates", async () => {
