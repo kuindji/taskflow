@@ -273,3 +273,12 @@ brainstorming.
 ### Section 1 implementation review (2026-10-11)
 
 12. **The backend's own process.** A stop of a record whose PID is the backend's own (or `<= 0`) fails with `operation not permitted` before any process command runs, and the record stays. When the backend is a descendant of the registered PID, the tree walk leaves out the backend and everything under it, because those are the sessions it runs.
+
+### Amendments (implementation, 2026-10-11)
+
+Every deviation recorded during implementation:
+
+- **Section 1:** the backend's-own-process guard (item 12 above, review fix `bbf73d40`). Two stopper tests were added for it.
+- **Section 2:** no code deviations. The sandboxed smoke run needed a readiness poll and explicit `TASKFLOW_CONFIG_DIR` / `TASKFLOW_PORT_FILE`.
+- **Sections 3 and 4:** no code deviations.
+- **Section 5 (manual verification):** no defects found. macOS `sh -c '<one command>'` execs the command in place, which leaves no wrapper. The wrapper-tree check ran `sh -c 'bunx serve -l 5198 .; :'` so `sh` stayed the server's parent. The offline-machine and Windows checks weren't run. Windows stop is unit-tested only and hasn't been verified on a real machine.
