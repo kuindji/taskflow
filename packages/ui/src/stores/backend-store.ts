@@ -13,6 +13,7 @@ import {
 } from "@/lib/connection-registry";
 import { useFlowStore } from "./flow-store";
 import { useNotificationStore } from "./notification-store";
+import { useDevServerStore } from "./dev-server-store";
 import { useProjectStore } from "./project-store";
 import { useScheduleStore } from "./schedule-store";
 import { useSettingsStore } from "./settings-store";
@@ -393,6 +394,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         // machine's projects and tasks still work: they never take it offline.
         void Promise.allSettled([
             useNotificationStore.getState().fetchNotifications(id),
+            useDevServerStore.getState().fetchDevServers(id),
             useScheduleStore.getState().fetchSchedules(id),
             useFlowStore.getState().fetchFlows(id),
             useFlowStore.getState().fetchActions(id),
