@@ -6,7 +6,7 @@ Plan: `../2026-10-11-dev-servers.md`. Spec: `docs/superpowers/specs/2026-10-11-d
 
 ## Next step
 
-Implement Section 5 (`05-verify.md`). Run it yourself, not through Sol ("Implementation steps" item 7 in `chain.md`): manual verification, the final whole-change review from the final-review base, then close-out. Afterwards stop the chain and notify the user that TSK-4 is ready for review and push.
+None: TSK-4 is complete and ready for the user's review and push. Chain stopped. Windows stop: unit-tested only, not verified on a real machine.
 
 ## Status
 
@@ -16,7 +16,7 @@ Implement Section 5 (`05-verify.md`). Run it yourself, not through Sol ("Impleme
 | 2 | Config, HTTP routes, WS handlers, wiring | done, reviewed (clean) | `7d12f5f6`, `c2d06a89` |
 | 3 | CLI (sh, TS bin), doc, prompt | done, reviewed (clean) | `99d98f43`, `0c56612a`, `71a3f273`, handoff `c836a270` |
 | 4 | Desktop UI | done, reviewed (clean) | `3e6bfc6a`, `ea6f37cf` |
-| 5 | Manual verification, final review | not started | |
+| 5 | Manual verification, final review | done, reviewed (clean) | no code commits; docs `487d2dfd` |
 
 ## Facts for the next section
 
@@ -41,11 +41,18 @@ Implement Section 5 (`05-verify.md`). Run it yourself, not through Sol ("Impleme
 - Shell is zsh: `$F` file lists don't word-split. Pass files to eslint and prettier explicitly.
 - `electron/package.json` may carry an uncommitted version bump by the user. Don't commit it.
 
+## Section 5 manual checklist (2026-10-11, sandboxed backend + browser UI, Playwright)
+
+1 no servers: pass. 2 real server: pass. 3 stop: pass. 4 wrapper tree: pass (ran `sh -c '...; :'`, because macOS `sh -c` with one command execs in place and leaves no wrapper). 5 stale PID: pass. 6 PID reuse: pass. 7 failure (syslogd, EPERM): pass. 8 CLI surface: pass. 9 archived task: pass (after a reload the row groups under the project). 10 popover (open, empty state, hide on close, error cleared on reopen, late failure while backend SIGSTOPped): pass. 11 prompt (`--help`, `/api/cli-help`, SKILL.md path, prompt file, `--append-system-prompt` of a real Claude session): pass. 12 offline machine: not run (no second machine attached in the browser sandbox). 13 Windows: not run. Windows stop: unit-tested only, not verified on a real machine.
+
+Final review (`reviews/final.md`): no findings (`reviews/final-triage.md`).
+
 ## Deviations from the spec
 
 - Section 1 (review fix `bbf73d40`, spec Amendment 12): stopping the backend's own PID (or `<= 0`) fails `operation not permitted` with no process command run; the tree walk prunes the backend's subtree. Two stopper tests added (31 total).
 - Section 3: no code deviations.
 - Section 4: no code deviations.
+- Section 5: no defects; no code changes. Spec gained "Amendments (implementation, 2026-10-11)".
 - Section 2: no code deviations. The smoke test needed a readiness poll instead of a fixed 3s sleep, plus explicit `TASKFLOW_CONFIG_DIR` / `TASKFLOW_PORT_FILE` (see "Sandboxed backend").
 
 ## Sandboxed backend (for Section 5)
