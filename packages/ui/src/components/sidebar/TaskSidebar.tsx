@@ -23,6 +23,7 @@ import { TaskDropZone } from "./TaskDropZone";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskControl } from "./NewTaskControl";
 import NotificationPopover from "./NotificationPopover";
+import { DevServerButton } from "./DevServerPopover";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { UpdateDialog } from "./UpdateDialog";
 import type { UpdateStatus } from "./UpdateDialog";
@@ -500,6 +501,7 @@ export function TaskSidebar() {
                             </Button>
                         </NotificationPopover>
                     )}
+                    <DevServerButton />
                     <OfflineIndicator />
                     <UpdateDialog
                         updateStatus={updateStatus}
