@@ -105,13 +105,10 @@ Add these tests at the end of `describe("taskflow-cli")`:
                 url: "http://localhost:1234/api/dev-servers",
                 data: '{"pid":4821,"label":"UI dev server :5173"}',
             });
-            expect(await readCapturedHeaders(captureFile)).toEqual(
-                expect.arrayContaining([
-                    "X-Taskflow-Project-Id: p1",
-                    "X-Taskflow-Task-Id: t1",
-                    "X-Taskflow-Session-Id: s1",
-                ]),
-            );
+            const headers = await readCapturedHeaders(captureFile);
+            expect(headers).toContain("X-Taskflow-Project-Id: p1");
+            expect(headers).toContain("X-Taskflow-Task-Id: t1");
+            expect(headers).toContain("X-Taskflow-Session-Id: s1");
         });
 
         it("omits the task header for a project-level session", async () => {
@@ -152,12 +149,28 @@ Add these tests at the end of `describe("taskflow-cli")`:
                 ["--pid", "1", "--label", "x", "stray"],
                 ["--pid", "1", "--label", "x", "--port", "3000"],
                 ["--pid"],
+                ["--pid", "1", "--label", "x", "-x"],
+                ["--pid", "1", "--label", "x", "--"],
+                ["--", "--pid", "1", "--label", "x"],
             ]) {
                 const result = runCli(cliPath, ["devserver", "add", ...args], { ...env, ...owner });
                 expect(result.status).toBe(1);
                 expect(String(result.stderr)).toContain("Usage: taskflow-cli devserver add");
             }
             expect(await captured(captureFile)).toBe(false);
+        });
+
+        it("takes `--` as a flag's value, not as end-of-flags", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "add", "--pid", "1", "--label", "--"], {
+                ...env,
+                ...owner,
+                CURL_RESPONSE: '{"id":"d1"}',
+                CURL_STATUS: "201",
+            });
+
+            expect(result.status).toBe(0);
+            expect((await readCapturedRequest(captureFile)).data).toBe('{"pid":1,"label":"--"}');
         });
 
         it("refuses add, list and remove without project context", async () => {
@@ -207,9 +220,11 @@ Add these tests at the end of `describe("taskflow-cli")`:
                 "http://localhost:1234/api/dev-servers?all=1",
             );
 
-            const stray = runCli(cliPath, ["devserver", "list", "--mine"], { ...env, ...owner });
-            expect(stray.status).toBe(1);
-            expect(String(stray.stderr)).toContain("Usage: taskflow-cli devserver list");
+            for (const args of [["--mine"], ["-x"], ["--"]]) {
+                const stray = runCli(cliPath, ["devserver", "list", ...args], { ...env, ...owner });
+                expect(stray.status).toBe(1);
+                expect(String(stray.stderr)).toContain("Usage: taskflow-cli devserver list");
+            }
         });
 
         it("removes by id or by pid", async () => {
@@ -244,6 +259,9 @@ Add these tests at the end of `describe("taskflow-cli")`:
                 ["--pid", ""],
                 ["--pid"],
                 ["--all"],
+                ["-x"],
+                ["--", "d1"],
+                ["d1", "--"],
             ]) {
                 const result = runCli(cliPath, ["devserver", "remove", ...args], {
                     ...env,
@@ -533,12 +551,23 @@ describe("taskflow-cli binary: devserver", () => {
             ["--pid", "1", "--label", ""],
             ["--pid", "1", "--label", "x", "stray"],
             ["--pid", "1", "--label", "x", "--port", "3000"],
+            ["--pid", "1", "--label", "x", "-x"],
+            ["--pid", "1", "--label", "x", "--"],
+            ["--", "--pid", "1", "--label", "x"],
         ]) {
             const result = await runBin(["devserver", "add", ...args], owner);
             expect(result.status).toBe(1);
             expect(result.stderr).toContain("Usage: taskflow-cli devserver add");
         }
         expect(requests).toEqual([]);
+    });
+
+    it("takes `--` as a flag's value, not as end-of-flags", async () => {
+        const requests = startDevServerApi(201);
+        const result = await runBin(["devserver", "add", "--pid", "1", "--label", "--"], owner);
+
+        expect(result.status).toBe(0);
+        expect(requests.map((r) => r.body)).toEqual(['{"pid":1,"label":"--"}']);
     });
 
     it("refuses add, list and remove without project context", async () => {
@@ -571,7 +600,9 @@ describe("taskflow-cli binary: devserver", () => {
         expect((await runBin(["devserver", "list", "--all"], {})).status).toBe(0);
         // Like the sh script, --all still sends whatever context is set.
         expect((await runBin(["devserver", "list", "--all"], owner)).status).toBe(0);
-        expect((await runBin(["devserver", "list", "--mine"], owner)).status).toBe(1);
+        for (const args of [["--mine"], ["-x"], ["--"]]) {
+            expect((await runBin(["devserver", "list", ...args], owner)).status).toBe(1);
+        }
 
         expect(requests.map((r) => [r.method, r.path, r.project])).toEqual([
             ["GET", "/api/dev-servers", "p1"],
@@ -601,6 +632,9 @@ describe("taskflow-cli binary: devserver", () => {
             ["--pid", "5", "--pid", "6"],
             ["--pid", "x"],
             ["--all"],
+            ["-x"],
+            ["--", "d1"],
+            ["d1", "--"],
         ]) {
             const result = await runBin(["devserver", "remove", ...args], owner);
             expect(result.status).toBe(1);
@@ -619,7 +653,7 @@ describe("taskflow-cli binary: devserver", () => {
 });
 ```
 
-`remove --pid 5 --pid 6` is a usage error on both sides. The sh test and this one pin it.
+`remove --pid 5 --pid 6` is a usage error on both sides. The sh test and this one pin it. So are a bare `--` where a flag could stand and an argument starting with `-` that isn't a known flag: the sh `case` rejects both, while `consumeFlags` treats `--` as end-of-flags and `-x` as positional. `--` as a flag's value (`--label --`) is accepted by both.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -661,6 +695,19 @@ c) Add after `handleNotify`:
 ```ts
 const DIGITS = /^\d+$/;
 
+/**
+ * True when a bare `--` stands where a flag could. `consumeFlags` reads it as
+ * end-of-flags; the sh CLI rejects it. `valueFlags` take the next argument, so
+ * `--label --` is a value, not a sentinel.
+ */
+function hasEndOfFlags(args: string[], valueFlags: string[]): boolean {
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--") return true;
+        if (valueFlags.includes(args[i])) i++;
+    }
+    return false;
+}
+
 async function handleDevserver(args: string[]): Promise<void> {
     const subcmd = args[0] ?? "";
     const subArgs = args.slice(1);
@@ -674,7 +721,13 @@ async function handleDevserver(args: string[]): Promise<void> {
             });
             const pid = typeof flags.pid === "string" ? flags.pid : "";
             const label = typeof flags.label === "string" ? flags.label : "";
-            if (!DIGITS.test(pid) || !label || positional.length > 0 || unknown.length > 0) {
+            if (
+                hasEndOfFlags(subArgs, ["--pid", "--label"]) ||
+                !DIGITS.test(pid) ||
+                !label ||
+                positional.length > 0 ||
+                unknown.length > 0
+            ) {
                 process.stderr.write(usage);
                 process.exit(1);
             }
@@ -691,7 +744,7 @@ async function handleDevserver(args: string[]): Promise<void> {
         }
         case "list": {
             const { flags, positional, unknown } = consumeFlags(subArgs, { all: "boolean" });
-            if (positional.length > 0 || unknown.length > 0) {
+            if (hasEndOfFlags(subArgs, []) || positional.length > 0 || unknown.length > 0) {
                 process.stderr.write("Usage: taskflow-cli devserver list [--all]\n");
                 process.exit(1);
             }
@@ -716,8 +769,18 @@ async function handleDevserver(args: string[]): Promise<void> {
             const { flags, positional, unknown } = consumeFlags(subArgs, { pid: "string" });
             const pid = typeof flags.pid === "string" ? flags.pid : undefined;
             const byPid = pid !== undefined && positional.length === 0 && DIGITS.test(pid);
-            const byId = pid === undefined && positional.length === 1 && positional[0] !== "";
-            if (unknown.length > 0 || pidFlags > 1 || (!byPid && !byId)) {
+            // `-x` is positional to consumeFlags; the sh CLI rejects it as an unknown flag.
+            const byId =
+                pid === undefined &&
+                positional.length === 1 &&
+                positional[0] !== "" &&
+                !positional[0].startsWith("-");
+            if (
+                hasEndOfFlags(subArgs, ["--pid"]) ||
+                unknown.length > 0 ||
+                pidFlags > 1 ||
+                (!byPid && !byId)
+            ) {
                 process.stderr.write(usage);
                 process.exit(1);
             }

@@ -20,6 +20,8 @@ cd packages/backend && TASKFLOW_CONFIG_DIR="$SANDBOX" TASKFLOW_DEV=1 TASKFLOW_DE
 cd packages/ui && VITE_BACKEND_PORT=18799 bun run dev
 ```
 
+The browser renderer opens one connection to primary and creates no machine rows; Section 4's `useLiveDevServers` shows primary's rows in that case. Items 12 and 13 need machine rows, so run them from the Electron app (sandboxed the same way) if they're run at all.
+
 Seed one project (this repo) and one task over the WS API (`project:list` first, then `project:add {path}` and `task:create {projectId, title}`). Drive the UI with Playwright.
 
 - [ ] **Step 2: Run the checklist**
@@ -38,7 +40,7 @@ Record each item as pass or fail in `handoff.md`:
 8. **CLI surface.**
    - `devserver list` shows the task's records.
    - `devserver list --all` shows everything.
-   - `devserver add --pid abc --label x` prints the `devserver add` usage and exits 1, and the sandbox backend receives no request.
+   - `devserver add --pid abc --label x` prints the `devserver add` usage and exits 1, and the sandbox backend receives no `/api/dev-servers` request. The `GET /api/sessions/<id>/owner` lookup runs before dispatch and is expected.
    - `devserver add --pid 0 --label x` prints `Field 'pid' must be a positive integer` and exits non-zero.
    - `devserver remove --pid 5 --pid 6` prints the `devserver remove` usage and exits 1.
    - A label of 81 characters prints `Field 'label' must be at most 80 characters`.
@@ -48,7 +50,8 @@ Record each item as pass or fail in `handoff.md`:
     - clicking the icon opens the popover;
     - after you stop the last server, the popover stays open showing `No dev servers running`;
     - closing it hides the icon;
-    - a stop error that was showing is gone when you reopen the popover.
+    - a stop error that was showing is gone when you reopen the popover;
+    - a stop that fails after the popover closed shows no error on reopen. Register `sleep 300 &`, `kill -STOP` the sandbox backend, click Stop, close the popover, wait out the 30 s request timeout, `kill -CONT` the backend, then reopen: no `Request timeout` error under the row. Kill the sleep if it is still running.
 11. **Prompt.**
     - `taskflow-cli --help` and `/api/cli-help` show the `devserver` command syntax (the doc is inlined there, so look for `taskflow-cli devserver add --pid <pid> --label "<label>"`).
     - The written `SKILL.md` in the sandbox's agent-skills dir references `taskflow-cli-devserver-commands.md` by path, and `taskflow-agent-prompt.md` sits next to it with the paragraph.

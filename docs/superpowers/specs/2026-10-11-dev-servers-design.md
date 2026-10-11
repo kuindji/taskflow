@@ -263,3 +263,9 @@ brainstorming.
    - A group's task title is looked up in both live and archived tasks. Records whose task is in neither list join the project's group.
 7. **Disconnects.** A dropped socket only marks the machine `offline`, and no store is reset. So the popover and the badge show rows only from machines whose state is `attached`, which hides an offline backend's rows. Reconnecting refetches through `bootstrapBackend`. A stop request that settles after its backend was reset changes nothing.
 8. **Agent prompt delivery.** OpenCode takes no system prompt, so `PROMPT_BASE` (with the paragraph) is written to `taskflow-agent-prompt.md` next to `SKILL.md`, and OpenCode loads it as an instruction file before the skill. **Known limitation:** Kimi started without a prompt receives no Taskflow instructions at all. That's existing behaviour for its typed-input channel, and this feature doesn't change it.
+
+### Plan review round 2 (2026-10-11)
+
+9. **Browser dev renderer.** It opens one connection to primary and creates no machine rows. The popover and the badge show primary's rows while no machine row exists for primary. Every other backend still needs an `attached` machine row.
+10. **Stop errors and the popover.** Opening the popover clears stop errors as well as closing it, because a stop still pending at close can fail afterwards. A stop in progress keeps `"stopping"`.
+11. **CLI parity.** The TS bin rejects what the sh `case` rejects: a bare `--` where a flag could stand (all three subcommands) and a `remove` argument starting with `-`. `--` as a flag's value (`--label --`) is accepted by both.

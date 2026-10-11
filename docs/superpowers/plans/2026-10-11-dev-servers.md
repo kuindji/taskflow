@@ -148,7 +148,7 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
 2b. **An OS command that fails** (`ps` missing, process table unreadable, `taskkill` refused). It fails the stop and never reads as "gone" or "stopped". Pinned in Section 1 (the ops tests).
 3. **Stop must never kill the agent's own shell or process group.** No `kill(-pgid)` anywhere. Pinned in Section 1 (a test spawns the tree under a parent that must survive), and the reviewer greps for negative-PID signals.
 4. **A stop that fails** (EPERM, or a process that survives SIGKILL) keeps the row and shows the error under it. The button comes back, and the next attempt clears the error. Pinned in Section 1 (injected `failed` outcome keeps the record) and Section 4 (popover error and retry test).
-5. **Multiple backends.** Rows from each backend are stopped through that backend's own connection. A reset drops only that backend's rows. A machine that's offline (a dropped socket, no reset) has its rows hidden. A stop that settles after a reset, or after a re-registration of the same id, changes nothing it shouldn't. Pinned in Section 4: the two-backend store tests, the stale-completion tests, and the offline-machine component tests.
+5. **Multiple backends.** Rows from each backend are stopped through that backend's own connection. A reset drops only that backend's rows. A machine that's offline (a dropped socket, no reset) has its rows hidden. The browser dev renderer's primary, which has no machine row, still shows its rows. A stop that settles after a reset, or after a re-registration of the same id, changes nothing it shouldn't. Pinned in Section 4: the two-backend store tests, the stale-completion tests, and the offline-machine component tests.
 
 ## Execution notes
 
@@ -168,3 +168,7 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
   - Section 3: OpenCode gets the prompt file; the TS CLI matches sh on repeated `--pid` and `--all` headers.
   - Section 4: stale-completion tokens, a `registeredAt`-matched row removal, the offline-machine filter, and the deleted-task grouping fix.
   - Section 5: the PID 1 check was replaced; the CLI and help checks were corrected; offline and Windows items were added.
+- **Round 2** (gpt-6.1-sol, `2026-10-11-dev-servers/reviews/round-2.md`; triage in `round-2-triage.md`): all round 1 fixes hold except DS-10's "no request" wording. 2 majors and 4 minors confirmed.
+  - Section 4: the live-rows filter also shows primary's rows when primary has no machine row (browser dev renderer), with a test; opening the popover clears stop errors too; the reset/refetch test uses holder objects so it compiles; the component fake drops a meaningless `void`.
+  - Section 3: header assertions use `toContain`; the TS bin rejects a bare `--` and `remove -x` like sh, with tests on both sides.
+  - Section 5: browser vs Electron noted; item 8 allows the owner lookup; item 10 adds the late-failure/reopen check.
