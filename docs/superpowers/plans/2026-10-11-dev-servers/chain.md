@@ -75,5 +75,13 @@ gpt-6.1-sol implements. This Opus session briefs it, checks its work, and owns t
    - Check against CLAUDE.md: no duplication, no `as any`, no new eslint-disable, no unused exports, existing types reused, no `mock.module`.
    - Run the section's checks yourself: typecheck, eslint and prettier on the changed files, the section's tests, and the full suite of each package touched. Rerun the known flaky backend test once before investigating it.
 4. Fix what's wrong. Small fixes: do them yourself, test-first, as `fix:` commits. Larger rework: send Sol a follow-up brief naming the exact problems (same command, `impl-K-fix-brief.md`), then verify again.
-5. Record Sol's deviations and your fixes under "Deviations from the spec" in `handoff.md`, and its commits in the status row.
-6. Next step after Section K is "Implement Section K+1". Section 5 is the exception: run it yourself rather than through Sol (manual verification, final review, close-out). After it, stop the chain and notify the user that TSK-4 is ready for review and push.
+5. Section review by gpt-6.1-sol, in a fresh Codex context. Read the `codex-review` skill first; this is Mode A.
+
+   ```bash
+   codex exec review --base <base> -m gpt-6.1-sol -c sandbox_mode=read-only \
+     > docs/superpowers/plans/2026-10-11-dev-servers/reviews/impl-K-review.md 2> docs/superpowers/plans/2026-10-11-dev-servers/reviews/impl-K-review.log
+   ```
+
+   Run it in the background and wait. Verify every finding yourself against the code, and record `confirmed` or `rejected` with the reason in `reviews/impl-K-triage.md`. Fix confirmed findings test-first, either yourself or through a Sol follow-up brief. One review round per section is enough unless a confirmed blocker's fix is large; then review the fix range once more.
+6. Record Sol's deviations and your fixes under "Deviations from the spec" in `handoff.md`, and its commits in the status row.
+7. Next step after Section K is "Implement Section K+1". Section 5 is the exception: run it yourself rather than through Sol (manual verification, final review, close-out). After it, stop the chain and notify the user that TSK-4 is ready for review and push.
