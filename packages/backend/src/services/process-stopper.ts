@@ -186,6 +186,8 @@ function createWindowsProcessOps(run: CommandRunner = runCommand): ProcessOps {
 /**
  * The pid followed by its descendants. A child that started before its parent is
  * skipped: its ppid names an earlier holder of that pid (Windows keeps stale ppids).
+ * So are non-positive pids and the backend, with their whole subtrees: the backend's
+ * descendants are the sessions it runs.
  */
 function collectTree(rows: ProcessRow[], pid: number): number[] {
     const startedMs = new Map(rows.map((row) => [row.pid, row.startedMs]));
@@ -200,6 +202,7 @@ function collectTree(rows: ProcessRow[], pid: number): number[] {
     for (const current of result) {
         const parentStarted = startedMs.get(current);
         for (const child of children.get(current) ?? []) {
+            if (child.pid <= 0 || child.pid === process.pid) continue;
             if (result.includes(child.pid)) continue;
             if (
                 parentStarted !== undefined &&
@@ -249,6 +252,9 @@ function createProcessStopper(options: StopperOptions = {}): StopProcess {
     });
 
     return async (pid, registeredAt) => {
+        // Not a process group, and not the backend: stopping it would take every
+        // session down with it.
+        if (pid <= 0 || pid === process.pid) return failed(pid, "operation not permitted");
         const started = await ops.startTime(pid);
         if (started === null) return { status: "gone" };
         // Whole seconds on both sides: a process that started in a later second
@@ -259,9 +265,7 @@ function createProcessStopper(options: StopperOptions = {}): StopProcess {
         // not signal (PID 1, another user's) never gets its descendants signalled.
         // Never 0 or a negative pid (a process group: background jobs share the
         // agent's group, so a group kill could take the agent down), never the backend.
-        const pids = collectTree(await ops.processes(), pid).filter(
-            (p) => p > 0 && p !== process.pid,
-        );
+        const pids = collectTree(await ops.processes(), pid);
         if ((await ops.signal(pids, false)) === "denied")
             return failed(pid, "operation not permitted");
         const survivors = await waitForExit(pids, termGraceMs);

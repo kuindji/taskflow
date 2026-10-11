@@ -134,6 +134,33 @@ describe("createProcessStopper", () => {
         expect(ops.signals[0].pids).toEqual([42]);
     });
 
+    it("refuses the backend's own pid without signalling its descendants", async () => {
+        const ops = fakeOps({
+            rows: [
+                { pid: process.pid, ppid: 1 },
+                { pid: 900, ppid: process.pid },
+            ],
+        });
+        expect(await stopperWith(ops)(process.pid, registeredAt())).toEqual({
+            status: "failed",
+            error: `Could not stop pid ${process.pid}: operation not permitted`,
+        });
+        expect(ops.signals).toEqual([]);
+    });
+
+    it("leaves the backend's subtree out when the backend is a descendant", async () => {
+        const ops = fakeOps({
+            rows: [
+                { pid: 42, ppid: 1 },
+                { pid: process.pid, ppid: 42 },
+                { pid: 900, ppid: process.pid },
+                { pid: 43, ppid: 42 },
+            ],
+        });
+        await stopperWith(ops)(42, registeredAt());
+        expect(ops.signals[0].pids).toEqual([42, 43]);
+    });
+
     it("skips a child that predates its parent (a stale ppid naming a reused pid)", async () => {
         const ops = fakeOps({
             rows: [
