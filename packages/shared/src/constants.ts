@@ -206,6 +206,10 @@ export const MSG = {
     NOTIFICATION_UPDATED: "notification:updated",
     NOTIFICATION_DELETED: "notification:deleted",
 
+    // Dev servers
+    DEV_SERVER_LIST: "devserver:list",
+    DEV_SERVER_STOP: "devserver:stop",
+
     // Master workspace
     MASTER_SESSIONS_LIST: "master:sessions-list",
 
