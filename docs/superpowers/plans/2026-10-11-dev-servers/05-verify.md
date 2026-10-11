@@ -34,11 +34,13 @@ Record each item as pass or fail in `handoff.md`:
 4. **Wrapper tree.** Start `sh -c 'bunx serve -l 5198 .' &` and register the `sh` PID. Stop it. Port 5198 is free afterwards, and the shell that ran the command is still alive.
 5. **Stale PID.** Register PID `999999`. Stop it: the row disappears and no error shows.
 6. **PID reuse.** Run `sleep 300 &`. Edit the record's `registeredAt` in `$SANDBOX/dev-servers-dev-*.json` to an hour ago. The store re-reads the file on every operation, so no restart is needed. Stop it: the row disappears and `kill -0 <pid>` still succeeds. Kill the sleep by hand.
-7. **Failure.** Register PID `1` (launchd, so EPERM). Stop it: the error `Could not stop pid 1: operation not permitted` shows under the row, the button comes back, and a second click clears it and shows it again. Then run `devserver remove --pid 1`; the row disappears.
+7. **Failure.** Never register PID 1 or another process with user-owned descendants. Register a root-owned daemon with no children, so the signal gets EPERM: `pgrep -x -U root syslogd` (check that `pgrep -P <pid>` prints nothing). Stop it: the error `Could not stop pid <pid>: operation not permitted` shows under the row, and the button comes back. A second click clears the error and then shows it again. The daemon is still running. Then run `devserver remove --pid <pid>`; the row disappears.
 8. **CLI surface.**
    - `devserver list` shows the task's records.
    - `devserver list --all` shows everything.
-   - `devserver add --pid abc --label x` prints `Field 'pid' must be a positive integer` and exits non-zero.
+   - `devserver add --pid abc --label x` prints the `devserver add` usage and exits 1, and the sandbox backend receives no request.
+   - `devserver add --pid 0 --label x` prints `Field 'pid' must be a positive integer` and exits non-zero.
+   - `devserver remove --pid 5 --pid 6` prints the `devserver remove` usage and exits 1.
    - A label of 81 characters prints `Field 'label' must be at most 80 characters`.
    - `devserver remove <unknown id>` prints `Dev server not found`.
 9. **Survives session and task lifecycle.** Register a server, then archive the task. The row is still there, grouped under the project name if the archived task can't be found. Stop works.
@@ -47,7 +49,12 @@ Record each item as pass or fail in `handoff.md`:
     - after you stop the last server, the popover stays open showing `No dev servers running`;
     - closing it hides the icon;
     - a stop error that was showing is gone when you reopen the popover.
-11. **Prompt.** Start a real Claude session from the sandbox UI. Run `taskflow-cli --help` and check `/api/cli-help`: both list the `devserver` doc path. The appended system prompt contains the paragraph from the plan index's Global Constraints word for word. You can check this from the launch spec in the session log, or by asking the agent to quote its Taskflow instructions.
+11. **Prompt.**
+    - `taskflow-cli --help` and `/api/cli-help` show the `devserver` command syntax (the doc is inlined there, so look for `taskflow-cli devserver add --pid <pid> --label "<label>"`).
+    - The written `SKILL.md` in the sandbox's agent-skills dir references `taskflow-cli-devserver-commands.md` by path, and `taskflow-agent-prompt.md` sits next to it with the paragraph.
+    - Start a real Claude session from the sandbox UI. Its appended system prompt contains the paragraph from the plan index's Global Constraints word for word. Check it in the launch spec in the session log, or ask the agent to quote its Taskflow instructions.
+12. **Offline machine.** If a second machine is attachable, register a server on it, then kill its tunnel or backend. Its rows and its share of the count disappear while it's offline, and come back after it reconnects. Otherwise record this as not run.
+13. **Windows.** If a Windows machine is reachable, attach it, register a `bun run dev` style tree (a wrapper whose child holds the port), and stop it. The port is free afterwards, and so is every process in the tree, including a child that outlived its parent. Also stop a record whose PID has exited (row disappears, no error). If no Windows machine is reachable, record "Windows stop: unit-tested only, not verified on a real machine" in `handoff.md` and in the final notification.
 
 Stop the sandbox backend and UI, and delete the sandbox directory.
 
@@ -72,7 +79,7 @@ Verify each finding yourself against the code. Record `confirmed` or `rejected`,
 
 - [ ] **Step 1: Spec amendments**
 
-Add an "Amendments (implementation, <date>)" section to the spec. It lists every deviation recorded in `handoff.md`, including the ones Sections 1 and 4 announce: `etime` instead of `lstart`, the button next to the notification bell, and the inline store subscription.
+Add an "Amendments (implementation, <date>)" section to the spec. It lists every deviation recorded in `handoff.md` during implementation. The plan-review refinements are already under "Amendments"; don't repeat them.
 
 - [ ] **Step 2: Handoff and tracking**
 

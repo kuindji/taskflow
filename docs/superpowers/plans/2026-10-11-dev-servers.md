@@ -8,7 +8,7 @@
 - **Records:** declared by agents only. They're kept per backend instance in `~/.config/taskflow/dev-servers-<instanceId>.json`.
 - **Service:** a `DevServerService` wraps the store and the one-shot process stopper. It broadcasts the full list after every change.
 - **Transport:** the CLI talks HTTP; the desktop UI talks WS.
-- **Stopping:** a stop runs the PID-reuse guard, signals the PID's whole process tree (SIGTERM, then SIGKILL) and reports `ok` or an error.
+- **Stopping:** a stop runs the PID-reuse guard, then signals the PID's whole process tree, registered PID first, with SIGTERM and then SIGKILL. It reports `ok` or an error.
 
 **Tech Stack:** Bun, TypeScript, POSIX sh, React + zustand, bun:test (happy-dom preload for UI tests).
 
@@ -71,6 +71,7 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
       add(input: DevServerInput): Promise<DevServer>; // same pid → replace label/owner/registeredAt, keep id
       remove(id: string): Promise<boolean>;
       removeByPid(pid: number): Promise<boolean>;
+      removeIfUnchanged(server: DevServer): Promise<boolean>; // only while id and registeredAt still match
   }
   ```
 - `services/dev-server-service.ts`:
@@ -101,7 +102,7 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
       | { status: "failed"; error: string };
   type StopProcess = (pid: number, registeredAt: string) => Promise<StopOutcome>;
   ```
-  The service removes the record for `stopped`, `gone` and `reused`, and returns `{ ok: true }`. For `failed` it keeps the record and returns `{ ok: false, error }`.
+  The service removes the record for `stopped`, `gone` and `reused` with `store.removeIfUnchanged(server)`, so a re-registration of the same PID made while the stop ran survives. It returns `{ ok: true }`. For `failed` it keeps the record and returns `{ ok: false, error }`. If the stopper throws (an OS command failed), `stop` rejects and the WS request fails with that message. A failed command never reads as "gone" or "stopped".
 - `config.devServersFile = join(BASE_DIR, \`dev-servers-${instanceId}.json\`)`. This goes on the `config` object, not in `buildDataPaths`, so a data-dir change doesn't move it. Added in Section 2.
 
 **HTTP** (Section 2 produces, Section 3 consumes):
@@ -141,11 +142,13 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
 
 ## Review Focus
 
-1. **A stale record whose PID now belongs to an unrelated process.** Stop must not signal it; it just removes the record. Pinned in Section 1 (reuse guard test with a live `sleep` started after `registeredAt`, asserting it is still alive afterwards).
-2. **`bun run dev` style trees.** The registered PID is a wrapper whose child holds the port. Stop must take the child down too. Pinned in Section 1 (parent and child `sleep` tree test).
+1. **A stale record whose PID now belongs to an unrelated process.** Stop must not signal it; it just removes the record. The start time is absolute (`lstart` in UTC on POSIX, `StartTime` on Windows), compared in whole seconds with no slack. Pinned in Section 1: the reuse-guard test with a live `sleep` started after `registeredAt` (asserting it's still alive afterwards), and the same-second / next-second boundary test.
+2. **`bun run dev` style trees.** The registered PID is a wrapper whose child holds the port. Stop must take the child down too, even when the wrapper exits first, on Windows as well. Pinned in Section 1: the parent and child `sleep` tree test, plus the fake-ops test where a descendant outlives the root.
+2a. **A PID the backend may not signal** (PID 1, another user's daemon). The registered PID is signalled first, and a refusal stops everything, so its descendants are never touched. Pinned in Section 1 (the refusal tests for the stopper and for both ops).
+2b. **An OS command that fails** (`ps` missing, process table unreadable, `taskkill` refused). It fails the stop and never reads as "gone" or "stopped". Pinned in Section 1 (the ops tests).
 3. **Stop must never kill the agent's own shell or process group.** No `kill(-pgid)` anywhere. Pinned in Section 1 (a test spawns the tree under a parent that must survive), and the reviewer greps for negative-PID signals.
 4. **A stop that fails** (EPERM, or a process that survives SIGKILL) keeps the row and shows the error under it. The button comes back, and the next attempt clears the error. Pinned in Section 1 (injected `failed` outcome keeps the record) and Section 4 (popover error and retry test).
-5. **Multiple backends.** Rows from each backend are stopped through that backend's own connection, and a disconnect drops only that backend's rows. Pinned in Section 4 (store test with two backends and a backend reset).
+5. **Multiple backends.** Rows from each backend are stopped through that backend's own connection. A reset drops only that backend's rows. A machine that's offline (a dropped socket, no reset) has its rows hidden. A stop that settles after a reset, or after a re-registration of the same id, changes nothing it shouldn't. Pinned in Section 4: the two-backend store tests, the stale-completion tests, and the offline-machine component tests.
 
 ## Execution notes
 
@@ -159,4 +162,9 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
 
 ## Plan review log
 
-(empty)
+- **Round 1** (gpt-6.1-sol, `2026-10-11-dev-servers/reviews/round-1.md`; triage in `round-1-triage.md`): 2 blockers and 6 majors confirmed, 3 minors confirmed. The DS-08 part about promptless Kimi was rejected as a pre-existing, all-prompt limitation.
+  - Section 1 (stopper): rewritten around `processes()` snapshots, root-first signalling that stops at the first refusal, `lstart` in UTC with no slack, and failures that throw.
+  - Section 1 (service): `removeIfUnchanged` added.
+  - Section 3: OpenCode gets the prompt file; the TS CLI matches sh on repeated `--pid` and `--all` headers.
+  - Section 4: stale-completion tokens, a `registeredAt`-matched row removal, the offline-machine filter, and the deleted-task grouping fix.
+  - Section 5: the PID 1 check was replaced; the CLI and help checks were corrected; offline and Windows items were added.

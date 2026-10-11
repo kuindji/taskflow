@@ -247,3 +247,19 @@ brainstorming.
 - **UI:** a component test for the popover covering grouping (including
   backend names when there are several backends), the "Stopping…" state, the
   error state, and the icon hiding at zero. Run UI component tests per file.
+
+## Amendments
+
+### Plan review round 1 (2026-10-11)
+
+1. **Start time (POSIX).** It is read with `ps -o lstart=` under `LC_ALL=C TZ=UTC` and parsed as UTC, so it doesn't depend on locale or DST. The reuse rule is as written above, with no slack: reused iff the start, truncated to seconds, is later than `registeredAt` truncated to seconds.
+2. **Signal order.** The registered PID is signalled first. Signalling stops at the first refusal (EPERM, or a `taskkill` failure for a PID that's still running), so a process the backend may not signal never has its descendants signalled.
+3. **Windows.** The tree comes from one `Get-CimInstance Win32_Process` snapshot. A child that started before its parent is skipped, because Windows keeps a dead parent's PID as `ppid`. Survivor checks cover every PID in the tree, not just the parent. Each PID is ended with `taskkill /PID <pid> /F`, in both phases and without `/T`, because a taskkill without `/F` doesn't stop console processes.
+4. **Command failures.** A failed or missing OS command fails the stop: the WS request errors, and the record stays. It never reads as "process gone" or "stopped". A failed `ps` start-time read counts as "gone" only when `kill(pid, 0)` returns ESRCH.
+5. **Re-registration during a stop.** The stop removes the record only while its `id` and `registeredAt` are unchanged (`DevServerStore.removeIfUnchanged`), so a re-add of the same PID made meanwhile survives. In the UI, an `ok` removes the row only when its `registeredAt` also matches.
+6. **Desktop UI, Section 4 plan:**
+   - The button sits in `TaskSidebar`'s bottom-left toolbar group, directly after the notification bell (where the bell actually lives), not in `SidebarToolbar`.
+   - The `DEV_SERVER_LIST` subscription lives inline in `stores/dev-server-store.ts`, following `notification-store.ts`; there's no separate subscriptions file.
+   - A group's task title is looked up in both live and archived tasks. Records whose task is in neither list join the project's group.
+7. **Disconnects.** A dropped socket only marks the machine `offline`, and no store is reset. So the popover and the badge show rows only from machines whose state is `attached`, which hides an offline backend's rows. Reconnecting refetches through `bootstrapBackend`. A stop request that settles after its backend was reset changes nothing.
+8. **Agent prompt delivery.** OpenCode takes no system prompt, so `PROMPT_BASE` (with the paragraph) is written to `taskflow-agent-prompt.md` next to `SKILL.md`, and OpenCode loads it as an instruction file before the skill. **Known limitation:** Kimi started without a prompt receives no Taskflow instructions at all. That's existing behaviour for its typed-input channel, and this feature doesn't change it.

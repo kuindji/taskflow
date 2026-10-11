@@ -21,7 +21,8 @@ taskflow-cli devserver remove --pid <pid>
 - `remove` takes exactly one of `<id>` or `--pid <pid>`.
 - Any unknown flag or stray positional is a usage error, exit 1.
 - **Project context:** `TASKFLOW_PROJECT_ID` is required for `add`, `list` (without `--all`) and `remove`. If it's missing, print `Error: TASKFLOW_PROJECT_ID is not set` and exit 1 before any request. `list --all` needs no context.
-- **Headers:** requests carry `X-Taskflow-Project-Id`, `X-Taskflow-Task-Id` and `X-Taskflow-Session-Id` for whichever of the three ids is set. `list --all` sends whatever happens to be set; the backend ignores headers when `all=1`.
+- **Headers:** requests carry `X-Taskflow-Project-Id`, `X-Taskflow-Task-Id` and `X-Taskflow-Session-Id` for whichever of the three ids is set. `list --all` sends them too, whichever are set, in both implementations; the backend ignores headers when `all=1`.
+- **Repeated `--pid` in `remove`** is a usage error in both implementations. The TS parser keeps only the last value of a repeated flag, so the bin counts `--pid` occurrences, as `session move` already does for its target flags.
 - **Errors:** every request goes through the helper that prints the backend's error body: `api_request` in sh, `api()` in TS. That way `{"error":"Field 'label' must be at most 80 characters"}` and similar messages reach the agent, with exit 1.
 - **Output:** the backend's JSON body, printed as-is.
 
@@ -568,11 +569,14 @@ describe("taskflow-cli binary: devserver", () => {
 
         expect((await runBin(["devserver", "list"], owner)).status).toBe(0);
         expect((await runBin(["devserver", "list", "--all"], {})).status).toBe(0);
+        // Like the sh script, --all still sends whatever context is set.
+        expect((await runBin(["devserver", "list", "--all"], owner)).status).toBe(0);
         expect((await runBin(["devserver", "list", "--mine"], owner)).status).toBe(1);
 
         expect(requests.map((r) => [r.method, r.path, r.project])).toEqual([
             ["GET", "/api/dev-servers", "p1"],
             ["GET", "/api/dev-servers?all=1", null],
+            ["GET", "/api/dev-servers?all=1", "p1"],
         ]);
     });
 
@@ -590,7 +594,14 @@ describe("taskflow-cli binary: devserver", () => {
 
     it("refuses remove without exactly one of <id> or --pid", async () => {
         const requests = startDevServerApi();
-        for (const args of [[], ["d1", "d2"], ["d1", "--pid", "5"], ["--pid", "x"], ["--all"]]) {
+        for (const args of [
+            [],
+            ["d1", "d2"],
+            ["d1", "--pid", "5"],
+            ["--pid", "5", "--pid", "6"],
+            ["--pid", "x"],
+            ["--all"],
+        ]) {
             const result = await runBin(["devserver", "remove", ...args], owner);
             expect(result.status).toBe(1);
             expect(result.stderr).toContain("Usage: taskflow-cli devserver remove");
@@ -608,7 +619,7 @@ describe("taskflow-cli binary: devserver", () => {
 });
 ```
 
-Note that `remove --pid 5 --pid 6` is a usage error in sh but not here: `consumeFlags` keeps the last value. That's acceptable. The sh test pins the stricter case, and both sides agree on every case listed above.
+`remove --pid 5 --pid 6` is a usage error on both sides. The sh test and this one pin it.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -685,7 +696,10 @@ async function handleDevserver(args: string[]): Promise<void> {
                 process.exit(1);
             }
             if (flags.all === true) {
-                process.stdout.write(await api("GET", "/api/dev-servers?all=1"));
+                // Same headers as the sh script, which always sends the context that's set.
+                process.stdout.write(
+                    await api("GET", "/api/dev-servers?all=1", undefined, contextHeaders()),
+                );
                 break;
             }
             requireProjectId();
@@ -696,11 +710,14 @@ async function handleDevserver(args: string[]): Promise<void> {
         }
         case "remove": {
             const usage = "Usage: taskflow-cli devserver remove <id> | --pid <pid>\n";
+            // consumeFlags keeps only the last of a repeated flag, so count --pid here
+            // to reject `--pid 5 --pid 6` like the sh CLI.
+            const pidFlags = subArgs.filter((arg) => arg === "--pid").length;
             const { flags, positional, unknown } = consumeFlags(subArgs, { pid: "string" });
             const pid = typeof flags.pid === "string" ? flags.pid : undefined;
             const byPid = pid !== undefined && positional.length === 0 && DIGITS.test(pid);
             const byId = pid === undefined && positional.length === 1 && positional[0] !== "";
-            if (unknown.length > 0 || (!byPid && !byId)) {
+            if (unknown.length > 0 || pidFlags > 1 || (!byPid && !byId)) {
                 process.stderr.write(usage);
                 process.exit(1);
             }
@@ -748,13 +765,16 @@ git commit -m "feat(cli): devserver add, list and remove (binary)"
 - Create: `packages/backend/src/services/taskflow-cli-devserver-commands.md`
 - Modify: `packages/backend/src/services/internal-agent-skill.ts`:
   - import the doc and register it in `COMMAND_FILES` (lines 6-39);
-  - append the paragraph to `PROMPT_BASE` (lines 46-53).
+  - append the paragraph to `PROMPT_BASE` (lines 46-53);
+  - write `PROMPT_BASE` to `taskflow-agent-prompt.md` next to `SKILL.md` in `ensureInternalAgentSkillFile`, and list that file first in OpenCode's `instructions`.
 - Modify: `packages/backend/src/services/taskflow-cli-skill.md`. Add a path line before "All other commands".
 - Modify: `packages/backend/tests/services/internal-agent-skill.test.ts`
 
 **Interfaces:**
 - Produces:
   - the prompt paragraph in every `buildSystemPrompt(...)` output, with or without the skill block;
+  - OpenCode delivery. OpenCode's launch spec passes no system prompt: its config carries only `instructions: [skillPath]`, so it never saw `PROMPT_BASE`. Its `instructions` become `[<skill dir>/taskflow-agent-prompt.md, skillPath]`, and `ensureInternalAgentSkillFile` writes that file with `PROMPT_BASE`. Claude, Pi and Codex get the paragraph through their system-prompt flags, and Kimi through its typed initial input;
+  - **Known limitation, not changed here:** Kimi started without a prompt gets no system prompt at all (`initialInput` is `undefined`), which is the existing behaviour for every Taskflow instruction. It's recorded in the spec's "Amendments";
   - `taskflow-cli-devserver-commands.md` written by `ensureInternalAgentSkillFile` and inlined by `getResolvedCliHelp()`, which serves `/api/cli-help`.
 - `/api/cli-help` (`settings-routes.ts:49`) is built from the skill md and `COMMAND_FILES`, so registering the doc is the whole help-text change. The sh script and the binary don't list command groups themselves: their unknown-command fallback prints `/api/cli-help`.
 
@@ -775,6 +795,20 @@ Add to `describe("internal agent skill")`, after "flow block is only included wh
             buildSystemPrompt(false, false, false),
         ]) {
             expect(prompt).toContain(paragraph);
+        }
+    });
+
+    it("gives OpenCode the Taskflow prompt file before the skill", () => {
+        const skillPath = "/tmp/ignored/SKILL.md";
+        for (const prompt of ["Do it", undefined]) {
+            const spec = buildAgentLaunchSpec("opencode", prompt, skillPath);
+            const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as {
+                instructions: string[];
+            };
+            expect(config.instructions).toEqual([
+                join(dirname(skillPath), "taskflow-agent-prompt.md"),
+                skillPath,
+            ]);
         }
     });
 
@@ -803,6 +837,17 @@ describe("internal agent skill files", () => {
         expect(skill).toContain(docPath);
         expect(skill).not.toContain("taskflow-cli devserver add");
     });
+
+    it("writes the Taskflow prompt file that OpenCode loads", async () => {
+        const baseDir = await mkdtemp(join(tmpdir(), "taskflow-skill-test-"));
+        tempDirs.push(baseDir);
+
+        const skillPath = await ensureInternalAgentSkillFile(baseDir);
+        const prompt = await readFile(join(dirname(skillPath), "taskflow-agent-prompt.md"), "utf8");
+
+        expect(prompt).toContain("You are running inside Taskflow application");
+        expect(prompt).toContain("taskflow-cli devserver add --pid <pid>");
+    });
 });
 ```
 
@@ -811,7 +856,7 @@ describe("internal agent skill files", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd packages/backend && bun test tests/services/internal-agent-skill.test.ts`
-Expected: the three new tests FAIL. The paragraph is missing, the help has no devserver commands, and the doc file doesn't exist.
+Expected: the five new tests FAIL. The paragraph is missing, OpenCode's `instructions` holds only the skill, the help has no devserver commands, and neither new file exists.
 
 - [ ] **Step 3: Implement**
 
@@ -855,7 +900,30 @@ When you start a dev server or another long-running process the user is meant to
 
 Leave the existing lines byte-for-byte as they are, including the `\n` and the typo "prefedined". Only the blank line and the paragraph are new.
 
-d) In `taskflow-cli-skill.md`, add before `# All other commands`:
+d) OpenCode delivery. Add a constant next to `SKILL_FILE_NAME`:
+
+```ts
+// OpenCode takes no system prompt, only instruction files, so PROMPT_BASE goes in one.
+const AGENT_PROMPT_FILE_NAME = "taskflow-agent-prompt.md";
+```
+
+In `ensureInternalAgentSkillFile`'s `writeSkillFiles`, after the `SKILL.md` write is pushed:
+
+```ts
+        writeOps.push(
+            writeFile(join(skillDir, AGENT_PROMPT_FILE_NAME), `${PROMPT_BASE.trim()}\n`, "utf8"),
+        );
+```
+
+In `buildAgentLaunchSpec`'s OpenCode branch:
+
+```ts
+        const config: Record<string, unknown> = {
+            instructions: [join(dirname(skillPath), AGENT_PROMPT_FILE_NAME), skillPath],
+        };
+```
+
+e) In `taskflow-cli-skill.md`, add before `# All other commands`:
 
 ```markdown
 # All dev server commands
@@ -891,5 +959,6 @@ git commit -m "feat(backend): devserver command doc and agent prompt paragraph"
 Record in `handoff.md`:
 - `api_request` (sh) now always sends the `X-Taskflow-*` context headers that are set.
 - `contextHeaders()` (TS bin) is shared by `notify` and `devserver`.
+- OpenCode now loads `taskflow-agent-prompt.md` (PROMPT_BASE), written next to `SKILL.md`, before the skill.
 - The fake curl in `taskflow-cli.test.ts` records headers (`readCapturedHeaders`).
 - Section 5's manual check should run `sh packages/backend/src/services/taskflow-cli.sh devserver add|list|remove` against the real backend with the session env.

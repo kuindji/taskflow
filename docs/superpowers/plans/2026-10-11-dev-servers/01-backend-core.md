@@ -11,7 +11,12 @@ This section adds:
 
 Nothing is wired into the backend yet. Section 2 does that.
 
-**Deviation from the spec (record it under "Amendments" in the spec when you implement this section):** the spec reads the start time with `ps -o lstart=`. This plan uses `ps -o etime=` instead. `etime` prints `[[dd-]hh:]mm:ss` in every locale, while `lstart` prints locale-dependent month and day names. The start time is computed as `floor(now) - etime`. Because `etime` and `now` are both whole seconds, the computed start can be up to one second late. So the reuse rule is: **reused iff `startSec > floor(registeredAtMs / 1000) + 1`**.
+**Refinements of the spec (already recorded under "Amendments" in the spec, from plan review round 1):**
+- The start time is read with `ps -o lstart=` under `LC_ALL=C TZ=UTC`, so it prints English names in UTC, and is parsed with `Date.UTC`. The reuse rule is the spec's, with no slack: **reused iff `startSec > floor(registeredAtMs / 1000)`**.
+- The stopper signals the registered PID first and stops at the first refusal, so a PID it may not signal never gets its descendants signalled.
+- Windows uses a process-table snapshot for the tree and survivor checks, and forces each PID with `taskkill /PID <pid> /F`.
+- An OS command that fails throws. It never reads as "gone" or "stopped".
+- The service removes a record only if it's still the registration it stopped (`removeIfUnchanged`).
 
 ### Task 1: Shared types and `DevServerStore`
 
@@ -33,6 +38,7 @@ Nothing is wired into the backend yet. Section 2 does that.
     - `add(input: DevServerInput): Promise<DevServer>`
     - `remove(id: string): Promise<boolean>`
     - `removeByPid(pid: number): Promise<boolean>`
+    - `removeIfUnchanged(server: DevServer): Promise<boolean>`: removes the record only while it has the same `id` and `registeredAt`. A re-add of the same PID keeps the `id` but changes `registeredAt`, so a stop that started before the re-add leaves the new registration alone.
 - Store behaviour:
   - Every read and write goes through one `KeyedQueue` key, so a `list()` called after a write always sees that write. Task 3's broadcast ordering depends on this.
   - A missing or unparsable file reads as `[]`. Records are disposable.
@@ -181,6 +187,17 @@ describe("DevServerStore", () => {
         expect(await store.list()).toEqual([]);
     });
 
+    it("removes a record only while it is the same registration", async () => {
+        const first = await store.add({ pid: 1001, label: "a", projectId: "p" });
+        await Bun.sleep(5);
+        const second = await store.add({ pid: 1001, label: "a again", projectId: "p" });
+
+        expect(await store.removeIfUnchanged(first)).toBe(false);
+        expect(await store.list()).toEqual([second]);
+        expect(await store.removeIfUnchanged(second)).toBe(true);
+        expect(await store.list()).toEqual([]);
+    });
+
     it("serializes concurrent adds", async () => {
         const pids = Array.from({ length: 10 }, (_, i) => 2000 + i);
         await Promise.all(pids.map((pid) => store.add({ pid, label: `s${pid}`, projectId: "p" })));
@@ -286,6 +303,13 @@ class DevServerStore {
         return this.removeWhere((server) => server.pid === pid);
     }
 
+    /** Only while it is still that registration: a re-add of its pid keeps the id but not `registeredAt`. */
+    removeIfUnchanged(target: DevServer): Promise<boolean> {
+        return this.removeWhere(
+            (server) => server.id === target.id && server.registeredAt === target.registeredAt,
+        );
+    }
+
     private removeWhere(match: (server: DevServer) => boolean): Promise<boolean> {
         return this.queue.run(FILE_KEY, async () => {
             const servers = await this.readAll();
@@ -304,7 +328,7 @@ export type { DevServerInput };
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `cd packages/backend && bun test tests/services/dev-server-store.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 Run: `bun run typecheck` (repo root)
 Expected: exit 0.
@@ -325,44 +349,43 @@ git commit -m "feat(backend): dev server records and store"
 - Test: `packages/backend/tests/services/process-stopper.test.ts`
 
 **Interfaces:**
-- Produces (type exports): `StopOutcome` and `StopProcess` (exactly as in the plan index), plus `ProcessOps`, `CommandRunner` and `CommandResult`.
+- Produces (type exports): `StopOutcome` and `StopProcess` (exactly as in the plan index), plus `ProcessOps`, `ProcessRow`, `CommandRunner`, `CommandResult` and `Kill`.
 
   ```ts
   interface CommandResult { exitCode: number; stdout: string }
   type CommandRunner = (command: string[]) => Promise<CommandResult>;
+  type Kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => void;
+  interface ProcessRow { pid: number; ppid: number; startedMs?: number } // startedMs: Windows only
   interface ProcessOps {
-      startTime(pid: number): Promise<number | null>; // epoch seconds; null = not running
-      tree(pid: number): Promise<number[]>; // pid first, then descendants
-      signal(pids: number[], force: boolean): Promise<"sent" | "denied">;
-      running(pids: number[]): Promise<number[]>; // subset still running; zombies count as gone
+      startTime(pid: number): Promise<number | null>; // whole epoch seconds; null = not running; throws when it can't tell
+      processes(): Promise<ProcessRow[]>; // one snapshot of live processes, zombies left out; throws when it can't read
+      signal(pids: number[], force: boolean): Promise<"sent" | "denied">; // in order, stops at the first refusal
   }
   ```
 - Produces (value exports):
   - `createProcessStopper(options?: { ops?: ProcessOps; termGraceMs?: number; killGraceMs?: number; pollMs?: number }): StopProcess`. Defaults: platform ops, 3000 ms, 1000 ms, 100 ms.
-  - `createPosixProcessOps(run?: CommandRunner, now?: () => number): ProcessOps`
+  - `createPosixProcessOps(run?: CommandRunner, kill?: Kill): ProcessOps`
   - `createWindowsProcessOps(run?: CommandRunner): ProcessOps`
   Tests import the two ops factories. Section 1 Task 3 imports `createProcessStopper`.
 - Stop algorithm:
   1. `startTime === null` → `gone`.
-  2. `startTime > floor(registeredAt / 1000) + 1` → `reused`, with no signal.
-  3. `tree` → filter out PIDs `<= 0` and `process.pid`.
-  4. SIGTERM all. If `denied`, return `failed` with `operation not permitted`.
-  5. Wait for exit up to `termGraceMs`.
-  6. SIGKILL the survivors. If `denied`, return `failed` with `operation not permitted`.
+  2. `startTime > floor(registeredAt / 1000)` → `reused`, with no signal. Both sides are whole seconds, and there is no slack.
+  3. Tree: the registered PID first, then its descendants, walked from one `processes()` snapshot. A child whose `startedMs` is earlier than its parent's is skipped, because Windows keeps a dead parent's PID as `ppid` and that PID may have been reused. Filter out PIDs `<= 0` and `process.pid`.
+  4. SIGTERM the tree, registered PID first. `signal` stops at the first refusal, so **a refused registered PID means nothing below it is signalled**. If `denied`, return `failed` with `operation not permitted`.
+  5. Wait for exit up to `termGraceMs`, checking every PID in the tree (not only the registered one) against fresh snapshots.
+  6. SIGKILL the survivors, in tree order. If `denied`, return `failed` with `operation not permitted`.
   7. Wait up to `killGraceMs`. If any PID is left, return `failed` with `process is still running`. Otherwise return `stopped`.
+  8. An exception from an op (a missing `ps`, an unreadable process table, an unreadable start time) propagates. It never reads as "gone" or "stopped".
+- Commands run with `LC_ALL=C` and `TZ=UTC`. A command that can't be spawned throws.
 - POSIX ops:
-  - `ps` runs with `LC_ALL=C`.
-  - `startTime`: `ps -o etime= -p <pid>`. `now` is read **before** running `ps`, which biases towards "not reused".
-  - `tree`: one `ps -A -o pid=,ppid=` snapshot.
-  - `signal`: `process.kill` per PID. ESRCH is ignored; EPERM means denied.
-  - `running`: one `ps -A -o pid=,stat=` snapshot. A `stat` starting with `Z` (zombie) counts as gone.
-  - If `ps` fails in `running`, it throws, so a broken `ps` never reads as "everything stopped".
+  - `startTime`: `ps -o lstart= -p <pid>`, which prints `Sun Oct 11 17:58:30 2026` (English names, UTC). It's parsed with `Date.UTC`. If `ps` fails or prints something unparsable, `kill(pid, 0)` decides: ESRCH → `null`; otherwise throw `Could not read the start time of pid <pid>`.
+  - `processes`: one `ps -A -o pid=,ppid=,stat=` snapshot. A `stat` starting with `Z` (zombie) is left out. A non-zero exit or an empty table throws.
+  - `signal`: `kill` per PID, in order. ESRCH is skipped. EPERM returns `denied` at once. Anything else throws.
 - Windows ops:
-  - `startTime`: PowerShell `(Get-Process -Id <pid>).StartTime.ToUniversalTime().ToString('o')`.
-  - `tree`: `[pid]`, because `taskkill /T` walks the tree itself.
-  - `signal`: `taskkill /PID <pid> /T`, plus `/F` when forced.
-  - `running`: `tasklist /FI "PID eq <pid>" /NH /FO CSV`, matching `"<pid>"`.
-  - These are unit-tested through a fake `CommandRunner` only. Real Windows behaviour is covered by Section 5's manual check, if a Windows machine is available.
+  - `startTime`: PowerShell prints `missing` or `([DateTimeOffset]$p.StartTime).ToUnixTimeSeconds()`. Anything else throws.
+  - `processes`: PowerShell `Get-CimInstance Win32_Process`, one `pid ppid startedMs` line per process. A non-zero exit or an empty table throws.
+  - `signal`: `taskkill /PID <pid> /F` per PID, in order, without `/T` (the stopper already has the tree). Both phases force, because a taskkill without `/F` only asks windowed apps to close, and a console dev server ignores it. A non-zero exit for a PID that's still in a fresh snapshot returns `denied` at once.
+  - These are unit-tested through a fake `CommandRunner` only. Real Windows behaviour is a Section 5 item.
 - **Never signal a negative PID.** A negative PID addresses a process group, and background jobs from a non-interactive shell share the agent's process group.
 
 - [ ] **Step 1: Write the failing tests**
@@ -379,14 +402,17 @@ import {
 import type {
     CommandResult,
     CommandRunner,
+    Kill,
     ProcessOps,
+    ProcessRow,
 } from "../../src/services/process-stopper";
+import { expectRejects } from "../expect-rejects";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 interface FakeOptions {
     start?: number | null;
-    tree?: number[];
+    rows?: ProcessRow[];
     deny?: boolean;
     survivesTerm?: number[];
     survivesKill?: number[];
@@ -399,20 +425,20 @@ interface FakeOps extends ProcessOps {
 function fakeOps(options: FakeOptions = {}): FakeOps {
     let phase: "before" | "term" | "kill" = "before";
     const signals: Array<{ pids: number[]; force: boolean }> = [];
+    const rows = options.rows ?? [{ pid: 42, ppid: 1 }];
     return {
         signals,
         startTime: () => Promise.resolve(options.start === undefined ? nowSec() - 60 : options.start),
-        tree: (pid) => Promise.resolve(options.tree ?? [pid]),
+        processes: () => {
+            if (phase === "before") return Promise.resolve(rows);
+            const survivors =
+                phase === "term" ? (options.survivesTerm ?? []) : (options.survivesKill ?? []);
+            return Promise.resolve(rows.filter((row) => survivors.includes(row.pid)));
+        },
         signal: (pids, force) => {
             signals.push({ pids, force });
             phase = force ? "kill" : "term";
             return Promise.resolve(options.deny ? "denied" : "sent");
-        },
-        running: (pids) => {
-            if (phase === "before") return Promise.resolve(pids);
-            const survivors =
-                phase === "term" ? (options.survivesTerm ?? []) : (options.survivesKill ?? []);
-            return Promise.resolve(pids.filter((pid) => survivors.includes(pid)));
         },
     };
 }
@@ -423,6 +449,13 @@ function stopperWith(ops: ProcessOps) {
 
 describe("createProcessStopper", () => {
     const registeredAt = () => new Date().toISOString();
+    const tree: ProcessRow[] = [
+        { pid: 1, ppid: 0 },
+        { pid: 42, ppid: 1 },
+        { pid: 43, ppid: 42 },
+        { pid: 44, ppid: 43 },
+        { pid: 50, ppid: 1 },
+    ];
 
     it("reports a pid that is not running as gone and signals nothing", async () => {
         const ops = fakeOps({ start: null });
@@ -437,35 +470,36 @@ describe("createProcessStopper", () => {
         expect(ops.signals).toEqual([]);
     });
 
-    it("allows one second of slack at the reuse boundary", async () => {
+    it("compares whole seconds with no slack", async () => {
         const at = "2026-10-11T12:00:00.500Z";
         const registeredSec = Math.floor(Date.parse(at) / 1000);
 
-        const atBoundary = fakeOps({ start: registeredSec + 1 });
-        expect(await stopperWith(atBoundary)(42, at)).toEqual({ status: "stopped" });
+        const sameSecond = fakeOps({ start: registeredSec });
+        expect(await stopperWith(sameSecond)(42, at)).toEqual({ status: "stopped" });
 
-        const past = fakeOps({ start: registeredSec + 2 });
-        expect(await stopperWith(past)(42, at)).toEqual({ status: "reused" });
-        expect(past.signals).toEqual([]);
+        const nextSecond = fakeOps({ start: registeredSec + 1 });
+        expect(await stopperWith(nextSecond)(42, at)).toEqual({ status: "reused" });
+        expect(nextSecond.signals).toEqual([]);
     });
 
-    it("sends SIGTERM to the whole tree and reports stopped", async () => {
-        const ops = fakeOps({ tree: [42, 43, 44] });
+    it("sends SIGTERM to the registered pid first, then its descendants", async () => {
+        const ops = fakeOps({ rows: tree });
         expect(await stopperWith(ops)(42, registeredAt())).toEqual({ status: "stopped" });
         expect(ops.signals).toEqual([{ pids: [42, 43, 44], force: false }]);
     });
 
-    it("escalates to SIGKILL for the survivors only", async () => {
-        const ops = fakeOps({ tree: [42, 43], survivesTerm: [43] });
+    it("waits for descendants that outlive the registered pid and kills them", async () => {
+        // The wrapper exits on SIGTERM; its child keeps the port.
+        const ops = fakeOps({ rows: tree, survivesTerm: [43] });
         expect(await stopperWith(ops)(42, registeredAt())).toEqual({ status: "stopped" });
         expect(ops.signals).toEqual([
-            { pids: [42, 43], force: false },
+            { pids: [42, 43, 44], force: false },
             { pids: [43], force: true },
         ]);
     });
 
     it("fails when a process survives SIGKILL", async () => {
-        const ops = fakeOps({ tree: [42, 43], survivesTerm: [43], survivesKill: [43] });
+        const ops = fakeOps({ rows: tree, survivesTerm: [43], survivesKill: [43] });
         expect(await stopperWith(ops)(42, registeredAt())).toEqual({
             status: "failed",
             error: "Could not stop pid 42: process is still running",
@@ -473,18 +507,45 @@ describe("createProcessStopper", () => {
     });
 
     it("fails when the OS refuses the signal", async () => {
-        const ops = fakeOps({ deny: true });
+        const ops = fakeOps({ rows: tree, deny: true });
         expect(await stopperWith(ops)(42, registeredAt())).toEqual({
             status: "failed",
             error: "Could not stop pid 42: operation not permitted",
         });
         expect(ops.signals).toHaveLength(1);
+        expect(ops.signals[0].pids[0]).toBe(42);
     });
 
     it("never signals a non-positive pid or the backend itself", async () => {
-        const ops = fakeOps({ tree: [42, 0, -7, process.pid] });
+        const ops = fakeOps({
+            rows: [
+                { pid: 42, ppid: 1 },
+                { pid: 0, ppid: 42 },
+                { pid: process.pid, ppid: 42 },
+            ],
+        });
         await stopperWith(ops)(42, registeredAt());
         expect(ops.signals[0].pids).toEqual([42]);
+    });
+
+    it("skips a child that predates its parent (a stale ppid naming a reused pid)", async () => {
+        const ops = fakeOps({
+            rows: [
+                { pid: 42, ppid: 1, startedMs: 2000 },
+                { pid: 43, ppid: 42, startedMs: 1000 },
+                { pid: 44, ppid: 42, startedMs: 3000 },
+            ],
+        });
+        await stopperWith(ops)(42, registeredAt());
+        expect(ops.signals[0].pids).toEqual([42, 44]);
+    });
+
+    it("lets an op failure propagate instead of reporting a result", async () => {
+        const ops: ProcessOps = {
+            ...fakeOps(),
+            processes: () => Promise.reject(new Error("Could not list processes")),
+        };
+        await expectRejects(stopperWith(ops)(42, registeredAt()), "Could not list processes");
     });
 });
 
@@ -502,90 +563,163 @@ function fakeRunner(respond: (command: string[]) => CommandResult): {
     };
 }
 
+function osError(code: string): Error {
+    return Object.assign(new Error(code), { code });
+}
+
+/** A kill that records its calls and throws the given code for the given pids. */
+function fakeKill(errors: Record<number, string> = {}): { kill: Kill; calls: unknown[][] } {
+    const calls: unknown[][] = [];
+    return {
+        calls,
+        kill: (pid, signal) => {
+            calls.push([pid, signal]);
+            const code = errors[pid];
+            if (code) throw osError(code);
+        },
+    };
+}
+
 describe("createPosixProcessOps", () => {
-    const now = Date.parse("2026-10-11T12:00:00.000Z");
-    const nowSeconds = now / 1000;
-
-    it("computes the start time from etime with days", async () => {
-        const { run, commands } = fakeRunner(() => ({ exitCode: 0, stdout: " 01-02:03:04\n" }));
-        const ops = createPosixProcessOps(run, () => now);
-        expect(await ops.startTime(42)).toBe(nowSeconds - (86400 + 2 * 3600 + 3 * 60 + 4));
-        expect(commands).toEqual([["ps", "-o", "etime=", "-p", "42"]]);
-    });
-
-    it("computes the start time from a short etime", async () => {
-        const { run } = fakeRunner(() => ({ exitCode: 0, stdout: "05:07\n" }));
-        expect(await createPosixProcessOps(run, () => now).startTime(42)).toBe(nowSeconds - 307);
-    });
-
-    it("returns null when ps does not find the pid", async () => {
-        const { run } = fakeRunner(() => ({ exitCode: 1, stdout: "" }));
-        expect(await createPosixProcessOps(run, () => now).startTime(42)).toBeNull();
-    });
-
-    it("collects descendants from one ps snapshot", async () => {
+    it("reads the start time from lstart in UTC", async () => {
         const { run, commands } = fakeRunner(() => ({
             exitCode: 0,
-            stdout: "    1     0\n   42     1\n   43    42\n   44    43\n   50     1\n",
+            stdout: "Sun Oct 11 17:58:30 2026\n",
         }));
-        expect(await createPosixProcessOps(run, () => now).tree(42)).toEqual([42, 43, 44]);
-        expect(commands).toEqual([["ps", "-A", "-o", "pid=,ppid="]]);
+        const ops = createPosixProcessOps(run, fakeKill().kill);
+        expect(await ops.startTime(42)).toBe(Date.UTC(2026, 9, 11, 17, 58, 30) / 1000);
+        expect(commands).toEqual([["ps", "-o", "lstart=", "-p", "42"]]);
     });
 
-    it("counts zombies and missing pids as not running", async () => {
-        const { run } = fakeRunner(() => ({ exitCode: 0, stdout: "   42 S\n   43 Z+\n" }));
-        expect(await createPosixProcessOps(run, () => now).running([42, 43, 44])).toEqual([42]);
+    it("parses a single-digit day", async () => {
+        const { run } = fakeRunner(() => ({ exitCode: 0, stdout: "Thu Oct  1 09:05:03 2026\n" }));
+        expect(await createPosixProcessOps(run, fakeKill().kill).startTime(42)).toBe(
+            Date.UTC(2026, 9, 1, 9, 5, 3) / 1000,
+        );
     });
 
-    it("throws instead of reporting everything stopped when ps fails", async () => {
+    it("returns null when ps fails and the pid does not exist", async () => {
         const { run } = fakeRunner(() => ({ exitCode: 1, stdout: "" }));
-        let error: unknown;
-        try {
-            await createPosixProcessOps(run, () => now).running([42]);
-        } catch (caught) {
-            error = caught;
+        const { kill, calls } = fakeKill({ 42: "ESRCH" });
+        expect(await createPosixProcessOps(run, kill).startTime(42)).toBeNull();
+        expect(calls).toEqual([[42, 0]]);
+    });
+
+    it("throws when ps fails or prints garbage for a pid that exists", async () => {
+        const failing = fakeRunner(() => ({ exitCode: 1, stdout: "" }));
+        await expectRejects(
+            createPosixProcessOps(failing.run, fakeKill().kill).startTime(42),
+            "Could not read the start time of pid 42",
+        );
+        const garbage = fakeRunner(() => ({ exitCode: 0, stdout: "dim. 11 oct. 2026\n" }));
+        await expectRejects(
+            createPosixProcessOps(garbage.run, fakeKill({ 42: "EPERM" }).kill).startTime(42),
+            "Could not read the start time of pid 42",
+        );
+    });
+
+    it("reads one process table snapshot and leaves zombies out", async () => {
+        const { run, commands } = fakeRunner(() => ({
+            exitCode: 0,
+            stdout: "    1     0 Ss\n   42     1 S\n   43    42 Z+\n",
+        }));
+        expect(await createPosixProcessOps(run, fakeKill().kill).processes()).toEqual([
+            { pid: 1, ppid: 0 },
+            { pid: 42, ppid: 1 },
+        ]);
+        expect(commands).toEqual([["ps", "-A", "-o", "pid=,ppid=,stat="]]);
+    });
+
+    it("throws instead of reporting an empty table when ps fails", async () => {
+        for (const result of [
+            { exitCode: 1, stdout: "" },
+            { exitCode: 0, stdout: "" },
+        ]) {
+            const { run } = fakeRunner(() => result);
+            await expectRejects(
+                createPosixProcessOps(run, fakeKill().kill).processes(),
+                "Could not list processes",
+            );
         }
-        expect(error).toBeInstanceOf(Error);
+    });
+
+    it("signals in order, skips exited pids, and stops at the first refusal", async () => {
+        const { run } = fakeRunner(() => ({ exitCode: 0, stdout: "" }));
+
+        const skipping = fakeKill({ 42: "ESRCH" });
+        expect(await createPosixProcessOps(run, skipping.kill).signal([42, 43], false)).toBe("sent");
+        expect(skipping.calls).toEqual([
+            [42, "SIGTERM"],
+            [43, "SIGTERM"],
+        ]);
+
+        const refusing = fakeKill({ 42: "EPERM" });
+        expect(await createPosixProcessOps(run, refusing.kill).signal([42, 43], true)).toBe(
+            "denied",
+        );
+        expect(refusing.calls).toEqual([[42, "SIGKILL"]]);
     });
 });
 
 describe("createWindowsProcessOps", () => {
     it("reads the start time through PowerShell", async () => {
+        const { run, commands } = fakeRunner(() => ({ exitCode: 0, stdout: "1791720005\r\n" }));
+        expect(await createWindowsProcessOps(run).startTime(42)).toBe(1791720005);
+        expect(commands[0].slice(0, 4)).toEqual([
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+        ]);
+        expect(commands[0][4]).toContain("Get-Process -Id 42");
+    });
+
+    it("returns null for a missing process and throws when it can't tell", async () => {
+        const missing = fakeRunner(() => ({ exitCode: 0, stdout: "missing\r\n" }));
+        expect(await createWindowsProcessOps(missing.run).startTime(42)).toBeNull();
+
+        const broken = fakeRunner(() => ({ exitCode: 1, stdout: "" }));
+        await expectRejects(
+            createWindowsProcessOps(broken.run).startTime(42),
+            "Could not read the start time of pid 42",
+        );
+    });
+
+    it("reads the process table with creation times", async () => {
         const { run, commands } = fakeRunner(() => ({
             exitCode: 0,
-            stdout: "2026-10-11T12:00:05.7000000Z\r\n",
+            stdout: "4 0 0\r\n42 1 1791720000000\r\n43 42 1791720001000\r\n",
         }));
-        const ops = createWindowsProcessOps(run);
-        expect(await ops.startTime(42)).toBe(Date.parse("2026-10-11T12:00:05Z") / 1000);
-        expect(commands[0].slice(0, 3)).toEqual(["powershell", "-NoProfile", "-Command"]);
-        expect(commands[0][3]).toContain("Get-Process -Id 42");
+        expect(await createWindowsProcessOps(run).processes()).toEqual([
+            { pid: 4, ppid: 0, startedMs: 0 },
+            { pid: 42, ppid: 1, startedMs: 1791720000000 },
+            { pid: 43, ppid: 42, startedMs: 1791720001000 },
+        ]);
+        expect(commands[0][4]).toContain("Win32_Process");
     });
 
-    it("returns null when the process does not exist", async () => {
+    it("throws when the process table can't be read", async () => {
         const { run } = fakeRunner(() => ({ exitCode: 1, stdout: "" }));
-        expect(await createWindowsProcessOps(run).startTime(42)).toBeNull();
+        await expectRejects(createWindowsProcessOps(run).processes(), "Could not list processes");
     });
 
-    it("lets taskkill walk the tree, forcing only when asked", async () => {
+    it("forces each pid separately, without /T", async () => {
         const { run, commands } = fakeRunner(() => ({ exitCode: 0, stdout: "" }));
-        const ops = createWindowsProcessOps(run);
-        expect(await ops.tree(42)).toEqual([42]);
-        await ops.signal([42], false);
-        await ops.signal([42], true);
+        expect(await createWindowsProcessOps(run).signal([42, 43], false)).toBe("sent");
         expect(commands).toEqual([
-            ["taskkill", "/PID", "42", "/T"],
-            ["taskkill", "/PID", "42", "/T", "/F"],
+            ["taskkill", "/PID", "42", "/F"],
+            ["taskkill", "/PID", "43", "/F"],
         ]);
     });
 
-    it("finds running pids in tasklist CSV output", async () => {
-        const { run } = fakeRunner((command) => ({
-            exitCode: 0,
-            stdout: command.includes("PID eq 42")
-                ? '"node.exe","42","Console","1","10,000 K"\r\n'
-                : "INFO: No tasks are running which match the specified criteria.\r\n",
-        }));
-        expect(await createWindowsProcessOps(run).running([42, 43])).toEqual([42]);
+    it("counts a failed taskkill as refused only while the pid is still listed", async () => {
+        const { run, commands } = fakeRunner((command) => {
+            if (command[0] === "taskkill") return { exitCode: command[2] === "42" ? 128 : 1, stdout: "" };
+            // 42 already exited; 43 is still there.
+            return { exitCode: 0, stdout: "1 0 0\r\n43 1 1791720001000\r\n" };
+        });
+        expect(await createWindowsProcessOps(run).signal([42, 43, 44], true)).toBe("denied");
+        expect(commands.filter((c) => c[0] === "taskkill").map((c) => c[2])).toEqual(["42", "43"]);
     });
 });
 
@@ -612,33 +746,38 @@ describe.skipIf(process.platform === "win32")("process stopper on real processes
         return proc;
     }
 
-    async function waitForTree(pid: number, size: number): Promise<number[]> {
+    async function running(pids: number[]): Promise<number[]> {
+        const live = new Set((await ops.processes()).map((row) => row.pid));
+        return pids.filter((pid) => live.has(pid));
+    }
+
+    async function waitForChild(parent: number): Promise<number> {
         for (let attempt = 0; attempt < 100; attempt++) {
-            const tree = await ops.tree(pid);
-            if (tree.length >= size) return tree;
+            const child = (await ops.processes()).find((row) => row.ppid === parent);
+            if (child) return child.pid;
             await Bun.sleep(20);
         }
-        throw new Error(`Process tree of ${pid} never reached ${size} processes`);
+        throw new Error(`Process ${parent} never got a child`);
     }
 
     it("stops the registered process and its children", async () => {
         const parent = spawnSh("sleep 30 & wait");
-        const tree = await waitForTree(parent.pid, 2);
+        const tree = [parent.pid, await waitForChild(parent.pid)];
         strays.push(...tree);
 
         expect(await stopper(parent.pid, new Date().toISOString())).toEqual({ status: "stopped" });
-        expect(await ops.running(tree)).toEqual([]);
+        expect(await running(tree)).toEqual([]);
     });
 
     it("kills a tree that ignores SIGTERM", async () => {
         // An ignored signal stays ignored across fork and exec, so the sleep ignores TERM too.
         const parent = spawnSh('trap "" TERM; sleep 30 & wait');
-        const tree = await waitForTree(parent.pid, 2);
+        const tree = [parent.pid, await waitForChild(parent.pid)];
         strays.push(...tree);
         const quick = createProcessStopper({ termGraceMs: 200, killGraceMs: 1000, pollMs: 20 });
 
         expect(await quick(parent.pid, new Date().toISOString())).toEqual({ status: "stopped" });
-        expect(await ops.running(tree)).toEqual([]);
+        expect(await running(tree)).toEqual([]);
     });
 
     it("reports a pid that is not running as gone", async () => {
@@ -653,7 +792,19 @@ describe.skipIf(process.platform === "win32")("process stopper on real processes
         spawned.push(proc);
 
         expect(await stopper(proc.pid, registeredAt)).toEqual({ status: "reused" });
-        expect(await ops.running([proc.pid])).toEqual([proc.pid]);
+        expect(await running([proc.pid])).toEqual([proc.pid]);
+    });
+
+    it("reads the same start second as the clock for a process just started", async () => {
+        const before = Math.floor(Date.now() / 1000);
+        const proc = Bun.spawn(["sleep", "30"]);
+        spawned.push(proc);
+        const started = await ops.startTime(proc.pid);
+        const after = Math.floor(Date.now() / 1000);
+
+        expect(started).not.toBeNull();
+        expect(started).toBeGreaterThanOrEqual(before);
+        expect(started).toBeLessThanOrEqual(after);
     });
 
     it("does not signal the registered process's parent", async () => {
@@ -667,8 +818,8 @@ describe.skipIf(process.platform === "win32")("process stopper on real processes
         strays.push(child);
 
         expect(await stopper(child, new Date().toISOString())).toEqual({ status: "stopped" });
-        expect(await ops.running([child])).toEqual([]);
-        expect(await ops.running([wrapper.pid])).toEqual([wrapper.pid]);
+        expect(await running([child])).toEqual([]);
+        expect(await running([wrapper.pid])).toEqual([wrapper.pid]);
     });
 });
 ```
@@ -698,150 +849,207 @@ interface CommandResult {
 
 type CommandRunner = (command: string[]) => Promise<CommandResult>;
 
+type Kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => void;
+
+/** One live process from a snapshot of the OS process table. */
+interface ProcessRow {
+    pid: number;
+    ppid: number;
+    /** Epoch ms. Windows only: there a ppid can name a parent that exited and whose pid was reused. */
+    startedMs?: number;
+}
+
 /** The OS calls a stop needs. The real implementations are below; tests inject fakes. */
 interface ProcessOps {
-    /** Start time in epoch seconds, or null when the pid isn't running. */
+    /** Start time in whole epoch seconds; null when the pid isn't running. Throws when it can't tell. */
     startTime(pid: number): Promise<number | null>;
-    /** The pid followed by its descendants, from one snapshot. */
-    tree(pid: number): Promise<number[]>;
-    /** Ask the pids to exit (force = kill). "denied" when the OS refused any of them. */
+    /** Every live process, zombies left out, from one snapshot. Throws when the table can't be read. */
+    processes(): Promise<ProcessRow[]>;
+    /**
+     * Ask the pids to exit (force = kill), in order, stopping at the first refusal.
+     * The stopper passes the registered pid first, so a refused root signals nothing below it.
+     */
     signal(pids: number[], force: boolean): Promise<"sent" | "denied">;
-    /** The subset of pids still running. Zombies count as gone. */
-    running(pids: number[]): Promise<number[]>;
 }
 
 const runCommand: CommandRunner = async (command) => {
-    try {
-        const proc = Bun.spawn(command, {
-            stdout: "pipe",
-            stderr: "ignore",
-            env: { ...process.env, LC_ALL: "C" },
-        });
-        const [stdout, exitCode] = await Promise.all([
-            new Response(proc.stdout).text(),
-            proc.exited,
-        ]);
-        return { exitCode, stdout };
-    } catch {
-        // The command itself is missing (no powershell, no ps).
-        return { exitCode: -1, stdout: "" };
-    }
+    // A command that can't be spawned throws, and the stop fails with it: it must
+    // never read as "not running".
+    const proc = Bun.spawn(command, {
+        stdout: "pipe",
+        stderr: "ignore",
+        // `ps -o lstart=` then prints English names, in UTC.
+        env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+    });
+    const [stdout, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        proc.exited,
+    ]);
+    return { exitCode, stdout };
+};
+
+const realKill: Kill = (pid, signal) => {
+    process.kill(pid, signal);
 };
 
 function errorCode(error: unknown): unknown {
     return error instanceof Error && "code" in error ? error.code : undefined;
 }
 
-// `ps -o etime=` prints [[dd-]hh:]mm:ss in every locale.
-function parseEtime(text: string): number | null {
-    const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(text.trim());
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// `ps -o lstart=` under LC_ALL=C and TZ=UTC: "Sun Oct 11 17:58:30 2026".
+function parseLstart(text: string): number | null {
+    const match = /^[A-Z][a-z]{2}\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(
+        text.trim(),
+    );
     if (!match) return null;
-    const [, days, hours, minutes, seconds] = match;
+    const [, month, day, hours, minutes, seconds, year] = match;
+    const monthIndex = MONTHS.indexOf(month);
+    if (monthIndex === -1) return null;
     return (
-        Number(days ?? 0) * 86400 +
-        Number(hours ?? 0) * 3600 +
-        Number(minutes) * 60 +
-        Number(seconds)
+        Date.UTC(
+            Number(year),
+            monthIndex,
+            Number(day),
+            Number(hours),
+            Number(minutes),
+            Number(seconds),
+        ) / 1000
     );
 }
 
-function createPosixProcessOps(
-    run: CommandRunner = runCommand,
-    now: () => number = Date.now,
-): ProcessOps {
+function createPosixProcessOps(run: CommandRunner = runCommand, kill: Kill = realKill): ProcessOps {
+    /** kill(pid, 0). EPERM means it exists but belongs to someone else. */
+    function exists(pid: number): boolean {
+        try {
+            kill(pid, 0);
+            return true;
+        } catch (error) {
+            if (errorCode(error) === "ESRCH") return false;
+            if (errorCode(error) === "EPERM") return true;
+            throw error;
+        }
+    }
+
     return {
         async startTime(pid) {
-            // Read the clock before ps: a late clock would push the start later
-            // and towards a false "reused".
-            const nowSec = Math.floor(now() / 1000);
-            const { exitCode, stdout } = await run(["ps", "-o", "etime=", "-p", String(pid)]);
-            if (exitCode !== 0) return null;
-            const elapsed = parseEtime(stdout);
-            return elapsed === null ? null : nowSec - elapsed;
+            const { exitCode, stdout } = await run(["ps", "-o", "lstart=", "-p", String(pid)]);
+            const started = exitCode === 0 ? parseLstart(stdout) : null;
+            if (started !== null) return started;
+            // ps fails the same way for a pid that exited and for a broken ps.
+            if (!exists(pid)) return null;
+            throw new Error(`Could not read the start time of pid ${pid}`);
         },
-        async tree(pid) {
-            const { stdout } = await run(["ps", "-A", "-o", "pid=,ppid="]);
-            const children = new Map<number, number[]>();
+        async processes() {
+            const { exitCode, stdout } = await run(["ps", "-A", "-o", "pid=,ppid=,stat="]);
+            const rows: ProcessRow[] = [];
             for (const line of stdout.split("\n")) {
-                const [child, parent] = line.trim().split(/\s+/).map(Number);
-                if (!child || parent === undefined || Number.isNaN(parent)) continue;
-                const siblings = children.get(parent) ?? [];
-                siblings.push(child);
-                children.set(parent, siblings);
+                const [pid, ppid, stat] = line.trim().split(/\s+/);
+                if (!pid || !ppid || !stat || stat.startsWith("Z")) continue;
+                rows.push({ pid: Number(pid), ppid: Number(ppid) });
             }
-            const result = [pid];
-            // for..of sees the entries pushed while it runs, so this walks every generation.
-            for (const current of result) {
-                for (const child of children.get(current) ?? []) {
-                    if (!result.includes(child)) result.push(child);
-                }
-            }
-            return result;
+            // An empty table would read as "everything stopped". It always holds ps itself.
+            if (exitCode !== 0 || rows.length === 0) throw new Error("Could not list processes");
+            return rows;
         },
         signal(pids, force) {
-            let denied = false;
             for (const pid of pids) {
                 try {
-                    process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+                    kill(pid, force ? "SIGKILL" : "SIGTERM");
                 } catch (error) {
-                    // ESRCH: it exited on its own. Anything else that isn't EPERM can't happen for a positive pid.
-                    if (errorCode(error) === "EPERM") denied = true;
+                    if (errorCode(error) === "EPERM") return Promise.resolve("denied");
+                    // ESRCH: it exited on its own.
+                    if (errorCode(error) !== "ESRCH") throw error;
                 }
             }
-            return Promise.resolve(denied ? "denied" : "sent");
-        },
-        async running(pids) {
-            const { exitCode, stdout } = await run(["ps", "-A", "-o", "pid=,stat="]);
-            // An empty snapshot would read as "everything stopped".
-            if (exitCode !== 0) throw new Error("Could not list processes");
-            const live = new Set<number>();
-            for (const line of stdout.split("\n")) {
-                const [pid, stat] = line.trim().split(/\s+/);
-                if (pid && stat && !stat.startsWith("Z")) live.add(Number(pid));
-            }
-            return pids.filter((pid) => live.has(pid));
+            return Promise.resolve("sent");
         },
     };
 }
 
+function powershell(script: string): string[] {
+    return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script];
+}
+
 function createWindowsProcessOps(run: CommandRunner = runCommand): ProcessOps {
+    async function processes(): Promise<ProcessRow[]> {
+        const { exitCode, stdout } = await run(
+            powershell(
+                "Get-CimInstance Win32_Process | ForEach-Object { $t = if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }; '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $t }",
+            ),
+        );
+        const rows: ProcessRow[] = [];
+        for (const line of stdout.split(/\r?\n/)) {
+            const match = /^(\d+) (\d+) (\d+)$/.exec(line.trim());
+            if (match) {
+                rows.push({
+                    pid: Number(match[1]),
+                    ppid: Number(match[2]),
+                    startedMs: Number(match[3]),
+                });
+            }
+        }
+        if (exitCode !== 0 || rows.length === 0) throw new Error("Could not list processes");
+        return rows;
+    }
+
     return {
         async startTime(pid) {
-            const { exitCode, stdout } = await run([
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`,
-            ]);
-            const started = Date.parse(stdout.trim());
-            return exitCode === 0 && !Number.isNaN(started) ? Math.floor(started / 1000) : null;
+            const { exitCode, stdout } = await run(
+                powershell(
+                    `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -eq $p) { 'missing' } else { ([DateTimeOffset]$p.StartTime).ToUnixTimeSeconds() }`,
+                ),
+            );
+            const text = stdout.trim();
+            if (exitCode === 0 && text === "missing") return null;
+            if (exitCode === 0 && /^\d+$/.test(text)) return Number(text);
+            throw new Error(`Could not read the start time of pid ${pid}`);
         },
-        // taskkill /T walks the tree itself.
-        tree(pid) {
-            return Promise.resolve([pid]);
-        },
-        async signal(pids, force) {
+        processes,
+        // Both phases force: taskkill without /F only asks windowed apps to close, and a
+        // console dev server ignores it. No /T: the stopper already has the tree.
+        async signal(pids) {
             for (const pid of pids) {
-                await run(["taskkill", "/PID", String(pid), "/T", ...(force ? ["/F"] : [])]);
+                const { exitCode } = await run(["taskkill", "/PID", String(pid), "/F"]);
+                if (exitCode === 0) continue;
+                // It may have exited on its own; if it's still there, the OS refused.
+                if ((await processes()).some((row) => row.pid === pid)) return "denied";
             }
             return "sent";
         },
-        async running(pids) {
-            const live: number[] = [];
-            for (const pid of pids) {
-                const { stdout } = await run([
-                    "tasklist",
-                    "/FI",
-                    `PID eq ${pid}`,
-                    "/NH",
-                    "/FO",
-                    "CSV",
-                ]);
-                if (stdout.includes(`"${pid}"`)) live.push(pid);
-            }
-            return live;
-        },
     };
+}
+
+/**
+ * The pid followed by its descendants. A child that started before its parent is
+ * skipped: its ppid names an earlier holder of that pid (Windows keeps stale ppids).
+ */
+function collectTree(rows: ProcessRow[], pid: number): number[] {
+    const startedMs = new Map(rows.map((row) => [row.pid, row.startedMs]));
+    const children = new Map<number, ProcessRow[]>();
+    for (const row of rows) {
+        const siblings = children.get(row.ppid) ?? [];
+        siblings.push(row);
+        children.set(row.ppid, siblings);
+    }
+    const result = [pid];
+    // for..of sees the entries pushed while it runs, so this walks every generation.
+    for (const current of result) {
+        const parentStarted = startedMs.get(current);
+        for (const child of children.get(current) ?? []) {
+            if (result.includes(child.pid)) continue;
+            if (
+                parentStarted !== undefined &&
+                child.startedMs !== undefined &&
+                child.startedMs < parentStarted
+            ) {
+                continue;
+            }
+            result.push(child.pid);
+        }
+    }
+    return result;
 }
 
 interface StopperOptions {
@@ -859,10 +1067,15 @@ function createProcessStopper(options: StopperOptions = {}): StopProcess {
     const killGraceMs = options.killGraceMs ?? 1000;
     const pollMs = options.pollMs ?? 100;
 
+    async function running(pids: number[]): Promise<number[]> {
+        const live = new Set((await ops.processes()).map((row) => row.pid));
+        return pids.filter((pid) => live.has(pid));
+    }
+
     async function waitForExit(pids: number[], graceMs: number): Promise<number[]> {
         const deadline = Date.now() + graceMs;
         for (;;) {
-            const left = await ops.running(pids);
+            const left = await running(pids);
             if (left.length === 0 || Date.now() >= deadline) return left;
             await Bun.sleep(pollMs);
         }
@@ -876,13 +1089,17 @@ function createProcessStopper(options: StopperOptions = {}): StopProcess {
     return async (pid, registeredAt) => {
         const started = await ops.startTime(pid);
         if (started === null) return { status: "gone" };
-        // Whole seconds on both sides, plus a second of slack: the start time
-        // read back from the OS can be up to a second late.
-        if (started > Math.floor(Date.parse(registeredAt) / 1000) + 1) return { status: "reused" };
+        // Whole seconds on both sides: a process that started in a later second
+        // than the registration is a different one that got the pid.
+        if (started > Math.floor(Date.parse(registeredAt) / 1000)) return { status: "reused" };
 
+        // Registered pid first: signal stops at the first refusal, so a pid we may
+        // not signal (PID 1, another user's) never gets its descendants signalled.
         // Never 0 or a negative pid (a process group: background jobs share the
         // agent's group, so a group kill could take the agent down), never the backend.
-        const pids = (await ops.tree(pid)).filter((p) => p > 0 && p !== process.pid);
+        const pids = collectTree(await ops.processes(), pid).filter(
+            (p) => p > 0 && p !== process.pid,
+        );
         if ((await ops.signal(pids, false)) === "denied") return failed(pid, "operation not permitted");
         const survivors = await waitForExit(pids, termGraceMs);
         if (survivors.length === 0) return { status: "stopped" };
@@ -896,13 +1113,21 @@ function createProcessStopper(options: StopperOptions = {}): StopProcess {
 }
 
 export { createPosixProcessOps, createProcessStopper, createWindowsProcessOps };
-export type { CommandResult, CommandRunner, ProcessOps, StopOutcome, StopProcess };
+export type {
+    CommandResult,
+    CommandRunner,
+    Kill,
+    ProcessOps,
+    ProcessRow,
+    StopOutcome,
+    StopProcess,
+};
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd packages/backend && bun test tests/services/process-stopper.test.ts`
-Expected: PASS. That's 23 tests on macOS/Linux; the 5 real-process tests are skipped on Windows.
+Expected: PASS. On Windows the 6 real-process tests are skipped.
 
 If "kills a tree that ignores SIGTERM" fails with `status: "stopped"` but a PID still in `running`, check that the shell really ignored TERM (`ps -o pid,stat,command`). Don't loosen the assertion.
 
@@ -938,7 +1163,7 @@ git commit -m "feat(backend): one-shot process stopper with PID-reuse guard"
 - Broadcasts: `{ type: MSG.DEV_SERVER_LIST, payload: { devServers } }`, with the full list read back from the store. They go out after `add`, after a `remove` or `removeByPid` that returned `true`, and after a `stop` that removed the record. There's no broadcast for a miss or a failed stop.
 - `stop(id)`:
   - unknown id → `{ ok: true }`, with no signal;
-  - `stopped`, `gone` or `reused` → remove the record, broadcast, and return `{ ok: true }`;
+  - `stopped`, `gone` or `reused` → remove the record with `store.removeIfUnchanged(server)`, broadcast if it was removed, and return `{ ok: true }`. A re-registration of the same PID that landed while the stop ran stays;
   - `failed` → keep the record and return `{ ok: false, error }`;
   - an exception from the stopper (for example `ps` failing) propagates, and the WS handler in Section 2 turns it into a request error.
 
@@ -1094,6 +1319,31 @@ describe("DevServerService", () => {
         expect(events).toEqual([]);
     });
 
+    it("a stop leaves a re-registration of the same pid that landed while it ran", async () => {
+        const pending: { finish?: (outcome: StopOutcome) => void } = {};
+        const s = createDevServerService({
+            store,
+            broadcast: (event) => events.push(event),
+            stopProcess: () =>
+                new Promise<StopOutcome>((resolve) => {
+                    pending.finish = resolve;
+                }),
+        });
+        const old = await s.add({ projectId: "p", pid: 7, label: "old" });
+        await Bun.sleep(5);
+
+        const stopping = s.stop(old.id);
+        while (!pending.finish) await Bun.sleep(1);
+        const again = await s.add({ projectId: "p", pid: 7, label: "new" });
+        events = [];
+        pending.finish?.({ status: "reused" });
+
+        expect(await stopping).toEqual({ ok: true });
+        expect(again.id).toBe(old.id);
+        expect(await s.list()).toEqual([again]);
+        expect(events).toEqual([]);
+    });
+
     it("stopping an unknown id is ok and signals nothing", async () => {
         expect(await service().stop("missing")).toEqual({ ok: true });
         expect(stopCalls).toEqual([]);
@@ -1192,7 +1442,8 @@ function createDevServerService(deps: DevServerServiceDeps): DevServerService {
             if (!server) return { ok: true };
             const outcome = await stopProcess(server.pid, server.registeredAt);
             if (outcome.status === "failed") return { ok: false, error: outcome.error };
-            if (await store.remove(id)) await publish();
+            // Not remove(id): a re-add of the pid while the stop ran keeps the id.
+            if (await store.removeIfUnchanged(server)) await publish();
             return { ok: true };
         },
     };
@@ -1205,7 +1456,7 @@ export type { DevServerService };
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd packages/backend && bun test tests/services/dev-server-service.test.ts`
-Expected: PASS (10 tests).
+Expected: PASS (11 tests).
 
 Run: `bun run typecheck` (repo root), then the full backend suite: `cd packages/backend && bun test`.
 Expected: typecheck exit 0; the suite passes. `platform.test.ts` "resolveConfigBaseDir … isolated backend" is the known flaky test; rerun once if it fails.
@@ -1219,15 +1470,6 @@ git add packages/backend/src/services/dev-server-service.ts packages/backend/tes
 git commit -m "feat(backend): dev server service with validation and list broadcasts"
 ```
 
-- [ ] **Step 6: Record the spec amendment**
+- [ ] **Step 6: Record the implementation in the handoff**
 
-Append to the spec (`docs/superpowers/specs/2026-10-11-dev-servers-design.md`) an "Amendments" section, if one isn't there yet:
-
-```markdown
-## Amendments
-
-- Section 1 (implementation): the start time is read with `ps -o etime=` instead of `ps -o lstart=`, because `lstart` is locale-dependent. The start is `floor(now) - etime`, so the reuse rule allows one second of slack: reused iff `startSec > floor(registeredAt / 1000) + 1`.
-- Section 1 (implementation): `ps` runs with `LC_ALL=C`; a zombie counts as stopped; a `ps` failure while checking for survivors fails the stop instead of reporting success.
-```
-
-Commit it with the handoff update (`docs: TSK-4 section 1 handoff and spec amendment`).
+The spec's "Amendments" section already records this section's refinements (plan review round 1). Add anything you changed beyond them to the spec's "Amendments" and to "Deviations from the spec" in `handoff.md`. Commit it with the handoff update (`docs: TSK-4 section 1 handoff`).
