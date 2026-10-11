@@ -40,5 +40,8 @@ Taskflow puts `taskflow-cli` on your PATH, pre-configured for this session.
 # All internal browser commands
 @taskflow-cli-browser-commands.md
 
+# All dev server commands
+@taskflow-cli-devserver-commands.md
+
 # All other commands
 @taskflow-cli-other-commands.md

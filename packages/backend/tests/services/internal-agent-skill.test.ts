@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
     buildSystemPrompt,
     ensureCliScript,
+    ensureInternalAgentSkillFile,
+    getResolvedCliHelp,
     buildAgentLaunchSpec,
     PROMPT_AUTONOMOUS,
 } from "../../src/services/internal-agent-skill";
@@ -55,6 +57,40 @@ describe("internal agent skill", () => {
         const withFlow = buildSystemPrompt(false, true);
         expect(withoutFlow).not.toContain("scoped to a flow step");
         expect(withFlow).toContain("scoped to a flow step");
+    });
+
+    it("tells every agent to register the dev servers it starts", () => {
+        const paragraph =
+            'When you start a dev server or another long-running process the user is meant to open or use (dev or preview servers, Storybook, local API servers), register it as soon as it\'s running: `taskflow-cli devserver add --pid <pid> --label "<what> :<port>"`. If you stop a server you registered, run `taskflow-cli devserver remove --pid <pid>`.';
+        for (const prompt of [
+            buildSystemPrompt(false),
+            buildSystemPrompt(true),
+            buildSystemPrompt(false, true),
+            buildSystemPrompt(false, false, false),
+        ]) {
+            expect(prompt).toContain(paragraph);
+        }
+    });
+
+    it("gives OpenCode the Taskflow prompt file before the skill", () => {
+        const skillPath = "/tmp/ignored/SKILL.md";
+        for (const prompt of ["Do it", undefined]) {
+            const spec = buildAgentLaunchSpec("opencode", prompt, skillPath);
+            const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as {
+                instructions: string[];
+            };
+            expect(config.instructions).toEqual([
+                join(dirname(skillPath), "taskflow-agent-prompt.md"),
+                skillPath,
+            ]);
+        }
+    });
+
+    it("serves the devserver commands in the CLI help", () => {
+        const help = getResolvedCliHelp();
+        expect(help).toContain('taskflow-cli devserver add --pid <pid> --label "<label>"');
+        expect(help).toContain("taskflow-cli devserver remove --pid <pid>");
+        expect(help).not.toContain("@taskflow-cli-devserver-commands.md");
     });
 
     it("configures Codex to load the Taskflow internal skill", () => {
@@ -491,5 +527,32 @@ describe("buildAgentLaunchSpec native resume", () => {
         );
         const index = spec.args.indexOf("--session-id");
         expect(spec.args[index + 1]).toBe("taskflow-session-id");
+    });
+});
+
+describe("internal agent skill files", () => {
+    it("writes the devserver doc and references it by path, not inlined", async () => {
+        const baseDir = await mkdtemp(join(tmpdir(), "taskflow-skill-test-"));
+        tempDirs.push(baseDir);
+
+        const skillPath = await ensureInternalAgentSkillFile(baseDir);
+        const skillDir = dirname(skillPath);
+        const docPath = join(skillDir, "taskflow-cli-devserver-commands.md");
+
+        expect(await readFile(docPath, "utf8")).toContain("taskflow-cli devserver list --all");
+        const skill = await readFile(skillPath, "utf8");
+        expect(skill).toContain(docPath);
+        expect(skill).not.toContain("taskflow-cli devserver add");
+    });
+
+    it("writes the Taskflow prompt file that OpenCode loads", async () => {
+        const baseDir = await mkdtemp(join(tmpdir(), "taskflow-skill-test-"));
+        tempDirs.push(baseDir);
+
+        const skillPath = await ensureInternalAgentSkillFile(baseDir);
+        const prompt = await readFile(join(dirname(skillPath), "taskflow-agent-prompt.md"), "utf8");
+
+        expect(prompt).toContain("You are running inside Taskflow application");
+        expect(prompt).toContain("taskflow-cli devserver add --pid <pid>");
     });
 });

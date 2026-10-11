@@ -13,6 +13,7 @@ import flowContextCommandsMd from "./taskflow-cli-flow-context-commands.md" with
 import agentCommandsMd from "./taskflow-cli-agent-commands.md" with { type: "text" };
 import scheduleCommandsMd from "./taskflow-cli-schedule-commands.md" with { type: "text" };
 import sessionCommandsMd from "./taskflow-cli-session-commands.md" with { type: "text" };
+import devserverCommandsMd from "./taskflow-cli-devserver-commands.md" with { type: "text" };
 import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: "text" };
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, AgentType, LinkedProject } from "@taskflow/shared";
@@ -34,12 +35,15 @@ const COMMAND_FILES: Record<string, string> = {
     "taskflow-cli-agent-commands.md": agentCommandsMd,
     "taskflow-cli-schedule-commands.md": scheduleCommandsMd,
     "taskflow-cli-session-commands.md": sessionCommandsMd,
+    "taskflow-cli-devserver-commands.md": devserverCommandsMd,
     "taskflow-cli-browser-commands.md": browserCommandsMd,
     "taskflow-cli-other-commands.md": otherCommandsMd,
 };
 
 const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
+// OpenCode takes no system prompt, only instruction files, so PROMPT_BASE goes in one.
+const AGENT_PROMPT_FILE_NAME = "taskflow-agent-prompt.md";
 
 let resolvedSkillDir: string | undefined;
 
@@ -50,7 +54,9 @@ Task is self explanatory. Tasks can be executed in worktrees.
 Action is a prefedined prompt with various agent settings.
 Flow is a set of Actions executed one after another.
 Session is a cli process running an agent.
-Schedule is a recurring cli process running an agent.`;
+Schedule is a recurring cli process running an agent.
+
+When you start a dev server or another long-running process the user is meant to open or use (dev or preview servers, Storybook, local API servers), register it as soon as it's running: \`taskflow-cli devserver add --pid <pid> --label "<what> :<port>"\`. If you stop a server you registered, run \`taskflow-cli devserver remove --pid <pid>\`.`;
 
 const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.
@@ -114,6 +120,9 @@ export async function ensureInternalAgentSkillFile(baseDir: string): Promise<str
         // Write main skill file with resolved absolute paths
         const resolved = resolveSkillReferences(skillMarkdown, skillDir);
         writeOps.push(writeFile(skillPath, resolved, "utf8"));
+        writeOps.push(
+            writeFile(join(skillDir, AGENT_PROMPT_FILE_NAME), `${PROMPT_BASE.trim()}\n`, "utf8"),
+        );
 
         await Promise.all(writeOps);
         resolvedSkillDir = skillDir;
@@ -247,7 +256,7 @@ export function buildAgentLaunchSpec(
 
     if (type === "opencode") {
         const config: Record<string, unknown> = {
-            instructions: [skillPath],
+            instructions: [join(dirname(skillPath), AGENT_PROMPT_FILE_NAME), skillPath],
         };
         if (agentOptions?.type === "opencode" && agentOptions.autoApprove) {
             config.permission = { edit: "allow", bash: "allow", write: "allow" };
