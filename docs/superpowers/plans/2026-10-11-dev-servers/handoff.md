@@ -6,7 +6,7 @@ Plan: `../2026-10-11-dev-servers.md`. Spec: `docs/superpowers/specs/2026-10-11-d
 
 ## Next step
 
-Plan review round 1 (report: `reviews/round-1.md`).
+Plan review round 2 (report: `reviews/round-2.md`; prompt `reviews/round-2-prompt.md`).
 
 ## Status
 
@@ -19,6 +19,9 @@ Plan review round 1 (report: `reviews/round-1.md`).
 | 5 | Manual verification, final review | not started | |
 
 ## Facts for the next section
+
+- Round 1 triaged in `reviews/round-1-triage.md` (all 11 confirmed; DS-08's promptless-Kimi part rejected as a known limitation). Fixes are in the section files, the plan index ("Plan review log", Review Focus) and the spec's new "Amendments" (items 1-8). Section 1 and 4 no longer write spec amendments for plan-time refinements; they only add implementation deviations.
+- The revised Section 1 stopper snippet + test were run from a scratch copy on macOS: 29/29 pass; tsc and eslint clean.
 
 - Base commit before implementation: fill in when Section 1 starts (`git rev-parse HEAD`).
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage; every UI test file passes alone. Judge UI tests file by file.
