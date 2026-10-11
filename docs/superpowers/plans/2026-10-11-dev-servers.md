@@ -172,3 +172,4 @@ export type DevServerStopResult = { ok: true } | { ok: false; error: string };
   - Section 4: the live-rows filter also shows primary's rows when primary has no machine row (browser dev renderer), with a test; opening the popover clears stop errors too; the reset/refetch test uses holder objects so it compiles; the component fake drops a meaningless `void`.
   - Section 3: header assertions use `toContain`; the TS bin rejects a bare `--` and `remove -x` like sh, with tests on both sides.
   - Section 5: browser vs Electron noted; item 8 allows the owner lookup; item 10 adds the late-failure/reopen check.
+- **Round 3** (gpt-6.1-sol, `2026-10-11-dev-servers/reviews/round-3.md`; triage in `round-3-triage.md`): all round 2 fixes hold. 1 minor confirmed: Section 5 item 10 reopens while the backend is still stopped, because a resumed backend runs the timed-out stop and removes the row. Reviews done.

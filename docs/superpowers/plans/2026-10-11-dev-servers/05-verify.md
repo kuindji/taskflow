@@ -51,7 +51,7 @@ Record each item as pass or fail in `handoff.md`:
     - after you stop the last server, the popover stays open showing `No dev servers running`;
     - closing it hides the icon;
     - a stop error that was showing is gone when you reopen the popover;
-    - a stop that fails after the popover closed shows no error on reopen. Register `sleep 300 &`, `kill -STOP` the sandbox backend, click Stop, close the popover, wait out the 30 s request timeout, `kill -CONT` the backend, then reopen: no `Request timeout` error under the row. Kill the sleep if it is still running.
+    - a stop that fails after the popover closed shows no error on reopen. Register `sleep 300 &`, `kill -STOP` the sandbox backend, click Stop, close the popover, and wait out the 30 s request timeout. Reopen **while the backend is still stopped**: the row is still there, its Stop button is enabled, and no `Request timeout` error shows. Only then `kill -CONT` the backend (the client sent no cancellation, so the queued stop runs and removes the row). Kill the sleep if it is still running.
 11. **Prompt.**
     - `taskflow-cli --help` and `/api/cli-help` show the `devserver` command syntax (the doc is inlined there, so look for `taskflow-cli devserver add --pid <pid> --label "<label>"`).
     - The written `SKILL.md` in the sandbox's agent-skills dir references `taskflow-cli-devserver-commands.md` by path, and `taskflow-agent-prompt.md` sits next to it with the paragraph.
