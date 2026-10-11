@@ -269,3 +269,7 @@ brainstorming.
 9. **Browser dev renderer.** It opens one connection to primary and creates no machine rows. The popover and the badge show primary's rows while no machine row exists for primary. Every other backend still needs an `attached` machine row.
 10. **Stop errors and the popover.** Opening the popover clears stop errors as well as closing it, because a stop still pending at close can fail afterwards. A stop in progress keeps `"stopping"`.
 11. **CLI parity.** The TS bin rejects what the sh `case` rejects: a bare `--` where a flag could stand (all three subcommands) and a `remove` argument starting with `-`. `--` as a flag's value (`--label --`) is accepted by both.
+
+### Section 1 implementation review (2026-10-11)
+
+12. **The backend's own process.** A stop of a record whose PID is the backend's own (or `<= 0`) fails with `operation not permitted` before any process command runs, and the record stays. When the backend is a descendant of the registered PID, the tree walk leaves out the backend and everything under it, because those are the sessions it runs.
