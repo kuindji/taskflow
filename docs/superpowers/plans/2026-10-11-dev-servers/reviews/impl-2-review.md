@@ -1,0 +1,1 @@
+No material defects found in the changed code or directly affected integrations. Repository typechecks and a read-only transport probe passed; the probe used in-memory storage and a fake process stopper, so it does not establish live process-stop behavior.
