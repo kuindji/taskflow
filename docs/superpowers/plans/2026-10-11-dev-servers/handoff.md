@@ -14,7 +14,7 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 |---|---|---|---|
 | 1 | Shared types, store, stopper, service | done, reviewed | `d71ac82c`, `57a36915`, `e0cb88e1`, fix `bbf73d40` |
 | 2 | Config, HTTP routes, WS handlers, wiring | done, reviewed (clean) | `7d12f5f6`, `c2d06a89` |
-| 3 | CLI (sh, TS bin), doc, prompt | done, awaiting review | `99d98f43`, `0c56612a`, `71a3f273` |
+| 3 | CLI (sh, TS bin), doc, prompt | done, reviewed (clean) | `99d98f43`, `0c56612a`, `71a3f273`, handoff `c836a270` |
 | 4 | Desktop UI | not started | |
 | 5 | Manual verification, final review | not started | |
 
@@ -28,7 +28,7 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 - Section 2 consumes `createDevServerService`, `DevServerInputError`, `type DevServerService` (`services/dev-server-service.ts`) and `DevServerStore` (`services/dev-server-store.ts`) exactly as in the plan index.
 - Section 2 produced `config.devServersFile`, `registerDevServerRoutes` (`api/routes/dev-server-routes.ts`), `registerDevServerHandlers` (`handlers/dev-server.ts`), required `ApiRouteDeps.devServerService`, and the real `devServerService` in `index.ts` directly after `registerNotificationHandlers`.
 - Section 2 code matches the plan snippets exactly. Verified: typecheck, scoped eslint/prettier, config 2, HTTP routes 13, WS handlers 4; backend suite 890 pass / 2 skip / 0 fail. Review clean (`reviews/impl-2-triage.md`).
-- Section 3 implemented the plan snippets without code deviations. TDD: sh 28 pass / 12 fail before implementation, then 40 pass; TS bin 8 pass / 8 fail before implementation, then 16 pass; agent skill 36 pass / 5 fail before implementation, then 41 pass. Verified: typecheck, scoped eslint/prettier, sh/dash syntax; backend suite 916 pass / 2 skip / 0 fail.
+- Section 3 implemented the plan snippets without code deviations. TDD: sh 28 pass / 12 fail before implementation, then 40 pass; TS bin 8 pass / 8 fail before implementation, then 16 pass; agent skill 36 pass / 5 fail before implementation, then 41 pass. Verified: typecheck, scoped eslint/prettier, sh/dash syntax; backend suite 916 pass / 2 skip / 0 fail. Review clean (`reviews/impl-3-triage.md`).
 - `api_request` (sh) now always sends the `X-Taskflow-*` context headers that are set. `contextHeaders()` (TS bin) is shared by `notify` and `devserver`.
 - OpenCode now loads `taskflow-agent-prompt.md` (`PROMPT_BASE`), written next to `SKILL.md`, before the skill.
 - The fake curl in `taskflow-cli.test.ts` records headers (`readCapturedHeaders`).
@@ -42,6 +42,7 @@ Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`
 ## Deviations from the spec
 
 - Section 1 (review fix `bbf73d40`, spec Amendment 12): stopping the backend's own PID (or `<= 0`) fails `operation not permitted` with no process command run; the tree walk prunes the backend's subtree. Two stopper tests added (31 total).
+- Section 3: no code deviations.
 - Section 2: no code deviations. The smoke test needed a readiness poll instead of a fixed 3s sleep, plus explicit `TASKFLOW_CONFIG_DIR` / `TASKFLOW_PORT_FILE` (see "Sandboxed backend").
 
 ## Sandboxed backend (for Section 5)

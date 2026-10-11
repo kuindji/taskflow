@@ -1,0 +1,1 @@
+Clear. No material regressions found in the changed code or directly affected integrations. Backend typecheck, shell syntax, prompt/help checks, and 40 read-only CLI probes passed; repository tests were blocked by the preload's temporary-directory writes under the read-only sandbox.
