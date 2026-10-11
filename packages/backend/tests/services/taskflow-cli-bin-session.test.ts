@@ -40,6 +40,39 @@ function startServer(owner: unknown, moveStatus = 200) {
     return requests;
 }
 
+interface RecordedDevServerRequest {
+    method: string;
+    path: string; // pathname + search
+    body: string;
+    project: string | null;
+    task: string | null;
+    session: string | null;
+}
+
+function startDevServerApi(status = 200, payload: unknown = { id: "d1" }) {
+    const requests: RecordedDevServerRequest[] = [];
+    server = Bun.serve({
+        port: 0,
+        async fetch(req) {
+            const url = new URL(req.url);
+            if (url.pathname.endsWith("/owner")) {
+                // Unknown session: the binary keeps its env owner.
+                return new Response("{}", { status: 404 });
+            }
+            requests.push({
+                method: req.method,
+                path: url.pathname + url.search,
+                body: await req.text(),
+                project: req.headers.get("x-taskflow-project-id"),
+                task: req.headers.get("x-taskflow-task-id"),
+                session: req.headers.get("x-taskflow-session-id"),
+            });
+            return Response.json(payload, { status });
+        },
+    });
+    return requests;
+}
+
 // Async on purpose: a blocking spawn would stall the in-process server.
 async function runBin(args: string[], env: Record<string, string>) {
     const proc = Bun.spawn(["bun", binPath, ...args], {
@@ -143,5 +176,143 @@ describe("taskflow-cli binary: session owner", () => {
 
         expect(result.status).toBe(1);
         expect(result.stderr).toContain("Flow sessions cannot be moved");
+    });
+});
+
+describe("taskflow-cli binary: devserver", () => {
+    const owner = {
+        TASKFLOW_PROJECT_ID: "p1",
+        TASKFLOW_TASK_ID: "t1",
+        TASKFLOW_SESSION_ID: "s1",
+    };
+
+    it("registers a dev server with the caller's owner headers", async () => {
+        const requests = startDevServerApi(201);
+        const result = await runBin(
+            ["devserver", "add", "--pid", "04821", "--label", 'UI "dev" :5173'],
+            owner,
+        );
+
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain('"id":"d1"');
+        expect(requests).toEqual([
+            {
+                method: "POST",
+                path: "/api/dev-servers",
+                body: '{"pid":4821,"label":"UI \\"dev\\" :5173"}',
+                project: "p1",
+                task: "t1",
+                session: "s1",
+            },
+        ]);
+    });
+
+    it("refuses add without a numeric --pid and a --label, before any request", async () => {
+        const requests = startDevServerApi();
+        for (const args of [
+            ["--label", "x"],
+            ["--pid", "1"],
+            ["--pid", "abc", "--label", "x"],
+            ["--pid", "1", "--label", ""],
+            ["--pid", "1", "--label", "x", "stray"],
+            ["--pid", "1", "--label", "x", "--port", "3000"],
+            ["--pid", "1", "--label", "x", "-x"],
+            ["--pid", "1", "--label", "x", "--"],
+            ["--", "--pid", "1", "--label", "x"],
+        ]) {
+            const result = await runBin(["devserver", "add", ...args], owner);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain("Usage: taskflow-cli devserver add");
+        }
+        expect(requests).toEqual([]);
+    });
+
+    it("takes `--` as a flag's value, not as end-of-flags", async () => {
+        const requests = startDevServerApi(201);
+        const result = await runBin(["devserver", "add", "--pid", "1", "--label", "--"], owner);
+
+        expect(result.status).toBe(0);
+        expect(requests.map((r) => r.body)).toEqual(['{"pid":1,"label":"--"}']);
+    });
+
+    it("refuses add, list and remove without project context", async () => {
+        const requests = startDevServerApi();
+        for (const args of [
+            ["add", "--pid", "1", "--label", "x"],
+            ["list"],
+            ["remove", "d1"],
+            ["remove", "--pid", "1"],
+        ]) {
+            const result = await runBin(["devserver", ...args], {});
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain("TASKFLOW_PROJECT_ID is not set");
+        }
+        expect(requests).toEqual([]);
+    });
+
+    it("surfaces the backend's validation error", async () => {
+        startDevServerApi(400, { error: "Field 'label' must be at most 80 characters" });
+        const result = await runBin(["devserver", "add", "--pid", "1", "--label", "x"], owner);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Field 'label' must be at most 80 characters");
+    });
+
+    it("lists the caller's dev servers, or all of them with --all", async () => {
+        const requests = startDevServerApi(200, { devServers: [] });
+
+        expect((await runBin(["devserver", "list"], owner)).status).toBe(0);
+        expect((await runBin(["devserver", "list", "--all"], {})).status).toBe(0);
+        // Like the sh script, --all still sends whatever context is set.
+        expect((await runBin(["devserver", "list", "--all"], owner)).status).toBe(0);
+        for (const args of [["--mine"], ["-x"], ["--"]]) {
+            expect((await runBin(["devserver", "list", ...args], owner)).status).toBe(1);
+        }
+
+        expect(requests.map((r) => [r.method, r.path, r.project])).toEqual([
+            ["GET", "/api/dev-servers", "p1"],
+            ["GET", "/api/dev-servers?all=1", null],
+            ["GET", "/api/dev-servers?all=1", "p1"],
+        ]);
+    });
+
+    it("removes by id or by pid", async () => {
+        const requests = startDevServerApi(200, { success: true });
+
+        expect((await runBin(["devserver", "remove", "d1"], owner)).status).toBe(0);
+        expect((await runBin(["devserver", "remove", "--pid", "007"], owner)).status).toBe(0);
+
+        expect(requests.map((r) => [r.method, r.path, r.project])).toEqual([
+            ["DELETE", "/api/dev-servers/d1", "p1"],
+            ["DELETE", "/api/dev-servers?pid=7", "p1"],
+        ]);
+    });
+
+    it("refuses remove without exactly one of <id> or --pid", async () => {
+        const requests = startDevServerApi();
+        for (const args of [
+            [],
+            ["d1", "d2"],
+            ["d1", "--pid", "5"],
+            ["--pid", "5", "--pid", "6"],
+            ["--pid", "x"],
+            ["--all"],
+            ["-x"],
+            ["--", "d1"],
+            ["d1", "--"],
+        ]) {
+            const result = await runBin(["devserver", "remove", ...args], owner);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain("Usage: taskflow-cli devserver remove");
+        }
+        expect(requests).toEqual([]);
+    });
+
+    it("prints usage for an unknown subcommand", async () => {
+        startDevServerApi();
+        const result = await runBin(["devserver", "stop", "d1"], owner);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Usage: taskflow-cli devserver <add|list|remove>");
     });
 });

@@ -95,6 +95,15 @@ function ownerField(): Record<string, string> {
     process.exit(1);
 }
 
+/** The caller's context, for routes that act on "the caller's owner". */
+function contextHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (projectId) headers["X-Taskflow-Project-Id"] = projectId;
+    if (taskId) headers["X-Taskflow-Task-Id"] = taskId;
+    if (sessionId) headers["X-Taskflow-Session-Id"] = sessionId;
+    return headers;
+}
+
 interface ParsedItem {
     id?: string;
     [key: string]: unknown;
@@ -886,14 +895,109 @@ async function handleNotify(args: string[]): Promise<void> {
     }
     requireProjectId();
     requireSessionId();
-    const headers: Record<string, string> = {
-        "X-Taskflow-Project-Id": projectId,
-        "X-Taskflow-Session-Id": sessionId,
-    };
-    if (taskId) {
-        headers["X-Taskflow-Task-Id"] = taskId;
+    process.stdout.write(await api("POST", "/api/notifications", { message }, contextHeaders()));
+}
+
+const DIGITS = /^\d+$/;
+
+/**
+ * True when a bare `--` stands where a flag could. `consumeFlags` reads it as
+ * end-of-flags; the sh CLI rejects it. `valueFlags` take the next argument, so
+ * `--label --` is a value, not a sentinel.
+ */
+function hasEndOfFlags(args: string[], valueFlags: string[]): boolean {
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--") return true;
+        if (valueFlags.includes(args[i])) i++;
     }
-    process.stdout.write(await api("POST", "/api/notifications", { message }, headers));
+    return false;
+}
+
+async function handleDevserver(args: string[]): Promise<void> {
+    const subcmd = args[0] ?? "";
+    const subArgs = args.slice(1);
+
+    switch (subcmd) {
+        case "add": {
+            const usage = 'Usage: taskflow-cli devserver add --pid <pid> --label "<label>"\n';
+            const { flags, positional, unknown } = consumeFlags(subArgs, {
+                pid: "string",
+                label: "string",
+            });
+            const pid = typeof flags.pid === "string" ? flags.pid : "";
+            const label = typeof flags.label === "string" ? flags.label : "";
+            if (
+                hasEndOfFlags(subArgs, ["--pid", "--label"]) ||
+                !DIGITS.test(pid) ||
+                !label ||
+                positional.length > 0 ||
+                unknown.length > 0
+            ) {
+                process.stderr.write(usage);
+                process.exit(1);
+            }
+            requireProjectId();
+            process.stdout.write(
+                await api(
+                    "POST",
+                    "/api/dev-servers",
+                    { pid: Number(pid), label },
+                    contextHeaders(),
+                ),
+            );
+            break;
+        }
+        case "list": {
+            const { flags, positional, unknown } = consumeFlags(subArgs, { all: "boolean" });
+            if (hasEndOfFlags(subArgs, []) || positional.length > 0 || unknown.length > 0) {
+                process.stderr.write("Usage: taskflow-cli devserver list [--all]\n");
+                process.exit(1);
+            }
+            if (flags.all === true) {
+                // Same headers as the sh script, which always sends the context that's set.
+                process.stdout.write(
+                    await api("GET", "/api/dev-servers?all=1", undefined, contextHeaders()),
+                );
+                break;
+            }
+            requireProjectId();
+            process.stdout.write(await api("GET", "/api/dev-servers", undefined, contextHeaders()));
+            break;
+        }
+        case "remove": {
+            const usage = "Usage: taskflow-cli devserver remove <id> | --pid <pid>\n";
+            // consumeFlags keeps only the last of a repeated flag, so count --pid here
+            // to reject `--pid 5 --pid 6` like the sh CLI.
+            const pidFlags = subArgs.filter((arg) => arg === "--pid").length;
+            const { flags, positional, unknown } = consumeFlags(subArgs, { pid: "string" });
+            const pid = typeof flags.pid === "string" ? flags.pid : undefined;
+            const byPid = pid !== undefined && positional.length === 0 && DIGITS.test(pid);
+            // `-x` is positional to consumeFlags; the sh CLI rejects it as an unknown flag.
+            const byId =
+                pid === undefined &&
+                positional.length === 1 &&
+                positional[0] !== "" &&
+                !positional[0].startsWith("-");
+            if (
+                hasEndOfFlags(subArgs, ["--pid"]) ||
+                unknown.length > 0 ||
+                pidFlags > 1 ||
+                (!byPid && !byId)
+            ) {
+                process.stderr.write(usage);
+                process.exit(1);
+            }
+            requireProjectId();
+            const path = byPid
+                ? `/api/dev-servers?pid=${Number(pid)}`
+                : `/api/dev-servers/${encodeURIComponent(positional[0])}`;
+            process.stdout.write(await api("DELETE", path, undefined, contextHeaders()));
+            break;
+        }
+        default:
+            process.stderr.write("Usage: taskflow-cli devserver <add|list|remove>\n");
+            process.exit(1);
+    }
 }
 
 async function handleProject(args: string[]): Promise<void> {
@@ -1423,6 +1527,9 @@ async function main(): Promise<void> {
             break;
         case "notify":
             await handleNotify(rest);
+            break;
+        case "devserver":
+            await handleDevserver(rest);
             break;
         case "project":
             await handleProject(rest);
