@@ -6,7 +6,7 @@ Plan: `../2026-10-11-dev-servers.md`. Spec: `docs/superpowers/specs/2026-10-11-d
 
 ## Next step
 
-Implement Section 3 (`03-cli-prompt.md`), following "Implementation steps" in `chain.md`.
+Implement Section 4 (`04-ui.md`), following "Implementation steps" in `chain.md`.
 
 ## Status
 
@@ -14,7 +14,7 @@ Implement Section 3 (`03-cli-prompt.md`), following "Implementation steps" in `c
 |---|---|---|---|
 | 1 | Shared types, store, stopper, service | done, reviewed | `d71ac82c`, `57a36915`, `e0cb88e1`, fix `bbf73d40` |
 | 2 | Config, HTTP routes, WS handlers, wiring | done, reviewed (clean) | `7d12f5f6`, `c2d06a89` |
-| 3 | CLI (sh, TS bin), doc, prompt | not started | |
+| 3 | CLI (sh, TS bin), doc, prompt | done, awaiting review | `99d98f43`, `0c56612a`, `71a3f273` |
 | 4 | Desktop UI | not started | |
 | 5 | Manual verification, final review | not started | |
 
@@ -28,6 +28,11 @@ Implement Section 3 (`03-cli-prompt.md`), following "Implementation steps" in `c
 - Section 2 consumes `createDevServerService`, `DevServerInputError`, `type DevServerService` (`services/dev-server-service.ts`) and `DevServerStore` (`services/dev-server-store.ts`) exactly as in the plan index.
 - Section 2 produced `config.devServersFile`, `registerDevServerRoutes` (`api/routes/dev-server-routes.ts`), `registerDevServerHandlers` (`handlers/dev-server.ts`), required `ApiRouteDeps.devServerService`, and the real `devServerService` in `index.ts` directly after `registerNotificationHandlers`.
 - Section 2 code matches the plan snippets exactly. Verified: typecheck, scoped eslint/prettier, config 2, HTTP routes 13, WS handlers 4; backend suite 890 pass / 2 skip / 0 fail. Review clean (`reviews/impl-2-triage.md`).
+- Section 3 implemented the plan snippets without code deviations. TDD: sh 28 pass / 12 fail before implementation, then 40 pass; TS bin 8 pass / 8 fail before implementation, then 16 pass; agent skill 36 pass / 5 fail before implementation, then 41 pass. Verified: typecheck, scoped eslint/prettier, sh/dash syntax; backend suite 916 pass / 2 skip / 0 fail.
+- `api_request` (sh) now always sends the `X-Taskflow-*` context headers that are set. `contextHeaders()` (TS bin) is shared by `notify` and `devserver`.
+- OpenCode now loads `taskflow-agent-prompt.md` (`PROMPT_BASE`), written next to `SKILL.md`, before the skill.
+- The fake curl in `taskflow-cli.test.ts` records headers (`readCapturedHeaders`).
+- Section 5's manual check should run `sh packages/backend/src/services/taskflow-cli.sh devserver add|list|remove` against the real backend with the session env.
 - Section 3 CLI headers: `X-Taskflow-Project-Id`, `X-Taskflow-Task-Id`, `X-Taskflow-Session-Id`; HTTP header names are case-insensitive. GET without `all=1` requires the project header.
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage; every UI test file passes alone. Judge UI tests file by file.
 - Tests asserting rejections use `expectRejects` from `packages/backend/tests/expect-rejects.ts` (`await expect(p).rejects.toThrow()` trips eslint `await-thenable`).
