@@ -42,17 +42,25 @@ resolve_owner_id() {
 
 # Unlike `curl -sf` used elsewhere in this script, this prints the API's
 # error body. Some writes fail for actionable reasons (duplicate attribute
-# name, an unmovable session) and an agent needs to read them.
+# name, an unmovable session, an invalid dev server) and an agent needs to
+# read them. It also sends the caller's context headers, which routes that
+# act on "the caller's owner" read and every other route ignores.
 api_request() {
   req_method="$1"
   req_url="$2"
   req_body="${3:-}"
   if [ -n "$req_body" ]; then
     req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
+      ${TASKFLOW_PROJECT_ID:+-H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID"} \
+      ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
+      ${TASKFLOW_SESSION_ID:+-H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID"} \
       -H "Content-Type: application/json" -d "$req_body") \
       || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
   else
-    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url") \
+    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
+      ${TASKFLOW_PROJECT_ID:+-H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID"} \
+      ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
+      ${TASKFLOW_SESSION_ID:+-H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID"}) \
       || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
   fi
   req_code=$(printf '%s' "$req_out" | tail -n1)
@@ -891,6 +899,108 @@ case "$cmd" in
       -H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID" \
       ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
       -d "$payload"
+    ;;
+
+  devserver)
+    subcmd="${1:-}"
+    shift 2>/dev/null || true
+    case "$subcmd" in
+      add)
+        ds_pid=""
+        ds_label=""
+        ds_usage='Usage: taskflow-cli devserver add --pid <pid> --label "<label>"'
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --pid|--label)
+              if [ $# -lt 2 ]; then echo "$ds_usage" >&2; exit 1; fi
+              case "$1" in
+                --pid) ds_pid="$2" ;;
+                --label) ds_label="$2" ;;
+              esac
+              shift 2
+              ;;
+            *) echo "$ds_usage" >&2; exit 1 ;;
+          esac
+        done
+        case "$ds_pid" in
+          ''|*[!0-9]*) echo "$ds_usage" >&2; exit 1 ;;
+        esac
+        if [ -z "$ds_label" ]; then echo "$ds_usage" >&2; exit 1; fi
+        if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+          echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+          exit 1
+        fi
+        # "007" is not valid JSON; send 7.
+        ds_pid=$(printf '%s' "$ds_pid" | sed 's/^0*\([0-9]\)/\1/')
+        api_request POST "$TASKFLOW_API_URL/api/dev-servers" \
+          "$(printf '{"pid":%s,"label":%s}' "$ds_pid" "$(json_string "$ds_label")")"
+        ;;
+      list)
+        ds_all=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --all) ds_all=1; shift ;;
+            *) echo "Usage: taskflow-cli devserver list [--all]" >&2; exit 1 ;;
+          esac
+        done
+        if [ -n "$ds_all" ]; then
+          api_request GET "$TASKFLOW_API_URL/api/dev-servers?all=1"
+        else
+          if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+            echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+            exit 1
+          fi
+          api_request GET "$TASKFLOW_API_URL/api/dev-servers"
+        fi
+        ;;
+      remove)
+        ds_id=""
+        ds_pid=""
+        ds_by_pid=""
+        ds_given=0
+        ds_usage="Usage: taskflow-cli devserver remove <id> | --pid <pid>"
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --pid)
+              if [ $# -lt 2 ]; then echo "$ds_usage" >&2; exit 1; fi
+              ds_pid="$2"
+              ds_by_pid=1
+              ds_given=$((ds_given + 1))
+              shift 2
+              ;;
+            -*) echo "$ds_usage" >&2; exit 1 ;;
+            *)
+              ds_id="$1"
+              ds_given=$((ds_given + 1))
+              shift
+              ;;
+          esac
+        done
+        if [ "$ds_given" -ne 1 ]; then echo "$ds_usage" >&2; exit 1; fi
+        if [ -n "$ds_by_pid" ]; then
+          case "$ds_pid" in
+            ''|*[!0-9]*) echo "$ds_usage" >&2; exit 1 ;;
+          esac
+        elif [ -z "$ds_id" ]; then
+          echo "$ds_usage" >&2
+          exit 1
+        fi
+        if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+          echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+          exit 1
+        fi
+        if [ -n "$ds_by_pid" ]; then
+          ds_pid=$(printf '%s' "$ds_pid" | sed 's/^0*\([0-9]\)/\1/')
+          api_request DELETE "$TASKFLOW_API_URL/api/dev-servers?pid=$ds_pid"
+        else
+          api_request DELETE "$TASKFLOW_API_URL/api/dev-servers/$ds_id"
+        fi
+        ;;
+      *)
+        echo "Usage: taskflow-cli devserver <add|list|remove>" >&2
+        exit 1
+        ;;
+    esac
     ;;
 
   project)

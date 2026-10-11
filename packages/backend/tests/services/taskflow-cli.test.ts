@@ -44,6 +44,7 @@ method="GET"
 url=""
 data=""
 write_status=""
+headers=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -X)
@@ -55,6 +56,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -H)
+      headers="$headers$2|"
       shift 2
       ;;
     -w)
@@ -82,6 +84,7 @@ esac
   printf 'METHOD=%s\\n' "$method"
   printf 'URL=%s\\n' "$url"
   printf 'DATA=%s\\n' "$data"
+  printf 'HEADERS=%s\\n' "$headers"
 } > "$CAPTURE_FILE"
 printf '%s' "$CURL_RESPONSE"
 if [ -n "$write_status" ]; then printf '\\n%s' "\${CURL_STATUS:-200}"; fi
@@ -135,6 +138,19 @@ async function readCapturedRequest(captureFile: string): Promise<CapturedRequest
         url: entries.get("URL") ?? "",
         data: entries.get("DATA") ?? "",
     };
+}
+
+async function readCapturedHeaders(captureFile: string): Promise<string[]> {
+    const raw = await readFile(captureFile, "utf8");
+    const line = raw.split("\n").find((entry) => entry.startsWith("HEADERS=")) ?? "HEADERS=";
+    return line.slice("HEADERS=".length).split("|").filter(Boolean);
+}
+
+async function captured(captureFile: string): Promise<boolean> {
+    return stat(captureFile).then(
+        () => true,
+        () => false,
+    );
 }
 
 describe("taskflow-cli", () => {
@@ -621,5 +637,218 @@ describe("taskflow-cli", () => {
 
         expect(result.status).toBe(1);
         expect(String(result.stdout)).toContain("Flow sessions cannot be moved");
+    });
+    describe("devserver", () => {
+        const owner = {
+            TASKFLOW_PROJECT_ID: "p1",
+            TASKFLOW_TASK_ID: "t1",
+            TASKFLOW_SESSION_ID: "s1",
+        };
+
+        it("registers a dev server with the caller's owner headers", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(
+                cliPath,
+                ["devserver", "add", "--pid", "4821", "--label", "UI dev server :5173"],
+                { ...env, ...owner, CURL_RESPONSE: '{"id":"d1"}', CURL_STATUS: "201" },
+            );
+
+            expect(result.status).toBe(0);
+            expect(String(result.stdout)).toContain('"id":"d1"');
+            expect(await readCapturedRequest(captureFile)).toEqual({
+                method: "POST",
+                url: "http://localhost:1234/api/dev-servers",
+                data: '{"pid":4821,"label":"UI dev server :5173"}',
+            });
+            const headers = await readCapturedHeaders(captureFile);
+            expect(headers).toContain("X-Taskflow-Project-Id: p1");
+            expect(headers).toContain("X-Taskflow-Task-Id: t1");
+            expect(headers).toContain("X-Taskflow-Session-Id: s1");
+        });
+
+        it("omits the task header for a project-level session", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "add", "--pid", "7", "--label", "api"], {
+                ...env,
+                TASKFLOW_PROJECT_ID: "p1",
+            });
+
+            expect(result.status).toBe(0);
+            const headers = await readCapturedHeaders(captureFile);
+            expect(headers).toContain("X-Taskflow-Project-Id: p1");
+            expect(headers.some((h) => h.startsWith("X-Taskflow-Task-Id"))).toBe(false);
+        });
+
+        it("strips leading zeros from the pid and escapes the label", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(
+                cliPath,
+                ["devserver", "add", "--pid", "007", "--label", 'Say "hi" :3000'],
+                { ...env, ...owner },
+            );
+
+            expect(result.status).toBe(0);
+            expect((await readCapturedRequest(captureFile)).data).toBe(
+                '{"pid":7,"label":"Say \\"hi\\" :3000"}',
+            );
+        });
+
+        it("refuses add without a numeric --pid and a --label, before any request", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            for (const args of [
+                ["--label", "x"],
+                ["--pid", "1"],
+                ["--pid", "abc", "--label", "x"],
+                ["--pid", "-5", "--label", "x"],
+                ["--pid", "1", "--label", ""],
+                ["--pid", "1", "--label", "x", "stray"],
+                ["--pid", "1", "--label", "x", "--port", "3000"],
+                ["--pid"],
+                ["--pid", "1", "--label", "x", "-x"],
+                ["--pid", "1", "--label", "x", "--"],
+                ["--", "--pid", "1", "--label", "x"],
+            ]) {
+                const result = runCli(cliPath, ["devserver", "add", ...args], { ...env, ...owner });
+                expect(result.status).toBe(1);
+                expect(String(result.stderr)).toContain("Usage: taskflow-cli devserver add");
+            }
+            expect(await captured(captureFile)).toBe(false);
+        });
+
+        it("takes `--` as a flag's value, not as end-of-flags", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "add", "--pid", "1", "--label", "--"], {
+                ...env,
+                ...owner,
+                CURL_RESPONSE: '{"id":"d1"}',
+                CURL_STATUS: "201",
+            });
+
+            expect(result.status).toBe(0);
+            expect((await readCapturedRequest(captureFile)).data).toBe('{"pid":1,"label":"--"}');
+        });
+
+        it("refuses add, list and remove without project context", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            for (const args of [
+                ["add", "--pid", "1", "--label", "x"],
+                ["list"],
+                ["remove", "d1"],
+                ["remove", "--pid", "1"],
+            ]) {
+                const result = runCli(cliPath, ["devserver", ...args], env);
+                expect(result.status).toBe(1);
+                expect(String(result.stderr)).toContain("TASKFLOW_PROJECT_ID is not set");
+            }
+            expect(await captured(captureFile)).toBe(false);
+        });
+
+        it("prints the backend's validation error and exits non-zero", async () => {
+            const { cliPath, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "add", "--pid", "1", "--label", "x"], {
+                ...env,
+                ...owner,
+                CURL_RESPONSE: `{"error":"Field 'label' must be at most 80 characters"}`,
+                CURL_STATUS: "400",
+            });
+
+            expect(result.status).toBe(1);
+            expect(String(result.stdout)).toContain("Field 'label' must be at most 80 characters");
+        });
+
+        it("lists the caller's dev servers, or all of them with --all", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+
+            const own = runCli(cliPath, ["devserver", "list"], { ...env, ...owner });
+            expect(own.status).toBe(0);
+            expect(await readCapturedRequest(captureFile)).toEqual({
+                method: "GET",
+                url: "http://localhost:1234/api/dev-servers",
+                data: "",
+            });
+            expect(await readCapturedHeaders(captureFile)).toContain("X-Taskflow-Project-Id: p1");
+
+            // --all needs no context at all.
+            const all = runCli(cliPath, ["devserver", "list", "--all"], env);
+            expect(all.status).toBe(0);
+            expect((await readCapturedRequest(captureFile)).url).toBe(
+                "http://localhost:1234/api/dev-servers?all=1",
+            );
+
+            for (const args of [["--mine"], ["-x"], ["--"]]) {
+                const stray = runCli(cliPath, ["devserver", "list", ...args], { ...env, ...owner });
+                expect(stray.status).toBe(1);
+                expect(String(stray.stderr)).toContain("Usage: taskflow-cli devserver list");
+            }
+        });
+
+        it("removes by id or by pid", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+
+            const byId = runCli(cliPath, ["devserver", "remove", "d1"], { ...env, ...owner });
+            expect(byId.status).toBe(0);
+            expect(await readCapturedRequest(captureFile)).toEqual({
+                method: "DELETE",
+                url: "http://localhost:1234/api/dev-servers/d1",
+                data: "",
+            });
+
+            const byPid = runCli(cliPath, ["devserver", "remove", "--pid", "04821"], {
+                ...env,
+                ...owner,
+            });
+            expect(byPid.status).toBe(0);
+            expect((await readCapturedRequest(captureFile)).url).toBe(
+                "http://localhost:1234/api/dev-servers?pid=4821",
+            );
+        });
+
+        it("refuses remove without exactly one of <id> or --pid", async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            for (const args of [
+                [],
+                ["d1", "d2"],
+                ["d1", "--pid", "5"],
+                ["--pid", "5", "--pid", "6"],
+                ["--pid", "x"],
+                ["--pid", ""],
+                ["--pid"],
+                ["--all"],
+                ["-x"],
+                ["--", "d1"],
+                ["d1", "--"],
+            ]) {
+                const result = runCli(cliPath, ["devserver", "remove", ...args], {
+                    ...env,
+                    ...owner,
+                });
+                expect(result.status).toBe(1);
+                expect(String(result.stderr)).toContain("Usage: taskflow-cli devserver remove");
+            }
+            expect(await captured(captureFile)).toBe(false);
+        });
+
+        it("prints the backend's 404 for an unknown record", async () => {
+            const { cliPath, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "remove", "nope"], {
+                ...env,
+                ...owner,
+                CURL_RESPONSE: '{"error":"Dev server not found"}',
+                CURL_STATUS: "404",
+            });
+
+            expect(result.status).toBe(1);
+            expect(String(result.stdout)).toContain("Dev server not found");
+        });
+
+        it("prints usage for an unknown subcommand", async () => {
+            const { cliPath, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["devserver", "stop", "d1"], { ...env, ...owner });
+
+            expect(result.status).toBe(1);
+            expect(String(result.stderr)).toContain(
+                "Usage: taskflow-cli devserver <add|list|remove>",
+            );
+        });
     });
 });
