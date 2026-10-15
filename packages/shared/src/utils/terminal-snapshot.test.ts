@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { SessionSnapshotResponse } from "@taskflow/shared";
-import { assertCompatibleSnapshot, supplementalSnapshotSequence } from "./snapshot-state";
+import type { SessionSnapshotResponse } from "../types/ws";
+import { assertCompatibleSnapshot, supplementalSnapshotSequence } from "./terminal-snapshot";
 
 describe("snapshot compatibility state", () => {
     it("rejects an old backend only when it returns a non-null snapshot", () => {

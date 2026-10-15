@@ -1,4 +1,4 @@
-import type { MouseEncoding, SessionSnapshotResponse } from "@taskflow/shared";
+import type { MouseEncoding, SessionSnapshotResponse } from "../types/ws";
 
 const MOUSE_ENCODING_SEQUENCE: Readonly<Record<MouseEncoding, string>> = {
     x10: "",

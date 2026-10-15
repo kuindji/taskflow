@@ -1,5 +1,5 @@
 import { ClipboardTarget, EmbeddedTerminalRenderable, type CliRenderer } from "@opentui/core";
-import { MSG } from "@taskflow/shared";
+import { MSG, assertCompatibleSnapshot, supplementalSnapshotSequence } from "@taskflow/shared";
 import type {
     SessionExitedEvent,
     SessionHistoryResponse,
@@ -10,7 +10,6 @@ import type { NetLike } from "../net/client";
 import { inputBytesToString } from "./input-bytes";
 import { Osc52Scanner } from "./osc52";
 import type { Osc52Sink, Osc52Target } from "./osc52";
-import { assertCompatibleSnapshot, supplementalSnapshotSequence } from "./snapshot-state";
 import { EmbeddedTerminalOutputFilter } from "./terminal-output";
 
 interface SessionOwner {

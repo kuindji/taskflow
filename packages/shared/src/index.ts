@@ -32,3 +32,4 @@ export * from "./types/wiki";
 export * from "./utils/wiki-link";
 export * from "./utils/kitty-keyboard";
 export * from "./utils/backend-host";
+export * from "./utils/terminal-snapshot";

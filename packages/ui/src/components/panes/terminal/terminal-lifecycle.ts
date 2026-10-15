@@ -12,6 +12,8 @@ import {
     DEFAULT_TERMINAL_FONT_SIZE,
     MSG,
     TERMINAL_SCROLLBACK,
+    assertCompatibleSnapshot,
+    supplementalSnapshotSequence,
 } from "@taskflow/shared";
 import type {
     TerminalOutputEvent,
@@ -266,16 +268,18 @@ function getOrCreateTerminal(
             MSG.SESSION_SNAPSHOT,
             { sessionId },
         )
-            .then(async ({ snapshot, lastSequence, cursorHidden }) => {
-                if (snapshot !== null) {
-                    writer.write(snapshot);
-                    if (cursorHidden) {
-                        writer.write("\x1b[?25l");
-                    }
+            .then(async (response) => {
+                assertCompatibleSnapshot(response);
+                if (response.snapshot !== null) {
+                    writer.write(response.snapshot);
+                    // The serialized screen omits mouse encoding and cursor
+                    // visibility; without SGR, wheel reports go out as X10
+                    // binary events that never reach the PTY.
+                    writer.write(supplementalSnapshotSequence(response));
                     await writer.flush();
                     term.scrollToBottom();
                     historyLoaded = true;
-                    flushPendingChunks(pendingData, lastSequence, writer);
+                    flushPendingChunks(pendingData, response.lastSequence, writer);
                     return;
                 }
                 return replayFromHistory();
