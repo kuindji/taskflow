@@ -638,6 +638,80 @@ describe("taskflow-cli", () => {
         expect(result.status).toBe(1);
         expect(String(result.stdout)).toContain("Flow sessions cannot be moved");
     });
+    describe("agent run", () => {
+        const owner = { TASKFLOW_PROJECT_ID: "p1", TASKFLOW_TASK_ID: "t1" };
+
+        async function runAgent(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, ["agent", "run", ...args], {
+                ...env,
+                ...owner,
+                ...extraEnv,
+            });
+            return { result, captureFile };
+        }
+
+        it("starts on the caller's own task by default", async () => {
+            const { result, captureFile } = await runAgent(["claude", "--prompt", "go"]);
+
+            expect(result.status).toBe(0);
+            const request = await readCapturedRequest(captureFile);
+            expect(request.url).toBe("http://localhost:1234/api/sessions");
+            expect(JSON.parse(request.data)).toMatchObject({
+                projectId: "p1",
+                taskId: "t1",
+                type: "claude",
+                prompt: "go",
+            });
+        });
+
+        it("sends only the task for an explicit --task so its project is resolved", async () => {
+            const { result, captureFile } = await runAgent(["--task", "t9"]);
+
+            expect(result.status).toBe(0);
+            expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+                taskId: "t9",
+            });
+        });
+
+        it("starts a project-level session for --project, ignoring the caller's task", async () => {
+            const { result, captureFile } = await runAgent(["--project", "p2"]);
+
+            expect(result.status).toBe(0);
+            expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+                projectId: "p2",
+            });
+        });
+
+        it("sends both for --task with --project", async () => {
+            const { result, captureFile } = await runAgent(["--task", "t9", "--project", "p2"]);
+
+            expect(result.status).toBe(0);
+            expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+                taskId: "t9",
+                projectId: "p2",
+            });
+        });
+
+        it("works without TASKFLOW_PROJECT_ID when a target is given", async () => {
+            const { result } = await runAgent(["--project", "p2"], {
+                TASKFLOW_PROJECT_ID: "",
+                TASKFLOW_TASK_ID: "",
+            });
+
+            expect(result.status).toBe(0);
+        });
+
+        it("surfaces the backend refusal", async () => {
+            const { result } = await runAgent(["--task", "t9"], {
+                CURL_RESPONSE: '{"error":"Task not found: t9"}',
+                CURL_STATUS: "404",
+            });
+
+            expect(result.status).toBe(1);
+            expect(String(result.stdout)).toContain("Task not found: t9");
+        });
+    });
     describe("devserver", () => {
         const owner = {
             TASKFLOW_PROJECT_ID: "p1",

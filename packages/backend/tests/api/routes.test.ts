@@ -542,6 +542,99 @@ describe("task creation routes", () => {
     });
 });
 
+describe("session creation route", () => {
+    let apiRouter: ApiRouter;
+    let tempDir: string;
+    let projectA: string;
+    let projectB: string;
+    let taskInB: string;
+    let createdOwners: SessionOwnerRef[];
+
+    beforeEach(async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-session-create-"));
+        apiRouter = new ApiRouter();
+        const taskStore = new TaskStore({
+            projectsFile: join(tempDir, "projects.json"),
+            tasksDir: join(tempDir, "tasks"),
+            archiveDir: join(tempDir, "archive"),
+            sessionLogsDir: join(tempDir, "session-logs"),
+            taskLogsDir: join(tempDir, "task-logs"),
+        });
+        await taskStore.init();
+        await mkdir(join(tempDir, "a"));
+        await mkdir(join(tempDir, "b"));
+        projectA = (await taskStore.addProject({ name: "a", path: join(tempDir, "a") })).id;
+        projectB = (await taskStore.addProject({ name: "b", path: join(tempDir, "b") })).id;
+        taskInB = (
+            await taskStore.createTask({ projectId: projectB, title: "t", description: "do it" })
+        ).id;
+
+        createdOwners = [];
+        registerApiRoutes({
+            apiRouter,
+            taskStore,
+            ptyManager: new FakePtyManager() as never,
+            broadcast: () => {},
+            settingsStore: new SettingsStore(join(tempDir, "settings.json")),
+            flowStore: {} as never,
+            flowRunner: {} as never,
+            gitService: {} as never,
+            agents: [{ type: "claude", available: true, path: "claude", version: "1" }],
+            ...sharedTestDeps,
+            sessionLifecycle: {
+                ...sharedTestDeps.sessionLifecycle,
+                createSession: async ({ owner }) => {
+                    createdOwners.push(owner);
+                    return "new-session";
+                },
+            },
+            trayStateTracker: new FakeTrayStateTracker() as never,
+            notificationStore: {} as never,
+        });
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, { recursive: true, force: true });
+    });
+
+    function post(body: Record<string, unknown>) {
+        return apiRouter.handle(
+            new Request("http://localhost/api/sessions", {
+                method: "POST",
+                body: JSON.stringify({ type: "claude", ...body }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+    }
+
+    it("resolves the project from a task in another project", async () => {
+        const response = await post({ taskId: taskInB });
+
+        expect(response?.status).toBe(201);
+        expect(createdOwners).toEqual([{ taskId: taskInB }]);
+    });
+
+    it("starts a project-level session in any existing project", async () => {
+        const response = await post({ projectId: projectB });
+
+        expect(response?.status).toBe(201);
+        expect(createdOwners).toEqual([{ projectId: projectB }]);
+    });
+
+    it("rejects a task paired with a different project", async () => {
+        const response = await post({ taskId: taskInB, projectId: projectA });
+
+        expect(response?.status).toBe(400);
+        expect(createdOwners).toEqual([]);
+    });
+
+    it("rejects an unknown project and a request with no owner", async () => {
+        expect((await post({ projectId: "missing" }))?.status).toBe(404);
+        expect((await post({}))?.status).toBe(400);
+        expect(createdOwners).toEqual([]);
+    });
+});
+
 describe("project reorder routes", () => {
     let apiRouter: ApiRouter;
     let tempDir: string;

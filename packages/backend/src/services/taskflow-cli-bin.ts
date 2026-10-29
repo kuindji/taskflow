@@ -1258,7 +1258,6 @@ async function handleAgent(args: string[]): Promise<void> {
             process.stdout.write(await api("GET", "/api/agents"));
             break;
         case "run": {
-            requireProjectId();
             // First positional arg is agent type (optional — if it starts with --, it's a flag)
             let agentType = "";
             let flagArgs = subArgs;
@@ -1270,6 +1269,7 @@ async function handleAgent(args: string[]): Promise<void> {
             const { flags } = parseFlags(flagArgs, {
                 prompt: "string",
                 task: "string",
+                project: "string",
                 label: "string",
                 model: "string",
                 account: "string",
@@ -1288,11 +1288,22 @@ async function handleAgent(args: string[]): Promise<void> {
                 "auto-approve": "boolean",
             });
 
-            const body: Record<string, unknown> = { projectId };
+            // An explicit --task carries its own project (the backend resolves
+            // it), and an explicit --project starts a project-level session.
+            // Only with neither does the caller's own owner apply.
+            const taskFlag = typeof flags.task === "string" ? flags.task : "";
+            const projectFlag = typeof flags.project === "string" ? flags.project : "";
+            const body: Record<string, unknown> = {};
+            if (taskFlag) {
+                body.taskId = taskFlag;
+                if (projectFlag) body.projectId = projectFlag;
+            } else if (projectFlag) {
+                body.projectId = projectFlag;
+            } else {
+                body.projectId = requireProjectId();
+                if (taskId) body.taskId = taskId;
+            }
             if (agentType) body.type = agentType;
-
-            const resolvedTaskId = (flags.task as string) || taskId;
-            if (resolvedTaskId) body.taskId = resolvedTaskId;
             if (flags.prompt) body.prompt = flags.prompt;
             if (flags.label) body.label = flags.label;
 

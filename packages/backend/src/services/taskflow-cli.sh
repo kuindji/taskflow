@@ -1248,11 +1248,6 @@ case "$cmd" in
         curl -sf "$TASKFLOW_API_URL/api/agents"
         ;;
       run)
-        if [ -z "$TASKFLOW_PROJECT_ID" ]; then
-          echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
-          exit 1
-        fi
-
         # First positional arg is agent type (optional — if it starts with --, it's a flag)
         agent_type=""
         if [ $# -gt 0 ]; then
@@ -1264,6 +1259,7 @@ case "$cmd" in
 
         agent_prompt=""
         agent_task_id=""
+        agent_project_id=""
         agent_label=""
         agent_model=""
         agent_account=""
@@ -1283,6 +1279,7 @@ case "$cmd" in
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
             --task) agent_task_id="${2:-}"; shift 2 ;;
+            --project) agent_project_id="${2:-}"; shift 2 ;;
             --label) agent_label="${2:-}"; shift 2 ;;
             --model) agent_model="${2:-}"; shift 2 ;;
             --account) agent_account="${2:-}"; shift 2 ;;
@@ -1303,13 +1300,28 @@ case "$cmd" in
           esac
         done
 
-        payload=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+        # An explicit --task carries its own project (the backend resolves
+        # it), and an explicit --project starts a project-level session.
+        # Only with neither does the caller's own owner apply.
+        if [ -n "$agent_task_id" ]; then
+          payload=$(printf '"taskId":%s' "$(json_string "$agent_task_id")")
+          if [ -n "$agent_project_id" ]; then
+            payload=$(printf '%s,"projectId":%s' "$payload" "$(json_string "$agent_project_id")")
+          fi
+        elif [ -n "$agent_project_id" ]; then
+          payload=$(printf '"projectId":%s' "$(json_string "$agent_project_id")")
+        else
+          if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+            echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+            exit 1
+          fi
+          payload=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+          if [ -n "$TASKFLOW_TASK_ID" ]; then
+            payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$TASKFLOW_TASK_ID")")
+          fi
+        fi
         if [ -n "$agent_type" ]; then
           payload=$(printf '%s,"type":%s' "$payload" "$(json_string "$agent_type")")
-        fi
-        resolved_task_id="${agent_task_id:-$TASKFLOW_TASK_ID}"
-        if [ -n "$resolved_task_id" ]; then
-          payload=$(printf '%s,"taskId":%s' "$payload" "$(json_string "$resolved_task_id")")
         fi
         if [ -n "$agent_prompt" ]; then
           payload=$(printf '%s,"prompt":%s' "$payload" "$(json_string "$agent_prompt")")
@@ -1372,9 +1384,7 @@ case "$cmd" in
           payload=$(printf '%s,"agentOptions":{%s}' "$payload" "$agent_opts")
         fi
 
-        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions" \
-          -H "Content-Type: application/json" \
-          -d "{$payload}"
+        api_request POST "$TASKFLOW_API_URL/api/sessions" "{$payload}"
         ;;
       *)
         echo "Usage: taskflow-cli agent <list|run>" >&2

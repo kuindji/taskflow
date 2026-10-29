@@ -131,11 +131,10 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
 
         const { projectId, type, taskId, prompt, label, agentOptions } = body;
 
-        if (typeof projectId !== "string" || !projectId.trim()) {
-            return errorResponse(
-                'Field "projectId" is required and must be a non-empty string',
-                400,
-            );
+        // A task names its own project, so projectId is only required for a
+        // project-level session. When both are given they must agree.
+        if (projectId !== undefined && (typeof projectId !== "string" || !projectId.trim())) {
+            return errorResponse('Field "projectId" must be a non-empty string', 400);
         }
 
         // Resolve agent type: use provided value or fall back to defaultAgent setting
@@ -168,22 +167,34 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
 
         try {
             let resolvedPrompt = typeof prompt === "string" ? prompt : undefined;
+            let owner: SessionOwnerRef;
 
             if (typeof taskId === "string") {
                 const task = await taskStore.getTask(taskId);
                 if (!task) {
                     return errorResponse(`Task not found: ${taskId}`, 404);
                 }
-                if (task.projectId !== projectId) {
-                    return errorResponse("Task does not belong to the specified project", 400);
+                if (projectId !== undefined && task.projectId !== projectId) {
+                    return errorResponse(
+                        `Task ${taskId} belongs to project ${task.projectId}, not ${projectId}`,
+                        400,
+                    );
                 }
                 if (!resolvedPrompt && task.description) {
                     resolvedPrompt = task.description;
                 }
+                owner = { taskId };
+            } else if (typeof projectId === "string") {
+                if (!(await taskStore.getProject(projectId))) {
+                    return errorResponse(`Project not found: ${projectId}`, 404);
+                }
+                owner = { projectId };
+            } else {
+                return errorResponse('Field "projectId" or "taskId" is required', 400);
             }
 
             const sessionId = await sessionLifecycle.createSession({
-                owner: typeof taskId === "string" ? { taskId } : { projectId },
+                owner,
                 type: resolvedType,
                 prompt: resolvedPrompt,
                 label: typeof label === "string" ? label : undefined,

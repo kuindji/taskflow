@@ -179,6 +179,41 @@ describe("taskflow-cli binary: session owner", () => {
     });
 });
 
+describe("taskflow-cli binary: agent run", () => {
+    const owner = { TASKFLOW_PROJECT_ID: "p1", TASKFLOW_TASK_ID: "t1" };
+
+    async function runAgent(args: string[]) {
+        const requests = startDevServerApi(201, { sessionId: "s2" });
+        const result = await runBin(["agent", "run", ...args], owner);
+        return { result, body: JSON.parse(requests.at(-1)?.body ?? "{}") as unknown };
+    }
+
+    it("starts on the caller's own task by default", async () => {
+        const { result, body } = await runAgent(["--prompt", "go"]);
+
+        expect(result.status).toBe(0);
+        expect(body).toEqual({ projectId: "p1", taskId: "t1", prompt: "go" });
+    });
+
+    it("sends only the task for an explicit --task so its project is resolved", async () => {
+        const { body } = await runAgent(["--task", "t9"]);
+
+        expect(body).toEqual({ taskId: "t9" });
+    });
+
+    it("starts a project-level session for --project, ignoring the caller's task", async () => {
+        const { body } = await runAgent(["--project", "p2"]);
+
+        expect(body).toEqual({ projectId: "p2" });
+    });
+
+    it("sends both for --task with --project", async () => {
+        const { body } = await runAgent(["--task", "t9", "--project", "p2"]);
+
+        expect(body).toEqual({ taskId: "t9", projectId: "p2" });
+    });
+});
+
 describe("taskflow-cli binary: devserver", () => {
     const owner = {
         TASKFLOW_PROJECT_ID: "p1",

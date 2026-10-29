@@ -3,10 +3,12 @@
 `taskflow-cli agent run --prompt "<prompt>"` Start default agent with prompt
 `taskflow-cli agent run --task <id>` Start default agent session on a specific task (uses task description)
 `taskflow-cli agent run --task <id> --prompt "<prompt>"` Start default agent session on a task with custom prompt
-`taskflow-cli agent run <agent> --task? --prompt?` Start a specific agent session
+`taskflow-cli agent run --project <id> --prompt "<prompt>"` Start default agent session on another project's level
+`taskflow-cli agent run <agent> --task? --project? --prompt?` Start a specific agent session
 All run commands also accept --label "<label>" and --model "<model>" arguments.
 --model sets the model (e.g. "fable", "opus", "sonnet", "haiku" for Claude).
-Without --task agent will be started on project level. Within task context by default pass --task.
+Without --task or --project the session starts on your own task, or on your own project's level outside a task. Within task context by default pass --task.
+--task may name a task in any project; the session starts in that task's project. --project starts a project-level session in that project (get ids from `taskflow-cli project list`).
 Claude-specific flags: --dangerously-skip-permissions, --permission-mode "<mode>", --effort "<level>".
 --dangerously-skip-permissions bypasses all permission checks for Claude.
 --permission-mode sets permission mode (manual, acceptEdits, bypassPermissions, dontAsk, plan, auto). The legacy default value inherits Claude's configured mode.
