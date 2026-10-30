@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Review Section 7 implementation, then continue with Section 8.
+Implement Section 8.
 
 ## Status
 
@@ -22,7 +22,7 @@ Review Section 7 implementation, then continue with Section 8.
 | 4 | Auth, remote clients | done: Codex review clean; 1 own minor fixed (empty `TASKFLOW_TOKEN`); Task 4.4 checked over `ssh localhost` for the TUI/registry path (desktop parts in Section 13); shared 220/0, TUI 489/0, all 82 UI files, electron 78/0, typecheck, Electron build pass | 4b06d3ec, 24f723fa, 1b2454c8, bddbd529, 815b4756 |
 | 5 | Auth, browser endpoints, enforcement | done: Codex review clean; Task 5.1 smoke, 5.2 gate check and live items 1–6 pass, items 7–8 (remote) moved to Section 13; backend 1213/0, shared 220/0, TUI 489/0, electron 78/0, 12 S2/S4/S6 UI files, typecheck pass | 55032e31, f32f107a |
 | 6 | Terminal | done: Codex review 1 P2 confirmed and fixed (queued resync lost on a failed replacement); backend 1160/0, shared 224/0, TUI 464/0, every UI file, typecheck pass | 24d21dc8, 3259c05b, 2660ddc5, 0532144b, 6a3e31bd |
-| 7 | Scheduler | implemented: focused 38/0, shared 258/0, typecheck and changed-file lint pass; backend 1028/20 (sandbox/process failures below); review pending | 284e665b, c6333fc6 |
+| 7 | Scheduler | done: Codex review 1 P2 confirmed and fixed (due checks awaited pending spawns, holding `init`); 1 own minor fixed (`Failed to schedule` error restored, written once); section tests 40/0, backend 1050/0, shared 258/0, typecheck pass | 284e665b, c6333fc6, 63f23f58 |
 | 8 | Git safety | not started | |
 | 9 | Agent discovery | not started | |
 | 10 | Desktop updater | not started | |
@@ -32,9 +32,7 @@ Review Section 7 implementation, then continue with Section 8.
 
 ## Facts for the next step
 
-- Section 7 outputs: `ScheduleStore.updateDefinition` compares `expressionType`/`expression`/`enabled` inside the mutation queue; HTTP/WS return the latest record after `onScheduleUpdated(id, timingChanged)`. `SchedulerService` injects `now`/cancellable `schedule`, reserves before any execution await, preserves persisted due times, catches up once and owns a 30 s tick. Existing index and CLI wiring is unchanged.
-- Section 7 validation: Task 7.1 tests first failed 11/12, then passed 12/12; Task 7.2 first failed 16/25, then passed. A registration/deletion race was reproduced with one additional failing test and fixed; final service 26/26, combined 38/38. `bun test packages/shared` 258/0; `TMPDIR=/private/tmp bun run typecheck`, explicit changed-file Prettier/ESLint and `git diff --check` pass. Bare `bun run typecheck` hits tempdir `EPERM`; all workspace checks pass with that environment override.
-- Section 7 backend baseline: `bun test packages/backend/tests` first 1003/19, final 1028/20. All 19 process/watcher failures reproduced from untouched pre-section HEAD `3f66fd8a` in a temporary archive: `process-stopper` 6 (`ps` EPERM), `file-watcher` 3, `file-watcher-ownership` 1, `wiki-index` 5, `recursive-watcher` 4 (missing filesystem events). Later full runs also hit one intermittent `taskflow-cli` subprocess timeout: final `passes --account into Claude and Codex agent options`; that test passes alone on HEAD, while HEAD's authentication tests independently time out too. No scheduler test failed in the package runs. No push, branch, worktree or independent review performed in this implementation session.
+- Section 7 outputs: `ScheduleStore.updateDefinition(id, updater)` returns `{ schedule, timingChanged }` (tuple `expressionType`/`expression`/`enabled`, compared inside the mutation lock; a change stores `nextRunAt: null`). `SchedulerService.onScheduleUpdated(id, timingChanged)`; `SchedulerDeps.now`/`schedule` (cancellable timer) injectable; private `admit`, `checkDue` (init, due timers, 30 s tick), `execute(id, source)`. Due runs are dispatched in the background; `triggerNow` still awaits its spawn. HTTP/WS update return the stored record after the notification. index and CLI wiring unchanged.
 - Base commit before implementation (final-review base): `bf807eaea354b57763e3f994a4a77ddef519152f`.
 - Section 1 outputs: `config.apiToken` (lazy, file `api-token-<instanceId>`, `0600`). Spawn handshake `<port>\n<token>\n` via `writePortHandshake`; Electron `startBackend` resolves `{ port, token }` (main.ts keeps only `port` for now); TUI `BackendHandle.token`. Stable `<instanceId>.port` files still hold only the port. `createServer(router, port, apiRouter, cdpGateway, auth: ServerAuth)`; `AUTH_ENFORCED = false` in `ws/auth.ts`. PTY sessions get `TASKFLOW_API_TOKEN`.
 - Section 2 outputs: `electron/src/backend-fetch.ts` (`BackendFetch`, `createBackendFetch({ tokenFor, fetchImpl? })`), used by every main-process backend call except `browser-host/backend-link.ts` (Section 5). `get/setBackendToken` in `backend-manager.ts`. `AttachedBackend.token`, `listAttachedBackends(localPort, localToken, remote)`. `AttachResult.token?`. UI: `openConnection(id, origin, token)`, `tokenFor(id)`, `Connection.authToken`; `rawFileUrl` appends `&token=`. TUI: `new WsClient(port, host, token)`, `createLocalClient(port, token)`. CLIs: sh `tf_curl` (token via `-K -` on stdin), TS bin `authHeaders()`.
@@ -68,7 +66,7 @@ Review Section 7 implementation, then continue with Section 8.
 
 ## Deviations from the design
 
-- Section 7: none. Added direct coverage for store-read/persistence failure, capped due timers and deletion during registration.
+- Section 7: none to the design. Extra tests: store-read and persistence failures, capped due timers, deletion during registration, non-blocking due dispatch, scheduling failure recorded once.
 - Section 5: none to the design. The CDP broadcast test fixture's app socket now offers the auth subprotocol.
 - Section 4: none to the design. `runSsh` now reports exit code `0` on success (was `null`), which the token read needs; `MenuEntry` carries the saved token for the edit dialog; both socket clients keep a request sent in Bun's gap between `readyState` closing and the close event pending, so it gets the `4401` reason; TUI refresh uses Section 3's policy (`start`/`retryNow`), not `scheduleReattach`.
 - Section 6: none to the design. The provider test uses a stub Bun WebSocket server, not a real backend.
