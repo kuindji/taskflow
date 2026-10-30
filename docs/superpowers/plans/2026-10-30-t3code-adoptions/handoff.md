@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 9.
+Implement Section 10.
 
 ## Status
 
@@ -24,7 +24,7 @@ Implement Section 9.
 | 6 | Terminal | done: Codex review 1 P2 confirmed and fixed (queued resync lost on a failed replacement); backend 1160/0, shared 224/0, TUI 464/0, every UI file, typecheck pass | 24d21dc8, 3259c05b, 2660ddc5, 0532144b, 6a3e31bd |
 | 7 | Scheduler | done: Codex review 1 P2 confirmed and fixed (due checks awaited pending spawns, holding `init`); 1 own minor fixed (`Failed to schedule` error restored, written once); section tests 40/0, backend 1050/0, shared 258/0, typecheck pass | 284e665b, c6333fc6, 63f23f58 |
 | 8 | Git safety | done: Codex review 2 P2 confirmed and fixed (conflicted-file preview threw; HTTP task delete dropped by Bun's 10 s idle timeout); 2 own fixes (per-file `git status` in bulk diffs; 30 s client timeout vs awaited cleanup); backend 1311/0, shared 258/0, TUI 491/0, all 85 UI files, typecheck pass | c24dbf43, 04f3d6ee, e0363a13 |
-| 9 | Agent discovery | not started | |
+| 9 | Agent discovery | done: Codex review 1 P2 confirmed and fixed (pre-Section-9 backend answer without `account` crashed Codex settings); backend 1142/0, shared 261/0, TUI 491/0, all 92 UI files, typecheck pass | 24a63c96, f3142c06, 1d0186d2, f8584236 |
 | 10 | Desktop updater | not started | |
 | 11 | Editor discovery | not started | |
 | 12 | GitLab | not started | |
@@ -32,6 +32,8 @@ Implement Section 9.
 
 ## Facts for the next step
 
+- Section 9 outputs: `runtime-detector.ts` private `withProbeProcess` (injected `ProbeDeps`: `now`, `resolveCli`, `spawn`, `schedule`; one deadline, non-blocking cleanup), `fetchCodexModels(env?, deps?)` → `{ models, account }`, `fetchPiModels({ env?, cwd?, signal? }, deps?)` → `{ models, defaultModel? }` (RPC then `--list-models` fallback within the remaining budget). `handlers/agent-discovery.ts` `registerAgentDiscoveryHandlers`. `services/pi-options.ts` `normalizePiLaunchOptions` (10 s budget, aborts the probe), called in `session-lifecycle.ts` after the defaults merge and in `runHeadlessAgent(request, { discoverPiModels?, spawn? })`. Shared `supportsPiXhigh`, `normalizePiThinkingLevel`, `CodexAccountStatus`, `CodexModelsPayload`. UI `lib/agent-discovery.ts` `loadCodexDiscovery(backendId, payload, request?)` (absent `account` = unknown) and `loadPiModels`, allowlisted as stateless in `store-reset.test.ts`. Template label `Models for the default account; launch may inherit a project account` in ActionEditor/InlineActionEditor (no project) and BuiltinActionEditor.
+- Section 9 open for Section 13: no live probe against a real Codex/Pi CLI was run (tests use fake processes). Check Settings → Codex sign-in rows and the Pi Xhigh option on a real machine. A failed or older-backend Pi inventory settles the picker, so a saved `xhigh` default is rewritten to `high` (plan behavior).
 - Section 8 outputs: `git-helpers.ts` `createGitRunner`, `GitRunOptions` (`literalPathspecs`, `readOnly` = 30 s / 32 MiB, `maxOutputBytes`, `onStdout`), `GitQueryLimitError`. `file-preview.ts`: `readFilePreview`, `readGitPreview`, `readGitPatch`, `previewPair`. `worktree-removal.ts`, `task-worktree-cleanup.ts` (HTTP and WS delete await it; `TaskDeleteResponse.cleanupError`). `PROTOCOL_VERSION = 2`. Shared `TASK_DELETE_TIMEOUT_MS = 300_000`: UI `sendRequest(..., timeoutMs?)`, TUI `NetLike.request(type, payload?, timeoutMs?)`, server `server.timeout(req, ...)` for `DELETE /api/tasks/:id`. TUI archive `delete()` returns `{ outcome, cleanupError? }`. UI: `FilePreviewError`, `DiffPreview` (lazy Monaco), `createEditorPreviewAccess`.
 - Section 8 open for Section 13: manual editor check (text -> oversized/binary -> text; Save and Cmd/Ctrl-S blocked, no write request) wasn't run (Sol's sandbox has no browser). Windows junction removal is untested (skipped on macOS); its remover uses `unlink` on junctions where t3code uses `fs.rm`.
 - Git probe: `git version 2.54.0 (Apple Git-157)` accepts `git --literal-pathspecs -C <repo> rev-parse --is-inside-work-tree`.
@@ -70,6 +72,7 @@ Implement Section 9.
 
 ## Deviations from the design
 
+- Section 9: none to the design. `fetchPiModels` takes an optional `signal` so the launch budget kills the probe; `store-reset.test.ts` allowlists `lib/agent-discovery.ts`; the gate made `loadCodexDiscovery` tolerate a missing `account`.
 - Section 8: none to the design. Added by the gate: 300 s task-delete timeout (UI, TUI, HTTP server) and the TUI cleanup warning, because the awaited cleanup outlasted the 30 s request timeout. `GitRunOptions.onStdout` keeps the 8 KiB binary check on raw bytes. Git handlers and TUI `git-changes.ts` needed no edits.
 - Section 7: none to the design. Extra tests: store-read and persistence failures, capped due timers, deletion during registration, non-blocking due dispatch, scheduling failure recorded once.
 - Section 5: none to the design. The CDP broadcast test fixture's app socket now offers the auth subprotocol.
