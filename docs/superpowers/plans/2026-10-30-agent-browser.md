@@ -30,10 +30,10 @@ The chain protocol is in `2026-10-30-agent-browser/chain.md`.
 | 4 | CDP gateway: filter, `/cdp` HTTP and WS endpoints | `04-cdp-gateway.md` | 2, 3 |
 | 5 | Electron host: views, control server, heartbeat, renderer IPC | `05-electron-host.md` | 1, 3 |
 | 6 | UI: registry-backed tabs, hosted pane, overlays, fallback | `06-ui.md` | 3, 5 |
-| 7 | CLI (sh + TS bin), command doc, prompt nudge | `07-cli-prompt.md` | 3 |
+| 7 | CLI (sh + TS bin), command doc, prompt nudge | `07-cli-prompt.md` | 3, 6 |
 | 8 | Manual end-to-end verification, final review | `08-verify.md` | all |
 
-Sections 4, 5 and 7 are independent of each other once 3 is done. Section 6 needs 5's IPC.
+Sections 4 and 5 are independent of each other once 3 is done. Section 6 needs 5's IPC. Section 7 runs after 6: it removes the old UI listener, which 6's registry sync replaces. Order: 1, 2, 3, 4, 5, 6, 7, 8.
 
 **Gate after Section 1.** The spike decides facts the later sections depend on. They are listed at the end of `01-spike.md`, and the spike session records them in `handoff.md`.
 - **All spike criteria pass:** continue as written.
@@ -84,7 +84,7 @@ export type BrowserHostEvent =
     | { type: "closed"; tabId: string };
 ```
 
-`MSG` (`packages/shared/src/constants.ts`). `BROWSER_OPEN` is **removed** together with its handler, routes and UI listener, in Section 7 (with the CLI that uses them).
+`MSG` (`packages/shared/src/constants.ts`). `BROWSER_OPEN` is **removed** together with its handler, routes and UI listener, in Section 7 (with the CLI that uses them), after Section 6 adds the registry sync.
 - `BROWSER_TABS_LIST: "browser:tabs:list"`
   - As a WS request: `{}` → `BrowserTabListResponse`.
   - As a broadcast: the same payload, full list.
@@ -182,6 +182,8 @@ Every change visible in `list()` broadcasts `{ type: MSG.BROWSER_TABS_LIST, payl
 - `GET /cdp/:tabId/json/list` and `/cdp/:tabId/json`: the tab family's page targets only, with the same rewriting.
 - WS upgrade on `/cdp/:tabId/devtools/browser`: a filtered browser-level session.
 - The whole `/cdp/` namespace is reserved. Any other `/cdp/...` request (HTTP or upgrade) gets 404 and is never upgraded to an app socket. Paths outside `/cdp/` keep today's behaviour.
+- Wiring: `createServer(..., cdpGateway)` for the upgrades, and `ApiRouteDeps.cdpGateway` (required) for the `/json` routes in `browser-routes.ts`.
+- `endpoint` is stable in its path (`/cdp/<tabId>`) but not its port: the backend binds port 0, so after an app restart agents rediscover endpoints with `browser list`.
 
 ### Electron renderer bridge (Section 5 produces; 6 consumes)
 
@@ -230,7 +232,7 @@ interface TaskflowBrowserBridge {
 
 ## Review Focus
 
-1. **An agent's endpoint reaching anything outside its tab family.** That covers the Taskflow UI renderer, other tasks' tabs, `Target.attachToTarget` with a guessed id, a reused `sessionId`, tunneling through `Target.sendMessageToTarget` or a `flatten:false` session, `Target.attachToBrowserTarget`, `Browser.close`, a new browser context, browser-wide commands (`Tracing.*`), and context-scoped commands that default to the app's own session. Expected: refused with `Not allowed by Taskflow: <method>`, or silently not listed. Paused new targets the agent may not see are resumed, never left paused. Pinned in Section 4 (filter unit tests, one per vector) and Section 8 (live Playwright check with two tabs from two tasks).
+1. **An agent's endpoint reaching anything outside its tab family.** That covers the Taskflow UI renderer, other tasks' tabs, `Target.attachToTarget` with a guessed id, a reused `sessionId`, tunneling through `Target.sendMessageToTarget` or a `flatten:false` session, `Target.attachToBrowserTarget`, `Browser.close`, a new browser context, browser-wide commands (`Tracing.*`, and `Browser.crash`/`crashGpuProcess`/`close` sent on an allowed page session), and context-scoped commands that default to the app's own session (at browser level or on a page session). Expected: refused with `Not allowed by Taskflow: <method>`, or silently not listed. Paused new targets the agent may not see are resumed, never left paused. Pinned in Section 4 (filter unit tests, one per vector) and Section 8 (live Playwright check with two tabs from two tasks).
 2. **Work while hidden or with the window closed.** Screenshots, clicks and timers keep working while the tab isn't shown, while the user is in another task, and after the main window is closed to the tray (macOS). Pinned in Section 1 (spike criteria) and Section 8 (manual).
 3. **The host goes away mid-session** (app quit, backend restart, renderer reload).
    - App quit: the backend quits with it (`electron/src/main.ts:281`), so CDP connections close and the CLI can't reach the backend.
@@ -271,3 +273,10 @@ interface TaskflowBrowserBridge {
   - The old browser route removal moves to Section 7.
   - CLI error streams stated as they are.
   - Section 8 lifecycle checks made runnable.
+- Round 2 (gpt-6.1-sol): 1 blocker, 7 majors, 1 minor confirmed, plus 1 own major (`reviews/round-2-triage.md`). Changes:
+  - CDP filter: the `Browser` domain and context-scoped commands are classified at every level, page sessions included; filter-made replies keep the request's `sessionId`.
+  - Popups: guest prefs through `overrideBrowserWindowOptions`; the `webContents` guard checks the value (present but `undefined` on the no-guest path); no-guest POSTs carry `content-type`/boundary headers; spike criterion 4 expects null opener for plain `_blank` and registers children through the side channel.
+  - Section order is now 2, 3, 4, 5, 6, 7, so the old UI listener goes only after the registry sync exists.
+  - The gateway reaches the `/json` routes through `ApiRouteDeps.cdpGateway`.
+  - Endpoints keep their path, not their port, across an app restart (spec Amendment 8).
+  - `TabHost.show` emits `navState`.

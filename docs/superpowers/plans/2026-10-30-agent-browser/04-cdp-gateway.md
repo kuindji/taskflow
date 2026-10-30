@@ -8,8 +8,9 @@ Read `handoff.md` first. Section 1 recorded every CDP method the three clients s
 - Modify: `packages/backend/src/ws/server.ts`. Today every request upgrades, whatever its path (`server.ts:74`). New order in `fetch`:
   1. a path under `/cdp/`: upgrade only when it matches `^/cdp/([^/]+)/devtools/browser$` (to the gateway); a CDP HTTP route goes to the `ApiRouter`; anything else under `/cdp/` gets 404 and is never upgraded;
   2. other paths: today's behaviour. `SocketData` becomes `{ kind: "app"; clientId: string } | { kind: "cdp"; tabId: string; connId: string }`. The `websocket` handlers branch on `kind`, and only `app` sockets count as clients and get broadcasts. `createServer` takes an optional `cdpGateway` as a 4th parameter.
-- Modify: `packages/backend/src/api/routes/browser-routes.ts`. Add the `/cdp/:tabId/json/version`, `/json/version/`, `/json/list` and `/json` GET routes.
-- Modify: `packages/backend/src/index.ts`. Construct the gateway right after the browser tab service (before `createServer`, see Section 3) and pass it to `createServer`.
+- Modify: `packages/backend/src/api/routes/browser-routes.ts`. Add the `/cdp/:tabId/json/version`, `/json/version/`, `/json/list` and `/json` GET routes. They call the gateway's `versionJson`/`listJson`.
+- Modify: `packages/backend/src/api/routes.ts`. Route handlers get their dependencies only through `ApiRouteDeps` (`routes.ts:34`), so add a required `cdpGateway: CdpGateway` there and pass it to the browser routes' registration. Update the route-test fixtures that build `ApiRouteDeps` (Section 3's `browser-routes.test.ts` and any other test that constructs the full deps) with a fake gateway.
+- Modify: `packages/backend/src/index.ts`. Construct the gateway right after the browser tab service (before `createServer`, see Section 3). Pass it to `createServer` (WS upgrades) and to `registerApiRoutes` (the `/json` routes).
 
 **Interfaces:**
 - Consumes: from `BrowserTabService`: `ensureLoaded`, `resolveTarget`, `familyOf`, `openChild`, `close`, `tabIdForTarget`, `addAgentConnection`, `subscribeTabGone`, `hostAvailable`.
@@ -71,10 +72,11 @@ function createCdpGateway(deps: {
    - `Target.closeTarget` with an allowed target: call `deps.closeTarget` and reply `{ success: true }`. Never forward it. Otherwise error.
    - `Target.createTarget`: call `deps.openChild(params.url ?? "about:blank")`, reply `{ targetId }`, never forward. A `browserContextId` param other than the tabs' context: error.
    - `Target.setAutoAttach` (flattened), `setDiscoverTargets`, `getTargets`, `getBrowserContexts`, `detachFromTarget` (for an allowed session): forward.
-3. **Context-scoped commands** (`Browser.setDownloadBehavior`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`, plus any the spike found): handled the way the spike recorded. The default is: when `browserContextId` is missing, set it to `deps.browserContextId`; when it is another context, error. If `deps.browserContextId` is null, error.
-4. **Browser level, everything else** (no `sessionId`): forward only methods on the browser-level allowlist. The allowlist is `Browser.getVersion`, `Browser.getWindowForTarget` with an allowed `targetId`, `SystemInfo.getInfo`, plus the spike's recorded browser-level methods that pass the rule above. Everything else is an error, `Tracing.*` included.
-5. **On an allowed session, everything else:** forward. These commands act on that page.
-6. Errors use `{ id, error: { code: -32000, message: "Not allowed by Taskflow: <method>" } }`. When rule 1 refuses a message, the error also carries its `sessionId`.
+3. **Context-scoped commands, at any level** (`Browser.setDownloadBehavior`, `Browser.setPermission`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`, plus any the spike found): handled the way the spike recorded. The default is: when `browserContextId` is missing, set it to `deps.browserContextId`; when it is another context, error. If `deps.browserContextId` is null, error. Chromium's `BrowserHandler` also runs on page sessions (`render_frame_devtools_agent_host.cc`) and picks the default context, the app's, when the id is omitted, so a page session gets no exemption.
+4. **The rest of the `Browser` and `SystemInfo` domains, at any level:** forward only `Browser.getVersion`, `Browser.getWindowForTarget` with an allowed `targetId` (or none, on an allowed session), `SystemInfo.getInfo`, plus the spike's recorded methods that pass the rule above. Everything else is an error: `Browser.crash`, `Browser.crashGpuProcess`, `Browser.close`, `Browser.cancelDownload`, `Browser.getHistograms`, `Browser.getBrowserCommandLine`, and any unknown `Browser.*`.
+5. **Browser level, everything else** (no `sessionId`): forward only methods on the browser-level allowlist (rules 2–4 plus the spike's recorded browser-level methods that pass the rule above). Everything else is an error, `Tracing.*` included.
+6. **On an allowed session, everything else:** forward. Rules 2–4 have already taken every domain that reaches beyond the page.
+7. **Replies made by the filter** (intercept results and errors) go through one helper that copies the request's `id` and, when present, its `sessionId`. Clients route replies by `sessionId` (Playwright's `crConnection.ts`), so a reply without it hangs the caller. Errors are `{ id, sessionId?, error: { code: -32000, message: "Not allowed by Taskflow: <method>" } }`.
 
 **Upstream → client**
 - Response to `Target.getTargets`: `targetInfos` filtered to allowed targets.
@@ -124,11 +126,17 @@ function createCdpGateway(deps: {
   - `setAutoAttach with flatten false is refused`
   - `attachToTarget T-app sent on an allowed page session is refused`
   - `an unlisted browser-level method (Tracing.start) is refused`
+  - `Browser.crash and Browser.crashGpuProcess on an allowed page session are refused`
+  - `Browser.close on an allowed page session is refused`
+  - `Browser.setPermission on an allowed page session without browserContextId gets the tabs' context injected`
+  - `Browser.setPermission on an allowed page session naming another browserContextId is refused`
   - `setDownloadBehavior without browserContextId gets the tabs' context injected`
   - `Storage.getCookies naming another browserContextId is refused`
   - `createTarget calls openChild and replies with its targetId`
   - `closeTarget on T-child calls closeTarget and is not forwarded`
   - `closeTarget on T-other is refused`
+  - `createTarget and closeTarget sent on an allowed child session reply with that sessionId`
+  - `a refused command on an allowed session replies with that sessionId`
   - `upstream messages keep order while an attach waits on resolveTarget`
   - `responses to internal resume/detach commands are swallowed`
   - one test per extra method from the spike's list that the table denies

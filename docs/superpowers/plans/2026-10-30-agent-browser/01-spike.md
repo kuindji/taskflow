@@ -17,20 +17,21 @@ Throwaway code that proves the hosting and endpoint model before any product cod
   - create two `WebContentsView`s in partition `persist:browser`, with `backgroundThrottling: false`: tab A loads a local test page, tab B loads `https://example.com`;
   - attach A to the window at 0,0 800×600; leave B **not added to any window**;
   - for each view, find its `targetId` with `wc.debugger.attach("1.3")`, `sendCommand("Target.getTargetInfo")`, then `detach()`.
-- **Popups:** `setWindowOpenHandler` on both views returns `{ action: "allow", createWindow }`. Electron 33 calls `createWindow` in two ways, and both must be handled:
-  - **with a guest:** `options.webContents` is set (not declared in `BrowserWindowConstructorOptions`; read it with an `in` check). Wrap it: `new WebContentsView({ webContents: options.webContents, ...same prefs })`.
-  - **without a guest** (the noopener path; `target=_blank` implies noopener): create a fresh view with the same prefs and `loadURL` the handler's `details.url` yourself, passing `details.referrer` and `details.postBody`.
+- **Popups:** `setWindowOpenHandler` on both views returns `{ action: "allow", overrideBrowserWindowOptions: { webPreferences: <the tabs' prefs> }, createWindow }`. Electron fixes a guest's preferences from `overrideBrowserWindowOptions` before `createWindow` runs; prefs passed to `new WebContentsView` with an existing `webContents` come too late, and preload and `backgroundThrottling` aren't inherited. Electron 33 calls `createWindow({ webContents: guest, ...options })` in two ways, and both must be handled:
+  - **with a guest:** `options.webContents` is a defined `WebContents` (the key isn't declared in `BrowserWindowConstructorOptions`, and it is **present but `undefined`** on the no-guest path, so check the value, not just `in`). Wrap it: `new WebContentsView({ webContents: options.webContents })`, and return that same `webContents` (Electron throws on any other).
+  - **without a guest** (the noopener path; `target=_blank` implies noopener): create a fresh view with the tabs' prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data, extraHeaders })`, where `extraHeaders` is `content-type: <postBody.contentType>` plus `; boundary=<postBody.boundary>` when set (what Electron's own path does with `formatPostDataHeaders`).
+  - Either way, tell the proxy over the side channel that the new view's targetId is a child of the opener's tab. A no-guest view has no Chromium opener, so `openerId` can't be relied on.
 
   Keep the view alive and not in any window, and return `v.webContents`. Record which path `<a target=_blank>`, `<a target=_blank rel=opener>` and `window.open(...)` each take, and whether `window.opener` is set on each. Find the popup's `targetId` the same way as for the tabs.
 - **Contexts:** print each target's `browserContextId` (tab A, B, the popup, the app window) from `Target.getTargets` on the raw port.
 - Print: the debug port, A's/B's/popup targetIds, and the window renderer's targetId.
-- The test page (served from a `data:` URL or a tiny Bun server in `proxy.ts`) has a text input, a button that writes "clicked" into the DOM, `<a target=_blank>`, a button calling `window.open(...)` and checking `window.opener` from the popup, and a `setInterval` counter shown on the page.
+- The test page (served by a tiny Bun server in `proxy.ts`) has a text input, a button that writes "clicked" into the DOM, `<a target=_blank>`, `<a target=_blank rel=opener>`, a button calling `window.open(...)` and checking `window.opener` from the popup, two forms with `target=_blank` posting to the server (one `application/x-www-form-urlencoded`, one `multipart/form-data`), and a `setInterval` counter shown on the page. The server echoes each POST's `content-type` and parsed fields. The test page and popups also check that the browser preload ran (`navigator.webdriver === false`).
 
 ## The proxy (`proxy.ts`)
 
 - Listens on `127.0.0.1:9333`. `GET /json/version` returns the real browser's version JSON with `webSocketDebuggerUrl` rewritten to the proxy.
 - The WS path `/devtools/browser` connects upstream to the real browser endpoint.
-- Allowed = tab A's targetId, plus any target whose `openerId` is allowed.
+- Allowed = tab A's targetId, plus any target the spike app registered as A's child (side channel), plus any target whose `openerId` is allowed.
 - **Filtering:**
   - Browser-level commands (no `sessionId`) are logged and forwarded; this log becomes Section 4's allowlist.
   - `Target.sendMessageToTarget`, and `Target.attachToTarget` / `Target.setAutoAttach` with `flatten` not `true`: error. Record whether any client needs them.
@@ -49,7 +50,8 @@ For each of the three clients (Playwright Node via `bunx`, Playwright Python via
 1. The client sees **exactly one page** (A), not B, not the app window.
 2. It navigates A, fills the input, clicks the button and reads "clicked".
 3. With A **removed from the window** (`win.contentView.removeChildView(A)`), it takes a non-blank screenshot. The interval counter keeps advancing (read it twice, 2 s apart) and the click still works. If a removed view can't screenshot, retry with A parked in a hidden `BrowserWindow` (`show: false`, `paintWhenInitiallyHidden: true`) and record which works.
-4. Clicking the `target=_blank` link and the `window.open` button gives the client a new page (`context.on("page")` / `browser.on("targetcreated")`), the popup's `window.opener` is non-null, and the new page is drivable.
+4. Clicking the `target=_blank` link, the `rel=opener` link and the `window.open` button each gives the client a new page (`context.on("page")` / `browser.on("targetcreated")`) that is drivable. `window.opener` is null for plain `target=_blank` (implicit noopener) and set for `rel=opener` and `window.open`. In every popup the preload ran and a `setInterval` keeps advancing while the popup is in no window (`backgroundThrottling: false` applied).
+4b. Both `target=_blank` form posts arrive with their `content-type` (and the multipart boundary), and the server parses the fields.
 5. `browser.close()` / `disconnect()` from the client leaves the app running with A intact.
 6. `context.newPage()` (Playwright) / `browser.newPage()` (Puppeteer): record what happens (works via the side channel, works natively, or fails) and with which commands.
 7. With `remote-debugging-port=0`, `DevToolsActivePort` exists and is correct.
@@ -69,7 +71,7 @@ Also record:
 
 - How to read the debug port (file path and format), confirmed.
 - How hidden views render: removed from the window, or a parked hidden window.
-- Whether `createWindow` with `options.webContents` keeps `window.opener` for `WebContentsView` popups.
+- Whether `createWindow` with `options.webContents` keeps `window.opener` for `WebContentsView` popups, and whether `overrideBrowserWindowOptions` applied the preload and `backgroundThrottling` to guest popups.
 - Every CDP method each client sent at connect and during the criteria, with the allow/deny/intercept/rewrite decision each one needs, split into browser level and session level. Section 4 turns this list into its table. Browser-level methods that aren't on it are denied.
 - The `browserContextId` of the tabs and of the app window, and the handling of context-scoped commands.
 - Which `createWindow` path each popup kind takes.

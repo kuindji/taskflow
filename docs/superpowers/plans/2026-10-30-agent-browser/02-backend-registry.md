@@ -4,7 +4,7 @@ Read the plan index ("Cross-section interfaces") first. Every name below is defi
 
 **Files:**
 - Create: `packages/shared/src/types/browser-tab.ts` (types from the index). Re-export it from the shared types index the way `dev-server.ts` is.
-- Modify: `packages/shared/src/constants.ts`. Add `BROWSER_TABS_LIST`, `BROWSER_TAB_OPEN`, `BROWSER_TAB_CLOSE`. Leave `BROWSER_OPEN` in place; Section 3 removes it along with its users.
+- Modify: `packages/shared/src/constants.ts`. Add `BROWSER_TABS_LIST`, `BROWSER_TAB_OPEN`, `BROWSER_TAB_CLOSE`. Leave `BROWSER_OPEN` in place; Section 7 removes it along with its users.
 - Create: `packages/backend/src/services/browser-tab-store.ts` + `packages/backend/tests/services/browser-tab-store.test.ts`
 - Create: `packages/backend/src/services/browser-tab-errors.ts` (the three error classes; Task 2.2)
 - Create: `packages/backend/src/services/browser-host-client.ts` + `packages/backend/tests/services/browser-host-client.test.ts`

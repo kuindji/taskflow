@@ -6,6 +6,7 @@ The Electron-free logic lives in pure modules with tests (`bun test electron/src
 
 **Files** (all new under `electron/src/browser-host/` unless noted):
 - `debug-port.ts` + `debug-port.test.ts`: `parseDevToolsActivePort(content: string): number | null`.
+- `post-body-headers.ts` + `post-body-headers.test.ts`: `postBodyHeaders(body: { contentType: string; boundary?: string } | undefined): string | undefined`, the no-guest popup's `extraHeaders`.
 - `chrome-user-agent.ts` + `chrome-user-agent.test.ts`: `toChromeUserAgent(ua: string): string`. It strips `Electron/x` and `Taskflow/x` tokens; the rule moves from `BrowserPane.tsx:11-13` (Section 6 deletes the renderer copy).
 - `tab-host.ts` + `tab-host.test.ts`: `TabHost`, the view registry over an injected `ViewFactory` (below).
 - `control-server.ts` + `control-server.test.ts`: `startControlServer(tabHost): Promise<{ url: string; close(): void }>`. A Node `http` server on `127.0.0.1:0` with `POST /tabs/ensure` and `POST /tabs/close`. Bad JSON returns 400; an unknown path returns 404.
@@ -80,12 +81,13 @@ type Bounds = { x: number; y: number; width: number; height: number };
 - **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`.
 - **Initial size:** 1280×800 until first shown. Apply the spike's hidden-rendering method.
 - **`targetId`:** `debugger.attach("1.3")`, then `Target.getTargetInfo`, then `detach()`. This runs once, at creation.
-- **Popups:** `setWindowOpenHandler` returns `{ action: "allow", createWindow }`. `createWindow` handles both of Electron's paths, as the spike recorded:
-  - **with a guest** (`options.webContents` set): wrap it in a `WebContentsView`. `BrowserWindowConstructorOptions` doesn't declare the field, so read it through a small type guard (`"webContents" in options`). No `as any`.
-  - **without a guest:** create a view with the same prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data })`.
+- **Popups:** `setWindowOpenHandler` returns `{ action: "allow", overrideBrowserWindowOptions: { webPreferences: <the shared tab prefs above> }, createWindow }`. Electron fixes a guest's preferences from `overrideBrowserWindowOptions` before `createWindow` runs, so this is the only place the preload and `backgroundThrottling: false` reach guest popups. Keep the prefs in one builder used by both. `createWindow` handles both of Electron's paths, as the spike recorded:
+  - **with a guest:** wrap it in `new WebContentsView({ webContents })` and return that same `webContents` (Electron throws on any other). `BrowserWindowConstructorOptions` doesn't declare `webContents`, and on the no-guest path the key is present with `undefined`. So the type guard checks the value too: `"webContents" in options`, then a non-null check on the narrowed read. No `as any`.
+  - **without a guest:** create a view with the shared prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data, extraHeaders })`. `extraHeaders` is `content-type: <contentType>` plus `; boundary=<boundary>` when `postBody` has one, built by a pure `postBodyHeaders(postBody)` in `post-body-headers.ts` (+ test).
 
   Either way, call `tabHost.reportChildOpened(parentTabId, view)` and return the view's `webContents`.
 - **Navigation events:** `did-navigate`, `did-navigate-in-page` and `page-title-updated` call `reportNavigated` and emit `navState`.
+- **`show` emits `navState` too.** `TabHost.show` fires `events.navState(tabId, view.navState())` after showing, so a remounted toolbar (task switch, renderer reload) gets the current history state of an already loaded view.
 - **Closing:** `destroyed`, a `render-process-gone` that can't reload, and the page's own `window.close()` (`close` event) all call `reportClosed`.
 - **Bounds:** the renderer sends CSS pixels relative to the window content. Multiply by `mainWindow.webContents.getZoomFactor()` before `setBounds`.
 - **`appTargetIds`:** the main window's own targetId, found by the same debugger method on `mainWindow.webContents`.
@@ -108,12 +110,18 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `parses the first line as the port`
   - `returns null for empty or non-numeric content`
 
+  Tests for `post-body-headers.ts`:
+  - `urlencoded body gives its content-type`
+  - `multipart body appends the boundary`
+  - `no body gives undefined`
+
   Tests for `chrome-user-agent.ts`:
   - `strips Electron and Taskflow tokens and keeps Chrome`
 - [ ] **Step 2:** `tab-host.test.ts`, with a fake factory whose views record calls:
   - `ensure creates once for concurrent calls and returns the targetId`
   - `ensure of a loaded tab does not create again`
   - `show ensures then shows at bounds; hide hides`
+  - `show of an already loaded tab emits navState with the view's current state`
   - `freeze captures then hides and returns the data url`
   - `close destroys the view, removes it from loaded and fires loadedChanged`
   - `reportChildOpened registers a new tab, fires childOpened with the parent and loadedChanged`

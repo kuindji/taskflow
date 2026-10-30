@@ -30,7 +30,7 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
    - A's open CDP connection closes.
    - Then `kill -CONT <main pid>`: within 5 s `hostAvailable` is true again and A's endpoint works.
 9. **Restart.** Quit the app; the backend quits with it, so the CLI reports it can't reach the backend. Start the app.
-   - `browser list` shows A with the same id and endpoint, not loaded.
+   - `browser list` shows A with the same id and the same `/cdp/<id>` path (the port may differ), not loaded.
    - Connecting loads it at its last URL.
    - Popups from before the restart are gone.
 

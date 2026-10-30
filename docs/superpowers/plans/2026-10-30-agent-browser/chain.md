@@ -80,8 +80,8 @@ gpt-6.1-sol implements. This Opus session briefs it, checks its work, and owns t
 4. Review: `codex exec review --base <base> -m gpt-6.1-sol -c sandbox_mode=read-only`, saved to `reviews/impl-K.md`.
 5. Triage it in `reviews/impl-K-triage.md`. Fix the confirmed findings yourself or with a short follow-up brief to Sol, and commit.
 6. Update `handoff.md`, then set **Next step**:
-   - the order is 2, 3, 4, 5, 7, 6;
-   - after 6: "Section 8".
+   - the order is 2, 3, 4, 5, 6, 7 (6 before 7: Section 7 removes the old UI listener, so Section 6's registry sync must already exist);
+   - after 7: "Section 8".
 
 ## Section 8
 

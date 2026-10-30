@@ -102,7 +102,7 @@ leave, and the agent carries on in the background.
   ends.
 - Tabs are owned by the backend and saved. Switching tasks, reloading the
   renderer and restarting the app all leave the tab list intact. After an app
-  restart a tab keeps its id and endpoint, and reopens at its last URL (page
+  restart a tab keeps its id and endpoint path (the port may change, see Amendment 8), and reopens at its last URL (page
   state is lost). **My call:** restored tabs load lazily. A tab's view is
   created the first time it is shown or the first time an agent connects to
   its endpoint. So a connection to a not-yet-loaded tab creates it first, and
@@ -299,3 +299,8 @@ the viewer are the same app.
    - Agents keep page-level powers such as file inputs. They already run with the user's shell, so that isn't an escape.
 6. **Children survive a backend restart.** The host heartbeat carries each view's `parentId`, so a restarted backend re-adopts live popups and agent pages instead of closing them. They are still dropped when the app restarts.
 7. **App quit stops the backend.** The desktop app owns its backend's process. "Browser not available" is what agents see when the backend outlives its host, or when no desktop app runs on that machine. After an app quit, the CLI can't reach the backend at all.
+8. **CDP filter and popups (plan review round 2).**
+   - Chromium's `Browser` handler also runs on page sessions, so `Browser.crash`, `crashGpuProcess`, `close` and the context-scoped `Browser`/`Storage` commands get the same treatment on an allowed page session as at browser level. A known `sessionId` doesn't make a command page-local.
+   - Popup preferences (partition aside: preload, `backgroundThrottling: false`) go through `overrideBrowserWindowOptions`, because Electron fixes a guest's preferences before `createWindow` runs.
+   - A plain `target=_blank` popup has no `window.opener` (implicit noopener). That is correct behaviour, not a failure.
+   - **Endpoint stability:** the backend binds an OS-assigned port, so after an app restart a tab keeps its id and its `/cdp/<tabId>` path, but the port can change. Agents rediscover the endpoint with `taskflow-cli browser list`.

@@ -9,7 +9,7 @@
   - the `POST /api/tasks/:id/browser` and `/api/projects/:id/browser` routes (`task-routes.ts:317-336`, `project-routes.ts:28-48`);
   - the `MSG.BROWSER_OPEN` handler (`index.ts:425-429`);
   - `BROWSER_OPEN` in `packages/shared/src/constants.ts` and `BrowserOpenPayload` in `packages/shared/src/types/ws.ts`;
-  - the UI listener `session-subscriptions.ts:163-181` (body and registration; Section 6 adds the replacement);
+  - the UI listener `session-subscriptions.ts:163-181` (body and registration; Section 6, which runs before this section, already added the registry sync that replaces it);
   - the tests that use them: `tests/api/routes.test.ts:~190-212` and the old-endpoint CLI tests (`taskflow-cli.test.ts:230` and the TS bin equivalents). Rewrite them against the new endpoints, or delete the ones the new tests cover.
 - Modify the tests: the existing sh CLI test file (`taskflow-cli.test.ts`, fake curl that records headers via `readCapturedHeaders`), the TS bin test file, and the agent-skill test file.
 
@@ -70,4 +70,5 @@ Replace the content with:
 - [ ] **Step 5:** Implement. Check sh syntax with `sh -n` and `dash -n` on the script.
 - [ ] **Step 6:** Run the three test files and `cd packages/backend && bun test`. Expected: PASS.
 - [ ] **Step 6b:** Run `bun run typecheck` (the shared removal touches the UI) and the UI test for `session-subscriptions`, if one exists (from the repo root, one file).
+- [ ] **Step 6c:** Smoke check by hand against the dev app: `taskflow-cli browser open "https://example.com"` from a task session shows the tab in that task's workspace (through Section 6's sync), and `browser close <id>` removes it. Record the result in `handoff.md`.
 - [ ] **Step 7:** Commit `feat(cli): browser open/list/close with CDP endpoints and agent nudge`.
