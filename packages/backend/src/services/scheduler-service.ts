@@ -61,17 +61,18 @@ function validateExpression(expression: string, expressionType: "cron" | "rate")
 }
 
 class SchedulerService {
-    private deps: SchedulerDeps;
     private timers = new Map<string, () => void>();
     private timeoutTimers = new Map<string, () => void>();
-    private runningSessions = new Map<string, SpawnResult>(); // scheduleId -> session info
+    private runningSessions = new Map<string, SpawnResult>();
+    private admitted = new Set<string>();
     private deferredSchedules = new Set<string>();
-
+    private cancelTick: (() => void) | null = null;
+    private initialization: Promise<void> | null = null;
+    private stopped = false;
     private now: () => number;
     private schedule: (callback: () => void, delayMs: number) => () => void;
 
-    constructor(deps: SchedulerDeps) {
-        this.deps = deps;
+    constructor(private deps: SchedulerDeps) {
         this.now = deps.now ?? Date.now;
         this.schedule =
             deps.schedule ??
@@ -88,11 +89,14 @@ class SchedulerService {
     }
 
     async init(): Promise<void> {
-        if (this.deps.enabled === false) return;
-        const schedules = await this.deps.scheduleStore.getAll();
+        if (this.deps.enabled === false || this.stopped) return;
+        this.initialization ??= this.initialize();
+        await this.initialization;
+    }
 
-        // Clear stale runningSessionIds from crash
-        for (const schedule of schedules) {
+    private async initialize(): Promise<void> {
+        for (const schedule of await this.deps.scheduleStore.getAll()) {
+            if (this.stopped) return;
             if (schedule.runningSessionId) {
                 await this.deps.scheduleStore.update(schedule.id, (s) => ({
                     ...s,
@@ -102,191 +106,258 @@ class SchedulerService {
                 }));
             }
         }
+        this.startTick();
+        await this.checkDue();
+    }
 
-        // Schedule all enabled schedules (defer if offline)
-        for (const schedule of schedules) {
+    private startTick(): void {
+        if (this.stopped || this.deps.enabled === false || this.cancelTick) return;
+        this.cancelTick = this.schedule(() => {
+            this.cancelTick = null;
+            this.startTick();
+            this.background(this.checkDue());
+        }, 30_000);
+    }
+
+    private async checkDue(): Promise<void> {
+        if (this.stopped || this.deps.enabled === false) return;
+        for (const schedule of await this.deps.scheduleStore.getAll()) {
             if (schedule.enabled) {
-                if (!this.deps.isOnline()) {
-                    this.deferredSchedules.add(schedule.id);
-                    continue;
-                }
                 try {
                     await this.scheduleNext(schedule.id);
-                } catch (err) {
-                    console.error(`Failed to schedule "${schedule.name}" (${schedule.id}):`, err);
-                    await this.deps.scheduleStore.update(schedule.id, (s) => ({
-                        ...s,
-                        lastError: `Failed to schedule: ${err instanceof Error ? err.message : String(err)}`,
-                        updatedAt: new Date(this.now()).toISOString(),
-                    }));
+                } catch (error) {
+                    console.error(`Failed to schedule "${schedule.name}" (${schedule.id}):`, error);
                 }
             }
         }
     }
 
     async scheduleNext(scheduleId: string): Promise<void> {
+        if (this.stopped || this.deps.enabled === false) return;
         this.clearTimer(scheduleId);
+        let schedule = await this.deps.scheduleStore.getById(scheduleId);
+        if (!schedule || !schedule.enabled || this.stopped) return;
 
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (!schedule || !schedule.enabled) return;
-
-        let nextRunAt = schedule.nextRunAt;
-        if (!nextRunAt || !Number.isFinite(Date.parse(nextRunAt))) {
-            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-                ...s,
-                nextRunAt: computeNextRun(s, this.now()).toISOString(),
-                updatedAt: new Date(this.now()).toISOString(),
-            }));
-            nextRunAt = updated.nextRunAt;
-            this.broadcastUpdated(updated);
+        if (!schedule.nextRunAt || !Number.isFinite(Date.parse(schedule.nextRunAt))) {
+            schedule = await this.deps.scheduleStore.update(scheduleId, (current) => {
+                if (
+                    this.stopped ||
+                    !current.enabled ||
+                    (current.nextRunAt && Number.isFinite(Date.parse(current.nextRunAt)))
+                )
+                    return current;
+                return {
+                    ...current,
+                    nextRunAt: computeNextRun(current, this.now()).toISOString(),
+                    updatedAt: new Date(this.now()).toISOString(),
+                };
+            });
+            this.broadcastUpdated(schedule);
         }
-        if (this.runningSessions.has(scheduleId)) return;
-        const delay = Date.parse(nextRunAt ?? "") - this.now();
-
+        if (this.stopped || !schedule.enabled || this.admitted.has(scheduleId)) return;
+        const delay = Date.parse(schedule.nextRunAt ?? "") - this.now();
         if (delay <= 0) {
-            // Run immediately if past due
-            void this.execute(scheduleId);
+            await this.execute(scheduleId, "scheduled");
         } else {
+            // Concurrent checks may have read together; replace the timer at installation too.
+            this.clearTimer(scheduleId);
             this.timers.set(
-                scheduleId,
-                this.schedule(() => {
-                    void this.execute(scheduleId);
-                }, delay),
-            );
-        }
-    }
-
-    private async execute(scheduleId: string): Promise<void> {
-        this.clearTimer(scheduleId);
-
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (!schedule || !schedule.enabled) return;
-
-        // Defer if offline
-        if (!this.deps.isOnline()) {
-            this.deferredSchedules.add(scheduleId);
-            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-                ...s,
-                lastError: "Skipped: offline",
-                nextRunAt: null,
-                updatedAt: new Date(this.now()).toISOString(),
-            }));
-            this.broadcastUpdated(updated);
-            return;
-        }
-
-        // Skip if already running
-        if (this.runningSessions.has(scheduleId)) return;
-
-        let result: SpawnResult;
-        try {
-            result = await this.deps.spawnSession(schedule);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-                ...s,
-                lastError: `Failed to spawn session: ${errorMessage}`,
-                lastRunAt: new Date(this.now()).toISOString(),
-                updatedAt: new Date(this.now()).toISOString(),
-            }));
-            this.broadcastUpdated(updated);
-            await this.scheduleNext(scheduleId);
-            return;
-        }
-
-        this.runningSessions.set(scheduleId, result);
-
-        const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-            ...s,
-            runningSessionId: result.sessionId,
-            lastRunAt: new Date(this.now()).toISOString(),
-            lastError: null,
-            nextRunAt: null,
-            updatedAt: new Date(this.now()).toISOString(),
-        }));
-        this.broadcastUpdated(updated);
-
-        // Set timeout timer
-        if (schedule.timeout > 0) {
-            this.timeoutTimers.set(
                 scheduleId,
                 this.schedule(
                     () => {
-                        void this.handleTimeout(scheduleId);
+                        this.background(this.checkDue());
                     },
-                    schedule.timeout * 60 * 1000,
+                    Math.min(delay, 2_147_483_647),
                 ),
             );
         }
     }
 
+    private admit(scheduleId: string): boolean {
+        if (this.admitted.has(scheduleId)) return false;
+        this.admitted.add(scheduleId);
+        return true;
+    }
+
+    private nextAfterAttempt(current: Schedule, captured: Schedule): string | null {
+        if (!current.enabled) return null;
+        const timingChanged =
+            current.expressionType !== captured.expressionType ||
+            current.expression !== captured.expression ||
+            current.enabled !== captured.enabled;
+        if (timingChanged && current.nextRunAt && Number.isFinite(Date.parse(current.nextRunAt))) {
+            return current.nextRunAt;
+        }
+        return computeNextRun(current, this.now()).toISOString();
+    }
+
+    private async execute(scheduleId: string, source: "scheduled" | "manual"): Promise<void> {
+        if (this.stopped || this.deps.enabled === false) return;
+        if (!this.admit(scheduleId)) {
+            if (source === "manual") throw new Error("Schedule is already running");
+            return;
+        }
+        let keepAdmission = false;
+        let result: SpawnResult | undefined;
+        let rearm = false;
+        try {
+            this.clearTimer(scheduleId);
+            const schedule = await this.deps.scheduleStore.getById(scheduleId);
+            if (!schedule) {
+                if (source === "manual") throw new Error(`Schedule not found: ${scheduleId}`);
+                return;
+            }
+            if (!schedule.enabled || this.stopped) return;
+            if (
+                source === "scheduled" &&
+                (!schedule.nextRunAt || !(Date.parse(schedule.nextRunAt) <= this.now()))
+            ) {
+                rearm = true;
+                return;
+            }
+            if (!this.deps.isOnline()) {
+                this.deferredSchedules.add(scheduleId);
+                if (schedule.lastError !== "Skipped: offline") {
+                    const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
+                        ...s,
+                        lastError: "Skipped: offline",
+                        updatedAt: new Date(this.now()).toISOString(),
+                    }));
+                    this.broadcastUpdated(updated);
+                }
+                return;
+            }
+            this.deferredSchedules.delete(scheduleId);
+            try {
+                result = await this.deps.spawnSession(schedule);
+            } catch (error) {
+                if (this.stopped || !(await this.deps.scheduleStore.getById(scheduleId))) return;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const updated = await this.deps.scheduleStore.update(scheduleId, (current) => ({
+                    ...current,
+                    lastError: `Failed to spawn session: ${errorMessage}`,
+                    lastRunAt: new Date(this.now()).toISOString(),
+                    nextRunAt: this.nextAfterAttempt(current, schedule),
+                    updatedAt: new Date(this.now()).toISOString(),
+                }));
+                this.broadcastUpdated(updated);
+                rearm = true;
+                return;
+            }
+
+            const latest = await this.deps.scheduleStore.getById(scheduleId);
+            if (this.stopped || !latest || !this.admitted.has(scheduleId)) {
+                this.deps.closeSession(result.sessionId);
+                result = undefined;
+                return;
+            }
+            const runInfo = result;
+            this.runningSessions.set(scheduleId, runInfo);
+            const updated = await this.deps.scheduleStore.update(scheduleId, (current) => {
+                if (this.stopped || this.runningSessions.get(scheduleId) !== runInfo)
+                    return current;
+                return {
+                    ...current,
+                    runningSessionId: runInfo.sessionId,
+                    lastRunAt: new Date(this.now()).toISOString(),
+                    lastError: null,
+                    nextRunAt: this.nextAfterAttempt(current, schedule),
+                    updatedAt: new Date(this.now()).toISOString(),
+                };
+            });
+            if (this.stopped || this.runningSessions.get(scheduleId) !== runInfo) return;
+            keepAdmission = true;
+            this.broadcastUpdated(updated);
+            if (schedule.timeout > 0) {
+                this.timeoutTimers.set(
+                    scheduleId,
+                    this.schedule(() => {
+                        this.background(
+                            this.finishRun(
+                                scheduleId,
+                                runInfo.sessionId,
+                                `Timed out after ${schedule.timeout} minutes`,
+                                true,
+                            ),
+                        );
+                    }, schedule.timeout * 60_000),
+                );
+            }
+        } catch (error) {
+            if (result) {
+                this.clearTimeoutTimer(scheduleId);
+                this.runningSessions.delete(scheduleId);
+                this.deps.closeSession(result.sessionId);
+                const sessionId = result.sessionId;
+                try {
+                    if (await this.deps.scheduleStore.getById(scheduleId)) {
+                        await this.deps.scheduleStore.update(scheduleId, (current) =>
+                            current.runningSessionId === sessionId
+                                ? { ...current, runningSessionId: null }
+                                : current,
+                        );
+                    }
+                } catch (cleanupError) {
+                    console.error(`Failed to clear schedule run ${scheduleId}:`, cleanupError);
+                }
+            }
+            keepAdmission = false;
+            throw error;
+        } finally {
+            if (!keepAdmission) this.admitted.delete(scheduleId);
+            if (rearm && !this.stopped) await this.scheduleNext(scheduleId);
+        }
+    }
+
+    private async finishRun(
+        scheduleId: string,
+        sessionId: string,
+        lastError: string | null,
+        close: boolean,
+    ): Promise<void> {
+        if (this.runningSessions.get(scheduleId)?.sessionId !== sessionId) return;
+        // Claim completion before closing the PTY; its exit callback must see no live run.
+        this.runningSessions.delete(scheduleId);
+        this.clearTimeoutTimer(scheduleId);
+        try {
+            if (close) this.deps.closeSession(sessionId);
+            if (await this.deps.scheduleStore.getById(scheduleId)) {
+                const updated = await this.deps.scheduleStore.update(scheduleId, (current) =>
+                    current.runningSessionId === sessionId
+                        ? {
+                              ...current,
+                              runningSessionId: null,
+                              lastError,
+                              updatedAt: new Date(this.now()).toISOString(),
+                          }
+                        : current,
+                );
+                this.broadcastUpdated(updated);
+            }
+        } finally {
+            this.admitted.delete(scheduleId);
+        }
+        await this.scheduleNext(scheduleId);
+    }
+
     async handleComplete(sessionId: string): Promise<void> {
         const schedule = await this.deps.scheduleStore.findBySessionId(sessionId);
-        if (!schedule) return;
-
-        this.clearTimeoutTimer(schedule.id);
-        this.runningSessions.delete(schedule.id);
-
-        this.deps.closeSession(sessionId);
-
-        const updated = await this.deps.scheduleStore.update(schedule.id, (s) => ({
-            ...s,
-            runningSessionId: null,
-            lastError: null,
-            updatedAt: new Date(this.now()).toISOString(),
-        }));
-        this.broadcastUpdated(updated);
-
-        await this.scheduleNext(schedule.id);
+        if (schedule) await this.finishRun(schedule.id, sessionId, null, true);
     }
 
     async handleSessionExit(sessionId: string, exitCode: number): Promise<void> {
         const schedule = await this.deps.scheduleStore.findBySessionId(sessionId);
         if (!schedule) return;
-
-        this.clearTimeoutTimer(schedule.id);
         const runInfo = this.runningSessions.get(schedule.id);
-        this.runningSessions.delete(schedule.id);
-
-        // Shell sessions complete via exit code (0 = success)
-        const isShellSuccess = runInfo?.isShell && exitCode === 0;
-
-        const updated = await this.deps.scheduleStore.update(schedule.id, (s) => ({
-            ...s,
-            runningSessionId: null,
-            lastError: isShellSuccess
+        if (!runInfo || runInfo.sessionId !== sessionId) return;
+        const error =
+            runInfo.isShell && exitCode === 0
                 ? null
-                : `${runInfo?.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`,
-            updatedAt: new Date(this.now()).toISOString(),
-        }));
-        this.broadcastUpdated(updated);
-
-        await this.scheduleNext(schedule.id);
-    }
-
-    private async handleTimeout(scheduleId: string): Promise<void> {
-        this.clearTimeoutTimer(scheduleId);
-
-        const runInfo = this.runningSessions.get(scheduleId);
-        if (!runInfo) return;
-
-        this.runningSessions.delete(scheduleId);
-        this.deps.closeSession(runInfo.sessionId);
-
-        const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-            ...s,
-            runningSessionId: null,
-            lastError: `Timed out after ${s.timeout} minutes`,
-            updatedAt: new Date(this.now()).toISOString(),
-        }));
-        this.broadcastUpdated(updated);
-
-        await this.scheduleNext(scheduleId);
+                : `${runInfo.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`;
+        await this.finishRun(schedule.id, sessionId, error, false);
     }
 
     async onScheduleCreated(scheduleId: string): Promise<void> {
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (!schedule || !schedule.enabled) return;
         await this.scheduleNext(scheduleId);
     }
 
@@ -303,85 +374,63 @@ class SchedulerService {
     async onScheduleDeleted(scheduleId: string, runningSessionId: string | null): Promise<void> {
         this.clearTimer(scheduleId);
         this.clearTimeoutTimer(scheduleId);
+        this.deferredSchedules.delete(scheduleId);
+        const sessionId = this.runningSessions.get(scheduleId)?.sessionId ?? runningSessionId;
         this.runningSessions.delete(scheduleId);
-
-        if (runningSessionId) {
-            this.deps.closeSession(runningSessionId);
-        }
+        this.admitted.delete(scheduleId);
+        if (sessionId) this.deps.closeSession(sessionId);
     }
 
     async triggerNow(scheduleId: string): Promise<void> {
         this.assertEnabled();
-        if (!this.deps.isOnline()) {
-            throw new Error("Cannot trigger schedule while offline");
-        }
-
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (!schedule) throw new Error(`Schedule not found: ${scheduleId}`);
-
-        // Skip if already running
-        if (this.runningSessions.has(scheduleId)) {
-            throw new Error("Schedule is already running");
-        }
-
-        await this.execute(scheduleId);
+        if (!this.deps.isOnline()) throw new Error("Cannot trigger schedule while offline");
+        await this.execute(scheduleId, "manual");
     }
 
     async resumeDeferred(): Promise<void> {
         const ids = [...this.deferredSchedules];
-        this.deferredSchedules.clear();
         for (const id of ids) {
             try {
                 await this.scheduleNext(id);
-            } catch (err) {
-                console.error(`Failed to resume deferred schedule ${id}:`, err);
+            } catch (error) {
+                console.error(`Failed to resume deferred schedule ${id}:`, error);
             }
         }
     }
 
     shutdown(): void {
-        // Cancel all scheduled timers
-        for (const timer of this.timers.values()) {
-            timer();
-        }
+        this.stopped = true;
+        this.cancelTick?.();
+        this.cancelTick = null;
+        for (const cancel of this.timers.values()) cancel();
         this.timers.clear();
-
-        // Cancel all timeout timers
-        for (const timer of this.timeoutTimers.values()) {
-            timer();
-        }
+        for (const cancel of this.timeoutTimers.values()) cancel();
         this.timeoutTimers.clear();
-
-        // Kill all running sessions
-        for (const [scheduleId, runInfo] of this.runningSessions) {
-            this.deps.closeSession(runInfo.sessionId);
-            this.runningSessions.delete(scheduleId);
-        }
+        const runs = [...this.runningSessions.values()];
+        this.runningSessions.clear();
+        this.admitted.clear();
+        this.deferredSchedules.clear();
+        for (const run of runs) this.deps.closeSession(run.sessionId);
     }
 
-    // --- Private helpers ---
-
     private clearTimer(scheduleId: string): void {
-        const timer = this.timers.get(scheduleId);
-        if (timer) {
-            timer();
-            this.timers.delete(scheduleId);
-        }
+        this.timers.get(scheduleId)?.();
+        this.timers.delete(scheduleId);
     }
 
     private clearTimeoutTimer(scheduleId: string): void {
-        const timer = this.timeoutTimers.get(scheduleId);
-        if (timer) {
-            timer();
-            this.timeoutTimers.delete(scheduleId);
-        }
+        this.timeoutTimers.get(scheduleId)?.();
+        this.timeoutTimers.delete(scheduleId);
+    }
+
+    private background(work: Promise<void>): void {
+        void work.catch((error: unknown) => {
+            console.error("Scheduler callback failed:", error);
+        });
     }
 
     private broadcastUpdated(schedule: Schedule): void {
-        this.deps.broadcast({
-            type: MSG.SCHEDULE_UPDATED,
-            payload: schedule,
-        });
+        this.deps.broadcast({ type: MSG.SCHEDULE_UPDATED, payload: schedule });
     }
 }
 
