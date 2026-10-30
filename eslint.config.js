@@ -20,6 +20,8 @@ export default tseslint.config(
             // Plan-review repro scratch: deliberately contains code that does not
             // typecheck, and is not part of any workspace tsconfig.
             "plan-review/",
+            // Throwaway spike evidence, run by hand; not part of any workspace tsconfig.
+            "docs/superpowers/plans/**/spike/",
         ],
     },
 
