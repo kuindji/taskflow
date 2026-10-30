@@ -11,6 +11,7 @@ const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
+let backendToken: string | null = null;
 let backendPortFile: string | null = null;
 let backendStderrBuffer = "";
 
@@ -118,6 +119,16 @@ async function startBackend(devBranch: string | null): Promise<PortHandshake> {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
             ...safeEnv,
+            ...(UI_DEV_SERVER_URL
+                ? {
+                      TASKFLOW_UI_ORIGINS: [
+                          safeEnv.TASKFLOW_UI_ORIGINS,
+                          new URL(UI_DEV_SERVER_URL).origin,
+                      ]
+                          .filter(Boolean)
+                          .join(","),
+                  }
+                : {}),
             TASKFLOW_PORT_FILE: backendPortFile,
             ...(devBranch ? { TASKFLOW_DEV_BRANCH: devBranch } : {}),
             ...(rgPath ? { TASKFLOW_RG_PATH: rgPath } : {}),
@@ -155,6 +166,14 @@ function setBackendPort(port: number): void {
     backendPort = port;
 }
 
+function setBackendToken(token: string): void {
+    backendToken = token;
+}
+
+function getBackendToken(): string | null {
+    return backendToken;
+}
+
 function getBackendStderrBuffer(): string {
     return backendStderrBuffer;
 }
@@ -182,6 +201,8 @@ export {
     cleanupBackendArtifacts,
     getBackendPort,
     setBackendPort,
+    setBackendToken,
+    getBackendToken,
     getBackendStderrBuffer,
     killBackendProcess,
     getUIDevServerURL,

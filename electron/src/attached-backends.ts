@@ -11,6 +11,7 @@ interface AttachedBackend {
     id: string;
     origin: string;
     isLocal: boolean;
+    token: string | null;
 }
 
 /**
@@ -20,13 +21,24 @@ interface AttachedBackend {
  */
 function listAttachedBackends(
     localPort: number | null,
-    remote: { id: string; origin: string }[],
+    localToken: string | null,
+    remote: { id: string; origin: string; token?: string }[],
 ): AttachedBackend[] {
     const local =
         localPort === null
             ? []
-            : [{ id: LOCAL_BACKEND_ID, origin: backendOrigin(localPort), isLocal: true }];
-    return [...local, ...remote.map((entry) => ({ ...entry, isLocal: false }))];
+            : [
+                  {
+                      id: LOCAL_BACKEND_ID,
+                      origin: backendOrigin(localPort),
+                      isLocal: true,
+                      token: localToken,
+                  },
+              ];
+    return [
+        ...local,
+        ...remote.map((entry) => ({ ...entry, isLocal: false, token: entry.token ?? null })),
+    ];
 }
 
 export { LOCAL_BACKEND_ID, listAttachedBackends };

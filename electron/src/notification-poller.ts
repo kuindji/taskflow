@@ -1,3 +1,4 @@
+import type { BackendFetch } from "./backend-fetch";
 import type { AttachedBackend } from "./attached-backends";
 
 interface BackendNotification {
@@ -31,8 +32,11 @@ interface NotificationPollerDeps {
 
 const POLL_INTERVAL_MS = 3000;
 
-function fetchBackendNotifications(origin: string): Promise<NotificationsResponse> {
-    return fetch(`${origin}/api/notifications`, { signal: AbortSignal.timeout(2000) }).then(
+function fetchBackendNotifications(
+    backendFetch: BackendFetch,
+    origin: string,
+): Promise<NotificationsResponse> {
+    return backendFetch(origin, "/api/notifications", { signal: AbortSignal.timeout(2000) }).then(
         async (response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const { notifications } = (await response.json()) as {

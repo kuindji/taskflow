@@ -12,13 +12,17 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { downloadArtifact, isArtifactUrl } from "./artifact-download";
 
+import { createBackendFetch } from "./backend-fetch";
+
+const backendFetch = createBackendFetch({ tokenFor: () => null });
+
 type Server = ReturnType<typeof Bun.serve>;
 
 const servers: Server[] = [];
 const dir = mkdtempSync(join(tmpdir(), "artifact-download-"));
 let fileCount = 0;
 
-function serve(fetch: () => Response): Server {
+function serve(fetch: (request: Request) => Response): Server {
     const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch });
     servers.push(server);
     return server;
@@ -51,7 +55,9 @@ afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-const attached = [{ id: "desktop.local:main", origin: "http://127.0.0.1:4102", isLocal: false }];
+const attached = [
+    { id: "desktop.local:main", origin: "http://127.0.0.1:4102", token: null, isLocal: false },
+];
 
 test("only a raw-artifact route on an attached origin is accepted", () => {
     expect(isArtifactUrl("http://127.0.0.1:4102/api/flow/artifact/t/f/report/raw", attached)).toBe(
@@ -75,10 +81,12 @@ test("an attached backend redirecting elsewhere does not get the other origin fe
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
     const target = destination();
 
-    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
 
     expect(isArtifactUrl(url, attachedNow)).toBe(true);
-    const outcome = await downloadArtifact(url, () => attachedNow, target).then(
+    const outcome = await downloadArtifact(url, () => attachedNow, target, backendFetch).then(
         () => readFileSync(target, "utf-8"),
         () => "refused",
     );
@@ -93,14 +101,18 @@ test("a machine detached while the save dialog was open does not get its origin 
         return new Response("REPORT");
     });
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
-    let attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    let attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
 
     expect(isArtifactUrl(url, attachedNow)).toBe(true);
     attachedNow = [];
-    const outcome = await downloadArtifact(url, () => attachedNow, destination()).then(
-        () => "saved",
-        errorMessage,
-    );
+    const outcome = await downloadArtifact(
+        url,
+        () => attachedNow,
+        destination(),
+        backendFetch,
+    ).then(() => "saved", errorMessage);
 
     expect(outcome).toBe("Invalid artifact URL");
     expect(hits).toBe(0);
@@ -115,15 +127,16 @@ test("the bytes are saved, and a refusal's body becomes the error without a file
         [ok, missing].map((server) => ({
             id: String(server.port),
             origin: `http://127.0.0.1:${server.port}`,
+            token: null,
             isLocal: false,
         }));
 
     const saved = destination();
-    await downloadArtifact(urlOn(ok), attachedNow, saved);
+    await downloadArtifact(urlOn(ok), attachedNow, saved, backendFetch);
     expect(readFileSync(saved, "utf-8")).toBe("REPORT");
 
     const refused = destination();
-    const error = await downloadArtifact(urlOn(missing), attachedNow, refused).then(
+    const error = await downloadArtifact(urlOn(missing), attachedNow, refused, backendFetch).then(
         () => null,
         errorMessage,
     );
@@ -134,10 +147,12 @@ test("the bytes are saved, and a refusal's body becomes the error without a file
 test("a destination name as long as the filesystem allows can be saved", async () => {
     const backend = serve(() => new Response("REPORT"));
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/report/raw`;
-    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
     const target = join(dirname(destination()), "a".repeat(250));
 
-    await downloadArtifact(url, () => attachedNow, target);
+    await downloadArtifact(url, () => attachedNow, target, backendFetch);
 
     expect(readFileSync(target, "utf-8")).toBe("REPORT");
 });
@@ -161,10 +176,12 @@ test("a large artifact is written as it arrives, not held whole in memory first"
             ),
     );
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/recording/raw`;
-    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
     const target = destination();
 
-    const download = downloadArtifact(url, () => attachedNow, target);
+    const download = downloadArtifact(url, () => attachedNow, target, backendFetch);
     const deadline = Date.now() + 2000;
     let early = "";
     while (Date.now() < deadline) {
@@ -198,11 +215,13 @@ function breakingBody(): Response {
 test("a failed download leaves the file the user chose to replace untouched", async () => {
     const backend = serve(breakingBody);
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/recording/raw`;
-    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
     const target = destination();
     writeFileSync(target, "USER-OLD");
 
-    const outcome = await downloadArtifact(url, () => attachedNow, target).then(
+    const outcome = await downloadArtifact(url, () => attachedNow, target, backendFetch).then(
         () => "saved",
         () => "failed",
     );
@@ -215,10 +234,12 @@ test("a failed download leaves the file the user chose to replace untouched", as
 test("a body that breaks off mid-download leaves no partial file", async () => {
     const backend = serve(breakingBody);
     const url = `http://127.0.0.1:${backend.port}/api/flow/artifact/t/f/recording/raw`;
-    const attachedNow = [{ id: "b", origin: `http://127.0.0.1:${backend.port}`, isLocal: false }];
+    const attachedNow = [
+        { id: "b", origin: `http://127.0.0.1:${backend.port}`, token: null, isLocal: false },
+    ];
     const target = destination();
 
-    const outcome = await downloadArtifact(url, () => attachedNow, target).then(
+    const outcome = await downloadArtifact(url, () => attachedNow, target, backendFetch).then(
         () => "saved",
         () => "failed",
     );
@@ -226,4 +247,21 @@ test("a body that breaks off mid-download leaves no partial file", async () => {
     expect(outcome).toBe("failed");
     expect(existsSync(target)).toBe(false);
     expect(inProgressFiles(target)).toEqual([]);
+});
+
+test("downloadArtifact sends the origin's token to the backend", async () => {
+    const authorizations: (string | null)[] = [];
+    const backend = serve((request) => {
+        authorizations.push(request.headers.get("authorization"));
+        return new Response("REPORT");
+    });
+    const origin = `http://127.0.0.1:${backend.port}`;
+    const attachedNow = [{ id: "b", origin, isLocal: true, token: "TOKEN" }];
+    await downloadArtifact(
+        `${origin}/api/flow/artifact/t/f/report/raw`,
+        () => attachedNow,
+        destination(),
+        createBackendFetch({ tokenFor: (value) => (value === origin ? "TOKEN" : null) }),
+    );
+    expect(authorizations).toEqual(["Bearer TOKEN"]);
 });

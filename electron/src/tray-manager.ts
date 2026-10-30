@@ -1,3 +1,4 @@
+import type { BackendFetch } from "./backend-fetch";
 import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { join } from "path";
 import type { AttachedBackend } from "./attached-backends";
@@ -5,6 +6,7 @@ import type { AttachedBackend } from "./attached-backends";
 type TrayState = "working" | "attention" | null;
 
 interface TrayManagerDeps {
+    backendFetch: BackendFetch;
     getMainWindow: () => BrowserWindow | null;
     getAttachedBackends: () => AttachedBackend[];
     showMainWindow: () => Promise<void>;
@@ -163,7 +165,7 @@ function setupMenuBarTray(): void {
 
 async function fetchTrayState(origin: string): Promise<void> {
     try {
-        const response = await fetch(`${origin}/api/tray-state`, {
+        const response = await deps.backendFetch(origin, "/api/tray-state", {
             signal: AbortSignal.timeout(1000),
         });
         if (!response.ok) return;

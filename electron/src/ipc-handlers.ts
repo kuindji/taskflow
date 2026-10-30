@@ -1,3 +1,4 @@
+import type { BackendFetch } from "./backend-fetch";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile } from "child_process";
@@ -11,8 +12,10 @@ import { backendOrigin } from "./backend-url";
 import type { TrayState } from "./tray-manager";
 
 interface IpcHandlersDeps {
+    backendFetch: BackendFetch;
     getMainWindow: () => BrowserWindow | null;
     getBackendPort: () => number | null;
+    getBackendToken: () => string | null;
     registry: BackendRegistry;
     tunnels: TunnelManager;
     setRendererTrayState: (status: TrayState) => void;
@@ -113,7 +116,11 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             // A file artifact lives on the machine that ran the flow, so its bytes come
             // from that backend's raw-artifact route; only attached origins are fetched.
             const attached = () =>
-                listAttachedBackends(deps.getBackendPort(), deps.registry.attached());
+                listAttachedBackends(
+                    deps.getBackendPort(),
+                    deps.getBackendToken(),
+                    deps.registry.attached(),
+                );
             if (typeof opts.url === "string" && !isArtifactUrl(opts.url, attached())) {
                 return { success: false, error: "Invalid artifact URL" };
             }
@@ -128,7 +135,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             if (result.canceled || !result.filePath) return { success: false };
             try {
                 if (typeof opts.url === "string") {
-                    await downloadArtifact(opts.url, attached, result.filePath);
+                    await downloadArtifact(opts.url, attached, result.filePath, deps.backendFetch);
                 } else if (typeof opts.text === "string") {
                     await writeFile(result.filePath, opts.text, "utf-8");
                 } else {
@@ -309,7 +316,7 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
     ipcMain.handle("list-backends", () => registry.listBackends());
 
     ipcMain.handle("get-attached-backends", () =>
-        listAttachedBackends(deps.getBackendPort(), registry.attached()),
+        listAttachedBackends(deps.getBackendPort(), deps.getBackendToken(), registry.attached()),
     );
 
     ipcMain.handle("attach-backend", (_event, id: string) => {
@@ -323,7 +330,7 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
             };
             return { ok: false, failure };
         }
-        return { ok: true, origin };
+        return { ok: true, origin, token: deps.getBackendToken() ?? undefined };
     });
 
     ipcMain.handle("detach-backend", (_event, id: string) => {

@@ -1,3 +1,4 @@
+import type { BackendFetch } from "./backend-fetch";
 import { randomUUID } from "crypto";
 import { createWriteStream } from "fs";
 import { rename, rm } from "fs/promises";
@@ -50,9 +51,13 @@ async function downloadArtifact(
     url: string,
     attached: () => AttachedBackend[],
     destination: string,
+    backendFetch: BackendFetch,
 ): Promise<void> {
     if (!isArtifactUrl(url, attached())) throw new Error("Invalid artifact URL");
-    const response = await fetch(url, { redirect: "error" });
+    const target = new URL(url);
+    const response = await backendFetch(target.origin, target.pathname + target.search, {
+        redirect: "error",
+    });
     if (!response.ok) {
         throw new Error((await response.text()) || `HTTP ${response.status}`);
     }

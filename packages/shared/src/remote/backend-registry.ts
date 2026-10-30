@@ -48,7 +48,9 @@ interface BackendPatch {
     sshPort?: number;
 }
 
-type AttachResult = { ok: true; origin: string } | { ok: false; failure: TunnelFailure };
+type AttachResult =
+    | { ok: true; origin: string; token?: string }
+    | { ok: false; failure: TunnelFailure };
 
 function unknownFailure(message: string): TunnelFailure {
     return { kind: "unknown", message, stderr: "" };

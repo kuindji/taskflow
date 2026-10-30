@@ -36,8 +36,8 @@ function makePoller() {
 
 beforeEach(() => {
     backends = [
-        { id: "local", origin: A, isLocal: true },
-        { id: "desktop.local:main", origin: B, isLocal: false },
+        { id: "local", origin: A, token: null, isLocal: true },
+        { id: "desktop.local:main", origin: B, token: null, isLocal: false },
     ];
     lists = new Map();
     delivered = [];
@@ -156,7 +156,7 @@ test("a record renamed at its handshake keeps its watermark and clicks name the 
     emit(B, notification("b-1", "10:00:01"));
     await poller.poll();
 
-    backends = [backends[0], { id: "abc123", origin: B, isLocal: false }];
+    backends = [backends[0], { id: "abc123", origin: B, token: null, isLocal: false }];
     await poller.poll();
 
     expect(delivered.map((d) => d.id)).toEqual(["b-1"]);

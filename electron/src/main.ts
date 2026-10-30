@@ -9,6 +9,8 @@ import {
     cleanupBackendArtifacts,
     getBackendPort,
     setBackendPort,
+    setBackendToken,
+    getBackendToken,
     getBackendStderrBuffer,
     killBackendProcess,
     getUIDevServerURL,
@@ -50,6 +52,7 @@ import {
 import { initAutoUpdater, clearUpdaterCache, setupAutoUpdater } from "./auto-updater";
 import { createNotificationPoller, fetchBackendNotifications } from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
+import { createBackendFetch } from "./backend-fetch";
 import { listAttachedBackends } from "./attached-backends";
 import * as browserHost from "./browser-host";
 
@@ -91,7 +94,14 @@ if (devBranch) {
 
 // --- Initialize modules ---
 
+const backendFetch = createBackendFetch({
+    tokenFor: (origin) =>
+        getAttachedBackends().find((entry) => new URL(entry.origin).origin === origin)?.token ??
+        null,
+});
+
 initWindowManager({
+    backendFetch,
     getBackendPort,
     getUIDevServerURL,
     getUIPath,
@@ -108,6 +118,7 @@ initWindowManager({
 });
 
 initTrayManager({
+    backendFetch,
     getMainWindow,
     getAttachedBackends,
     showMainWindow,
@@ -147,12 +158,12 @@ const registry = createRegistry({
 });
 
 function getAttachedBackends() {
-    return listAttachedBackends(getBackendPort(), registry.attached());
+    return listAttachedBackends(getBackendPort(), getBackendToken(), registry.attached());
 }
 
 const notificationPoller = createNotificationPoller({
     getAttachedBackends,
-    fetchNotifications: fetchBackendNotifications,
+    fetchNotifications: (origin) => fetchBackendNotifications(backendFetch, origin),
     notify: (notification, backendId) => {
         const desktopNotification = new Notification({
             title: "Taskflow",
@@ -179,6 +190,8 @@ const notificationPoller = createNotificationPoller({
 });
 
 registerIpcHandlers({
+    backendFetch,
+    getBackendToken,
     getMainWindow,
     getBackendPort,
     registry,
@@ -203,8 +216,9 @@ registerIpcHandlers({
 
 void app.whenReady().then(async () => {
     try {
-        const { port } = await startBackend(devBranch);
+        const { port, token } = await startBackend(devBranch);
         setBackendPort(port);
+        setBackendToken(token);
         await browserHost.initBrowserHost({ getBackendPort, getMainWindow });
         console.log(`Backend started on port ${port}`);
         // Main does not redial persisted records: the renderer does, through

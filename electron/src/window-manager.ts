@@ -1,3 +1,4 @@
+import type { BackendFetch } from "./backend-fetch";
 import { app, BrowserWindow, screen } from "electron";
 import { join } from "path";
 import { backendOrigin } from "./backend-url";
@@ -12,6 +13,7 @@ interface SavedWindowBounds {
 }
 
 interface WindowManagerDeps {
+    backendFetch: BackendFetch;
     getBackendPort: () => number | null;
     getUIDevServerURL: () => string | undefined;
     getUIPath: () => string;
@@ -30,7 +32,7 @@ async function fetchSavedLayout(): Promise<SavedWindowBounds | null> {
     const port = deps.getBackendPort();
     if (!port) return null;
     try {
-        const res = await fetch(`${backendOrigin(port)}/api/settings`);
+        const res = await deps.backendFetch(backendOrigin(port), "/api/settings");
         if (!res.ok) return null;
         const settings = (await res.json()) as { layout?: { window?: SavedWindowBounds } };
         return settings.layout?.window ?? null;
@@ -145,22 +147,24 @@ async function createWindow(): Promise<void> {
         if (!mainWindow || !port) return;
         const isMaximized = mainWindow.isMaximized();
         const bounds = isMaximized ? lastNonMaximizedBounds : mainWindow.getBounds();
-        windowSavePromise = fetch(`${backendOrigin(port)}/api/settings`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                layout: {
-                    window: {
-                        x: bounds.x,
-                        y: bounds.y,
-                        width: bounds.width,
-                        height: bounds.height,
-                        isMaximized,
+        windowSavePromise = deps
+            .backendFetch(backendOrigin(port), "/api/settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    layout: {
+                        window: {
+                            x: bounds.x,
+                            y: bounds.y,
+                            width: bounds.width,
+                            height: bounds.height,
+                            isMaximized,
+                        },
                     },
-                },
-            }),
-            signal: AbortSignal.timeout(1000),
-        }).catch(() => undefined);
+                }),
+                signal: AbortSignal.timeout(1000),
+            })
+            .catch(() => undefined);
     });
 
     // Prevent Electron from navigating to file:// URLs when files are
