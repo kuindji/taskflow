@@ -721,6 +721,11 @@ registerBackendReset("session-store", (backendId) => {
             continue;
         }
         for (const tab of tabs) if (tab.sessionId) sessions.add(tab.sessionId);
+        // Browser tabs follow their registry's machine, which can differ from the
+        // workspace's (the master workspace moves with primary). The browser-tab
+        // reset drops this machine's own.
+        const browserTabs = tabs.filter((tab) => tab.browserTabId);
+        if (browserTabs.length > 0) tabsByWorkspace[key] = browserTabs;
     }
     for (const sessionId of sessions) forgetSession(sessionId);
 
