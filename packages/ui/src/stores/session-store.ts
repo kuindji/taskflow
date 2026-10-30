@@ -331,6 +331,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     },
     async closeTab(workspaceKey, tabId) {
         const tab = (get().tabsByWorkspace[workspaceKey] ?? []).find((entry) => entry.id === tabId);
+        if (tab?.browserTabId) {
+            const backendId = workspaceBackendId(workspaceKey);
+            if (!backendId) throw new Error("Browser tab backend is not attached");
+            await sendRequest(backendId, MSG.BROWSER_TAB_CLOSE, { id: tab.browserTabId });
+            return;
+        }
         try {
             if (tab?.sessionId) {
                 exitedSessions.delete(tab.sessionId);

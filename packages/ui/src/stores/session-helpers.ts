@@ -22,6 +22,8 @@ interface Tab {
     sessionId?: string;
     filePath?: string;
     url?: string;
+    browserTabId?: string;
+    agentConnected?: true;
     autoTitle?: boolean;
     trayExclude?: boolean;
     sessionState?: SessionRef["state"];

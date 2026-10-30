@@ -1,3 +1,4 @@
+import { useOverlayRef } from "@/lib/overlay-registry";
 import * as React from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
@@ -15,11 +16,14 @@ function ContextMenuTrigger({
 
 function ContextMenuContent({
     className,
+    ref,
     ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+    const overlayRef = useOverlayRef(ref);
     return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
+                ref={overlayRef}
                 data-slot="context-menu-content"
                 className={cn(
                     "bg-card text-popover-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 border-border z-50 min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-md border p-1 shadow-md",
@@ -113,11 +117,14 @@ function ContextMenuSubTrigger({
 
 function ContextMenuSubContent({
     className,
+    ref,
     ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
+    const overlayRef = useOverlayRef(ref);
     return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.SubContent
+                ref={overlayRef}
                 data-slot="context-menu-sub-content"
                 className={cn(
                     "bg-card text-popover-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 border-border z-50 max-h-[var(--radix-context-menu-content-available-height,calc(100svh-1rem))] min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg",

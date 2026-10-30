@@ -1,3 +1,4 @@
+import { useOverlayRef } from "@/lib/overlay-registry";
 import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 
@@ -20,10 +21,13 @@ function AlertDialogPortal({ ...props }: React.ComponentProps<typeof AlertDialog
 
 function AlertDialogOverlay({
     className,
+    ref,
     ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+    const overlayRef = useOverlayRef(ref);
     return (
         <AlertDialogPrimitive.Overlay
+            ref={overlayRef}
             data-slot="alert-dialog-overlay"
             className={cn(
                 "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
@@ -37,14 +41,17 @@ function AlertDialogOverlay({
 function AlertDialogContent({
     className,
     size = "default",
+    ref,
     ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
     size?: "default" | "sm";
 }) {
+    const overlayRef = useOverlayRef(ref);
     return (
         <AlertDialogPortal>
             <AlertDialogOverlay />
             <AlertDialogPrimitive.Content
+                ref={overlayRef}
                 data-slot="alert-dialog-content"
                 data-size={size}
                 className={cn(

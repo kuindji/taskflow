@@ -12,6 +12,7 @@ import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { sendRequest } from "@/lib/connection-registry";
+import { openHostedBrowserTab } from "@/lib/hosted-browser";
 import { TaskHeader } from "./TaskHeader";
 import { SplitContainer } from "./SplitContainer";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
@@ -185,6 +186,11 @@ export function Workspace() {
         if (!workspace.workspaceKey) return;
         if (type === "browser") {
             setFocusedPanel("workspace");
+            const hosted = openHostedBrowserTab(workspace.workspaceKey, "about:blank", "New Tab");
+            if (hosted) {
+                await hosted;
+                return;
+            }
             addTab(getFocusedWorkspaceKey(workspace.workspaceKey), {
                 id: crypto.randomUUID(),
                 type: "browser",

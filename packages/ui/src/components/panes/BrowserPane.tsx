@@ -4,21 +4,45 @@ import { Button } from "@/components/ui/button";
 import { Toolbar } from "@/components/ui/toolbar";
 import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react";
 import useIsElectron from "@/hooks/useIsElectron";
+import { toChromeUserAgent } from "@taskflow/shared";
+import { useBrowserTabStore, backendHostsBrowser } from "@/stores/browser-tab-store";
+import { useBackendStore } from "@/stores/backend-store";
+import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
+import { HostedBrowserPane } from "./HostedBrowserPane";
 import { normalizeUrl } from "@/utils/url";
 
 // Build a user-agent string that looks like a regular Chrome browser by
 // stripping the Electron and app-name tokens from the default UA.
-const chromeUserAgent = navigator.userAgent
-    .replace(/\s*Electron\/[\w.-]+/i, "")
-    .replace(/\s*Taskflow\/[\w.-]+/i, "");
+const chromeUserAgent = toChromeUserAgent(navigator.userAgent);
 
 interface BrowserPaneProps {
     initialUrl: string;
+    browserTabId?: string;
+    workspaceKey: string;
+}
+
+function BrowserPane({ initialUrl, browserTabId, workspaceKey }: BrowserPaneProps) {
+    const electron = useIsElectron();
+    const backendId = workspaceBackendId(workspaceKey);
+    const machines = useBackendStore((s) => s.machines);
+    const registry = useBrowserTabStore((s) => (backendId ? s.byBackend[backendId] : undefined));
+    if (!browserTabId) return <LegacyBrowserPane initialUrl={initialUrl} />;
+    const tab = registry?.tabs.find((tab) => tab.id === browserTabId);
+    if (tab && backendHostsBrowser(backendId, electron, machines, registry))
+        return <HostedBrowserPane tab={tab} />;
+    const machine = machines.find((machine) => machine.id === backendId);
+    return (
+        <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+            {machine?.isLocal && !registry?.hostAvailable
+                ? "Browser host is not running"
+                : `This browser runs on ${machine?.displayName ?? "another machine"}`}
+        </div>
+    );
 }
 
 type WebviewNavigationEvent = Event & { url?: string };
 
-function BrowserPane({ initialUrl }: BrowserPaneProps) {
+function LegacyBrowserPane({ initialUrl }: Pick<BrowserPaneProps, "initialUrl">) {
     const isElectron = useIsElectron();
     const normalizedInitial = normalizeUrl(initialUrl);
     const hasInitialUrl = Boolean(normalizedInitial) && normalizedInitial !== "about:blank";

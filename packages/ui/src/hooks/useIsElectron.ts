@@ -1,4 +1,4 @@
-function isElectron(): boolean {
+export function isElectron(): boolean {
     return typeof window !== "undefined" && "taskflow" in window;
 }
 

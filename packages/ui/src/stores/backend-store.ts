@@ -13,6 +13,7 @@ import {
 } from "@/lib/connection-registry";
 import { useFlowStore } from "./flow-store";
 import { useNotificationStore } from "./notification-store";
+import { useBrowserTabStore } from "./browser-tab-store";
 import { useDevServerStore } from "./dev-server-store";
 import { useProjectStore } from "./project-store";
 import { useScheduleStore } from "./schedule-store";
@@ -395,6 +396,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         void Promise.allSettled([
             useNotificationStore.getState().fetchNotifications(id),
             useDevServerStore.getState().fetchDevServers(id),
+            useBrowserTabStore.getState().fetchBrowserTabs(id),
             useScheduleStore.getState().fetchSchedules(id),
             useFlowStore.getState().fetchFlows(id),
             useFlowStore.getState().fetchActions(id),

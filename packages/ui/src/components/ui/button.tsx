@@ -1,3 +1,4 @@
+import { notifyOverlaysChanged, useRegisterOverlay } from "@/lib/overlay-registry";
 import * as React from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -106,6 +107,11 @@ function InlineTooltip({
         ],
         elements: { reference: referenceEl },
     });
+
+    useRegisterOverlay(contentRef, open);
+    useEffect(() => {
+        if (open && isPositioned) notifyOverlaysChanged();
+    }, [open, isPositioned, floatingStyles.transform, floatingStyles.top, floatingStyles.left]);
 
     useEffect(() => {
         mountManager();

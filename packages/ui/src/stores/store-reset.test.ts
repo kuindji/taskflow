@@ -57,6 +57,8 @@ describe("store reset registry", () => {
             "src/lib/run-in-shell.ts",
             // Asks per menu open; nothing kept between calls.
             "src/lib/wiki/open-in-obsidian.ts",
+            // One open request per call; the tab arrives through browser-tab-store.
+            "src/lib/hosted-browser.ts",
             // Component state only, refetched on mount.
             "src/hooks/useRemoteAgentStatus.ts",
             // Component state only; requests carry the row's machine.

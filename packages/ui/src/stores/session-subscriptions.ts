@@ -10,7 +10,11 @@ import { MSG } from "@taskflow/shared";
 import { getPrimary, onEvent } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
-import { getProjectWorkspaceKey, getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
+import {
+    getProjectWorkspaceKey,
+    getTaskWorkspaceKey,
+    MASTER_WORKSPACE_KEY,
+} from "@/hooks/useActiveWorkspace";
 import {
     exitedSessions,
     usesTerminalActivityStatus,
@@ -25,6 +29,8 @@ import {
     scheduleActivityTimeout,
     settleInactiveSession,
 } from "./session-activity";
+import { useBrowserTabStore } from "./browser-tab-store";
+import { syncBrowserTabs } from "./browser-tab-sync";
 import type { Tab } from "./session-helpers";
 
 interface SessionStoreApi {
@@ -41,9 +47,15 @@ interface SessionStoreApi {
         ): void;
     };
     setState(
-        partial: Partial<{
-            sessionStatus: Partial<Record<string, SessionStatus>>;
-        }>,
+        partial:
+            | Partial<{
+                  sessionStatus: Partial<Record<string, SessionStatus>>;
+                  tabsByWorkspace: Record<string, Tab[]>;
+                  activeTabByWorkspace: Record<string, string>;
+              }>
+            | ((
+                  state: ReturnType<SessionStoreApi["getState"]>,
+              ) => Partial<ReturnType<SessionStoreApi["getState"]>>),
     ): void;
     subscribe(
         listener: (
@@ -181,6 +193,31 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         });
     });
 
+    const _unsubBrowserTabs = useBrowserTabStore.subscribe((state, previous) => {
+        for (const backendId of new Set([
+            ...Object.keys(previous.byBackend),
+            ...Object.keys(state.byBackend),
+        ])) {
+            const current = state.byBackend[backendId];
+            const old = previous.byBackend[backendId];
+            if (current === old) continue;
+            store.setState((session) =>
+                syncBrowserTabs(session, {
+                    tabs: current?.tabs ?? [],
+                    knownIds: new Set(old?.tabs.map((tab) => tab.id)),
+                    initial: state.initialByBackend[backendId] ?? !old,
+                    workspaceKeyFor: (scope) =>
+                        scope.kind === "task"
+                            ? getTaskWorkspaceKey(scope.taskId)
+                            : scope.kind === "project"
+                              ? getProjectWorkspaceKey(scope.projectId)
+                              : backendId === getPrimary()
+                                ? MASTER_WORKSPACE_KEY
+                                : null,
+                }),
+            );
+        }
+    });
     // The "master" workspace key is a singleton and belongs to primary alone.
     const _unsubMasterSessions = onEvent(MSG.MASTER_SESSIONS_LIST, (payload, backendId) => {
         if (backendId !== getPrimary()) return;
@@ -275,6 +312,7 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
             _unsubSessionStatus();
             _unsubSessionExited();
             _unsubBrowserOpen();
+            _unsubBrowserTabs();
             _unsubMasterSessions();
             _unsubActiveTask();
             _unsubActiveProject();

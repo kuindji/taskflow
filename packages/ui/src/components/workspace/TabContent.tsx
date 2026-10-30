@@ -154,7 +154,13 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
 
                     case "browser":
                         label = "Browser";
-                        pane = <BrowserPane initialUrl={tab.url ?? "about:blank"} />;
+                        pane = (
+                            <BrowserPane
+                                initialUrl={tab.url ?? "about:blank"}
+                                browserTabId={tab.browserTabId}
+                                workspaceKey={workspaceKey}
+                            />
+                        );
                         break;
 
                     default:

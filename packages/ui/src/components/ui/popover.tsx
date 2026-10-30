@@ -1,3 +1,4 @@
+import { useOverlayRef } from "@/lib/overlay-registry";
 import * as React from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
@@ -22,11 +23,14 @@ function PopoverContent({
     align = "start",
     sideOffset = 4,
     container,
+    ref,
     ...props
 }: PopoverContentProps) {
+    const overlayRef = useOverlayRef(ref);
     return (
         <PopoverPrimitive.Portal container={container}>
             <PopoverPrimitive.Content
+                ref={overlayRef}
                 data-slot="popover-content"
                 align={align}
                 sideOffset={sideOffset}

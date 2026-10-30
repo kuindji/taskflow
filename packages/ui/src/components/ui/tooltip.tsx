@@ -1,3 +1,4 @@
+import { notifyOverlaysChanged, useRegisterOverlay } from "@/lib/overlay-registry";
 import {
     createContext,
     useContext,
@@ -193,6 +194,11 @@ function TooltipContent({
             reference: triggerEl,
         },
     });
+
+    useRegisterOverlay(contentRef, open);
+    useEffect(() => {
+        if (open && isPositioned) notifyOverlaysChanged();
+    }, [open, isPositioned, floatingStyles.transform, floatingStyles.top, floatingStyles.left]);
 
     // Register/unregister with tooltip manager
     const registrationRef = useRef<TooltipRegistration | null>(null);

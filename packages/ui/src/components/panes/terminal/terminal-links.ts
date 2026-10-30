@@ -1,4 +1,5 @@
 import { browserTabLabel, type SessionOwnerRef } from "@taskflow/shared";
+import { openHostedBrowserTab } from "@/lib/hosted-browser";
 import { findSessionTab, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -66,6 +67,11 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
     const existing = existingTabs.find((t) => t.type === "browser" && t.url === url);
     if (existing) {
         store.setActiveTab(workspaceKey, existing.id);
+        return;
+    }
+    const hosted = openHostedBrowserTab(workspaceKey, url, browserTabLabel(url));
+    if (hosted) {
+        void hosted.catch(() => {});
         return;
     }
     store.addTab(workspaceKey, {

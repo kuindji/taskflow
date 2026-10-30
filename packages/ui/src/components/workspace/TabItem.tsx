@@ -22,6 +22,20 @@ interface TabItemProps {
     onTabRename: (tabId: string, newLabel: string) => void;
 }
 
+function AgentMarker() {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span
+                    className="bg-primary mr-1 inline-block size-1.5 shrink-0 rounded-full"
+                    aria-label="Agent connected"
+                />
+            </TooltipTrigger>
+            <TooltipContent>Agent connected</TooltipContent>
+        </Tooltip>
+    );
+}
+
 /**
  * Static tab clone rendered inside DragOverlay (no sortable hooks).
  */
@@ -34,6 +48,7 @@ function TabItemOverlay({ tab, isActive }: { tab: Tab; isActive: boolean }) {
     return (
         <div className={classes}>
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
+            {tab.agentConnected && <AgentMarker />}
             <span>{tab.label}</span>
             <div className="ml-0.5 flex h-[18px] w-[18px] items-center justify-center">
                 <X className="size-3 opacity-50" />
@@ -111,6 +126,7 @@ function TabItem({
             }}
             className={classes}>
             {tab.sessionId && <StatusDot status={status} className="mr-1" />}
+            {tab.agentConnected && <AgentMarker />}
             {isEditing ? (
                 <input
                     ref={inputRef}
