@@ -100,6 +100,23 @@ export function createElectronViewFactory(deps: {
         const wc = nativeView.webContents;
         let parent: BrowserWindow | null = null;
         let captureTail = Promise.resolve();
+        let awake = false;
+
+        // The park window is never shown, so its compositor ticks at about 1 Hz and a
+        // parked page's rAF and screenshots crawl. Focus emulation counts this session as
+        // a capturer that stays awake. The debugger stays attached for the view's life.
+        function keepAwake(enabled: boolean): void {
+            if (wc.isDestroyed() || awake === enabled) return;
+            try {
+                if (!wc.debugger.isAttached()) wc.debugger.attach("1.3");
+            } catch {
+                return;
+            }
+            awake = enabled;
+            void wc.debugger
+                .sendCommand("Emulation.setFocusEmulationEnabled", { enabled })
+                .catch(() => {});
+        }
 
         function detach(): void {
             if (parent && !parent.isDestroyed()) parent.contentView.removeChildView(nativeView);
@@ -124,6 +141,7 @@ export function createElectronViewFactory(deps: {
                 const mainWindow = deps.getMainWindow();
                 if (!mainWindow || mainWindow.isDestroyed()) return;
                 const zoom = mainWindow.webContents.getZoomFactor();
+                keepAwake(false);
                 move(mainWindow, {
                     x: Math.round(bounds.x * zoom),
                     y: Math.round(bounds.y * zoom),
@@ -132,7 +150,9 @@ export function createElectronViewFactory(deps: {
                 });
             },
             hide() {
-                if (!wc.isDestroyed()) move(park(), parkedBounds);
+                if (wc.isDestroyed()) return;
+                move(park(), parkedBounds);
+                keepAwake(true);
             },
             navigate(url) {
                 if (!wc.isDestroyed()) void load(wc, url);
