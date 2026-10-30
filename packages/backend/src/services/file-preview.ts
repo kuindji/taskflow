@@ -96,7 +96,11 @@ async function readGitPreview(
                     repoPath,
                     { readOnly: true, literalPathspecs: true },
                 );
-                if (!entries) return null;
+                // A conflicted path has stages 1-3 but no stage-0 blob to show.
+                const present = ref
+                    ? entries !== ""
+                    : entries.split("\0").some((entry) => / 0\t/.test(entry));
+                if (!present) return null;
             }
         }
         throw error;

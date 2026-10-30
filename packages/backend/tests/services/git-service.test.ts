@@ -511,6 +511,23 @@ describe("GitService", () => {
         expect(await git.getFileContent(repoDir, "missing", "HEAD")).toBeNull();
     });
 
+    it("a conflicted file still previews its working copy", async () => {
+        const base = (await git.getBranch(repoDir))!;
+        await run(["git", "checkout", "-b", "other"], repoDir);
+        await writeFile(join(repoDir, "initial.txt"), "other side");
+        await run(["git", "commit", "-am", "other"], repoDir);
+        await run(["git", "checkout", base], repoDir);
+        await writeFile(join(repoDir, "initial.txt"), "base side");
+        await run(["git", "commit", "-am", "base"], repoDir);
+        await run(["git", "merge", "other"], repoDir);
+
+        const result = await git.getFileContentsForDiff(repoDir, "initial.txt");
+
+        expect(result.unstaged).toMatchObject({ original: "" });
+        expect(result.unstaged?.modified).toContain("<<<<<<<");
+        expect(await git.getFileContent(repoDir, "initial.txt", "index")).toBeNull();
+    });
+
     it("bulk diffs read status once and diff a path in both lists once", async () => {
         await writeFile(join(repoDir, "initial.txt"), "staged change");
         await run(["git", "add", "initial.txt"], repoDir);

@@ -1,6 +1,11 @@
 import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "crypto";
-import { MSG, resolveBackendHost, WS_CLOSE_UNAUTHORIZED } from "@taskflow/shared";
+import {
+    MSG,
+    resolveBackendHost,
+    TASK_DELETE_TIMEOUT_MS,
+    WS_CLOSE_UNAUTHORIZED,
+} from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
@@ -112,6 +117,10 @@ export function createServer(
                 )
                     return;
                 if (apiRouter) {
+                    // Task deletion replies after worktree cleanup, which can
+                    // outlast Bun's 10 s idle timeout.
+                    if (req.method === "DELETE" && /^\/api\/tasks\/[^/]+$/.test(path))
+                        server.timeout(req, TASK_DELETE_TIMEOUT_MS / 1000);
                     const response = await apiRouter.handle(req);
                     if (response) return response;
                 }
