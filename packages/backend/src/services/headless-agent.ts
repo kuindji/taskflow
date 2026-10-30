@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { CLAUDE_EFFORT_LEVELS, CODEX_REASONING_EFFORTS } from "@taskflow/shared";
 import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
+import { normalizePiLaunchOptions } from "./pi-options";
+import type { fetchPiModels } from "./runtime-detector";
 import { escapeTomlBasicString } from "./internal-agent-skill";
 
 const DEFAULT_HEADLESS_TIMEOUT_MS = 120_000;
@@ -94,19 +96,33 @@ function buildHeadlessCommand(
 }
 
 /** Run an agent one-shot and return its trimmed answer. Throws on failure, timeout or empty output. */
-async function runHeadlessAgent(request: HeadlessRunRequest): Promise<string> {
+async function runHeadlessAgent(
+    request: HeadlessRunRequest,
+    deps: {
+        discoverPiModels?: typeof fetchPiModels;
+        spawn?: typeof Bun.spawn;
+    } = {},
+): Promise<string> {
     const outputFile =
         request.type === "codex"
             ? join(tmpdir(), `taskflow-headless-${randomUUID()}.txt`)
             : undefined;
     try {
+        const options =
+            request.type === "pi" && request.options?.type === "pi"
+                ? await normalizePiLaunchOptions(
+                      request.options,
+                      { env: request.env, cwd: request.cwd },
+                      deps.discoverPiModels,
+                  )
+                : request.options;
         const { command, args, stdin } = buildHeadlessCommand(
             request.type,
-            request.options,
+            options,
             request.prompt,
             outputFile,
         );
-        const proc = Bun.spawn([command, ...args], {
+        const proc = (deps.spawn ?? Bun.spawn)([command, ...args], {
             cwd: request.cwd,
             env: request.env,
             stdin: "pipe",

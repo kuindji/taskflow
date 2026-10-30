@@ -3,6 +3,7 @@ import {
     MSG,
     type CodexModelsPayload,
     type CodexModelsResponse,
+    type PiModelsResponse,
 } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
 
@@ -15,4 +16,8 @@ export function loadCodexDiscovery(
         ...(account && account !== INHERIT_AGENT_ACCOUNT ? { account } : {}),
         ...(projectId ? { projectId } : {}),
     });
+}
+
+export function loadPiModels(backendId: string): Promise<PiModelsResponse> {
+    return sendRequest<PiModelsResponse>(backendId, MSG.PI_MODELS, {});
 }

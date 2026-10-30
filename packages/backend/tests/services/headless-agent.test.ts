@@ -274,3 +274,66 @@ describe("runHeadlessAgent", () => {
         expect(existsSync(outputFile)).toBe(false);
     });
 });
+
+it("headless Pi normalization uses request env and cwd without rewriting options", async () => {
+    const calls: SpawnCall[] = [];
+    const options = {
+        type: "pi" as const,
+        model: "custom/reasoner",
+        thinking: "xhigh" as const,
+        tools: "bash",
+    };
+    const env = { PATH: "/probe/bin", PI_CODING_AGENT_DIR: "/custom/pi" };
+    const spawn = ((cmd: string[], options: SpawnCall["options"]) => {
+        const call = { cmd, options, stdin: "" };
+        calls.push(call);
+        return {
+            stdin: {
+                write(text: string) {
+                    call.stdin += text;
+                },
+                end() {},
+            },
+            stdout: closedStream("answer"),
+            stderr: closedStream(),
+            exited: Promise.resolve(0),
+            kill() {},
+        };
+    }) as unknown as typeof Bun.spawn;
+    for (const supported of [false, true]) {
+        const result = await runHeadlessAgent(
+            { type: "pi", options, prompt: "P", env, cwd: "/repo" },
+            {
+                spawn,
+                discoverPiModels: async (context) => {
+                    expect(context).toMatchObject({ env, cwd: "/repo" });
+                    return {
+                        models: [
+                            {
+                                provider: "custom",
+                                id: "reasoner",
+                                contextWindow: "128K",
+                                maxOutput: "64K",
+                                supportsThinking: true,
+                                supportsImages: false,
+                                supportsXhigh: supported,
+                            },
+                        ],
+                    };
+                },
+            },
+        );
+        expect(result).toBe("answer");
+        expect(calls.at(-1)?.cmd).toEqual([
+            "pi",
+            "-p",
+            "--no-session",
+            "--model",
+            "custom/reasoner",
+            "--thinking",
+            supported ? "xhigh" : "high",
+        ]);
+    }
+    expect(options.thinking).toBe("xhigh");
+    expect(calls).toHaveLength(2);
+});

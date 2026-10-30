@@ -1,8 +1,10 @@
+import { loadPiModels } from "@/lib/agent-discovery";
 import { PiOptions } from "@/components/shared/PiOptions";
 import { useBackendStore } from "@/stores/backend-store";
 import type { PiThinkingLevel } from "@taskflow/shared";
 
 interface PiSectionProps {
+    loadModels?: typeof loadPiModels;
     defaultModel: string;
     thinking: PiThinkingLevel;
     tools: string;
@@ -12,6 +14,7 @@ interface PiSectionProps {
 }
 
 function PiSection({
+    loadModels,
     defaultModel,
     thinking,
     tools,
@@ -23,6 +26,7 @@ function PiSection({
     const primaryId = useBackendStore((s) => s.primaryId);
     return (
         <PiOptions
+            loadModels={loadModels}
             mode="defaults"
             backendId={primaryId}
             modelValue={defaultModel}

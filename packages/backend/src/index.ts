@@ -491,9 +491,7 @@ async function main() {
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));
-        router.register(MSG.PI_MODELS, async () => ({
-            models: await fetchPiModels(),
-        }));
+        router.register(MSG.PI_MODELS, () => fetchPiModels());
         router.register(MSG.KIMI_MODELS, async () => ({
             models: await fetchKimiModels(),
         }));

@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { normalizePiThinkingLevel, type PiModelsResponse } from "@taskflow/shared";
+import { loadPiModels } from "@/lib/agent-discovery";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -11,6 +14,7 @@ import { SettingRow } from "@/components/settings/sections/SettingRow";
 import type { PiThinkingLevel } from "@taskflow/shared";
 
 interface PiOptionsProps {
+    loadModels?: typeof loadPiModels;
     /** The machine the session runs on (settings: primary); lists its models. */
     backendId: string | null;
     modelValue: string;
@@ -46,7 +50,12 @@ const LABELS = {
 
 const THINKING_OPTIONS: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-function PiOptions({
+function PiOptions(props: PiOptionsProps) {
+    return <PiOptionsContent key={props.backendId} {...props} />;
+}
+
+function PiOptionsContent({
+    loadModels,
     backendId,
     modelValue,
     thinkingValue,
@@ -58,27 +67,49 @@ function PiOptions({
     headless = false,
 }: PiOptionsProps) {
     const l = LABELS[mode];
+    const [inventory, setInventory] = useState<PiModelsResponse | null>(null);
+    const key = modelValue || inventory?.defaultModel;
+    const supportsXhigh =
+        inventory?.models.find((model) => `${model.provider}/${model.id}` === key)
+            ?.supportsXhigh === true;
+    const effectiveThinking = normalizePiThinkingLevel(thinkingValue, supportsXhigh);
+    useEffect(() => {
+        if (inventory !== null && effectiveThinking !== thinkingValue)
+            onThinkingChange(effectiveThinking);
+    }, [inventory, effectiveThinking, thinkingValue, onThinkingChange]);
 
     return (
         <>
             <SettingRow label={l.model} hint={l.modelHint}>
-                <PiModelSelect backendId={backendId} value={modelValue} onChange={onModelChange} />
+                <PiModelSelect
+                    backendId={backendId}
+                    value={modelValue}
+                    onChange={onModelChange}
+                    loadModels={loadModels}
+                    onModelsChange={setInventory}
+                />
             </SettingRow>
             <SettingRow label={l.thinking} hint={l.thinkingHint}>
                 <Select
-                    value={thinkingValue}
-                    onValueChange={(v) => onThinkingChange(v as PiThinkingLevel)}>
+                    value={effectiveThinking}
+                    onValueChange={(v) =>
+                        onThinkingChange(
+                            normalizePiThinkingLevel(v as PiThinkingLevel, supportsXhigh),
+                        )
+                    }>
                     <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        {THINKING_OPTIONS.map((level) => (
-                            <SelectItem key={level} value={level}>
-                                {level === "off"
-                                    ? "Off"
-                                    : level.charAt(0).toUpperCase() + level.slice(1)}
-                            </SelectItem>
-                        ))}
+                        {THINKING_OPTIONS.filter((level) => level !== "xhigh" || supportsXhigh).map(
+                            (level) => (
+                                <SelectItem key={level} value={level}>
+                                    {level === "off"
+                                        ? "Off"
+                                        : level.charAt(0).toUpperCase() + level.slice(1)}
+                                </SelectItem>
+                            ),
+                        )}
                     </SelectContent>
                 </Select>
             </SettingRow>

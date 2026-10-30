@@ -136,6 +136,7 @@ interface PiModelInfo {
     contextWindow: string;
     /** Display-only string, e.g. "128K". */
     maxOutput: string;
+    supportsXhigh?: boolean;
     supportsThinking: boolean;
     supportsImages: boolean;
 }

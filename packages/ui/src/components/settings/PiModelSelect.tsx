@@ -3,8 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDownIcon } from "lucide-react";
-import { sendRequest } from "@/lib/connection-registry";
-import { MSG } from "@taskflow/shared";
+import { loadPiModels } from "@/lib/agent-discovery";
 import type { PiModelInfo, PiModelsResponse } from "@taskflow/shared";
 
 interface PiModelSelectProps {
@@ -12,13 +11,21 @@ interface PiModelSelectProps {
     backendId: string | null;
     value: string;
     onChange: (model: string) => void;
+    onModelsChange?: (response: PiModelsResponse) => void;
+    loadModels?: typeof loadPiModels;
 }
 
 function modelKey(m: PiModelInfo): string {
     return `${m.provider}/${m.id}`;
 }
 
-function PiModelSelect({ backendId, value, onChange }: PiModelSelectProps) {
+function PiModelSelect({
+    backendId,
+    value,
+    onChange,
+    onModelsChange,
+    loadModels = loadPiModels,
+}: PiModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<PiModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
@@ -27,26 +34,34 @@ function PiModelSelect({ backendId, value, onChange }: PiModelSelectProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
-    // Another machine has its own models.
+    const onModelsChangeRef = useRef(onModelsChange);
+    useEffect(() => {
+        onModelsChangeRef.current = onModelsChange;
+    }, [onModelsChange]);
     useEffect(() => {
         setModels(null);
         setFetchFailed(false);
-    }, [backendId]);
-
-    useEffect(() => {
-        if (!open || !backendId || models !== null || fetchFailed) return;
         let cancelled = false;
-        sendRequest<PiModelsResponse>(backendId, MSG.PI_MODELS, {})
-            .then((res) => {
-                if (!cancelled) setModels(res.models);
+        if (!backendId) {
+            onModelsChangeRef.current?.({ models: [] });
+            return;
+        }
+        loadModels(backendId)
+            .then((response) => {
+                if (cancelled) return;
+                setModels(response.models);
+                onModelsChangeRef.current?.(response);
             })
             .catch(() => {
-                if (!cancelled) setFetchFailed(true);
+                if (cancelled) return;
+                setModels([]);
+                setFetchFailed(true);
+                onModelsChangeRef.current?.({ models: [] });
             });
         return () => {
             cancelled = true;
         };
-    }, [open, backendId, models, fetchFailed]);
+    }, [backendId, loadModels]);
 
     useEffect(() => {
         setPortalContainer(

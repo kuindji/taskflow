@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
     fetchCodexModels,
+    fetchPiModels,
     detectRuntimes,
     detectAgents,
     parseCodexAppServerOutput,
@@ -244,9 +245,14 @@ describe("parseKimiModelsOutput", () => {
 });
 
 type ProbeDeps = NonNullable<Parameters<typeof fetchCodexModels>[1]>;
-type Message = { id?: number; method?: string; params?: Record<string, unknown> };
+type Message = {
+    id?: number | string;
+    method?: string;
+    type?: string;
+    params?: Record<string, unknown>;
+};
 
-function codexProbe(reply: (request: Message) => unknown) {
+function codexProbe(reply: (request: Message) => unknown, cli = "codex") {
     let stdout!: ReadableStreamDefaultController<Uint8Array>;
     let stderr!: ReadableStreamDefaultController<Uint8Array>;
     const requests: Message[] = [];
@@ -266,9 +272,9 @@ function codexProbe(reply: (request: Message) => unknown) {
     };
     const deps: ProbeDeps = {
         resolveCli: (name, path) => {
-            expect(name).toBe("codex");
+            expect(name).toBe(cli);
             expect(path).toBe("/probe/bin");
-            return "/probe/bin/codex";
+            return `/probe/bin/${cli}`;
         },
         spawn: (argv, options) => {
             spawns.push({ argv, ...options });
@@ -522,5 +528,224 @@ describe("Codex RPC discovery", () => {
             if (mode === "initialize")
                 expect(result).toEqual({ models: [], account: { state: "unknown" } });
         }
+    });
+});
+
+const rawPiModel = {
+    provider: "custom",
+    id: "reasoner",
+    contextWindow: 272000,
+    maxTokens: 1000000,
+    reasoning: true,
+    input: ["text", "image"],
+    thinkingLevelMap: { xhigh: "extended" },
+    headers: { secret: "hidden" },
+};
+function piReplies(request: Message): unknown {
+    return {
+        type: "response",
+        id: request.id,
+        command: request.type,
+        success: true,
+        data:
+            request.type === "get_state"
+                ? { model: rawPiModel }
+                : {
+                      models: [
+                          rawPiModel,
+                          rawPiModel,
+                          {},
+                          { ...rawPiModel, id: "plain", thinkingLevelMap: undefined },
+                      ],
+                  },
+    };
+}
+describe("Pi RPC discovery", () => {
+    it("Pi RPC discovery reads resolved model thinkingLevelMap values", async () => {
+        const probe = codexProbe(piReplies, "pi");
+        const result = await fetchPiModels(
+            { env: { PATH: "/probe/bin", PI_CODING_AGENT_DIR: "/pi-home" }, cwd: "/project" },
+            probe.deps,
+        );
+        expect(result.models).toEqual([
+            {
+                provider: "custom",
+                id: "reasoner",
+                contextWindow: "272K",
+                maxOutput: "1M",
+                supportsThinking: true,
+                supportsImages: true,
+                supportsXhigh: true,
+            },
+            {
+                provider: "custom",
+                id: "plain",
+                contextWindow: "272K",
+                maxOutput: "1M",
+                supportsThinking: true,
+                supportsImages: true,
+                supportsXhigh: false,
+            },
+        ]);
+        expect(probe.spawns).toEqual([
+            {
+                argv: ["/probe/bin/pi", "--mode", "rpc", "--no-session"],
+                env: { PATH: "/probe/bin", PI_CODING_AGENT_DIR: "/pi-home" },
+                cwd: "/project",
+            },
+        ]);
+        expect(JSON.stringify(result)).not.toContain("secret");
+    });
+    it("Pi default discovery cleans nested-session markers without changing process.env", async () => {
+        const before = {
+            CLAUDECODE: process.env.CLAUDECODE,
+            CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT,
+        };
+        process.env.CLAUDECODE = "parent";
+        process.env.CLAUDE_CODE_ENTRYPOINT = "parent-entry";
+        try {
+            const probe = codexProbe(piReplies, "pi");
+            await fetchPiModels(undefined, {
+                ...probe.deps,
+                resolveCli: (name, path) => {
+                    expect(name).toBe("pi");
+                    expect(path.length).toBeGreaterThan(0);
+                    return "/probe/bin/pi";
+                },
+            });
+            expect(probe.spawns[0].env.CLAUDECODE).toBeUndefined();
+            expect(probe.spawns[0].env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+            expect(process.env.CLAUDECODE).toBe("parent");
+            expect(process.env.CLAUDE_CODE_ENTRYPOINT).toBe("parent-entry");
+        } finally {
+            for (const [key, value] of Object.entries(before)) {
+                if (value === undefined) Reflect.deleteProperty(process.env, key);
+                else process.env[key] = value;
+            }
+        }
+    });
+    it("Pi discovery reads the default full model key from get_state", async () => {
+        const probe = codexProbe(piReplies, "pi");
+        expect(
+            (await fetchPiModels({ env: { PATH: "/probe/bin" } }, probe.deps)).defaultModel,
+        ).toBe("custom/reasoner");
+        const failed = codexProbe(
+            (r) =>
+                r.type === "get_state"
+                    ? { type: "response", id: r.id, command: r.type, success: false }
+                    : piReplies(r),
+            "pi",
+        );
+        const result = await fetchPiModels({ env: { PATH: "/probe/bin" } }, failed.deps);
+        expect(result.models).toHaveLength(2);
+        expect(result.defaultModel).toBeUndefined();
+    });
+    it("Pi discovery correlates response ids and never sends a prompt", async () => {
+        const probe = codexProbe((r) => {
+            probe.emit({
+                type: "response",
+                id: "wrong",
+                command: r.type,
+                success: true,
+                data: { models: [] },
+            });
+            probe.emit({
+                type: "response",
+                id: r.id,
+                command: "wrong",
+                success: true,
+                data: { models: [] },
+            });
+            if (r.type === "get_state") return;
+            probe.emit(piReplies(r));
+            probe.emit(piReplies({ id: "taskflow-state", type: "get_state" }));
+        }, "pi");
+        const result = await fetchPiModels({ env: { PATH: "/probe/bin" } }, probe.deps);
+        expect(result.defaultModel).toBe("custom/reasoner");
+        expect(probe.requests).toEqual([
+            { id: "taskflow-state", type: "get_state" },
+            { id: "taskflow-models", type: "get_available_models" },
+        ]);
+    });
+    it("Pi RPC failure falls back to table models without claiming xhigh support", async () => {
+        const probe = codexProbe(
+            (r) => ({ type: "response", id: r.id, command: r.type, success: false }),
+            "pi",
+        );
+        let now = 100;
+        const spawn = probe.deps.spawn!;
+        const schedules: number[] = [];
+        const env = { PATH: "/probe/bin", PI_CODING_AGENT_DIR: "/home/pi" };
+        const result = await fetchPiModels(
+            { env, cwd: "/repo" },
+            {
+                ...probe.deps,
+                now: () => now,
+                schedule: (_fn, ms) => {
+                    schedules.push(ms);
+                    return () => {};
+                },
+                spawn: (argv, options) => {
+                    if (argv.includes("--mode")) {
+                        now += 500;
+                        return spawn(argv, options);
+                    }
+                    expect(argv).toEqual(["/probe/bin/pi", "--list-models"]);
+                    expect(options).toEqual({ env, cwd: "/repo" });
+                    return {
+                        stdout: new ReadableStream({
+                            start(c) {
+                                c.close();
+                            },
+                        }),
+                        stderr: new ReadableStream({
+                            start(c) {
+                                c.enqueue(
+                                    new TextEncoder().encode(
+                                        "provider  model  context  max-out  thinking  images\ncustom  legacy  128K  64K  yes  no\n",
+                                    ),
+                                );
+                                c.close();
+                            },
+                        }),
+                        write: async () => {},
+                        end: async () => {},
+                        kill: () => {},
+                        exited: Promise.resolve(0),
+                    };
+                },
+            },
+        );
+        expect(result).toEqual({
+            models: [
+                {
+                    provider: "custom",
+                    id: "legacy",
+                    contextWindow: "128K",
+                    maxOutput: "64K",
+                    supportsThinking: true,
+                    supportsImages: false,
+                },
+            ],
+        });
+        expect(schedules).toEqual([60000, 59500]);
+    });
+    it("Pi discovery has one deadline and releases the ephemeral process", async () => {
+        const probe = codexProbe(() => undefined, "pi");
+        const result = fetchPiModels(
+            { env: { PATH: "/probe/bin" } },
+            { ...probe.deps, now: () => 0 },
+        );
+        probe.timeout();
+        expect(await result).toEqual({ models: [] });
+        await Promise.resolve();
+        expect(probe.spawns).toHaveLength(1);
+        expect(probe.closed()).toEqual({
+            deadlines: 1,
+            cancelled: 1,
+            killed: 1,
+            ended: 1,
+            streamsCancelled: 2,
+        });
     });
 });

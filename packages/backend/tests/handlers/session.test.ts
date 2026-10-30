@@ -12,12 +12,13 @@ import { mkdtemp, mkdir, rm, realpath, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
-import type { SessionRef } from "@taskflow/shared";
+import type { PiModelsResponse, SessionRef } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 import { SettingsStore } from "../../src/services/settings-store";
 import { config } from "../../src/config";
 import { inheritedAgentHome } from "../../src/services/agent-accounts";
+import { fetchPiModels } from "../../src/services/runtime-detector";
 import { expectRejects } from "../expect-rejects";
 
 class FakePtyManager {
@@ -121,6 +122,8 @@ describe("session handlers", () => {
     let events: { type: string; payload: unknown }[];
     let discoveryHomes: Array<string | undefined>;
     let settingsStore: SettingsStore;
+    let piInventory: PiModelsResponse;
+    let piProbes: Array<{ env?: Record<string, string | undefined>; cwd?: string }>;
     let sessionLifecycle: ReturnType<typeof createSessionLifecycle>;
 
     beforeEach(async () => {
@@ -138,6 +141,21 @@ describe("session handlers", () => {
         ptyManager = new FakePtyManager();
         events = [];
         discoveryHomes = [];
+        piProbes = [];
+        piInventory = {
+            models: [
+                {
+                    provider: "custom",
+                    id: "effective",
+                    contextWindow: "128K",
+                    maxOutput: "64K",
+                    supportsThinking: true,
+                    supportsImages: false,
+                    supportsXhigh: false,
+                },
+            ],
+            defaultModel: "custom/effective",
+        };
 
         registerProjectHandlers(router, store, new GitService(), { closeForOwner: async () => {} });
         registerTaskHandlers({
@@ -151,6 +169,10 @@ describe("session handlers", () => {
         });
         settingsStore = new SettingsStore(join(tempDir, "settings.json"));
         sessionLifecycle = createSessionLifecycle({
+            discoverPiModels: async (context) => {
+                piProbes.push(context ?? {});
+                return piInventory;
+            },
             apiToken: "test-token",
             ptyManager: ptyManager as never,
             taskStore: store,
@@ -185,6 +207,169 @@ describe("session handlers", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("a saved Pi action or schedule sends --thinking high when xhigh is unsupported", async () => {
+        const options = {
+            type: "pi" as const,
+            model: "custom/effective",
+            thinking: "xhigh" as const,
+            tools: "read,bash",
+        };
+        const task = await store.createTask({ projectId, title: "Pi", description: "" });
+        const id = await sessionLifecycle.createSession({
+            owner: { taskId: task.id },
+            type: "pi",
+            agentOptions: options,
+        });
+        const spawn = ptyManager.spawns.at(-1)!;
+        expect(spawn.args).toContain("high");
+        expect(spawn.args).not.toContain("xhigh");
+        expect(spawn.args).toContain("read,bash");
+        expect(
+            (await store.getTask(task.id))?.sessions.find((s) => s.id === id)?.agentOptions,
+        ).toEqual({ ...options, thinking: "high" });
+        expect(options.thinking).toBe("xhigh");
+        expect(piProbes[0].cwd).toBe(spawn.cwd);
+        expect(piProbes[0].env?.PATH).toBeTruthy();
+        expect(piProbes[0].env?.CLAUDECODE).toBeUndefined();
+    });
+    it("Pi normalization uses the effective model after session defaults are merged", async () => {
+        const settings = await settingsStore.get();
+        await settingsStore.update({
+            pi: { ...settings.pi, defaultModel: "custom/effective", thinking: "xhigh" },
+        });
+        piInventory.models[0].supportsXhigh = true;
+        const id = await sessionLifecycle.createSession({
+            owner: { projectId },
+            type: "pi",
+            agentOptions: { type: "pi", tools: "read" },
+        });
+        expect(ptyManager.spawns.at(-1)?.args).toContain("xhigh");
+        const session = (await store.getProject(projectId))?.sessions.find((s) => s.id === id);
+        expect(session?.agentOptions).toEqual({
+            type: "pi",
+            model: "custom/effective",
+            thinking: "xhigh",
+            tools: "read",
+        });
+        expect(piProbes).toHaveLength(1);
+    });
+    it("resumed Pi sessions normalize saved xhigh before building their PTY command", async () => {
+        const task = await store.createTask({ projectId, title: "Pi resume", description: "" });
+        await store.updateTask(task.id, {
+            sessions: [
+                {
+                    id: "pi-resume",
+                    type: "pi",
+                    label: "Pi",
+                    createdAt: new Date().toISOString(),
+                    instance: config.instanceId,
+                    bootId: "previous",
+                    state: "interrupted",
+                    cwd: (await store.getProject(projectId))!.path,
+                    nativeSessionId: "native-pi",
+                    agentOptions: { type: "pi", model: "custom/effective", thinking: "xhigh" },
+                },
+            ],
+        });
+        await router.handle(MSG.SESSION_RESUME, { sessionId: "pi-resume" });
+        const args = ptyManager.spawns.at(-1)?.args;
+        expect(args).toContain("high");
+        expect(args).not.toContain("xhigh");
+        expect((await store.getTask(task.id))?.sessions[0].agentOptions).toMatchObject({
+            thinking: "high",
+        });
+    });
+
+    it("a Pi probe slower than the launch budget spawns once at 10000 ms and releases the probe", async () => {
+        let clock = 0,
+            killed = 0,
+            ended = 0,
+            cancelled = 0;
+        let launchDeadline: (() => void) | undefined;
+        let probeDeadline: (() => void) | undefined;
+        const realTimeout = globalThis.setTimeout;
+        const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+            fn: () => void,
+            ms?: number,
+            ...args: unknown[]
+        ) => {
+            if (ms === 10000) {
+                launchDeadline = fn;
+                return realTimeout(() => {}, 60000);
+            }
+            return realTimeout(fn, ms, ...args);
+        }) as typeof setTimeout);
+        const stream = () =>
+            new ReadableStream<Uint8Array>({
+                cancel() {
+                    cancelled++;
+                },
+            });
+        const lifecycle = createSessionLifecycle({
+            apiToken: "test-token",
+            ptyManager: ptyManager as never,
+            taskStore: store,
+            settingsStore,
+            broadcast: () => {},
+            getPort: () => 0,
+            detectedEditors: [],
+            trayStateTracker: new TrayStateTracker(),
+            discoverPiModels: (context) =>
+                fetchPiModels(context, {
+                    now: () => clock,
+                    resolveCli: () => "/probe/bin/pi",
+                    schedule: (callback, ms) => {
+                        expect(ms).toBe(60000);
+                        probeDeadline = callback;
+                        return () => {};
+                    },
+                    spawn: () => ({
+                        stdout: stream(),
+                        stderr: stream(),
+                        write: async () => {},
+                        end: async () => {
+                            ended++;
+                        },
+                        kill() {
+                            killed++;
+                        },
+                        exited: new Promise(() => {}),
+                    }),
+                }),
+        });
+        const options = { type: "pi" as const, thinking: "xhigh" as const };
+        try {
+            const launch = lifecycle.createSession({
+                owner: { projectId },
+                type: "pi",
+                agentOptions: options,
+            });
+            await waitFor(async () => !!probeDeadline);
+            clock = 9999;
+            expect(ptyManager.spawns).toHaveLength(0);
+            expect(killed).toBe(0);
+            clock = 10000;
+            launchDeadline!();
+            const id = await launch;
+            expect(ptyManager.spawns).toHaveLength(1);
+            expect(ptyManager.spawns[0].args).toContain("high");
+            expect(killed).toBe(1);
+            expect(ended).toBe(1);
+            expect(cancelled).toBe(2);
+            clock = 60001;
+            probeDeadline!();
+            await Promise.resolve();
+            expect(ptyManager.spawns).toHaveLength(1);
+            expect(options.thinking).toBe("xhigh");
+            expect(
+                (await store.getProject(projectId))?.sessions.find((s) => s.id === id)
+                    ?.agentOptions,
+            ).toMatchObject({ thinking: "high" });
+        } finally {
+            timer.mockRestore();
+        }
     });
 
     it("every spawned session's env carries TASKFLOW_API_TOKEN next to TASKFLOW_API_URL", async () => {

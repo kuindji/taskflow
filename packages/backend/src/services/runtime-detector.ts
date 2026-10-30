@@ -9,8 +9,9 @@ import type {
     KimiModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
+    PiModelsResponse,
 } from "@taskflow/shared";
-import { CODEX_REASONING_EFFORTS } from "@taskflow/shared";
+import { CODEX_REASONING_EFFORTS, supportsPiXhigh } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
 const KNOWN_RUNTIMES = ["bun", "node"] as const;
@@ -212,11 +213,22 @@ async function withProbeProcess<T>(
     deps: ProbeDeps,
     exchange: (transport: {
         send(message: unknown): Promise<void>;
+        output(): Promise<{ stdout: string; stderr: string }>;
         receive(
             matches: (message: Record<string, unknown>) => boolean,
         ): Promise<Record<string, unknown>>;
     }) => Promise<T>,
+    {
+        timeoutMs = MODEL_LIST_TIMEOUT_MS,
+        signal,
+        captureOutput = false,
+    }: {
+        timeoutMs?: number;
+        signal?: AbortSignal;
+        captureOutput?: boolean;
+    } = {},
 ): Promise<T> {
+    signal?.throwIfAborted();
     const child = (deps.spawn ?? spawnProbe)(argv, options);
     const reader = child.stdout.getReader();
     const stderr = child.stderr.getReader();
@@ -224,13 +236,31 @@ async function withProbeProcess<T>(
     let buffered = "";
     let stopped = false;
     let cancelDeadline: (() => void) | undefined;
-    // Consume diagnostics without retaining or exposing credentials printed by the CLI.
-    void (async () => {
-        while (!(await stderr.read()).done) {
-            /* drain */
+    let stderrOutput = "";
+    // Retain stderr only for the legacy table fallback, never for RPC diagnostics.
+    const drainStderr = (async () => {
+        const decoder = new TextDecoder();
+        while (true) {
+            const chunk = await stderr.read();
+            if (chunk.done) break;
+            if (captureOutput) stderrOutput += decoder.decode(chunk.value, { stream: true });
         }
-    })().catch(() => {});
+        if (captureOutput) stderrOutput += decoder.decode();
+    })();
+    void drainStderr.catch(() => {});
     const transport = {
+        async output() {
+            let stdout = "";
+            while (!stopped) {
+                const chunk = await reader.read();
+                if (chunk.done) break;
+                stdout += decoder.decode(chunk.value, { stream: true });
+            }
+            stdout += decoder.decode();
+            await drainStderr;
+            if ((await child.exited) !== 0) throw new Error("Probe failed");
+            return { stdout, stderr: stderrOutput };
+        },
         async send(message: unknown) {
             if (stopped) throw new Error("Probe closed");
             await child.write(`${JSON.stringify(message)}\n`);
@@ -257,16 +287,21 @@ async function withProbeProcess<T>(
             throw new Error("Probe closed");
         },
     };
+    let onAbort: (() => void) | undefined;
     try {
         const deadline = new Promise<never>((_, reject) => {
+            onAbort = () => reject(new Error("Probe cancelled"));
+            signal?.addEventListener("abort", onAbort, { once: true });
             cancelDeadline = (deps.schedule ?? scheduleProbeDeadline)(
                 () => reject(new Error("Probe timed out")),
-                MODEL_LIST_TIMEOUT_MS,
+                timeoutMs,
             );
+            if (signal?.aborted) onAbort();
         });
         return await Promise.race([exchange(transport), deadline]);
     } finally {
         stopped = true;
+        if (onAbort) signal?.removeEventListener("abort", onAbort);
         cancelDeadline?.();
         // None of these operations may delay returning after the deadline. In
         // particular a broken launcher may never resolve stdin.end or exited.
@@ -451,9 +486,118 @@ export function parsePiModelsOutput(output: string): PiModelInfo[] {
         .filter((m) => m.provider && m.id);
 }
 
-export async function fetchPiModels(): Promise<PiModelInfo[]> {
-    const output = await runCliCommand("pi", ["--list-models"]);
-    return parsePiModelsOutput(output);
+function piModelKey(model: unknown): string | undefined {
+    return isRecord(model) &&
+        typeof model.provider === "string" &&
+        model.provider &&
+        typeof model.id === "string" &&
+        model.id
+        ? `${model.provider}/${model.id}`
+        : undefined;
+}
+
+function piTokenCount(value: unknown): string {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "";
+    if (value >= 1_000_000) return `${value / 1_000_000}M`;
+    if (value >= 1_000) return `${value / 1_000}K`;
+    return String(value);
+}
+
+export async function fetchPiModels(
+    options: { env?: Record<string, string | undefined>; cwd?: string; signal?: AbortSignal } = {},
+    deps: ProbeDeps = {},
+): Promise<PiModelsResponse> {
+    const now = deps.now ?? Date.now;
+    const deadline = now() + MODEL_LIST_TIMEOUT_MS;
+    const env = options.env ?? {
+        ...process.env,
+        CLAUDECODE: undefined,
+        CLAUDE_CODE_ENTRYPOINT: undefined,
+        PATH: buildShellPath(),
+    };
+    const context = { env, cwd: options.cwd };
+    let timedOut = false;
+    const probeDeps = {
+        ...deps,
+        schedule: (callback: () => void, ms: number) =>
+            (deps.schedule ?? scheduleProbeDeadline)(() => {
+                timedOut = true;
+                callback();
+            }, ms),
+    };
+    try {
+        const path = (deps.resolveCli ?? ((name, PATH) => Bun.which(name, { PATH })))(
+            "pi",
+            env.PATH ?? "",
+        );
+        if (!path || options.signal?.aborted) return { models: [] };
+        try {
+            return await withProbeProcess(
+                [path, "--mode", "rpc", "--no-session"],
+                context,
+                probeDeps,
+                async ({ send, receive }) => {
+                    await send({ id: "taskflow-state", type: "get_state" });
+                    await send({ id: "taskflow-models", type: "get_available_models" });
+                    let state: Record<string, unknown> | undefined;
+                    let models: Record<string, unknown> | undefined;
+                    while (!state || !models) {
+                        const response = await receive(
+                            (message) =>
+                                message.type === "response" &&
+                                ((message.id === "taskflow-state" &&
+                                    message.command === "get_state") ||
+                                    (message.id === "taskflow-models" &&
+                                        message.command === "get_available_models")),
+                        );
+                        if (response.id === "taskflow-state") state = response;
+                        else {
+                            models = response;
+                            if (models.success !== true) throw new Error("Pi RPC unavailable");
+                        }
+                    }
+                    if (!isRecord(models.data) || !Array.isArray(models.data.models))
+                        throw new Error("Invalid Pi models");
+                    const inventory = new Map<string, PiModelInfo>();
+                    for (const raw of models.data.models) {
+                        const key = piModelKey(raw);
+                        if (!key || !isRecord(raw) || inventory.has(key)) continue;
+                        inventory.set(key, {
+                            provider: raw.provider as string,
+                            id: raw.id as string,
+                            contextWindow: piTokenCount(raw.contextWindow),
+                            maxOutput: piTokenCount(raw.maxTokens),
+                            supportsThinking: raw.reasoning === true,
+                            supportsImages: Array.isArray(raw.input) && raw.input.includes("image"),
+                            supportsXhigh: supportsPiXhigh(raw),
+                        });
+                    }
+                    const defaultModel =
+                        state.success === true && isRecord(state.data)
+                            ? piModelKey(state.data.model)
+                            : undefined;
+                    return {
+                        models: [...inventory.values()],
+                        ...(defaultModel ? { defaultModel } : {}),
+                    };
+                },
+                { timeoutMs: Math.max(0, deadline - now()), signal: options.signal },
+            );
+        } catch {
+            const remaining = deadline - now();
+            if (timedOut || remaining <= 0 || options.signal?.aborted) return { models: [] };
+            const output = await withProbeProcess(
+                [path, "--list-models"],
+                context,
+                probeDeps,
+                ({ output }) => output(),
+                { timeoutMs: remaining, signal: options.signal, captureOutput: true },
+            );
+            return { models: parsePiModelsOutput(output.stdout.trim() || output.stderr.trim()) };
+        }
+    } catch {
+        return { models: [] };
+    }
 }
 
 export function parseKimiModelsOutput(output: string): KimiModelInfo[] {

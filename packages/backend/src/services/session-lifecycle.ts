@@ -22,13 +22,20 @@ import type { TrayStateTracker } from "./tray-state-tracker";
 import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
+import { normalizePiLaunchOptions } from "./pi-options";
+import type { fetchPiModels } from "./runtime-detector";
 import { normalizeClaudeLaunchOptions } from "./claude-options";
 import {
     acquireNativeSessionLaunchLock,
     captureNativeSessionIds,
     discoverNativeSessionId,
 } from "./native-session-discovery";
-import { accountEnv, resolveAgentAccount, resumeAccountOverride } from "./agent-accounts";
+import {
+    accountEnv,
+    headlessAgentEnv,
+    resolveAgentAccount,
+    resumeAccountOverride,
+} from "./agent-accounts";
 import { KeyedQueue } from "./keyed-queue";
 import { normalizeOwner, ownerIdOf, ownerKey, sameOwner } from "./session-owner";
 
@@ -80,6 +87,7 @@ function isAutonomousAgent(
 }
 
 interface SessionLifecycleDeps {
+    discoverPiModels?: typeof fetchPiModels;
     apiToken: string;
     ptyManager: PtyManager;
     taskStore: TaskStore;
@@ -454,6 +462,16 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     defaultAgentOptions,
                     resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined,
                 );
+                if (resolvedAgentOptions.type === "pi") {
+                    resolvedAgentOptions = await normalizePiLaunchOptions(
+                        resolvedAgentOptions,
+                        {
+                            env: headlessAgentEnv("pi", resolvedAgentOptions, settings, project),
+                            cwd,
+                        },
+                        deps.discoverPiModels,
+                    );
+                }
                 effectiveAgentOptions = resolvedAgentOptions;
                 if (isAccountAgentType(type)) {
                     if (opts.resumeSession) {

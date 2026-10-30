@@ -316,6 +316,7 @@ export interface OpenCodeModelsResponse {
 
 export interface PiModelsResponse {
     models: PiModelInfo[];
+    defaultModel?: string;
 }
 
 export interface KimiModelsResponse {
