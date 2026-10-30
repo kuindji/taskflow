@@ -138,37 +138,51 @@ function createCdpGateway({
     }
 
     // A parked tab sits in a window that is never shown, so its compositor ticks at
-    // about 1 Hz and rAF and screenshots crawl. Focus emulation on a session of our
-    // own keeps the page rendering at full rate while an agent is connected.
-    // Playwright turns it on itself; Puppeteer doesn't.
-    function keepAwake(url: string, targetId: string): () => void {
+    // about 1 Hz and rAF and screenshots crawl. Focus emulation on sessions of our
+    // own keeps the tab and its children rendering at full rate while an agent is
+    // connected. Playwright turns it on itself; Puppeteer doesn't.
+    function keepAwake(url: string, tabId: string): () => void {
         let ws: WebSocket;
         try {
             ws = connectUpstream(url);
         } catch {
             return () => {};
         }
+        let nextId = 1;
+        const attaches = new Set<number>();
+        const seen = new Set<string>();
+        const send = (method: string, params: Record<string, unknown>, sessionId?: string) => {
+            const id = nextId++;
+            ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+            return id;
+        };
+        const consider = async (info: Record<string, unknown>) => {
+            const targetId = info.targetId;
+            if (info.type !== "page" || typeof targetId !== "string" || seen.has(targetId)) return;
+            seen.add(targetId);
+            const tab = await service.resolveTarget(targetId);
+            if (!tab || !service.familyOf(tabId).has(tab.tabId)) return;
+            if (ws.readyState === WebSocket.OPEN)
+                attaches.add(send("Target.attachToTarget", { targetId, flatten: true }));
+        };
         ws.addEventListener("open", () => {
-            ws.send(
-                JSON.stringify({
-                    id: 1,
-                    method: "Target.attachToTarget",
-                    params: { targetId, flatten: true },
-                }),
-            );
+            send("Target.setDiscoverTargets", { discover: true });
         });
         ws.addEventListener("message", (event) => {
             try {
                 const m = JSON.parse(String(event.data)) as CdpMessage;
-                if (m.id === 1 && !m.sessionId && typeof m.result?.sessionId === "string")
-                    ws.send(
-                        JSON.stringify({
-                            id: 2,
-                            sessionId: m.result.sessionId,
-                            method: "Emulation.setFocusEmulationEnabled",
-                            params: { enabled: true },
-                        }),
-                    );
+                if (m.method === "Target.targetCreated")
+                    void consider(record(m.params?.targetInfo));
+                else if (m.method === "Target.targetDestroyed") {
+                    if (typeof m.params?.targetId === "string") seen.delete(m.params.targetId);
+                } else if (m.id !== undefined && attaches.delete(m.id)) {
+                    if (typeof m.result?.sessionId === "string")
+                        send(
+                            "Emulation.setFocusEmulationEnabled",
+                            { enabled: true },
+                            m.result.sessionId,
+                        );
+                }
             } catch {
                 // Rendering stays throttled; the agent's connection is unaffected.
             }
@@ -257,7 +271,7 @@ function createCdpGateway({
                             },
                         );
                         connection.filter = filter;
-                        connection.release = keepAwake(upstreamInfo.url, upstreamInfo.targetId);
+                        connection.release = keepAwake(upstreamInfo.url, tabId);
                         connection.counted = true;
                         service.addAgentConnection(tabId, 1);
                         for (const message of connection.pendingUpstream.splice(0))

@@ -104,7 +104,22 @@ async function fixture(
                         },
                     });
                 } else if (m.method === "Target.attachToTarget") {
-                    reply({ sessionId: `helper-${ws.data.id}` });
+                    const child = m.params?.targetId === "T-child" ? "-child" : "";
+                    reply({ sessionId: `helper-${ws.data.id}${child}` });
+                } else if (m.method === "Target.setDiscoverTargets") {
+                    for (const [targetId, type] of [
+                        ["T-root", "page"],
+                        ["T-child", "page"],
+                        ["T-other", "page"],
+                        ["W-root", "service_worker"],
+                    ])
+                        ws.send(
+                            JSON.stringify({
+                                method: "Target.targetCreated",
+                                params: { targetInfo: { targetId, type } },
+                            }),
+                        );
+                    reply({});
                 } else if (m.method === "Target.setAutoAttach" && m.sessionId) {
                     reply({});
                     ws.send(
@@ -292,20 +307,32 @@ it("upstream close closes the client", async () => {
     expect(f.changes).toEqual([1, -1]);
 });
 
-it("keeps the root page awake on its own upstream connection while the client is connected", async () => {
+it("keeps every family page awake on its own upstream connection while the client is connected", async () => {
     const f = await fixture();
     const c = f.connect();
-    await until(() =>
-        f.records.some((r) => r.message.method === "Emulation.setFocusEmulationEnabled"),
-    );
-    expect(f.records.filter((r) => r.connection === 2).map((r) => r.message)).toEqual([
-        { id: 1, method: "Target.attachToTarget", params: { targetId: "T-root", flatten: true } },
-        {
-            id: 2,
-            sessionId: "helper-2",
-            method: "Emulation.setFocusEmulationEnabled",
-            params: { enabled: true },
-        },
+    const emulated = () =>
+        f.records
+            .filter((r) => r.message.method === "Emulation.setFocusEmulationEnabled")
+            .map((r) => r.message);
+    await until(() => emulated().length === 2);
+    const keepAwake = f.records.filter((r) => r.connection === 2).map((r) => r.message);
+    expect(keepAwake[0]).toMatchObject({
+        method: "Target.setDiscoverTargets",
+        params: { discover: true },
+    });
+    expect(
+        keepAwake
+            .filter((m) => m.method === "Target.attachToTarget")
+            .map((m) => m.params?.targetId)
+            .sort(),
+    ).toEqual(["T-child", "T-root"]);
+    expect(
+        emulated()
+            .map((m) => [m.sessionId, m.params])
+            .sort(),
+    ).toEqual([
+        ["helper-2", { enabled: true }],
+        ["helper-2-child", { enabled: true }],
     ]);
     expect(f.upstreamSockets.size).toBe(2);
     c.ws.close();
