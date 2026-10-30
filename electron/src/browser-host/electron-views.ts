@@ -8,7 +8,6 @@ import {
     type WebPreferences,
 } from "electron";
 import { join } from "node:path";
-import { toChromeUserAgent } from "@taskflow/shared";
 import { isNavigableScheme, isPermissionAllowed } from "./permission-policy";
 import { postBodyHeaders } from "./post-body-headers";
 import type { Bounds, HostedView, TabHost, ViewFactory } from "./tab-host";
@@ -187,7 +186,6 @@ export function createElectronViewFactory(deps: {
             },
         };
 
-        wc.setUserAgent(toChromeUserAgent(app.userAgentFallback));
         wc.on("will-navigate", (event, url) => {
             refuseNavigation(event, url);
         });
