@@ -46,7 +46,15 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
 11. **Split view.** A browser tab in the right pane and another in the left both render and follow resizes.
 12. **Fallback.** In the web UI (browser dev renderer), New Tab → Browser opens today's iframe tab, and the CLI's `open` against a backend with no host returns the exact error. Remote-machine workspaces: not runnable without a second machine; note it as not run.
 13. **Clients.** Repeat item 1 with Playwright Python and Puppeteer. Puppeteer reaches the page through its tab target (`puppeteer.connect({ browserURL: endpoint })`, then `browser.pages()` lists exactly A); `browser.newPage()` opens a child tab in A.
+13b. **Input stays in its window (t3code amendment).** t3code needed guards so keys typed into a page didn't land in the app window (`apps/desktop/src/preview/GuestInput.ts`). Check our model needs none:
+    - with focus in a Taskflow text field (task notes, the markdown editor) and A hidden, the client runs `page.fill` and `page.keyboard.type` on A. A gets the text and the Taskflow field is unchanged. Repeat with A visible and focus in a Taskflow terminal;
+    - the client types into an input inside a cross-origin iframe on A (a local page on one port embedding a page on another). The iframe gets the text;
+    - `page.reload()` from the client and Reload from the toolbar both work, with A hidden and visible.
+13c. **Concurrent capture (t3code amendment).** While A is shown, the client takes 5 screenshots at once (`Promise.all`) while the user opens and closes a dropdown over the pane (freeze) 10 times. Then repeat with a navigation started mid-capture, and with A2 closed mid-capture. Expected: main and renderer stay up, each screenshot succeeds or rejects, a failed freeze leaves the placeholder blank and the page goes live when the overlay closes. **If main or a renderer crashes:** stop the chain and notify the user. Serializing the agents' `Page.captureScreenshot` with the app's `capturePage` crosses processes and needs a design decision.
+13d. **Session policy (t3code amendment).** A local test page requests geolocation, notifications, the camera and `navigator.clipboard.readText()`: each is denied with no prompt. `navigator.clipboard.writeText()` works. Clicking a `mailto:` link and a `vscode://` link opens nothing, and the main log records the refusal.
 14. **Agent prompt.** A fresh Claude session's `--append-system-prompt` contains the exact nudge, and `taskflow-cli browser --help`/usage matches the plan.
+
+15. **User agent (t3code amendment).** t3code keeps Electron's native UA because rewriting it failed Cloudflare Turnstile's integrity checks (`apps/desktop/src/preview/BrowserSession.ts`). Load a Turnstile demo page and a Google sign-in page in a hosted tab with the stripped UA, then again with `setUserAgent` commented out locally. If only the native UA passes, apply Section 5's fallback (drop `setUserAgent`) as a `fix(electron): …` commit. Record the results either way.
 
 ## Steps
 

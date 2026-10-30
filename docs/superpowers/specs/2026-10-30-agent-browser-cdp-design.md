@@ -319,3 +319,8 @@ the viewer are the same app.
    - **Hidden tabs live in one hidden window.** A view in no window has no viewport, and one removed from a window stops painting once its client reconnects. Tabs that aren't shown sit in a never-shown 1280×800 window; that window's renderer is an app target like the main window's.
    - **Popups keep their preferences** only if the guest's view is created with them again (minus the partition, which crashes Electron). Every popup kind, `target=_blank` links and forms included, arrives as a guest.
    - **`navigator.webdriver`** is `true` while remote debugging is on; the `disable-blink-features=AutomationControlled` switch turns it back to `false`. The preload's patch never reached the page.
+12. **Lessons from t3code (2026-10-30).** t3code (MIT) hosts agent-driven Electron browsers too. Its fixes shaped four rules here:
+   - Main's control server sits under a random secret path and refuses requests with an `Origin` header, because hosted pages and other local processes can reach loopback ports.
+   - The `persist:browser` session denies every permission except clipboard write and storage access, without prompts, and tabs never navigate to non-web schemes (`mailto:`, `vscode:`…).
+   - Each view has one capture in flight and a 3 s deadline. A failed or late capture freezes the pane blank instead of crashing.
+   - The stripped user agent stays only if Section 8 shows that challenge pages accept it. Otherwise the native UA stays.

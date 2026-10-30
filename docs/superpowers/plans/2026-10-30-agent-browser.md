@@ -296,4 +296,4 @@ interface TaskflowBrowserBridge {
   - Section 4: context-scoped rule 3 rewritten (no-op download behaviour, cookies through `CdpFilterDeps.runOnRootPage`, permissions refused); the `createTarget` reply waits for the attach; new tests.
   - Section 5: hidden tabs live in a park window (`HostedView.hide` moves the view there); guest popups are wrapped with prefs minus `partition`; `disable-blink-features=AutomationControlled`; `create` awaits an `about:blank` first load; `appTargetIds` includes the park window; `window-all-closed` moves to the main window's `closed`.
   - Spec Amendment 11.
-
+- t3code amendments (2026-10-30, not from a review round): Section 5 adds a secret path and Origin refusal to main's control server, the `persist:browser` permission and scheme policy, and capture serialization with a 3 s deadline. Section 6 treats a failed freeze as blank. Section 8 adds items 13b–13d and 15. Spec Amendment 12. Source: `docs/superpowers/plans/2026-10-30-t3code-adoptions/` research.

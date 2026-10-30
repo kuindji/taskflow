@@ -10,6 +10,8 @@ The Electron-free logic lives in pure modules with tests (`bun test electron/src
 - `chrome-user-agent.ts` + `chrome-user-agent.test.ts`: `toChromeUserAgent(ua: string): string`. It strips `Electron/x` and `Taskflow/x` tokens; the rule moves from `BrowserPane.tsx:11-13` (Section 6 deletes the renderer copy).
 - `tab-host.ts` + `tab-host.test.ts`: `TabHost`, the view registry over an injected `ViewFactory` (below).
 - `control-server.ts` + `control-server.test.ts`: `startControlServer(tabHost): Promise<{ url: string; close(): void }>`. A Node `http` server on `127.0.0.1:0` with `POST /tabs/ensure` and `POST /tabs/close`. Bad JSON returns 400; an unknown path returns 404.
+  - **Secret path (t3code amendment).** Any local process or web page can reach a loopback port, including pages in the hosted tabs themselves. At start the server draws a random secret (32 bytes, base64url) and returns `url = http://127.0.0.1:<port>/<secret>`. The routes live under that prefix (`/<secret>/tabs/ensure`, `/<secret>/tabs/close`), so Section 2's client, which calls `controlUrl + "/tabs/ensure"`, needs no change. A path without the prefix returns 404. A request that carries an `Origin` header returns 403 before any routing; the backend's Bun `fetch` sends none.
+- `permission-policy.ts` + `permission-policy.test.ts` (t3code amendment): `isPermissionAllowed(permission: string): boolean` and `isNavigableScheme(url: string): boolean`. See "Session policy" below.
 - `backend-link.ts` + `backend-link.test.ts`: `createBackendLink(deps)`. Every 5000 ms it `PUT`s the heartbeat to `<backendOrigin(getBackendPort())>/api/browser/host`, and it `POST`s events to `/api/browser/host/events`. `flush()` sends a heartbeat now; it is called whenever the loaded set changes. All posts (heartbeats and events) go out one at a time, in call order, on one queue, so an event is never overtaken by a later heartbeat. Failures:
   - a heartbeat that fails is dropped; the next one replaces it;
   - an event that fails **without an HTTP response** (backend down or restarting) stays at the head of the queue. Nothing behind it is sent; each tick retries it first. The heartbeat can't repair a lost event: a tab missing from `loaded` is only unloaded, never closed, because lazy tabs are missing too;
@@ -103,7 +105,12 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `preload: join(appPath, "dist", "browser-preload.js")`;
   - `backgroundThrottling: false`;
   - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
-- **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`.
+- **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`. Section 8 item 15 compares this with Electron's native UA on challenge and login pages. If only the native UA passes, drop the `setUserAgent` call (one line) and record it under Deviations; keep the module either way.
+- **Session policy (t3code amendment).** Once, when the factory first touches `session.fromPartition("persist:browser")`:
+  - `setPermissionRequestHandler((wc, permission, cb, details) => cb(isPermissionAllowed(permission)))` and `setPermissionCheckHandler((wc, permission) => isPermissionAllowed(permission))`. The allowlist is exactly `clipboard-sanitized-write`, `storage-access`, `top-level-storage-access` and `persistent-storage`. Everything else is denied, with no prompt: camera, microphone, geolocation, notifications, clipboard read, display capture, MIDI, pointer and keyboard lock, fullscreen, window management, idle detection, and `openExternal`. An agent drives these pages, so nothing in them may open a prompt or a native app.
+  - `setDevicePermissionHandler(() => false)` (HID, serial, USB).
+  - On every tab and popup `webContents`, `will-navigate` and `will-frame-navigate` call `event.preventDefault()` when `!isNavigableScheme(url)`. Navigable means `http:`, `https:`, `about:`, `data:` and `blob:`. So `mailto:`, `vscode:` and other custom schemes do nothing, and the refusal is logged.
+- **Capture.** `HostedView.capture()` keeps one capture in flight per view: a second call waits for the first to settle, then runs. Each call resolves `""` if `capturePage()` fails, takes longer than 3000 ms, or the view was destroyed while it awaited. The deadline doesn't cancel Chromium's capture, so the next call still waits for the real one to settle, not for the deadline. t3code saw main-process crashes from overlapping captures and from captures racing a renderer exit (`apps/desktop/src/preview/Manager.ts`, `DesktopBrowserHost.ts`). Section 6 already treats `""` as "no image".
 - **Park window.** One hidden `BrowserWindow` (`show: false`, `paintWhenInitiallyHidden: true`, 1280×800), created lazily by the factory and never shown. Every view that isn't shown lives in it at `{ x: 0, y: 0, width: 1280, height: 800 }`: a new view is added to it at creation, `hide()` moves the view back into it, `show()` moves it into the main window. The spike found the two alternatives broken:
   - a view that was never in any window has a 0×0 viewport whatever `setBounds` says: `Page.captureScreenshot` fails (`Cannot take screenshot with 0 width`) and nothing in it is visible, so Playwright's `waitForSelector` hangs;
   - a view removed from every window keeps painting only while the CDP client attached at the time stays connected. After a reconnect `requestAnimationFrame` never fires, so clicks and visibility waits hang.
@@ -164,6 +171,7 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `detachAll during a pending show: the view is not shown`
   - `close during a pending creation destroys the new view, leaves it out of loaded, and rejects ensure`
   - `freeze of a tab with no view returns an empty string`
+  - `freeze returns an empty string when capture resolves empty, and still hides`
   - `claimPopupName allows an empty name, a free name, and a name owned by the same family`
   - `claimPopupName refuses a name owned by another family`
   - `claimPopupName reserves: family A claims "oauth", family B's claim is refused before A's popup is reported` (the interleaved case)
@@ -175,6 +183,13 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `bad json is 400`
   - `unknown path is 404`
   - `binds 127.0.0.1`
+  - `url ends with a secret path segment; a route without it is 404`
+  - `a request with an Origin header is 403`
+
+  `permission-policy.test.ts`:
+  - `allows exactly the four allowlisted permissions`
+  - `denies media, geolocation, notifications, clipboard-read and openExternal`
+  - `navigable schemes are http, https, about, data and blob; mailto and vscode are not`
 
   `backend-link.test.ts`, with a fake fetch and a manual timer:
   - `heartbeat PUTs controlUrl, debugPort, loaded and appTargetIds every 5000 ms`
