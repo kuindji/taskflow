@@ -291,3 +291,11 @@ the viewer are the same app.
    - otherwise: a master tab.
 
    Today, project sessions error out unless `--project` is given.
+5. **CDP filter policy (plan review round 1).**
+   - Only flattened sessions are allowed. `Target.sendMessageToTarget`, and `attachToTarget`/`setAutoAttach` without `flatten: true`, are refused, because tunneled messages would skip the filter.
+   - Browser-level commands are an explicit allowlist, not default-forward, so browser-wide domains such as `Tracing` are refused.
+   - Context-scoped commands (`Browser.setDownloadBehavior`, permissions, `Storage.*Cookies`) default to Electron's default session, which is the app's own. They are pinned to the tabs' browser context, or refused.
+   - The whole `/cdp/` path namespace is reserved. Nothing under it becomes an app WebSocket.
+   - Agents keep page-level powers such as file inputs. They already run with the user's shell, so that isn't an escape.
+6. **Children survive a backend restart.** The host heartbeat carries each view's `parentId`, so a restarted backend re-adopts live popups and agent pages instead of closing them. They are still dropped when the app restarts.
+7. **App quit stops the backend.** The desktop app owns its backend's process. "Browser not available" is what agents see when the backend outlives its host, or when no desktop app runs on that machine. After an app quit, the CLI can't reach the backend at all.

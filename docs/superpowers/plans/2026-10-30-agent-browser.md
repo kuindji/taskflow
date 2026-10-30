@@ -72,7 +72,8 @@ export interface BrowserTabClosePayload { id: string }
 export interface BrowserHostHeartbeat {
     controlUrl: string;       // http://127.0.0.1:<port>, main's control server
     debugPort: number;        // Chromium remote debugging port
-    loaded: { tabId: string; targetId: string; url: string; title?: string }[]; // url/title also reconcile the registry
+    loaded: { tabId: string; targetId: string; url: string; title?: string; parentId?: string }[];
+        // url/title also reconcile the registry; parentId lets the backend re-adopt live children it doesn't know
     appTargetIds: string[];   // targets that are not browser tabs (the main window's renderer); always denied
 }
 
@@ -83,7 +84,7 @@ export type BrowserHostEvent =
     | { type: "closed"; tabId: string };
 ```
 
-`MSG` (`packages/shared/src/constants.ts`). `BROWSER_OPEN` is **removed** together with its handler, routes and UI listener.
+`MSG` (`packages/shared/src/constants.ts`). `BROWSER_OPEN` is **removed** together with its handler, routes and UI listener, in Section 7 (with the CLI that uses them).
 - `BROWSER_TABS_LIST: "browser:tabs:list"`
   - As a WS request: `{}` → `BrowserTabListResponse`.
   - As a broadcast: the same payload, full list.
@@ -147,6 +148,11 @@ function createBrowserTabService(deps: {
     now?: () => number; // injectable clock for the 15 s staleness
     schedule?: (fn: () => void, ms: number) => () => void; // returns cancel
 }): BrowserTabService;
+```
+
+Errors live in `services/browser-tab-errors.ts` (Section 2, Task 2.2), imported by the client, the service, the routes and the gateway:
+
+```ts
 class BrowserHostUnavailableError extends Error {}
 class BrowserTabInputError extends Error {}
 class BrowserTabNotFoundError extends Error {}
@@ -174,7 +180,8 @@ Every change visible in `list()` broadcasts `{ type: MSG.BROWSER_TABS_LIST, payl
 
 - `GET /cdp/:tabId/json/version`, plus the trailing-slash variant. It returns Chromium's real `/json/version` fields, with `webSocketDebuggerUrl` rewritten to `ws://<Host>/cdp/<tabId>/devtools/browser`.
 - `GET /cdp/:tabId/json/list` and `/cdp/:tabId/json`: the tab family's page targets only, with the same rewriting.
-- WS upgrade on `/cdp/:tabId/devtools/browser`: a filtered browser-level session. The other WS paths keep today's behaviour.
+- WS upgrade on `/cdp/:tabId/devtools/browser`: a filtered browser-level session.
+- The whole `/cdp/` namespace is reserved. Any other `/cdp/...` request (HTTP or upgrade) gets 404 and is never upgraded to an app socket. Paths outside `/cdp/` keep today's behaviour.
 
 ### Electron renderer bridge (Section 5 produces; 6 consumes)
 
@@ -223,14 +230,15 @@ interface TaskflowBrowserBridge {
 
 ## Review Focus
 
-1. **An agent's endpoint reaching anything outside its tab family.** That covers the Taskflow UI renderer, other tasks' tabs, `Target.attachToTarget` with a guessed id, a reused `sessionId`, `Target.attachToBrowserTarget`, `Browser.close`, and a new browser context. Expected: refused with `Not allowed by Taskflow: <method>`, or silently not listed. Paused new targets the agent may not see are resumed, never left paused. Pinned in Section 4 (filter unit tests, one per vector) and Section 8 (live Playwright check with two tabs from two tasks).
+1. **An agent's endpoint reaching anything outside its tab family.** That covers the Taskflow UI renderer, other tasks' tabs, `Target.attachToTarget` with a guessed id, a reused `sessionId`, tunneling through `Target.sendMessageToTarget` or a `flatten:false` session, `Target.attachToBrowserTarget`, `Browser.close`, a new browser context, browser-wide commands (`Tracing.*`), and context-scoped commands that default to the app's own session. Expected: refused with `Not allowed by Taskflow: <method>`, or silently not listed. Paused new targets the agent may not see are resumed, never left paused. Pinned in Section 4 (filter unit tests, one per vector) and Section 8 (live Playwright check with two tabs from two tasks).
 2. **Work while hidden or with the window closed.** Screenshots, clicks and timers keep working while the tab isn't shown, while the user is in another task, and after the main window is closed to the tray (macOS). Pinned in Section 1 (spike criteria) and Section 8 (manual).
 3. **The host goes away mid-session** (app quit, backend restart, renderer reload).
-   - App quit: CDP connections close cleanly, `hostAvailable` flips false within 15 s, and `browser open` returns the exact unavailable error.
-   - Backend restart while the app runs: the next heartbeat restores `loaded`, and endpoints work again.
+   - App quit: the backend quits with it (`electron/src/main.ts:281`), so CDP connections close and the CLI can't reach the backend.
+   - Host gone, backend alive (the host stops heartbeating): `hostAvailable` flips false within 15 s, CDP connections close, and `browser open` returns the exact unavailable error.
+   - Backend restart while the app runs (no supervisor restarts it today, so unit tests only): the next heartbeat restores `loaded`, re-adopts live children, and endpoints work again.
    - Renderer reload: tabs aren't touched at all.
 
-   Pinned in Section 2 (staleness and heartbeat reconcile tests), Section 4 (gateway closes on host loss), Section 5 (main re-registers after backend restart), and Section 8.
+   Pinned in Section 2 (staleness and heartbeat reconcile tests), Section 4 (gateway closes on host loss), Section 5 (the link uses the current backend port on every tick), and Section 8.
 4. **Close from one side while the other is using the tab.**
    - The user closes a tab an agent is connected to: the agent's socket closes.
    - An agent closes it (`browser close` or `Target.closeTarget`): the UI tab disappears.
@@ -253,4 +261,13 @@ interface TaskflowBrowserBridge {
 
 ## Plan review log
 
-(empty)
+- Round 1 (gpt-6.1-sol): 1 blocker, 14 majors confirmed, 1 part rejected (`reviews/round-1-triage.md`). Changes:
+  - CDP filter: explicit browser-level allowlist, flattened sessions only, no `sendMessageToTarget`, context-scoped commands pinned to the tab's context; `/cdp/` reserved.
+  - Heartbeat carries `parentId` and re-adopts children; the host link serializes posts.
+  - Popups: both `createWindow` paths.
+  - `TabHost` gets the navigation methods.
+  - UI: `TabContent` passes registry identity; per-backend removal in `syncBrowserTabs`; `InlineTooltip` registers as an overlay.
+  - Backend: errors module first, a construction order without cycles, cleanup on both project-removal paths.
+  - The old browser route removal moves to Section 7.
+  - CLI error streams stated as they are.
+  - Section 8 lifecycle checks made runnable.

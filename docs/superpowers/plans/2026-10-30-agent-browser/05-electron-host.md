@@ -9,7 +9,7 @@ The Electron-free logic lives in pure modules with tests (`bun test electron/src
 - `chrome-user-agent.ts` + `chrome-user-agent.test.ts`: `toChromeUserAgent(ua: string): string`. It strips `Electron/x` and `Taskflow/x` tokens; the rule moves from `BrowserPane.tsx:11-13` (Section 6 deletes the renderer copy).
 - `tab-host.ts` + `tab-host.test.ts`: `TabHost`, the view registry over an injected `ViewFactory` (below).
 - `control-server.ts` + `control-server.test.ts`: `startControlServer(tabHost): Promise<{ url: string; close(): void }>`. A Node `http` server on `127.0.0.1:0` with `POST /tabs/ensure` and `POST /tabs/close`. Bad JSON returns 400; an unknown path returns 404.
-- `backend-link.ts` + `backend-link.test.ts`: `createBackendLink(deps)`. Every 5000 ms it `PUT`s the heartbeat to `<backendOrigin(getBackendPort())>/api/browser/host`, and it `POST`s events to `/api/browser/host/events`. Failures are swallowed (the next heartbeat repairs state). `flush()` sends a heartbeat now; it is called whenever the loaded set changes.
+- `backend-link.ts` + `backend-link.test.ts`: `createBackendLink(deps)`. Every 5000 ms it `PUT`s the heartbeat to `<backendOrigin(getBackendPort())>/api/browser/host`, and it `POST`s events to `/api/browser/host/events`. Failures are swallowed (the next heartbeat repairs state). `flush()` sends a heartbeat now; it is called whenever the loaded set changes. All posts (heartbeats and events) go out one at a time, in call order, on one queue, so an event is never overtaken by a later heartbeat.
 - `electron-views.ts`: the real `ViewFactory`, built on `WebContentsView`. No unit test.
 - `index.ts`: `initBrowserHost({ getBackendPort, getMainWindow })`. It composes everything and registers the IPC handlers.
 - Modify `electron/src/main.ts`:
@@ -55,9 +55,13 @@ class TabHost {
     close(tabId: string): void;
     show(tabId: string, url: string, bounds: Bounds): Promise<void>; // ensure, then show
     hide(tabId: string): void;
+    navigate(tabId: string, url: string): void; // these four delegate to the view; an unknown or unloaded tab is a no-op
+    back(tabId: string): void;
+    forward(tabId: string): void;
+    reload(tabId: string): void;
     detachAll(): void;
     freeze(tabId: string): Promise<string>; // capture, then hide
-    loaded(): { tabId: string; targetId: string; url: string; title?: string }[];
+    loaded(): { tabId: string; targetId: string; url: string; title?: string; parentId?: string }[];
     // the factory's glue calls these:
     reportNavigated(tabId: string): void;
     reportChildOpened(parentId: string, view: HostedView): string; // assigns a new tabId (randomUUID), registers it, returns the id
@@ -76,7 +80,11 @@ type Bounds = { x: number; y: number; width: number; height: number };
 - **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`.
 - **Initial size:** 1280×800 until first shown. Apply the spike's hidden-rendering method.
 - **`targetId`:** `debugger.attach("1.3")`, then `Target.getTargetInfo`, then `detach()`. This runs once, at creation.
-- **Popups:** `setWindowOpenHandler` returns `{ action: "allow", createWindow }`, building the child view from `options.webContents` (the spike's confirmed shape) and calling `tabHost.reportChildOpened(parentTabId, view)`.
+- **Popups:** `setWindowOpenHandler` returns `{ action: "allow", createWindow }`. `createWindow` handles both of Electron's paths, as the spike recorded:
+  - **with a guest** (`options.webContents` set): wrap it in a `WebContentsView`. `BrowserWindowConstructorOptions` doesn't declare the field, so read it through a small type guard (`"webContents" in options`). No `as any`.
+  - **without a guest:** create a view with the same prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data })`.
+
+  Either way, call `tabHost.reportChildOpened(parentTabId, view)` and return the view's `webContents`.
 - **Navigation events:** `did-navigate`, `did-navigate-in-page` and `page-title-updated` call `reportNavigated` and emit `navState`.
 - **Closing:** `destroyed`, a `render-process-gone` that can't reload, and the page's own `window.close()` (`close` event) all call `reportClosed`.
 - **Bounds:** the renderer sends CSS pixels relative to the window content. Multiply by `mainWindow.webContents.getZoomFactor()` before `setBounds`.
@@ -86,6 +94,7 @@ type Bounds = { x: number; y: number; width: number; height: number };
 
 - `TabHostEvents`:
   - `navigated` → `link.event({ type: "navigated", ... })`;
+  - heartbeat `loaded` comes from `tabHost.loaded()`, `parentId` included;
   - `childOpened` → `link.event({ type: "child-opened", ... })` and `link.flush()`;
   - `closed` → `link.event({ type: "closed", tabId })` and `link.flush()`;
   - `loadedChanged` → `link.flush()`;
@@ -110,7 +119,8 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `reportChildOpened registers a new tab, fires childOpened with the parent and loadedChanged`
   - `reportClosed removes the tab and fires closed`
   - `detachAll hides every view without destroying any`
-  - `loaded lists tabId, targetId, url and title`
+  - `navigate, back, forward and reload delegate to the view; an unknown tab is a no-op`
+  - `loaded lists tabId, targetId, url, title and the parentId of children`
 - [ ] **Step 3:** `control-server.test.ts`, against a fake `TabHost`:
   - `POST /tabs/ensure returns {targetId}`
   - `POST /tabs/close returns {ok:true}`
@@ -124,6 +134,7 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `flush sends a heartbeat immediately`
   - `event POSTs to /api/browser/host/events`
   - `fetch failures are swallowed`
+  - `an event posted before a flush reaches fetch before that heartbeat`
 - [ ] **Step 4:** Run `bun test electron/src/browser-host`. Expected: FAIL.
 - [ ] **Step 5:** Implement the pure modules.
 - [ ] **Step 6:** Run them. Expected: PASS.

@@ -1,13 +1,15 @@
 # Section 4: CDP gateway
 
-Read `handoff.md` first. Section 1 recorded every CDP method the three clients send, along with Electron's `createTarget` behavior. This section's allow/deny table **must** cover that list. If the spike saw a method missing from the table below, decide it by the rule "pass if it only touches the caller's own targets or is read-only browser info; deny otherwise", and list it in the handoff.
+Read `handoff.md` first. Section 1 recorded every CDP method the three clients send (browser level and session level), Electron's `createTarget` behavior, the tabs' `browserContextId` and the handling of context-scoped commands. This section's tables **must** cover that list. If the spike saw a method missing from the tables below, decide it by the rule "pass if it only touches the caller's own targets or is read-only browser info; deny otherwise", and list it in the handoff.
 
 **Files:**
 - Create: `packages/backend/src/services/cdp/cdp-filter.ts` + `packages/backend/tests/services/cdp/cdp-filter.test.ts`. A pure message filter with no sockets.
 - Create: `packages/backend/src/services/cdp/cdp-gateway.ts` + `packages/backend/tests/services/cdp/cdp-gateway.test.ts`. Sockets and lifecycle.
-- Modify: `packages/backend/src/ws/server.ts`. Upgrades whose path matches `^/cdp/([^/]+)/devtools/browser$` go to the gateway. `SocketData` becomes `{ kind: "app"; clientId: string } | { kind: "cdp"; tabId: string; connId: string }`. The `websocket` handlers branch on `kind`, and only `app` sockets count as clients and get broadcasts. `createServer` takes an optional `cdpGateway` as a 4th parameter.
+- Modify: `packages/backend/src/ws/server.ts`. Today every request upgrades, whatever its path (`server.ts:74`). New order in `fetch`:
+  1. a path under `/cdp/`: upgrade only when it matches `^/cdp/([^/]+)/devtools/browser$` (to the gateway); a CDP HTTP route goes to the `ApiRouter`; anything else under `/cdp/` gets 404 and is never upgraded;
+  2. other paths: today's behaviour. `SocketData` becomes `{ kind: "app"; clientId: string } | { kind: "cdp"; tabId: string; connId: string }`. The `websocket` handlers branch on `kind`, and only `app` sockets count as clients and get broadcasts. `createServer` takes an optional `cdpGateway` as a 4th parameter.
 - Modify: `packages/backend/src/api/routes/browser-routes.ts`. Add the `/cdp/:tabId/json/version`, `/json/version/`, `/json/list` and `/json` GET routes.
-- Modify: `packages/backend/src/index.ts`. Construct the gateway and pass it to `createServer`.
+- Modify: `packages/backend/src/index.ts`. Construct the gateway right after the browser tab service (before `createServer`, see Section 3) and pass it to `createServer`.
 
 **Interfaces:**
 - Consumes: from `BrowserTabService`: `ensureLoaded`, `resolveTarget`, `familyOf`, `openChild`, `close`, `tabIdForTarget`, `addAgentConnection`, `subscribeTabGone`, `hostAvailable`.
@@ -29,6 +31,7 @@ interface CdpFilterDeps {
     resolveTarget(targetId: string): Promise<{ tabId: string } | null>;
     openChild(url: string): Promise<{ targetId: string }>;        // service.openChild(rootTabId, url)
     closeTarget(targetId: string): Promise<boolean>;
+    browserContextId: string | null; // the tabs' context from the spike's facts, read from the root target; null if unknown
 }
 interface CdpFilterIo { toClient(m: CdpMessage): void; toUpstream(m: CdpMessage): void }
 class CdpTargetFilter {
@@ -58,14 +61,20 @@ function createCdpGateway(deps: {
 
 **Upstream messages are processed strictly in order** (one promise chain). An `attachedToTarget` that waits on `resolveTarget` delays the messages behind it, never reorders them.
 
-**Client → upstream**
-- Message carrying a `sessionId` not in `allowedSessions`: reply with an error, don't forward.
-- `Target.attachToBrowserTarget`, `Target.createBrowserContext`, `Target.disposeBrowserContext`, `Target.exposeDevToolsProtocol`, `Target.setRemoteLocations`, `Browser.close`, `Browser.crash`, `Browser.crashGpuProcess`: error.
-- `Target.attachToTarget`, `Target.activateTarget`, `Target.getTargetInfo` with a `targetId`: forward only if `resolveTarget` maps it to an allowed tab; otherwise error.
-- `Target.closeTarget` with an allowed target: call `deps.closeTarget` and reply `{ success: true }`. Never forward it. Otherwise error.
-- `Target.createTarget`: call `deps.openChild(params.url ?? "about:blank")`, reply `{ targetId }`, never forward. A `browserContextId` param other than the default context's: error.
-- Everything else at browser level (no `sessionId`), and everything on an allowed session: forward. That includes `Target.setAutoAttach`, `setDiscoverTargets`, `getTargets`, `getBrowserContexts`, `Browser.getVersion`, `Browser.setDownloadBehavior`, plus the spike's list.
-- Errors use `{ id, error: { code: -32000, message: "Not allowed by Taskflow: <method>" } }`.
+**Client → upstream.** Rules apply in this order.
+1. A message carrying a `sessionId` not in `allowedSessions`: error, don't forward.
+2. **Target domain, at any level** (browser or an allowed session):
+   - `Target.sendMessageToTarget`: error. Tunneled messages would bypass every rule here.
+   - `Target.attachToTarget` or `Target.setAutoAttach` with `flatten` not `true`: error.
+   - `Target.attachToBrowserTarget`, `Target.createBrowserContext`, `Target.disposeBrowserContext`, `Target.exposeDevToolsProtocol`, `Target.setRemoteLocations`: error.
+   - `Target.attachToTarget`, `Target.activateTarget`, `Target.getTargetInfo` with a `targetId`: forward only if `resolveTarget` maps it to an allowed tab; otherwise error. `getTargetInfo` without a `targetId` at browser level describes the browser: forward.
+   - `Target.closeTarget` with an allowed target: call `deps.closeTarget` and reply `{ success: true }`. Never forward it. Otherwise error.
+   - `Target.createTarget`: call `deps.openChild(params.url ?? "about:blank")`, reply `{ targetId }`, never forward. A `browserContextId` param other than the tabs' context: error.
+   - `Target.setAutoAttach` (flattened), `setDiscoverTargets`, `getTargets`, `getBrowserContexts`, `detachFromTarget` (for an allowed session): forward.
+3. **Context-scoped commands** (`Browser.setDownloadBehavior`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`, plus any the spike found): handled the way the spike recorded. The default is: when `browserContextId` is missing, set it to `deps.browserContextId`; when it is another context, error. If `deps.browserContextId` is null, error.
+4. **Browser level, everything else** (no `sessionId`): forward only methods on the browser-level allowlist. The allowlist is `Browser.getVersion`, `Browser.getWindowForTarget` with an allowed `targetId`, `SystemInfo.getInfo`, plus the spike's recorded browser-level methods that pass the rule above. Everything else is an error, `Tracing.*` included.
+5. **On an allowed session, everything else:** forward. These commands act on that page.
+6. Errors use `{ id, error: { code: -32000, message: "Not allowed by Taskflow: <method>" } }`. When rule 1 refuses a message, the error also carries its `sessionId`.
 
 **Upstream → client**
 - Response to `Target.getTargets`: `targetInfos` filtered to allowed targets.
@@ -81,8 +90,9 @@ function createCdpGateway(deps: {
 **On open**
 1. `service.ensureLoaded(tabId)`. On `BrowserTabNotFoundError`, close with code 4404 and reason `Browser tab not found`. On host unavailable, close with code 1011 and the exact unavailable message.
 2. Fetch `http://127.0.0.1:<debugPort>/json/version` and connect upstream to its `webSocketDebuggerUrl`.
-3. Buffer client messages until upstream is open.
-4. `addAgentConnection(tabId, 1)`. It is decremented exactly once on close, whichever side closes first.
+3. Once upstream is open, send an internal `Target.getTargetInfo { targetId: <root targetId> }` and take `targetInfo.browserContextId` as the filter's `browserContextId`. Swallow its response.
+4. Buffer client messages until steps 2 and 3 are done.
+5. `addAgentConnection(tabId, 1)`. It is decremented exactly once on close, whichever side closes first.
 
 **On close**
 - If the root tab goes away (`subscribeTabGone` fires for `tabId`), or upstream closes, close the client socket with 1001.
@@ -109,6 +119,13 @@ function createCdpGateway(deps: {
   - `attachToBrowserTarget is refused`
   - `Browser.close is refused`
   - `createBrowserContext is refused`
+  - `sendMessageToTarget is refused, even on an allowed session`
+  - `attachToTarget with flatten false is refused`
+  - `setAutoAttach with flatten false is refused`
+  - `attachToTarget T-app sent on an allowed page session is refused`
+  - `an unlisted browser-level method (Tracing.start) is refused`
+  - `setDownloadBehavior without browserContextId gets the tabs' context injected`
+  - `Storage.getCookies naming another browserContextId is refused`
   - `createTarget calls openChild and replies with its targetId`
   - `closeTarget on T-child calls closeTarget and is not forwarded`
   - `closeTarget on T-other is refused`
@@ -132,6 +149,8 @@ function createCdpGateway(deps: {
     - `json/version/ with trailing slash works`
     - `json/list lists only family page targets without debugger urls`
     - `app WS clients still receive broadcasts and cdp sockets do not`
+    - `an upgrade to /cdp/<id>/devtools/page/<x> gets 404 and is not an app client`
+    - `an unknown GET under /cdp/ gets 404`
 - [ ] **Step 6:** Run them. Expected: FAIL.
 - [ ] **Step 7:** Implement the gateway, the `server.ts` changes and the routes. Wire the gateway in `index.ts`.
 - [ ] **Step 8:** Run `bun run typecheck` and `cd packages/backend && bun test`. Expected: PASS.

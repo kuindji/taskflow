@@ -4,18 +4,19 @@
 - Modify: `packages/backend/src/config.ts`. Add `config.browserTabsFile = join(BASE_DIR, \`browser-tabs-${instanceId}.json\`)` next to `devServersFile` (same reasoning: per instance, not in `buildDataPaths`).
 - Create: `packages/backend/src/api/routes/browser-routes.ts` + `packages/backend/tests/api/browser-routes.test.ts`
 - Create: `packages/backend/src/handlers/browser.ts` + `packages/backend/tests/handlers/browser.test.ts`
-- Modify: `packages/backend/src/index.ts`:
-  - construct the service after `devServerService` (`index.ts:369`) and `await service.init()`;
-  - register the handlers and routes;
-  - remove the `MSG.BROWSER_OPEN` handler (`index.ts:425-429`).
-- Modify: `packages/backend/src/api/routes/task-routes.ts` and `project-routes.ts`. Delete the `POST /api/tasks/:id/browser` and `/api/projects/:id/browser` routes (`task-routes.ts:317-336`, `project-routes.ts:28-48`). The CLI moves to `/api/browser/tabs` in Section 7, and the CLI script is rewritten at every backend start, so no old client remains.
+- Modify: `packages/backend/src/index.ts`. Construction order, so nothing is cyclic:
+  - construct the service right after `store` (`index.ts:84`) and **before** `createServer` (`index.ts:118`), with `broadcast: (event) => server.broadcast(event)`. The closure reads `server` only when called, and nothing broadcasts before `server.start()`;
+  - `await service.init()` before `server.start()` (`index.ts:495`);
+  - pass the service into the task and project handler deps (`:297`, `:307`) and `registerApiRoutes` (`:396`);
+  - register the browser handlers next to `registerDevServerHandlers` (`:373`).
+  - Section 4 constructs the gateway in the same place, right after the service, and passes it to `createServer`.
+- Leave `MSG.BROWSER_OPEN`, its `index.ts:425-429` handler, the old `POST /api/tasks/:id/browser` and `/api/projects/:id/browser` routes and the UI listener untouched. Section 7 removes them together with the CLI that calls them.
 - Modify: the `ApiRouteDeps` type and `registerApiRoutes` (the `routes.ts` the dev-server work used). Add a required `browserTabService`.
-- Modify: `packages/shared/src/constants.ts` and `packages/shared/src/types/ws.ts`. Remove `BROWSER_OPEN` and `BrowserOpenPayload`. The UI listener `session-subscriptions.ts:163-181` is removed in Section 6. Until then, delete only the listener's body and registration, so the UI still compiles; Section 6 adds the replacement.
 - Modify: the cleanup call sites. Next to each `changeTracker?.untrack(...)` that follows an archive or delete, add `await browserTabService.closeForOwner({ taskId })`:
   - `handlers/task.ts:~150-158` (archive, including subtasks);
   - `api/routes/task-routes.ts:~356, ~374` (archive), `~439, ~455` (delete);
   - any other `archiveTask`, `deleteTask` or `deleteArchived` caller that grep finds outside `task-store.ts`;
-  - project removal (the `PROJECT_REMOVED` broadcast site): `closeForOwner({ projectId })`, plus closing that project's task tabs.
+  - project removal, on **both** paths: the HTTP `DELETE /api/projects/:id` (`project-routes.ts:~100-110`) and the WS `PROJECT_REMOVE` handler (`handlers/project.ts:54-70`). Both already list the project's tasks before `removeProject`. After `removeProject`, call `closeForOwner({ projectId })` and `closeForOwner({ taskId })` for each listed task.
 
   Pass `browserTabService` through the existing deps objects. Don't import it as a module singleton.
 
@@ -64,7 +65,7 @@
   - `POST /api/browser/host/events passes the event to the service`
 - [ ] **Step 2:** Write `handlers/browser.test.ts`: list, open and close round-trip through the test router (`tests/test-router.ts`), plus `close of an unknown id rejects with Browser tab not found`.
 - [ ] **Step 3:** Run both. Expected: FAIL.
-- [ ] **Step 4:** Implement the routes, the handlers, the config path and the `index.ts` wiring. Remove `BROWSER_OPEN` and the old routes.
-- [ ] **Step 5:** Add the cleanup hooks. Add one test to the existing task archive and delete tests (handler and route, wherever they live) asserting that `closeForOwner` was called with the task id. Use the fake service through deps.
+- [ ] **Step 4:** Implement the routes, the handlers, the config path and the `index.ts` wiring.
+- [ ] **Step 5:** Add the cleanup hooks. Add one test to the existing task archive and delete tests (handler and route, wherever they live) asserting that `closeForOwner` was called with the task id. Add the same for project removal through the HTTP route and the WS handler (project id plus each task id). Use the fake service through deps.
 - [ ] **Step 6:** Run `bun run typecheck` and `cd packages/backend && bun test`. Expected: PASS (the platform flake rule applies).
 - [ ] **Step 7:** Commit `feat(backend): browser tab API, wiring and cleanup on archive/delete`.

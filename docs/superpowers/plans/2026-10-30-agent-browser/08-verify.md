@@ -21,14 +21,20 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
 4. **Shared use.** The user types into A's tab by hand while the agent reads the field. Both see the same page.
 5. **Popups.** A `window.open` OAuth-like popup appears as a child tab in A and as a new page to the client; `window.opener` works. Closing A closes the popup.
 6. **`newPage()`** from Playwright opens a child tab in A.
-7. **Close from either side.**
-   - The user closes A's tab: the client's socket closes.
+7. **Close from either side.** Use a second tab, A2, on task A; A itself stays open for item 8.
+   - The user closes A2: the client's socket closes.
    - `taskflow-cli browser close <id>`: the UI tab disappears.
    - Archiving task B removes B's tabs.
-8. **Restart.**
-   - Quit the app. Within 15 s, `browser open` returns `Browser not available on this machine: the Taskflow desktop app must be running here`.
-   - Start the app. `browser list` shows A with the same id and endpoint, not loaded. Connecting loads it at its last URL. Popups from before the restart are gone.
-9. **Backend restart only** (kill the backend process; main restarts or the dev backend relaunches). The heartbeat restores `loaded` without touching the views.
+8. **Host gone, backend alive.** Stop the Electron main process with `kill -STOP <main pid>`. The backend keeps running; only the heartbeats stop.
+   - Within 15 s, `browser open` returns exactly `Browser not available on this machine: the Taskflow desktop app must be running here`.
+   - A's open CDP connection closes.
+   - Then `kill -CONT <main pid>`: within 5 s `hostAvailable` is true again and A's endpoint works.
+9. **Restart.** Quit the app; the backend quits with it, so the CLI reports it can't reach the backend. Start the app.
+   - `browser list` shows A with the same id and endpoint, not loaded.
+   - Connecting loads it at its last URL.
+   - Popups from before the restart are gone.
+
+   A backend restart while the app keeps running isn't reachable by hand: nothing restarts a killed backend (`electron/src/backend-manager.ts:108`). Section 2's heartbeat tests cover it. Record it as "unit tests only".
 10. **Overlays.** With A visible:
     - opening a dialog, a dropdown over the pane, a context menu and a tooltip near the pane shows the overlay above a frozen page, and the page goes live when it closes;
     - a dropdown that doesn't reach the pane doesn't freeze it.
