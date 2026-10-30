@@ -48,8 +48,13 @@ export class Connection {
         backendId: string,
         readonly origin: string,
         private hooks: ConnectionHooks,
+        private readonly token: string | null = null,
     ) {
         this.id = backendId;
+    }
+
+    get authToken(): string | null {
+        return this.token;
     }
 
     get backendId(): string {
@@ -93,7 +98,10 @@ export class Connection {
                 reject(reason);
             };
             this.rejectOpen = fail;
-            const socket = new WebSocket(this.wsUrl());
+            const socket = new WebSocket(
+                this.wsUrl(),
+                this.token === null ? [] : ["taskflow", `taskflow.auth.${this.token}`],
+            );
             this.socket = socket;
 
             socket.onopen = () => {

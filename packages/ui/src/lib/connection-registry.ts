@@ -54,23 +54,36 @@ export function originFor(backendId: string): string | null {
     return connections.get(backendId)?.origin ?? null;
 }
 
-export function openConnection(backendId: string, origin: string): Promise<void> {
+export function tokenFor(backendId: string): string | null {
+    return connections.get(backendId)?.authToken ?? null;
+}
+
+export function openConnection(
+    backendId: string,
+    origin: string,
+    token: string | null = null,
+): Promise<void> {
     connections.get(backendId)?.close(new BackendDetachedError(backendId));
-    const connection: Connection = new Connection(backendId, origin, {
-        onEvent(type, payload) {
-            const listeners = eventListeners.get(type);
-            if (!listeners) return;
-            // `connection.backendId`, never the captured argument: after a
-            // rekey the captured one is the provisional id and every event
-            // would be tagged with an id no store holds a slice for.
-            for (const listener of listeners) listener(payload, connection.backendId);
+    const connection: Connection = new Connection(
+        backendId,
+        origin,
+        {
+            onEvent(type, payload) {
+                const listeners = eventListeners.get(type);
+                if (!listeners) return;
+                // `connection.backendId`, never the captured argument: after a
+                // rekey the captured one is the provisional id and every event
+                // would be tagged with an id no store holds a slice for.
+                for (const listener of listeners) listener(payload, connection.backendId);
+            },
+            onStatus(status) {
+                const listeners = statusListeners.get(connection.backendId);
+                if (!listeners) return;
+                for (const listener of listeners) listener.handler(status);
+            },
         },
-        onStatus(status) {
-            const listeners = statusListeners.get(connection.backendId);
-            if (!listeners) return;
-            for (const listener of listeners) listener.handler(status);
-        },
-    });
+        token,
+    );
     connections.set(backendId, connection);
     return connection.open();
 }

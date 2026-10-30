@@ -102,7 +102,9 @@ interface TaskflowBridge {
     getAttached(): Promise<{ id: string; origin: string; isLocal: boolean }[]>;
     attachBackend(
         id: string,
-    ): Promise<{ ok: true; origin: string } | { ok: false; failure: TunnelFailure }>;
+    ): Promise<
+        { ok: true; origin: string; token?: string } | { ok: false; failure: TunnelFailure }
+    >;
     detachBackend(id: string): Promise<void>;
     confirmBackend(
         id: string,

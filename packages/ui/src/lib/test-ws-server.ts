@@ -8,6 +8,7 @@ export interface TestServer {
     origin: string;
     /** Every message, answered or fire-and-forget, in arrival order. */
     received: ReceivedRequest[];
+    offeredProtocols: (string | null)[];
     stop(): void;
     /** Push an event to every open socket; the payload defaults to `{ from: label }`. */
     broadcast(type: string, payload?: unknown): void;
@@ -24,10 +25,14 @@ export function startTestServer(
 ): TestServer {
     const sockets = new Set<{ send(data: string): void }>();
     const received: ReceivedRequest[] = [];
+    const offeredProtocols: (string | null)[] = [];
     const server = Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
-        fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("ok")),
+        fetch: (req, server) => {
+            offeredProtocols.push(req.headers.get("Sec-WebSocket-Protocol"));
+            return server.upgrade(req) ? undefined : new Response("ok");
+        },
         websocket: {
             open(ws) {
                 sockets.add(ws);
@@ -60,6 +65,7 @@ export function startTestServer(
     return {
         origin: `http://127.0.0.1:${server.port}`,
         received,
+        offeredProtocols,
         stop: () => void server.stop(true),
         broadcast: (type, payload = { from: label }) => {
             for (const ws of sockets) ws.send(JSON.stringify({ type, payload }));

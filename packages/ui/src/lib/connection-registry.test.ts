@@ -10,6 +10,7 @@ import {
     rekeyConnection,
     sendRequest,
     setPrimary,
+    tokenFor,
 } from "./connection-registry";
 import { startTestServer as startServer } from "./test-ws-server";
 
@@ -151,4 +152,29 @@ describe("connection registry", () => {
         // Not connected, a's live status, then a's close (which also clears primary).
         expect(seen).toEqual([false, true, false, false]);
     });
+});
+
+test("a connection opened with a token offers taskflow then taskflow.auth.<token>", async () => {
+    const a = startServer("A");
+    servers.push(a);
+    const token = "T".repeat(43);
+    await openConnection("a", a.origin, token);
+    expect(a.offeredProtocols).toEqual([`taskflow, taskflow.auth.${token}`]);
+});
+
+test("a connection opened without a token offers no subprotocol", async () => {
+    const a = startServer("A");
+    servers.push(a);
+    await openConnection("a", a.origin);
+    expect(a.offeredProtocols).toEqual([null]);
+});
+
+test("tokenFor returns the token a backend was opened with, and null once it is closed", async () => {
+    const a = startServer("A");
+    servers.push(a);
+    expect(tokenFor("a")).toBeNull();
+    await openConnection("a", a.origin, "TOKEN");
+    expect(tokenFor("a")).toBe("TOKEN");
+    closeConnection("a", "detach");
+    expect(tokenFor("a")).toBeNull();
 });

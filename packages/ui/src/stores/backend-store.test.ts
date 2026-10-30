@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
 import type { MenuEntry } from "@taskflow/shared";
-import { BackendDetachedError, closeConnection, sendRequest } from "@/lib/connection-registry";
+import {
+    BackendDetachedError,
+    closeConnection,
+    sendRequest,
+    tokenFor,
+} from "@/lib/connection-registry";
 import type { useBackendStore as UseBackendStore } from "./backend-store";
 import {
     bridge,
@@ -490,4 +495,18 @@ describe("backend store refresh", () => {
         openTunnel({ ok: false, failure: failure("no route") });
         await attaching;
     });
+});
+
+test("attach opens the socket with the token main returned", async () => {
+    const backend = startBackend(() => ({
+        protocolVersion: PROTOCOL_VERSION,
+        backendUid: "abc123",
+    }));
+    cleanups.push(backend.stop);
+    seedRow("abc123");
+    const token = "T".repeat(43);
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin, token });
+    main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+    expect(await store.getState().attach("abc123")).toBe("abc123");
+    expect(tokenFor("abc123")).toBe(token);
 });

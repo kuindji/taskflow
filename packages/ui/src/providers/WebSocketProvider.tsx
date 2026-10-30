@@ -10,12 +10,18 @@ async function connectDevRenderer(): Promise<void> {
     if (!rawPort) {
         throw new Error("VITE_BACKEND_PORT must be set when running the renderer outside Electron");
     }
+    const token = import.meta.env.VITE_BACKEND_TOKEN as string | undefined;
+    if (!token) {
+        throw new Error(
+            "VITE_BACKEND_TOKEN must be set when running the renderer outside Electron",
+        );
+    }
     const port = parseInt(rawPort, 10);
     if (!Number.isInteger(port) || port <= 0) {
         throw new Error(`Invalid backend port: ${port}`);
     }
     setPrimaryBackend(LOCAL_BACKEND_ID);
-    await openConnection(LOCAL_BACKEND_ID, `http://localhost:${port}`);
+    await openConnection(LOCAL_BACKEND_ID, `http://localhost:${port}`, token);
 }
 
 async function attachAll(taskflow: NonNullable<Window["taskflow"]>): Promise<void> {

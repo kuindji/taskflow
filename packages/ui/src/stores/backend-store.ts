@@ -226,7 +226,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         unfollow(id);
 
         try {
-            await openConnection(id, result.origin);
+            await openConnection(id, result.origin, result.token ?? null);
         } catch {
             if (!current()) return null;
             // Drop the connection too, or it keeps reconnecting in the
