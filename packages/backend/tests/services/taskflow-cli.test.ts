@@ -227,26 +227,144 @@ describe("taskflow-cli", () => {
         });
     });
 
-    it("opens project browser tabs on the project endpoint", async () => {
+    it("browser open posts url and label to /api/browser/tabs with context headers", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const response = '{"tab":{"id":"b1"},"endpoint":"http://localhost:1234/cdp/b1"}';
+        const result = runCli(
+            cliPath,
+            ["browser", "open", "https://example.com/docs", "--label", 'Docs "guide"'],
+            {
+                ...env,
+                TASKFLOW_TASK_ID: "task-1",
+                TASKFLOW_PROJECT_ID: "project-1",
+                TASKFLOW_SESSION_ID: "session-1",
+                CURL_RESPONSE: response,
+            },
+        );
+        expect(result.status).toBe(0);
+        expect(result.stdout.toString().trim()).toBe(response);
+        expect(await readCapturedRequest(captureFile)).toEqual({
+            method: "POST",
+            url: "http://localhost:1234/api/browser/tabs",
+            data: JSON.stringify({ url: "https://example.com/docs", label: 'Docs "guide"' }),
+        });
+        const headers = await readCapturedHeaders(captureFile);
+        expect(headers).toContain("X-Taskflow-Task-Id: task-1");
+        expect(headers).toContain("X-Taskflow-Project-Id: project-1");
+        expect(headers).toContain("X-Taskflow-Session-Id: session-1");
+    });
+
+    for (const scope of ["project", "master"]) {
+        it(`browser open --${scope} sends scope ${scope}`, async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(
+                cliPath,
+                ["browser", "open", "https://example.com", `--${scope}`],
+                { ...env, TASKFLOW_TASK_ID: "task-1", TASKFLOW_PROJECT_ID: "project-1" },
+            );
+            expect(result.status).toBe(0);
+            const request = await readCapturedRequest(captureFile);
+            expect(request.method).toBe("POST");
+            expect(request.url).toBe("http://localhost:1234/api/browser/tabs");
+            expect(JSON.parse(request.data)).toEqual({ url: "https://example.com", scope });
+        });
+    }
+
+    it("browser <url> (old form) posts like open", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(
             cliPath,
-            ["browser", "https://example.com/docs", "--label", "Docs", "--project"],
-            {
-                ...env,
-                TASKFLOW_PROJECT_ID: "project-1",
-            },
+            ["browser", "https://example.com", "--label", "Docs", "--project"],
+            { ...env, TASKFLOW_PROJECT_ID: "project-1" },
         );
-
         expect(result.status).toBe(0);
-
         const request = await readCapturedRequest(captureFile);
         expect(request.method).toBe("POST");
-        expect(request.url).toBe("http://localhost:1234/api/projects/project-1/browser");
+        expect(request.url).toBe("http://localhost:1234/api/browser/tabs");
         expect(JSON.parse(request.data)).toEqual({
-            url: "https://example.com/docs",
+            url: "https://example.com",
             label: "Docs",
+            scope: "project",
         });
+    });
+
+    for (const [name, args, method, path] of [
+        ["browser list GETs /api/browser/tabs", ["browser", "list"], "GET", "/api/browser/tabs"],
+        [
+            "browser list --project adds ?scope=project",
+            ["browser", "list", "--project"],
+            "GET",
+            "/api/browser/tabs?scope=project",
+        ],
+        [
+            "browser list --master adds ?scope=master",
+            ["browser", "list", "--master"],
+            "GET",
+            "/api/browser/tabs?scope=master",
+        ],
+        [
+            "browser close <id> sends DELETE to /api/browser/tabs/<id>",
+            ["browser", "close", "b1"],
+            "DELETE",
+            "/api/browser/tabs/b1",
+        ],
+    ] as const) {
+        it(name, async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, [...args], {
+                ...env,
+                TASKFLOW_TASK_ID: "task-1",
+                TASKFLOW_PROJECT_ID: "project-1",
+                CURL_RESPONSE: '{"success":true}',
+            });
+            expect(result.status).toBe(0);
+            expect(result.stdout.toString().trim()).toBe('{"success":true}');
+            expect(await readCapturedRequest(captureFile)).toEqual({
+                method,
+                url: `http://localhost:1234${path}`,
+                data: "",
+            });
+            const headers = await readCapturedHeaders(captureFile);
+            expect(headers).toContain("X-Taskflow-Task-Id: task-1");
+            expect(headers).toContain("X-Taskflow-Project-Id: project-1");
+        });
+    }
+
+    for (const [name, args] of [
+        ["browser with no args prints usage and exits 1", ["browser"]],
+        ["browser open without URL prints usage and exits 1", ["browser", "open"]],
+        ["browser close without id prints usage and exits 1", ["browser", "close"]],
+        [
+            "browser open --label without text prints usage and exits 1",
+            ["browser", "open", "https://example.com", "--label"],
+        ],
+    ] as const) {
+        it(name, async () => {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, [...args], { ...env, TASKFLOW_TASK_ID: "task-1" });
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain(
+                "Usage: taskflow-cli browser open <url> [--label <label>] [--project|--master] | list [--project|--master] | close <tabId>",
+            );
+            expect(await captured(captureFile)).toBe(false);
+        });
+    }
+
+    it("browser open on a 503 exits 1 and the output carries the exact unavailable message", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const message =
+            "Browser not available on this machine: the Taskflow desktop app must be running here";
+        const result = runCli(cliPath, ["browser", "open", "https://example.com"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            CURL_STATUS: "503",
+            CURL_RESPONSE: JSON.stringify({ error: message }),
+        });
+        expect(result.status).toBe(1);
+        expect(result.stdout.toString().trim()).toBe(JSON.stringify({ error: message }));
+        expect(result.stderr).toContain(
+            "Error: POST http://localhost:1234/api/browser/tabs returned 503",
+        );
     });
 
     it("sends session input with joined message parts and raw mode", async () => {

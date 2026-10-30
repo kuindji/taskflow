@@ -351,3 +351,132 @@ describe("taskflow-cli binary: devserver", () => {
         expect(result.stderr).toContain("Usage: taskflow-cli devserver <add|list|remove>");
     });
 });
+
+describe("taskflow-cli binary: browser", () => {
+    const owner = {
+        TASKFLOW_TASK_ID: "task-1",
+        TASKFLOW_PROJECT_ID: "project-1",
+        TASKFLOW_SESSION_ID: "session-1",
+    };
+
+    it("browser open posts url and label to /api/browser/tabs with context headers", async () => {
+        const response = { tab: { id: "b1" }, endpoint: "http://localhost:1234/cdp/b1" };
+        const requests = startDevServerApi(201, response);
+        const result = await runBin(
+            ["browser", "open", "https://example.com/docs", "--label", 'Docs "guide"'],
+            owner,
+        );
+        expect(result.status).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual(response);
+        expect(requests).toEqual([
+            {
+                method: "POST",
+                path: "/api/browser/tabs",
+                body: JSON.stringify({ url: "https://example.com/docs", label: 'Docs "guide"' }),
+                task: "task-1",
+                project: "project-1",
+                session: "session-1",
+            },
+        ]);
+    });
+
+    for (const scope of ["project", "master"]) {
+        it(`browser open --${scope} sends scope ${scope}`, async () => {
+            const requests = startDevServerApi();
+            const result = await runBin(
+                ["browser", "open", "https://example.com", `--${scope}`],
+                owner,
+            );
+            expect(result.status).toBe(0);
+            expect(requests[0]?.method).toBe("POST");
+            expect(requests[0]?.path).toBe("/api/browser/tabs");
+            expect(JSON.parse(requests[0].body)).toEqual({ url: "https://example.com", scope });
+        });
+    }
+
+    it("browser <url> (old form) posts like open", async () => {
+        const requests = startDevServerApi();
+        const result = await runBin(
+            ["browser", "https://example.com", "--label", "Docs", "--project"],
+            owner,
+        );
+        expect(result.status).toBe(0);
+        expect(requests[0]?.method).toBe("POST");
+        expect(requests[0]?.path).toBe("/api/browser/tabs");
+        expect(JSON.parse(requests[0].body)).toEqual({
+            url: "https://example.com",
+            label: "Docs",
+            scope: "project",
+        });
+    });
+
+    for (const [name, args, method, path] of [
+        ["browser list GETs /api/browser/tabs", ["browser", "list"], "GET", "/api/browser/tabs"],
+        [
+            "browser list --project adds ?scope=project",
+            ["browser", "list", "--project"],
+            "GET",
+            "/api/browser/tabs?scope=project",
+        ],
+        [
+            "browser list --master adds ?scope=master",
+            ["browser", "list", "--master"],
+            "GET",
+            "/api/browser/tabs?scope=master",
+        ],
+        [
+            "browser close <id> sends DELETE to /api/browser/tabs/<id>",
+            ["browser", "close", "b1"],
+            "DELETE",
+            "/api/browser/tabs/b1",
+        ],
+    ] as const) {
+        it(name, async () => {
+            const requests = startDevServerApi(200, { success: true });
+            const result = await runBin([...args], owner);
+            expect(result.status).toBe(0);
+            expect(JSON.parse(result.stdout)).toEqual({ success: true });
+            expect(requests).toEqual([
+                {
+                    method,
+                    path,
+                    body: "",
+                    task: "task-1",
+                    project: "project-1",
+                    session: "session-1",
+                },
+            ]);
+        });
+    }
+
+    for (const [name, args] of [
+        ["browser with no args prints usage and exits 1", ["browser"]],
+        ["browser open without URL prints usage and exits 1", ["browser", "open"]],
+        ["browser close without id prints usage and exits 1", ["browser", "close"]],
+        [
+            "browser open --label without text prints usage and exits 1",
+            ["browser", "open", "https://example.com", "--label"],
+        ],
+    ] as const) {
+        it(name, async () => {
+            const requests = startDevServerApi();
+            const result = await runBin([...args], owner);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain(
+                "Usage: taskflow-cli browser open <url> [--label <label>] [--project|--master] | list [--project|--master] | close <tabId>",
+            );
+            expect(requests).toEqual([]);
+        });
+    }
+
+    it("browser open on a 503 exits 1 and the output carries the exact unavailable message", async () => {
+        const message =
+            "Browser not available on this machine: the Taskflow desktop app must be running here";
+        startDevServerApi(503, { error: message });
+        const result = await runBin(["browser", "open", "https://example.com"], owner);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(
+            `Error: POST /api/browser/tabs returned 503: ${JSON.stringify({ error: message })}`,
+        );
+    });
+});

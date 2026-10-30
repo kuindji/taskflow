@@ -72,6 +72,22 @@ describe("internal agent skill", () => {
         }
     });
 
+    it("PROMPT_BASE contains the exact browser nudge", () => {
+        const nudge =
+            'For any browser work (research, forms, testing a site), don\'t launch your own Chrome. Open a tab with `taskflow-cli browser open "<url>" --label "<what>"` and connect to the CDP endpoint it prints (Playwright: `chromium.connectOverCDP(endpoint)`). Run `taskflow-cli browser list` to find your tabs again.';
+        for (const prompt of [
+            buildSystemPrompt(false),
+            buildSystemPrompt(true),
+            buildSystemPrompt(false, true),
+            buildSystemPrompt(false, false, false),
+        ]) {
+            expect(prompt).toContain(nudge);
+            expect(prompt.indexOf(nudge)).toBeGreaterThan(
+                prompt.indexOf("When you start a dev server"),
+            );
+        }
+    });
+
     it("gives OpenCode the Taskflow prompt file before the skill", () => {
         const skillPath = "/tmp/ignored/SKILL.md";
         for (const prompt of ["Do it", undefined]) {
@@ -543,6 +559,15 @@ describe("internal agent skill files", () => {
         const skill = await readFile(skillPath, "utf8");
         expect(skill).toContain(docPath);
         expect(skill).not.toContain("taskflow-cli devserver add");
+    });
+
+    it("writes the browser doc with connectOverCDP guidance", async () => {
+        const baseDir = await mkdtemp(join(tmpdir(), "taskflow-skill-test-"));
+        tempDirs.push(baseDir);
+        const skillPath = await ensureInternalAgentSkillFile(baseDir);
+        const docPath = join(dirname(skillPath), "taskflow-cli-browser-commands.md");
+        expect(await readFile(docPath, "utf8")).toContain("connectOverCDP");
+        expect(await readFile(skillPath, "utf8")).toContain(docPath);
     });
 
     it("writes the Taskflow prompt file that OpenCode loads", async () => {

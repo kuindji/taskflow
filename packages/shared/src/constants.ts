@@ -184,7 +184,6 @@ export const MSG = {
     SCHEDULE_UPDATED: "schedule:updated",
 
     // Browser
-    BROWSER_OPEN: "browser:open",
     BROWSER_TABS_LIST: "browser:tabs:list",
     BROWSER_TAB_OPEN: "browser:tab:open",
     BROWSER_TAB_CLOSE: "browser:tab:close",

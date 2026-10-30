@@ -285,50 +285,59 @@ case "$cmd" in
     ;;
 
   browser)
-    url="${1:-}"
-    if [ -z "$url" ]; then
-      echo "Usage: taskflow-cli browser <url> [--label <label>] [--project]" >&2
+    browser_usage() {
+      echo "Usage: taskflow-cli browser open <url> [--label <label>] [--project|--master] | list [--project|--master] | close <tabId>" >&2
       exit 1
-    fi
-    shift
-
-    label=""
-    project=false
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --label) label="${2:-}"; shift 2 ;;
-        --project) project=true; shift ;;
-        *) shift ;;
-      esac
-    done
-
-    if [ "$project" = true ]; then
-      if [ -z "$TASKFLOW_PROJECT_ID" ]; then
-        echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
-        exit 1
-      fi
-      endpoint="$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/browser"
-    else
-      if [ -z "$TASKFLOW_TASK_ID" ]; then
-        echo "Error: TASKFLOW_TASK_ID is not set" >&2
-        exit 1
-      fi
-      endpoint="$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/browser"
-    fi
-
-    if [ -n "$label" ]; then
-      payload=$(printf '{"url":%s,"label":%s}' \
-        "$(json_string "$url")" \
-        "$(json_string "$label")")
-      curl -sf -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -d "$payload"
-    else
-      payload=$(printf '{"url":%s}' "$(json_string "$url")")
-      curl -sf -X POST "$endpoint" \
-        -H "Content-Type: application/json" \
-        -d "$payload"
-    fi
+    }
+    subcmd="${1:-}"
+    [ -n "$subcmd" ] || browser_usage
+    case "$subcmd" in
+      close)
+        shift
+        [ $# -eq 1 ] && [ -n "$1" ] || browser_usage
+        api_request DELETE "$TASKFLOW_API_URL/api/browser/tabs/$1"
+        ;;
+      *)
+        if [ "$subcmd" = list ]; then
+          method=GET
+          shift
+        else
+          method=POST
+          if [ "$subcmd" = open ]; then shift; fi
+          url="${1:-}"
+          case "$url" in ""|-*) browser_usage ;; esac
+          shift
+        fi
+        label=""
+        scope=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --label)
+              [ "$method" = POST ] && [ $# -ge 2 ] && [ -n "$2" ] || browser_usage
+              label="$2"
+              shift 2
+              ;;
+            --project|--master)
+              next_scope="${1#--}"
+              [ -z "$scope" ] || [ "$scope" = "$next_scope" ] || browser_usage
+              scope="$next_scope"
+              shift
+              ;;
+            *) browser_usage ;;
+          esac
+        done
+        endpoint="$TASKFLOW_API_URL/api/browser/tabs"
+        if [ "$method" = GET ]; then
+          if [ -n "$scope" ]; then endpoint="$endpoint?scope=$scope"; fi
+          api_request GET "$endpoint"
+        else
+          payload=$(printf '{"url":%s' "$(json_string "$url")")
+          if [ -n "$label" ]; then payload="$payload,\"label\":$(json_string "$label")"; fi
+          if [ -n "$scope" ]; then payload="$payload,\"scope\":$(json_string "$scope")"; fi
+          api_request POST "$endpoint" "$payload}"
+        fi
+        ;;
+    esac
     ;;
 
   action)

@@ -1,5 +1,5 @@
 import { DISCOVERY_MAX_DISPLAY_NAME, MSG, PROTOCOL_VERSION, isAgentType } from "@taskflow/shared";
-import type { BrowserOpenPayload, NetworkSettings, SystemClientsEvent } from "@taskflow/shared";
+import type { NetworkSettings, SystemClientsEvent } from "@taskflow/shared";
 import { createAdvertiser } from "@taskflow/shared/discovery";
 import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
@@ -445,12 +445,6 @@ async function main() {
             editors,
             generateScheduleName,
             remoteAgentService,
-        });
-
-        router.register(MSG.BROWSER_OPEN, async (payload) => {
-            const typed = payload as BrowserOpenPayload;
-            server.broadcast({ type: MSG.BROWSER_OPEN, payload: typed });
-            return { success: true };
         });
 
         registerSystemHandlers({

@@ -35,29 +35,6 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         browserTabService,
     } = deps;
 
-    apiRouter.register("POST", "/api/projects/:projectId/browser", async (req, params) => {
-        let body: Record<string, unknown>;
-        try {
-            body = (await req.json()) as Record<string, unknown>;
-        } catch {
-            return errorResponse("Invalid JSON body", 400);
-        }
-
-        const url = body.url;
-        if (typeof url !== "string" || !url.trim()) {
-            return errorResponse('Field "url" is required and must be a non-empty string', 400);
-        }
-
-        const label = typeof body.label === "string" ? body.label : undefined;
-
-        broadcast({
-            type: MSG.BROWSER_OPEN,
-            payload: { projectId: params.projectId, url, label },
-        });
-
-        return jsonResponse({ success: true });
-    });
-
     apiRouter.register("GET", "/api/projects", async () => {
         const projects = await taskStore.listProjects();
         return jsonResponse({

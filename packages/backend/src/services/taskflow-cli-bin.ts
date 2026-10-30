@@ -438,24 +438,55 @@ async function handleLog(args: string[]): Promise<void> {
 }
 
 async function handleBrowser(args: string[]): Promise<void> {
-    const url = args[0] ?? "";
-    if (!url) {
-        process.stderr.write("Usage: taskflow-cli browser <url> [--label <label>] [--project]\n");
+    function usage(): never {
+        process.stderr.write(
+            "Usage: taskflow-cli browser open <url> [--label <label>] [--project|--master] | list [--project|--master] | close <tabId>\n",
+        );
         process.exit(1);
     }
-    const { flags } = parseFlags(args.slice(1), { label: "string", project: "boolean" });
+    const subcmd = args[0] ?? "";
+    if (!subcmd) usage();
+    if (subcmd === "close") {
+        const id = args[1];
+        if (args.length !== 2 || !id) usage();
+        process.stdout.write(
+            await api("DELETE", `/api/browser/tabs/${id}`, undefined, contextHeaders()),
+        );
+        return;
+    }
+
+    const list = subcmd === "list";
+    const rest = subcmd === "open" || list ? args.slice(1) : args;
+    const url = list ? undefined : rest.shift();
+    if (!list && (!url || url.startsWith("-"))) usage();
+    const { flags, positional, unknown } = consumeFlags(rest, {
+        project: "boolean",
+        master: "boolean",
+        ...(!list ? { label: "string" as const } : {}),
+    });
+    if (
+        unknown.length ||
+        positional.length ||
+        (flags.project && flags.master) ||
+        flags.label === ""
+    )
+        usage();
+    const scope = flags.project ? "project" : flags.master ? "master" : undefined;
+    if (list) {
+        process.stdout.write(
+            await api(
+                "GET",
+                `/api/browser/tabs${scope ? `?scope=${scope}` : ""}`,
+                undefined,
+                contextHeaders(),
+            ),
+        );
+        return;
+    }
     const body: Record<string, unknown> = { url };
     if (flags.label) body.label = flags.label;
-
-    let endpoint: string;
-    if (flags.project) {
-        requireProjectId();
-        endpoint = `/api/projects/${projectId}/browser`;
-    } else {
-        requireTaskId();
-        endpoint = `/api/tasks/${taskId}/browser`;
-    }
-    process.stdout.write(await api("POST", endpoint, body));
+    if (scope) body.scope = scope;
+    process.stdout.write(await api("POST", "/api/browser/tabs", body, contextHeaders()));
 }
 
 async function handleAction(args: string[]): Promise<void> {

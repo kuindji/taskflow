@@ -560,15 +560,6 @@ export interface AgentCommandsListResponse {
     commands: AgentCommand[];
 }
 
-// Browser messages
-export interface BrowserOpenPayload {
-    taskId?: string;
-    projectId?: string;
-    master?: boolean;
-    url: string;
-    label?: string;
-}
-
 export interface MasterSessionsListResponse {
     sessions: SessionRef[];
 }

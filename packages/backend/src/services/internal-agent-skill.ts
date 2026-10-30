@@ -56,7 +56,9 @@ Flow is a set of Actions executed one after another.
 Session is a cli process running an agent.
 Schedule is a recurring cli process running an agent.
 
-When you start a dev server or another long-running process the user is meant to open or use (dev or preview servers, Storybook, local API servers), register it as soon as it's running: \`taskflow-cli devserver add --pid <pid> --label "<what> :<port>"\`. If you stop a server you registered, run \`taskflow-cli devserver remove --pid <pid>\`.`;
+When you start a dev server or another long-running process the user is meant to open or use (dev or preview servers, Storybook, local API servers), register it as soon as it's running: \`taskflow-cli devserver add --pid <pid> --label "<what> :<port>"\`. If you stop a server you registered, run \`taskflow-cli devserver remove --pid <pid>\`.
+
+For any browser work (research, forms, testing a site), don't launch your own Chrome. Open a tab with \`taskflow-cli browser open "<url>" --label "<what>"\` and connect to the CDP endpoint it prints (Playwright: \`chromium.connectOverCDP(endpoint)\`). Run \`taskflow-cli browser list\` to find your tabs again.`;
 
 const PROMPT_TASK_SCOPE = `
 This session is scoped to a specific task.

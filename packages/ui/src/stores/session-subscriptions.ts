@@ -1,5 +1,4 @@
 import type {
-    BrowserOpenPayload,
     MasterSessionsListResponse,
     SessionStatusEvent,
     TerminalOutputEvent,
@@ -172,27 +171,6 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
         store.setState({ sessionStatus: remaining });
     });
 
-    // Listen for browser:open events from backend (e.g., agent API calls).
-    const _unsubBrowserOpen = onEvent(MSG.BROWSER_OPEN, (payload, backendId) => {
-        if (!payload || typeof payload !== "object" || !("url" in payload)) return;
-        const { taskId, projectId, url, label } = payload as BrowserOpenPayload;
-        // Task and project ids are UUIDs; "master" is one key, and primary's.
-        const workspaceKey = taskId
-            ? getTaskWorkspaceKey(taskId)
-            : projectId
-              ? getProjectWorkspaceKey(projectId)
-              : (payload as BrowserOpenPayload).master && backendId === getPrimary()
-                ? "master"
-                : null;
-        if (!workspaceKey) return;
-        store.getState().addTab(workspaceKey, {
-            id: crypto.randomUUID(),
-            type: "browser",
-            label: label ?? "Browser",
-            url,
-        });
-    });
-
     const _unsubBrowserTabs = useBrowserTabStore.subscribe((state, previous) => {
         for (const backendId of new Set([
             ...Object.keys(previous.byBackend),
@@ -311,7 +289,6 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
             _unsubTerminalOutput();
             _unsubSessionStatus();
             _unsubSessionExited();
-            _unsubBrowserOpen();
             _unsubBrowserTabs();
             _unsubMasterSessions();
             _unsubActiveTask();
