@@ -225,7 +225,15 @@ function ActionEditor({
                     {sessionType !== "shell" &&
                         (isAgentType(sessionType) ? (
                             <div className="border-border rounded-md border p-3">
+                                {sessionType === "codex" && !projectId && (
+                                    <p className="text-muted-foreground mb-2 text-xs">
+                                        Models for the default account; launch may inherit a project
+                                        account
+                                    </p>
+                                )}
                                 <AgentOptionsPanel
+                                    backendId={backendId ?? undefined}
+                                    projectId={projectId}
                                     key={`${action?.id ?? "new-action"}-${sessionType}-${resetCounter}`}
                                     agentType={sessionType}
                                     value={agentOptions}

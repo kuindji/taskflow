@@ -20,6 +20,8 @@ import { ChevronUp, ChevronDown, X, Plus } from "lucide-react";
 import { InlineActionEditor } from "./InlineActionEditor";
 
 interface FlowActionListProps {
+    backendId?: string;
+    projectId?: string;
     actions: FlowActionEntry[];
     globalActions: ActionDefinition[];
     libraryActions: ActionDefinition[];
@@ -59,6 +61,8 @@ function getActionType(entry: FlowActionEntry, globalActions: ActionDefinition[]
 }
 
 function FlowActionList({
+    backendId,
+    projectId,
     actions,
     globalActions,
     libraryActions,
@@ -167,6 +171,8 @@ function FlowActionList({
 
                         {"inline" in entry && entry.inline && (
                             <InlineActionEditor
+                                backendId={backendId}
+                                projectId={projectId}
                                 entryId={entry.id}
                                 inline={entry.inline}
                                 onUpdate={onUpdateInline}

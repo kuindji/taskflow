@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import type { AccountAgentType, AgentAccount } from "@taskflow/shared";
+import {
+    DEFAULT_AGENT_ACCOUNT_ID,
+    type CodexAccountStatus,
+    type AccountAgentType,
+    type AgentAccount,
+} from "@taskflow/shared";
+import { loadCodexDiscovery } from "@/lib/agent-discovery";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
 
 interface AgentAccountsSectionProps {
+    backendId?: string | null;
+    loadDiscovery?: typeof loadCodexDiscovery;
     agent: AccountAgentType;
     /** Saved accounts; local draft rows are kept until they are complete. */
     accounts: AgentAccount[];
@@ -20,8 +28,49 @@ const HOME_DIR_PLACEHOLDERS: Record<AccountAgentType, string> = {
     codex: "/Users/you/.codex-work",
 };
 
+function CodexAccountDiagnostic({
+    backendId,
+    account,
+    loadDiscovery,
+}: {
+    backendId?: string | null;
+    account: string;
+    loadDiscovery: typeof loadCodexDiscovery;
+}) {
+    const [status, setStatus] = useState<CodexAccountStatus | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        if (!backendId) {
+            setStatus({ state: "unknown" });
+            return;
+        }
+        loadDiscovery(backendId, { account }).then(
+            (response) => {
+                if (!cancelled) setStatus(response.account);
+            },
+            () => {
+                if (!cancelled) setStatus({ state: "unknown" });
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [backendId, account, loadDiscovery]);
+    const text =
+        status === null
+            ? "Checking sign-in..."
+            : status.state === "signed-in"
+              ? `signed in as ${status.label}`
+              : status.state === "signed-out"
+                ? "not signed in"
+                : "Sign-in status unavailable";
+    return <span className="text-muted-foreground text-xs">{text}</span>;
+}
+
 function AgentAccountsSection({
     agent,
+    backendId,
+    loadDiscovery = loadCodexDiscovery,
     accounts,
     defaultAccount,
     onUpdate,
@@ -137,6 +186,17 @@ function AgentAccountsSection({
                 value={defaultAccount}
                 onChange={handleDefaultAccount}
             />
+            {agent === "codex" && (
+                <div className="flex items-center gap-2 text-[13px]">
+                    <span>Default account</span>
+                    <CodexAccountDiagnostic
+                        key={JSON.stringify([backendId, DEFAULT_AGENT_ACCOUNT_ID])}
+                        backendId={backendId}
+                        account={DEFAULT_AGENT_ACCOUNT_ID}
+                        loadDiscovery={loadDiscovery}
+                    />
+                </div>
+            )}
             {drafts.map((account) => {
                 const isDefault = account.id === defaultAccount;
                 return (
@@ -161,6 +221,18 @@ function AgentAccountsSection({
                             onChange={(e) => handleField(account.id, "homeDir", e.target.value)}
                             onBlur={() => handleBlur(account.id)}
                         />
+                        {agent === "codex" && accounts.some((saved) => saved.id === account.id) && (
+                            <CodexAccountDiagnostic
+                                key={JSON.stringify([
+                                    backendId,
+                                    account.id,
+                                    accounts.find((saved) => saved.id === account.id)?.homeDir,
+                                ])}
+                                backendId={backendId}
+                                account={account.id}
+                                loadDiscovery={loadDiscovery}
+                            />
+                        )}
                         {hasPicker && (
                             <Button
                                 variant="outline"

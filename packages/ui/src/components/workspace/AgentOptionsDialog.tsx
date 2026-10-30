@@ -6,6 +6,7 @@ interface AgentOptionsDialogProps {
     open: boolean;
     /** The machine that will run the agent. */
     backendId?: string;
+    projectId?: string;
     title: string;
     agentType: AgentType | null;
     onOpenChange: (open: boolean) => void;
@@ -15,6 +16,7 @@ interface AgentOptionsDialogProps {
 function AgentOptionsDialog({
     open,
     backendId,
+    projectId,
     title,
     agentType,
     onOpenChange,
@@ -30,6 +32,7 @@ function AgentOptionsDialog({
                     <AgentOptionsPanel
                         key={agentType}
                         backendId={backendId}
+                        projectId={projectId}
                         agentType={agentType}
                         onRun={(options) => {
                             onRun(agentType, options);

@@ -219,3 +219,135 @@ test("a rejected update shows the backend's message", async () => {
 
     expect(text()).toContain("bad path");
 });
+
+function discoveryMount(
+    agent: "codex" | "claude",
+    accounts: AgentAccount[],
+    loadDiscovery: (
+        backend: string,
+        payload: import("@taskflow/shared").CodexModelsPayload,
+    ) => Promise<import("@taskflow/shared").CodexModelsResponse>,
+) {
+    if (!root) {
+        container = document.createElement("div");
+        document.body.appendChild(container);
+        root = createRoot(container);
+    }
+    const target = root;
+    act(() =>
+        target.render(
+            <AgentAccountsSection
+                agent={agent}
+                backendId="remote"
+                accounts={accounts}
+                defaultAccount="default"
+                onUpdate={onUpdate}
+                loadDiscovery={loadDiscovery}
+            />,
+        ),
+    );
+}
+
+async function settleDiscovery() {
+    await act(async () => {
+        await Promise.resolve();
+    });
+}
+
+test("each saved Codex account and built-in default shows its own sign-in status", async () => {
+    const calls: string[] = [];
+    discoveryMount("codex", [a1, a2], async (backend, payload) => {
+        expect(backend).toBe("remote");
+        calls.push(payload.account ?? "inherit");
+        return {
+            models: [],
+            account:
+                payload.account === "a1"
+                    ? { state: "signed-in", label: "person@example.com" }
+                    : payload.account === "a2"
+                      ? { state: "signed-out" }
+                      : { state: "signed-in", label: "API key" },
+        };
+    });
+    expect(text()).toContain("Checking sign-in...");
+    await settleDiscovery();
+    expect(calls.sort()).toEqual(["a1", "a2", "default"]);
+    expect(text()).toContain("Default account");
+    expect(text()).toContain("signed in as API key");
+    expect(text()).toContain("signed in as person@example.com");
+    expect(text()).toContain("not signed in");
+});
+
+test("a failed account probe shows Sign-in status unavailable", async () => {
+    discoveryMount("codex", [a1], async () => {
+        throw new Error("offline");
+    });
+    await settleDiscovery();
+    expect(text()).toContain("Sign-in status unavailable");
+    expect(text()).not.toContain("not signed in");
+});
+
+test("incomplete account drafts are not probed before save", async () => {
+    const calls: string[] = [];
+    const load = async (
+        _backend: string,
+        payload: import("@taskflow/shared").CodexModelsPayload,
+    ): Promise<import("@taskflow/shared").CodexModelsResponse> => {
+        calls.push(payload.account ?? "inherit");
+        return { models: [], account: { state: "unknown" } };
+    };
+    discoveryMount("codex", [], load);
+    await settleDiscovery();
+    click(addButton());
+    typeInto("codex-account-home-new-id", "/new");
+    expect(calls).toEqual(["default"]);
+    blur("codex-account-home-new-id");
+    await settleDiscovery();
+    expect(calls).toEqual(["default"]);
+    const saved = patches[0].accounts;
+    if (!saved) throw new Error("missing saved accounts");
+    discoveryMount("codex", saved, load);
+    await settleDiscovery();
+    expect(calls).toEqual(["default", "new-id"]);
+});
+
+test("Claude account editing does not start a Codex probe", async () => {
+    let calls = 0;
+    discoveryMount("claude", [a1], async () => {
+        calls++;
+        return { models: [], account: { state: "unknown" } };
+    });
+    typeInto("claude-account-home-a1", "/changed");
+    blur("claude-account-home-a1");
+    await settleDiscovery();
+    expect(calls).toBe(0);
+    expect(text()).not.toContain("Checking sign-in...");
+});
+
+test("changing a saved Codex home refetches its models and diagnostics", async () => {
+    let calls = 0;
+    const replies: ((value: import("@taskflow/shared").CodexModelsResponse) => void)[] = [];
+    const load = (
+        _backend: string,
+        payload: import("@taskflow/shared").CodexModelsPayload,
+    ): Promise<import("@taskflow/shared").CodexModelsResponse> => {
+        if (payload.account === "default")
+            return Promise.resolve({ models: [], account: { state: "unknown" } });
+        calls++;
+        return new Promise((resolve) => replies.push(resolve));
+    };
+    discoveryMount("codex", [a1], load);
+    typeInto("codex-account-home-a1", "/changed");
+    blur("codex-account-home-a1");
+    expect(calls).toBe(1);
+    discoveryMount("codex", [{ ...a1, homeDir: "/changed" }], load);
+    expect(calls).toBe(2);
+    await act(async () =>
+        replies[1]({ models: [], account: { state: "signed-in", label: "new" } }),
+    );
+    await act(async () =>
+        replies[0]({ models: [], account: { state: "signed-in", label: "old" } }),
+    );
+    expect(text()).toContain("signed in as new");
+    expect(text()).not.toContain("signed in as old");
+});

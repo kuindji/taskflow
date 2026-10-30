@@ -59,6 +59,8 @@ describe("store reset registry", () => {
             "src/lib/wiki/open-in-obsidian.ts",
             // One open request per call; the tab arrives through browser-tab-store.
             "src/lib/hosted-browser.ts",
+            // Uncached discovery per account/project context; components hold the answer.
+            "src/lib/agent-discovery.ts",
             // Component state only, refetched on mount.
             "src/hooks/useRemoteAgentStatus.ts",
             // Component state only; requests carry the row's machine.

@@ -13,6 +13,8 @@ import {
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 
 interface InlineActionEditorProps {
+    backendId?: string;
+    projectId?: string;
     entryId: string;
     inline: ActionInline;
     onUpdate: (
@@ -28,6 +30,8 @@ interface InlineActionEditorProps {
 }
 
 function InlineActionEditor({
+    backendId,
+    projectId,
     entryId,
     inline,
     onUpdate,
@@ -77,7 +81,14 @@ function InlineActionEditor({
             {inline.sessionType !== "shell" &&
                 (isAgentType(inline.sessionType) ? (
                     <div className="border-border rounded-md border p-1">
+                        {inline.sessionType === "codex" && !projectId && (
+                            <p className="text-muted-foreground mb-2 text-xs">
+                                Models for the default account; launch may inherit a project account
+                            </p>
+                        )}
                         <AgentOptionsPanel
+                            backendId={backendId}
+                            projectId={projectId}
                             key={`${entryId}-${inline.sessionType}-${resetCounter}`}
                             agentType={inline.sessionType}
                             value={inline.agentOptions}

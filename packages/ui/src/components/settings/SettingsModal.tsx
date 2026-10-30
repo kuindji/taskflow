@@ -558,6 +558,11 @@ function SettingsModal() {
                         {section === "codex" && (
                             <div className="flex flex-col gap-3 p-3">
                                 <CodexSection
+                                    defaultAccount={settings.codex.defaultAccount}
+                                    discoveryKey={JSON.stringify([
+                                        settings.codex.accounts,
+                                        settings.codex.defaultAccount,
+                                    ])}
                                     defaultModel={settings.codex.defaultModel}
                                     defaultReasoningEffort={settings.codex.defaultReasoningEffort}
                                     sandbox={settings.codex.sandbox}
@@ -575,6 +580,7 @@ function SettingsModal() {
                                 />
                                 <AgentAccountsSection
                                     agent="codex"
+                                    backendId={primaryId}
                                     accounts={settings.codex.accounts}
                                     defaultAccount={settings.codex.defaultAccount}
                                     onUpdate={handleCodexAccounts}

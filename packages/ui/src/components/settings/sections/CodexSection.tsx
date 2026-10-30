@@ -1,8 +1,12 @@
+import { loadCodexDiscovery } from "@/lib/agent-discovery";
 import { CodexOptions } from "@/components/shared/CodexOptions";
 import { useBackendStore } from "@/stores/backend-store";
 import type { CodexApprovalPolicy, CodexReasoningEffort, CodexSandboxMode } from "@taskflow/shared";
 
 interface CodexSectionProps {
+    defaultAccount: string;
+    discoveryKey: string;
+    loadDiscovery?: typeof loadCodexDiscovery;
     defaultModel: string;
     defaultReasoningEffort: CodexReasoningEffort | "default";
     sandbox: CodexSandboxMode;
@@ -16,6 +20,9 @@ interface CodexSectionProps {
 }
 
 function CodexSection({
+    defaultAccount,
+    discoveryKey,
+    loadDiscovery,
     defaultModel,
     defaultReasoningEffort,
     sandbox,
@@ -33,6 +40,9 @@ function CodexSection({
         <CodexOptions
             mode="defaults"
             backendId={primaryId}
+            account={defaultAccount}
+            discoveryKey={discoveryKey}
+            loadDiscovery={loadDiscovery}
             modelValue={defaultModel}
             reasoningEffort={defaultReasoningEffort}
             sandbox={sandbox}

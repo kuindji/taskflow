@@ -385,6 +385,7 @@ export function NewTaskDialog({
                             <CollapsibleContent>
                                 <div className="border-border mt-1.5 rounded-md border p-3">
                                     <AgentOptionsPanel
+                                        projectId={projectId}
                                         backendId={
                                             projects.find((p) => p.id === projectId)?.backendId
                                         }

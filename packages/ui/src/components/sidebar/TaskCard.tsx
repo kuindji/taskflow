@@ -474,6 +474,7 @@ export function TaskCard({
             <AgentOptionsDialog
                 open={runMenu.runOptionsAgent !== null}
                 backendId={task.backendId}
+                projectId={task.projectId}
                 title={
                     runMenu.runOptionsAgent
                         ? `Run ${AGENT_DISPLAY_NAMES[runMenu.runOptionsAgent]} with options`

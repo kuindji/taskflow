@@ -16,6 +16,7 @@ import {
     type ShellListResponse,
 } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
+import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 import { Button } from "@/components/ui/button";
@@ -108,6 +109,7 @@ function AgentDropdownMenu({
     const [runOptionsContext, setRunOptionsContext] = useState<"newTab" | "runTab" | null>(null);
     // Agents and shells are the workspace machine's: that is where the tab runs.
     const backendId = useWorkspaceBackend();
+    const { project } = useActiveWorkspace();
     const agents = useAgentAvailability(backendId);
     const online = useConnectivity();
     const configuredShell = useSettingsStore(
@@ -485,6 +487,7 @@ function AgentDropdownMenu({
                     </DropdownMenu>
                 ))}
             <AgentOptionsDialog
+                projectId={project?.id}
                 backendId={backendId ?? undefined}
                 open={runOptionsAgent !== null}
                 title={

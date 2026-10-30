@@ -1,34 +1,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
-import { MSG } from "@taskflow/shared";
-import type { CodexModelInfo, CodexModelsResponse } from "@taskflow/shared";
+import { INHERIT_AGENT_ACCOUNT } from "@taskflow/shared";
+import type { CodexModelInfo } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { sendRequest } from "@/lib/connection-registry";
-import { createPerBackendCache } from "@/lib/per-backend-cache";
+import { loadCodexDiscovery } from "@/lib/agent-discovery";
 
 interface CodexModelSelectProps {
     /** The machine whose Codex CLI lists the models; null before one is known. */
     backendId: string | null;
+    account?: string;
+    projectId?: string;
+    discoveryKey?: string;
+    loadDiscovery?: typeof loadCodexDiscovery;
     value: string;
     onChange: (model: string) => void;
     onModelsChange: (models: CodexModelInfo[]) => void;
 }
 
-const codexModelCache = createPerBackendCache(
-    (backendId) =>
-        sendRequest<CodexModelsResponse>(backendId, MSG.CODEX_MODELS, {}).then(
-            (response) => response.models,
-        ),
-    "codex-model-cache",
-);
-
-function CodexModelSelect({ backendId, value, onChange, onModelsChange }: CodexModelSelectProps) {
-    const [open, setOpen] = useState(false);
-    const [models, setModels] = useState<CodexModelInfo[] | null>(() =>
-        backendId ? codexModelCache.peek(backendId) : null,
+function CodexModelSelect(props: CodexModelSelectProps) {
+    return (
+        <CodexModelSelectContext
+            key={JSON.stringify([
+                props.backendId,
+                props.account,
+                props.projectId,
+                props.discoveryKey,
+            ])}
+            {...props}
+        />
     );
+}
+
+function CodexModelSelectContext({
+    backendId,
+    account,
+    projectId,
+    discoveryKey,
+    loadDiscovery = loadCodexDiscovery,
+    value,
+    onChange,
+    onModelsChange,
+}: CodexModelSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [models, setModels] = useState<CodexModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
     const [fetchFailed, setFetchFailed] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
@@ -36,19 +52,19 @@ function CodexModelSelect({ backendId, value, onChange, onModelsChange }: CodexM
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (!backendId) {
-            setFetchFailed(true);
-            return;
-        }
         let cancelled = false;
-        setFetchFailed(false);
-        setModels(codexModelCache.peek(backendId));
-        codexModelCache
-            .get(backendId)
-            .then((nextModels) => {
+        setModels(null);
+        onModelsChange([]);
+        setFetchFailed(!backendId);
+        if (!backendId) return;
+        loadDiscovery(backendId, {
+            ...(account && account !== INHERIT_AGENT_ACCOUNT ? { account } : {}),
+            ...(projectId ? { projectId } : {}),
+        })
+            .then((response) => {
                 if (cancelled) return;
-                setModels(nextModels);
-                onModelsChange(nextModels);
+                setModels(response.models);
+                onModelsChange(response.models);
             })
             .catch(() => {
                 if (!cancelled) setFetchFailed(true);
@@ -56,7 +72,7 @@ function CodexModelSelect({ backendId, value, onChange, onModelsChange }: CodexM
         return () => {
             cancelled = true;
         };
-    }, [backendId, onModelsChange]);
+    }, [backendId, account, projectId, discoveryKey, loadDiscovery, onModelsChange]);
 
     useEffect(() => {
         setPortalContainer(

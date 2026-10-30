@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
 import { useBackendStore } from "@/stores/backend-store";
+import { loadCodexDiscovery } from "@/lib/agent-discovery";
+import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { CodexOptions } from "@/components/shared/CodexOptions";
@@ -30,6 +32,8 @@ interface AgentOptionsPanelProps {
      * Omitted where the options are saved rather than launched: primary's.
      */
     backendId?: string;
+    projectId?: string;
+    loadDiscovery?: typeof loadCodexDiscovery;
     agentType: AgentType;
     value?: AgentLaunchOptions;
     emitOnMount?: boolean;
@@ -47,6 +51,8 @@ interface AgentOptionsPanelProps {
 
 function AgentOptionsPanel({
     backendId,
+    projectId,
+    loadDiscovery,
     agentType,
     value,
     emitOnMount = false,
@@ -55,9 +61,22 @@ function AgentOptionsPanel({
     onChange,
     onReset,
 }: AgentOptionsPanelProps) {
+    const primaryId = useBackendStore((s) => s.primaryId);
+    const agentBackendId = backendId ?? primaryId;
     const settings = useSettingsStore((s) =>
         backendId ? (s.byBackend[backendId] ?? null) : s.settings,
     );
+    const projectAccount = useProjectStore(
+        (s) =>
+            s.projects.find(
+                (project) => project.backendId === agentBackendId && project.id === projectId,
+            )?.agentAccounts?.codex,
+    );
+    const discoveryKey = JSON.stringify([
+        settings?.codex.accounts,
+        settings?.codex.defaultAccount,
+        projectAccount,
+    ]);
     // Headless runs don't use the machine's session defaults.
     const defaults = headless ? null : settings;
     const claudeSettings = defaults?.claude;
@@ -65,8 +84,6 @@ function AgentOptionsPanel({
     const opencodeSettings = defaults?.opencode;
     const piSettings = defaults?.pi;
     const kimiSettings = defaults?.kimi;
-    const primaryId = useBackendStore((s) => s.primaryId);
-    const agentBackendId = backendId ?? primaryId;
     const agents = useAgentAvailability(agentBackendId);
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
@@ -361,6 +378,11 @@ function AgentOptionsPanel({
             ) : agentType === "codex" ? (
                 <>
                     <CodexOptions
+                        key={JSON.stringify([agentBackendId, account, projectId, discoveryKey])}
+                        account={account === INHERIT_AGENT_ACCOUNT ? undefined : account}
+                        projectId={projectId}
+                        discoveryKey={discoveryKey}
+                        loadDiscovery={loadDiscovery}
                         headless={headless}
                         backendId={agentBackendId}
                         modelValue={model}

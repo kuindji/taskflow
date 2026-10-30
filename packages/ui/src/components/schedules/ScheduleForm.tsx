@@ -416,6 +416,7 @@ function ScheduleForm({
                         <AgentOptionsPanel
                             key={`${schedule?.id ?? "new"}-${agentType}-${resetCounter}`}
                             backendId={projectBackendId}
+                            projectId={projectId}
                             agentType={agentType}
                             value={agentOptions}
                             emitOnMount

@@ -6,6 +6,7 @@ import {
     type CodexReasoningEffort,
     type CodexSandboxMode,
 } from "@taskflow/shared";
+import { loadCodexDiscovery } from "@/lib/agent-discovery";
 import { CodexModelSelect } from "@/components/settings/CodexModelSelect";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
 import { Label } from "@/components/ui/label";
@@ -21,6 +22,10 @@ import { Switch } from "@/components/ui/switch";
 interface CodexOptionsProps {
     /** The machine whose Codex CLI lists the models. */
     backendId: string | null;
+    account?: string;
+    projectId?: string;
+    discoveryKey?: string;
+    loadDiscovery?: typeof loadCodexDiscovery;
     modelValue: string;
     reasoningEffort: CodexReasoningEffort | "default";
     sandbox: CodexSandboxMode;
@@ -68,8 +73,26 @@ function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function CodexOptions({
+function CodexOptions(props: CodexOptionsProps) {
+    return (
+        <CodexOptionsContext
+            key={JSON.stringify([
+                props.backendId,
+                props.account,
+                props.projectId,
+                props.discoveryKey,
+            ])}
+            {...props}
+        />
+    );
+}
+
+function CodexOptionsContext({
     backendId,
+    account,
+    projectId,
+    discoveryKey,
+    loadDiscovery,
     modelValue,
     reasoningEffort,
     sandbox,
@@ -139,6 +162,10 @@ function CodexOptions({
                 <div className="w-[220px]">
                     <CodexModelSelect
                         backendId={backendId}
+                        account={account}
+                        projectId={projectId}
+                        discoveryKey={discoveryKey}
+                        loadDiscovery={loadDiscovery}
                         value={modelValue}
                         onChange={handleModelChange}
                         onModelsChange={setModels}

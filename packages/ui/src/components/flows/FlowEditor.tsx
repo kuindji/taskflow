@@ -393,6 +393,8 @@ function FlowEditor({
                     </div>
 
                     <FlowActionList
+                        backendId={backendId ?? undefined}
+                        projectId={projectId}
                         actions={actions}
                         globalActions={globalActions}
                         libraryActions={libraryActions}
