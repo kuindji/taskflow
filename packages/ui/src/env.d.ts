@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";
+import type { BackendRecord, DesktopUpdateState, MenuEntry, TunnelFailure } from "@taskflow/shared";
 
 interface NativeMenuItem {
     id?: string;
@@ -77,7 +77,9 @@ interface TaskflowBridge {
     onWindowFocusChanged(callback: (focused: boolean) => void): () => void;
     getWindowFullscreen(): Promise<boolean>;
     onWindowFullscreenChanged(callback: (fullscreen: boolean) => void): () => void;
-    onUpdateStatus(callback: (payload: { status: string; version?: string }) => void): () => void;
+    getUpdateState(): Promise<DesktopUpdateState>;
+    onUpdateStatus(callback: (state: DesktopUpdateState) => void): () => void;
+    retryUpdate(): void;
     quitAndInstallUpdate(): void;
     sendTrayState(status: string | null): void;
     getPathForFile(file: File): string;

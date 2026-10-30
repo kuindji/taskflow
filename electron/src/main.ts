@@ -38,10 +38,6 @@ import {
 import {
     initAppMenu,
     buildAppMenu,
-    getManualCheckInProgress,
-    setManualCheckInProgress,
-    setDownloadedVersion,
-    setDownloadingVersion,
     setShowArchiveChecked,
     setShowArchivedProjectsChecked,
     setCompactSidebarChecked,
@@ -128,21 +124,15 @@ initTrayManager({
     quit: () => app.quit(),
 });
 
-initAppMenu({
+const updateController = initAutoUpdater({
     getMainWindow,
-    markExitConfirmed: () => {
-        exitConfirmed = true;
+    buildAppMenu,
+    setExitConfirmed: (value) => {
+        exitConfirmed = value;
     },
 });
 
-initAutoUpdater({
-    getMainWindow,
-    buildAppMenu,
-    getManualCheckInProgress,
-    setManualCheckInProgress,
-    setDownloadedVersion,
-    setDownloadingVersion,
-});
+initAppMenu({ getMainWindow, updateController });
 
 // Created here so the IPC handlers can hold it; nothing is read or bound until
 // `init()` runs in `whenReady`. `userData` is final by now (dev mode sets it above).
@@ -210,9 +200,7 @@ registerIpcHandlers({
     setConfirmBeforeExit: (value) => {
         confirmBeforeExit = value;
     },
-    markExitConfirmed: () => {
-        exitConfirmed = true;
-    },
+    updateController,
 });
 
 // --- App lifecycle ---

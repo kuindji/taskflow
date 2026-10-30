@@ -1,6 +1,6 @@
 import type { BackendFetch } from "./backend-fetch";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
-import { autoUpdater } from "electron-updater";
+import type { UpdateController } from "./update-controller";
 import { execFile } from "child_process";
 import { writeFile } from "fs/promises";
 import { join } from "path";
@@ -27,7 +27,7 @@ interface IpcHandlersDeps {
     setTaskInfoChecked: (value: boolean) => void;
     setWordWrapChecked: (value: boolean) => void;
     setConfirmBeforeExit: (value: boolean) => void;
-    markExitConfirmed: () => void;
+    updateController: UpdateController;
 }
 
 interface NativeMenuItem {
@@ -200,9 +200,10 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         },
     );
 
-    ipcMain.on("quit-and-install-update", () => {
-        deps.markExitConfirmed();
-        autoUpdater.quitAndInstall();
+    ipcMain.handle("get-update-state", () => deps.updateController.getState());
+    ipcMain.on("quit-and-install-update", () => deps.updateController.install());
+    ipcMain.on("retry-update", () => {
+        void deps.updateController.retry();
     });
 
     ipcMain.handle("select-project-directory", async () => {

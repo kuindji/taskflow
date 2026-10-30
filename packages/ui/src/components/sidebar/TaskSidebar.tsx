@@ -3,7 +3,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from 
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { buildReorderedProjectIds } from "@taskflow/shared";
-import type { Notification, Project } from "@taskflow/shared";
+import type { DesktopUpdateState, Notification, Project } from "@taskflow/shared";
 import { getTaskWorkspaceKey } from "@/hooks/useActiveWorkspace";
 import type { Scoped } from "@/lib/backend-scope";
 import { requirePrimary, useBackendStore } from "@/stores/backend-store";
@@ -26,7 +26,6 @@ import NotificationPopover from "./NotificationPopover";
 import { DevServerButton } from "./DevServerPopover";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { UpdateDialog } from "./UpdateDialog";
-import type { UpdateStatus } from "./UpdateDialog";
 import { OfflineIndicator } from "./OfflineIndicator";
 import { SidebarToolbar } from "./SidebarToolbar";
 import { MachinesMenu } from "./MachinesMenu";
@@ -61,7 +60,16 @@ export function TaskSidebar() {
     const toggleAppearance = useUIStore((s) => s.toggleAppearance);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
     const [projectError, setProjectError] = useState<string | null>(null);
-    const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ status: "idle" });
+    const [updateStatus, setUpdateStatus] = useState<DesktopUpdateState>({
+        status: "idle",
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadPercent: null,
+        checkedAt: null,
+        message: null,
+        errorContext: null,
+        canRetry: false,
+    });
     const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
     const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
 
@@ -179,13 +187,27 @@ export function TaskSidebar() {
     }, []);
 
     useEffect(() => {
-        const cleanup = window.taskflow?.onUpdateStatus((payload) => {
-            setUpdateStatus({
-                status: payload.status as UpdateStatus["status"],
-                version: payload.version,
-            });
+        const bridge = window.taskflow;
+        if (!bridge) return;
+        let cancelled = false;
+        let receivedEvent = false;
+        const cleanup = bridge.onUpdateStatus((state) => {
+            if (cancelled) return;
+            receivedEvent = true;
+            setUpdateStatus(state);
         });
-        return cleanup;
+        void bridge
+            .getUpdateState()
+            .then((state) => {
+                if (!cancelled && !receivedEvent) setUpdateStatus(state);
+            })
+            .catch((error: unknown) => {
+                console.error("[updater] Failed to get update state:", error);
+            });
+        return () => {
+            cancelled = true;
+            cleanup();
+        };
     }, []);
 
     useEffect(() => {
@@ -507,6 +529,8 @@ export function TaskSidebar() {
                         updateStatus={updateStatus}
                         dialogOpen={updateDialogOpen}
                         onDialogOpenChange={setUpdateDialogOpen}
+                        onInstall={() => window.taskflow?.quitAndInstallUpdate()}
+                        onRetry={() => window.taskflow?.retryUpdate()}
                     />
                 </div>
                 <SidebarToolbar

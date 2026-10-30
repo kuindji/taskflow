@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";
+import type { BackendRecord, DesktopUpdateState, MenuEntry, TunnelFailure } from "@taskflow/shared";
 import type { Bounds, HostedView } from "./browser-host/tab-host";
 
 interface NativeMenuItem {
@@ -205,15 +205,17 @@ contextBridge.exposeInMainWorld("taskflow", {
     sendConfirmBeforeExitState: (enabled: boolean) => {
         ipcRenderer.send("confirm-before-exit-changed", enabled);
     },
-    onUpdateStatus: (callback: (payload: { status: string; version?: string }) => void) => {
-        const listener = (
-            _event: Electron.IpcRendererEvent,
-            payload: { status: string; version?: string },
-        ) => callback(payload);
+    getUpdateState: (): Promise<DesktopUpdateState> => ipcRenderer.invoke("get-update-state"),
+    onUpdateStatus: (callback: (state: DesktopUpdateState) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: DesktopUpdateState) =>
+            callback(payload);
         ipcRenderer.on("update-status", listener);
         return () => {
             ipcRenderer.removeListener("update-status", listener);
         };
+    },
+    retryUpdate: () => {
+        ipcRenderer.send("retry-update");
     },
     quitAndInstallUpdate: () => {
         ipcRenderer.send("quit-and-install-update");

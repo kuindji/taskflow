@@ -26,3 +26,26 @@ export interface SystemInfo {
      *  backend, which is refused on protocolVersion first. */
     backendUid?: string;
 }
+
+export interface DesktopUpdateState {
+    status: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "error";
+    availableVersion: string | null;
+    downloadedVersion: string | null;
+    downloadPercent: number | null;
+    checkedAt: string | null;
+    message: string | null;
+    errorContext: "check" | "download" | "install" | null;
+    canRetry: boolean;
+}
+
+export type DesktopUpdateEvent =
+    | { type: "check-started"; checkedAt: string }
+    | { type: "check-failed"; checkedAt: string; message: string }
+    | { type: "update-available"; version: string; checkedAt: string }
+    | { type: "no-update"; checkedAt: string }
+    | { type: "download-started" }
+    | { type: "download-progress"; percent: number }
+    | { type: "download-completed"; version: string }
+    | { type: "download-failed"; message: string }
+    | { type: "install-started" }
+    | { type: "install-failed"; message: string };

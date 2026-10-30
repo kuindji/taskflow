@@ -1,14 +1,11 @@
 import { BrowserWindow, Menu } from "electron";
-import { autoUpdater } from "electron-updater";
+import type { UpdateController } from "./update-controller";
 
 interface AppMenuDeps {
     getMainWindow: () => BrowserWindow | null;
-    markExitConfirmed: () => void;
+    updateController: UpdateController;
 }
 
-let manualCheckInProgress = false;
-let downloadedVersion: string | null = null;
-let downloadingVersion: string | null = null;
 let showArchiveChecked = false;
 let showArchivedProjectsChecked = false;
 let compactSidebarChecked = false;
@@ -19,30 +16,6 @@ let deps: AppMenuDeps;
 
 function initAppMenu(d: AppMenuDeps): void {
     deps = d;
-}
-
-function getManualCheckInProgress(): boolean {
-    return manualCheckInProgress;
-}
-
-function setManualCheckInProgress(value: boolean): void {
-    manualCheckInProgress = value;
-}
-
-function getDownloadedVersion(): string | null {
-    return downloadedVersion;
-}
-
-function setDownloadedVersion(value: string | null): void {
-    downloadedVersion = value;
-}
-
-function getDownloadingVersion(): string | null {
-    return downloadingVersion;
-}
-
-function setDownloadingVersion(value: string | null): void {
-    downloadingVersion = value;
 }
 
 function setShowArchiveChecked(value: boolean): void {
@@ -107,6 +80,26 @@ function sendToMainWindow(channel: string): void {
 }
 
 function buildAppMenu(): void {
+    const state = deps.updateController.getState();
+    const busy =
+        state.status === "checking" ||
+        state.status === "downloading" ||
+        state.status === "installing";
+    const retryDownload = state.errorContext === "download" && state.canRetry;
+    const retryInstall = state.errorContext === "install" && state.canRetry;
+    const updateLabel = retryDownload
+        ? "Retry Update Download"
+        : retryInstall
+          ? "Retry Update Installation"
+          : state.status === "ready" && state.downloadedVersion !== null
+            ? `Restart to Update to v${state.downloadedVersion}`
+            : state.status === "downloading"
+              ? `Downloading v${state.availableVersion ?? ""}…`
+              : state.status === "checking"
+                ? "Checking for Updates…"
+                : state.status === "installing"
+                  ? "Installing Update…"
+                  : "Check for Updates…";
     const template: Electron.MenuItemConstructorOptions[] = [
         {
             role: "appMenu",
@@ -141,26 +134,13 @@ function buildAppMenu(): void {
                 { type: "separator" },
                 {
                     id: "check-for-updates",
-                    label: downloadedVersion
-                        ? `Restart to Update to v${downloadedVersion}`
-                        : downloadingVersion
-                          ? `Downloading v${downloadingVersion}…`
-                          : manualCheckInProgress
-                            ? "Checking for Updates…"
-                            : "Check for Updates…",
-                    enabled: !downloadingVersion && !manualCheckInProgress,
+                    label: updateLabel,
+                    enabled: !busy,
                     click: () => {
-                        if (downloadedVersion) {
-                            deps.markExitConfirmed();
-                            autoUpdater.quitAndInstall();
-                            return;
-                        }
-                        if (manualCheckInProgress) return;
-                        manualCheckInProgress = true;
-                        buildAppMenu();
-                        autoUpdater.checkForUpdates().catch((err: unknown) => {
-                            console.error("[updater] Manual check failed:", err);
-                        });
+                        if (retryDownload || retryInstall) void deps.updateController.retry();
+                        else if (state.status === "ready" && state.downloadedVersion !== null)
+                            deps.updateController.install();
+                        else void deps.updateController.check(true);
                     },
                 },
                 { type: "separator" },
@@ -363,12 +343,6 @@ function buildAppMenu(): void {
 export {
     initAppMenu,
     buildAppMenu,
-    getManualCheckInProgress,
-    setManualCheckInProgress,
-    getDownloadedVersion,
-    setDownloadedVersion,
-    getDownloadingVersion,
-    setDownloadingVersion,
     setShowArchiveChecked,
     setShowArchivedProjectsChecked,
     setCompactSidebarChecked,
