@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Implement Section 4.
+Implement Section 5.
 
 ## Status
 
@@ -19,7 +19,7 @@ Implement Section 4.
 | 1 | Spike (gate) | done: PASS, 3 clients × all criteria; plan amended | 3d910bb8, 7a57f492 |
 | 2 | Shared types, store, host client, service | done: review had 1 finding (late `ensure` after close), confirmed and fixed | e78299eb, 0a8c1025, caf2df69, cdb54a6f |
 | 3 | HTTP/WS API, wiring, cleanup hooks | done: review clean, no fixes | ac8169ba |
-| 4 | CDP gateway | not started | |
+| 4 | CDP gateway | done: bounded review clear; 68 CDP tests and 112 scoped CDP/API tests pass | this commit: `feat(backend): filtered CDP gateway for browser tabs` |
 | 5 | Electron host | not started | |
 | 6 | UI | not started | |
 | 7 | CLI, doc, prompt | not started | |
@@ -30,6 +30,9 @@ Implement Section 4.
 - Base commit before implementation (final-review base): `91a3e89c`.
 - Section 2 outputs: `browserTabLabel(url)` lives in `packages/shared/src/utils/browser-tab-label.ts` (exported from the shared index; `terminal-links.ts` uses it). `BrowserTabStore` exports `SavedBrowserTab`. The service's deps type is `BrowserTabServiceDeps` (not exported). The staleness timer re-checks 1 ms past 15000 ms, because availability includes the 15000 ms boundary.
 - Section 3 outputs: `registerBrowserRoutes` (`api/routes/browser-routes.ts`) wraps each handler with an error→status mapper (400/404/503); Section 4 adds the `/cdp/:tabId/json*` routes there via a required `ApiRouteDeps.cdpGateway`. The service is built in `index.ts` right after `store.init()`; `browserTabService.init()` runs just before `server.start()`. Task/project route and handler deps take `browserTabService: Pick<BrowserTabService, "closeForOwner">`; `registerProjectHandlers` takes it positionally (4th arg).
+- Section 4 outputs: `createCdpGateway({ service })` is wired into `createServer` as its fourth argument and the required `ApiRouteDeps.cdpGateway`. CDP sockets are excluded from app clients and broadcasts. Tab mapping and root-page cookie commands use separate short-lived upstream sockets. The filter processes upstream messages in order and holds create replies for the page/tab attach, up to 2000 ms.
+- Section 4 spike method tables: no extra allowed methods were needed; all recorded allows fit the existing domain/Target rules or specified intercepts. `WebMCP.enable` is denied as an unknown Chromium 130 domain, with a dedicated test; Puppeteer tolerates the error. `Browser.close` remains denied because forwarding it quits the whole app.
+- Section 4 validation: root typecheck, scoped eslint and prettier pass. Use `PATH="$PWD/packages/backend/node_modules/.bin:$PATH" bun run typecheck` from the root: Electron has no local `tsc`, and bare `bunx` otherwise attempts a blocked temp write in this sandbox. Backend suite: 1039 pass, 2 skip, 20 fail, 1 error. Nineteen failures are the documented process-stopper/watcher sandbox failures; the extra CLI timeout (`skips the lookup when the caller names the task`) and its error pass on isolated rerun, 46/46. Live Electron/client acceptance remains Section 8.
 - `load` (used by `open`, `openChild`, `ensureLoaded`) throws `BrowserTabNotFoundError` and closes the host view when the tab was closed while `ensure` was pending.
 - Running Sol: `codex exec -m gpt-6.1-sol -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir "$PWD/.git" -C "$PWD" -o <report> - < <brief>`. Without `--add-dir .git` it can't commit (`.git` is read-only under workspace-write). In its sandbox the backend process-stopper and watcher tests fail (19); rerun the suite yourself outside it.
 - Spike facts: full detail in `spike/results.md` (method log, raw facts). Summary:

@@ -38,6 +38,13 @@ const moveCalls: Array<{ sessionId: string; target: SessionOwnerRef }> = [];
 const closeForOwner = mock(async (_owner: { taskId: string } | { projectId: string }) => {});
 
 const sharedTestDeps = {
+    cdpGateway: {
+        open: () => {},
+        message: () => {},
+        close: () => {},
+        versionJson: async () => ({}),
+        listJson: async () => [],
+    },
     browserTabService: { closeForOwner } as unknown as BrowserTabService,
     sessionLifecycle: {
         createSession: async () => "",

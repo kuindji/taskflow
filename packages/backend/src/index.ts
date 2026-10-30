@@ -5,6 +5,7 @@ import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
+import { createCdpGateway } from "./services/cdp/cdp-gateway";
 import { TaskStore } from "./services/task-store";
 import { PtyManager } from "./services/pty-manager";
 import { GitService } from "./services/git-service";
@@ -108,6 +109,7 @@ async function main() {
                 return true;
             },
         });
+        const cdpGateway = createCdpGateway({ service: browserTabService });
         await store.repairMovedSessions(config.instanceId);
         await store.reconcileInterruptedSessions(config.instanceId, config.bootId);
         await store.cleanExpiredArchives();
@@ -133,7 +135,7 @@ async function main() {
 
         const router = new Router();
         const apiRouter = new ApiRouter();
-        const server = createServer(router, config.port, apiRouter);
+        const server = createServer(router, config.port, apiRouter, cdpGateway);
         const changeTracker = new ChangeTracker(gitService, server.broadcast);
         const wikiIndex = new WikiIndexService({
             onChange: (data) => server.broadcast({ type: MSG.WIKI_INDEX_CHANGED, payload: data }),
@@ -415,6 +417,7 @@ async function main() {
         const runtimes = await detectRuntimes();
 
         registerApiRoutes({
+            cdpGateway,
             apiRouter,
             taskStore: store,
             ptyManager,

@@ -1,6 +1,7 @@
 import type { BrowserHostEvent, BrowserHostHeartbeat, BrowserTabScope } from "@taskflow/shared";
 import type { ApiRouter } from "../router";
 import type { BrowserTabService } from "../../services/browser-tab-service";
+import type { CdpGateway } from "../../services/cdp/cdp-gateway";
 import {
     BrowserHostUnavailableError,
     BrowserTabInputError,
@@ -11,6 +12,7 @@ import { errorResponse, jsonResponse } from "./response-helpers";
 interface BrowserRouteDeps {
     apiRouter: ApiRouter;
     browserTabService: BrowserTabService;
+    cdpGateway: CdpGateway;
 }
 
 function resolveScope(req: Request, kind: unknown): BrowserTabScope {
@@ -40,7 +42,11 @@ function endpoint(req: Request, id: string): string {
     return `${url.protocol}//${req.headers.get("host") || url.host}/cdp/${id}`;
 }
 
-function registerBrowserRoutes({ apiRouter, browserTabService }: BrowserRouteDeps): void {
+function registerBrowserRoutes({
+    apiRouter,
+    browserTabService,
+    cdpGateway,
+}: BrowserRouteDeps): void {
     function register(method: string, path: string, handler: Parameters<ApiRouter["register"]>[2]) {
         apiRouter.register(method, path, async (req, params) => {
             try {
@@ -54,6 +60,27 @@ function registerBrowserRoutes({ apiRouter, browserTabService }: BrowserRouteDep
                 throw error;
             }
         });
+    }
+
+    for (const path of ["/cdp/:tabId/json/version", "/cdp/:tabId/json/version/"]) {
+        register("GET", path, async (req, params) =>
+            jsonResponse(
+                await cdpGateway.versionJson(
+                    params.tabId,
+                    req.headers.get("host") || new URL(req.url).host,
+                ),
+            ),
+        );
+    }
+    for (const path of ["/cdp/:tabId/json/list", "/cdp/:tabId/json"]) {
+        register("GET", path, async (req, params) =>
+            jsonResponse(
+                await cdpGateway.listJson(
+                    params.tabId,
+                    req.headers.get("host") || new URL(req.url).host,
+                ),
+            ),
+        );
     }
 
     register("POST", "/api/browser/tabs", async (req) => {

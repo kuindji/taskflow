@@ -39,6 +39,13 @@ beforeEach(() => {
     fake.close.mockImplementation(async () => false);
     router = new ApiRouter();
     registerBrowserRoutes({
+        cdpGateway: {
+            open: () => {},
+            message: () => {},
+            close: () => {},
+            versionJson: async () => ({}),
+            listJson: async () => [],
+        },
         apiRouter: router,
         browserTabService: fake as unknown as BrowserTabService,
     });

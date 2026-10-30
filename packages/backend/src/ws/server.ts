@@ -4,6 +4,7 @@ import { MSG, resolveBackendHost } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
+import type { CdpGateway, CdpSocketData } from "../services/cdp/cdp-gateway";
 
 interface BroadcastOptions {
     /** Skip clients whose outbound buffer exceeds the backpressure threshold. */
@@ -16,6 +17,7 @@ export function createServer(
     router: Router,
     port: number = 0,
     apiRouter?: ApiRouter,
+    cdpGateway?: CdpGateway,
 ): {
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
@@ -23,9 +25,8 @@ export function createServer(
     onDisconnect(callback: (clientId: string) => void): void;
     clientCount(): number;
 } {
-    interface SocketData {
-        clientId: string;
-    }
+    type AppSocketData = { kind: "app"; clientId: string };
+    type SocketData = AppSocketData | CdpSocketData;
     let server: Server<SocketData>;
     const clients = new Set<ServerWebSocket<SocketData>>();
     let connectCallback: (() => void) | null = null;
@@ -71,7 +72,26 @@ export function createServer(
             port,
             hostname: resolveBackendHost(),
             async fetch(req, server) {
-                if (server.upgrade(req, { data: { clientId: randomUUID() } })) return;
+                const path = new URL(req.url).pathname;
+                if (path.startsWith("/cdp/")) {
+                    const match = /^\/cdp\/([^/]+)\/devtools\/browser$/.exec(path);
+                    if (
+                        match &&
+                        cdpGateway &&
+                        server.upgrade(req, {
+                            data: { kind: "cdp", tabId: match[1], connId: randomUUID() },
+                        })
+                    )
+                        return;
+                    if (req.headers.get("upgrade"))
+                        return new Response("Not found", { status: 404 });
+                    if (/^\/cdp\/[^/]+\/json(?:\/version\/?|\/list)?$/.test(path) && apiRouter) {
+                        const response = await apiRouter.handle(req);
+                        if (response) return response;
+                    }
+                    return new Response("Not found", { status: 404 });
+                }
+                if (server.upgrade(req, { data: { kind: "app", clientId: randomUUID() } })) return;
                 if (apiRouter) {
                     const response = await apiRouter.handle(req);
                     if (response) return response;
@@ -81,11 +101,19 @@ export function createServer(
             websocket: {
                 backpressureLimit: 2 * 1024 * 1024, // 2 MB
                 open(ws) {
+                    if (ws.data.kind === "cdp") {
+                        cdpGateway?.open(ws as ServerWebSocket<CdpSocketData>);
+                        return;
+                    }
                     clients.add(ws);
                     if (connectCallback) connectCallback();
                     broadcastClientCount();
                 },
                 close(ws) {
+                    if (ws.data.kind === "cdp") {
+                        cdpGateway?.close(ws as ServerWebSocket<CdpSocketData>);
+                        return;
+                    }
                     clients.delete(ws);
                     disconnectCallback?.(ws.data.clientId);
                     broadcastClientCount();
@@ -93,6 +121,10 @@ export function createServer(
                 async message(ws, message) {
                     const raw =
                         typeof message === "string" ? message : new TextDecoder().decode(message);
+                    if (ws.data.kind === "cdp") {
+                        cdpGateway?.message(ws as ServerWebSocket<CdpSocketData>, raw);
+                        return;
+                    }
                     let request: WsRequest;
                     try {
                         request = JSON.parse(raw) as WsRequest;

@@ -10,6 +10,7 @@ import type { TrayStateTracker } from "../services/tray-state-tracker";
 import type { NotificationStore } from "../services/notification-store";
 import type { DevServerService } from "../services/dev-server-service";
 import type { BrowserTabService } from "../services/browser-tab-service";
+import type { CdpGateway } from "../services/cdp/cdp-gateway";
 import type { ScheduleStore } from "../services/schedule-store";
 import type { RemoteAgentService } from "../services/remote-agent-service";
 import type { SchedulerService } from "../services/scheduler-service";
@@ -52,6 +53,7 @@ interface ApiRouteDeps {
     notificationStore: NotificationStore;
     devServerService: DevServerService;
     browserTabService: BrowserTabService;
+    cdpGateway: CdpGateway;
     scheduleStore: ScheduleStore;
     shells: ShellInfo[];
     systemShellPath: string | null;
