@@ -300,6 +300,7 @@ async function recoverUnauthorized(
     if (id === LOCAL_BACKEND_ID || gate.unauthorized(id) === "reject") {
         drop(id);
         patch(id, { state: "offline", failure: unauthorizedFailure(id === LOCAL_BACKEND_ID) });
+        removeRecovery(id);
         return null;
     }
     await bridge().refreshBackendToken(id);
@@ -812,7 +813,13 @@ const unsubscribeChanged = window.taskflow?.onBackendsChanged(
 
 const unsubscribeDropped = window.taskflow?.onBackendDropped((id, failure) => {
     const machine = useBackendStore.getState().machines.find((m) => m.id === id);
-    if (!machine || machine.isLocal || !machine.keepAttached) return;
+    if (
+        !machine ||
+        machine.isLocal ||
+        !machine.keepAttached ||
+        machine.failure?.kind === "unauthorized"
+    )
+        return;
     nextAttempt(id);
     drop(id);
     patch(id, { state: "reconnecting", failure });

@@ -1020,3 +1020,44 @@ test("a primary remote that rotates its token is primary again after the refresh
     expect(statuses).toContain(false);
     expect(statuses.at(-1)).toBe(true);
 });
+
+async function rejectedAutomaticRecovery() {
+    await recoverySetup();
+    const backend = authBackend((h) => h?.includes(NEW_AUTH_TOKEN) ?? false);
+    let token = AUTH_TOKEN;
+    let attaches = 0;
+    main.attachBackend = async () => {
+        attaches++;
+        return { ok: true, origin: backend.origin, token };
+    };
+    emitBackendDropped("abc123", failure("ssh exited"));
+    emitRemoteResume();
+    await untilAuth(() => row("abc123")?.failure?.kind === "unauthorized");
+    expect(main.refreshed).toEqual(["abc123"]);
+    return {
+        setToken(value: string) {
+            token = value;
+        },
+        attaches: () => attaches,
+    };
+}
+
+test("manual Retry can attach with a corrected token after automatic recovery was rejected", async () => {
+    const recovery = await rejectedAutomaticRecovery();
+    recovery.setToken(NEW_AUTH_TOKEN);
+    store.getState().retry("abc123");
+    await untilAuth(() => row("abc123")?.state === "attached");
+    expect(tokenFor("abc123")).toBe(NEW_AUTH_TOKEN);
+    expect(main.refreshed).toEqual(["abc123"]);
+});
+
+test("a later tunnel exit does not restart a machine rejected for its token", async () => {
+    const recovery = await rejectedAutomaticRecovery();
+    const before = recovery.attaches();
+    emitBackendDropped("abc123", failure("ssh exited again"));
+    emitRemoteResume();
+    await Bun.sleep(50);
+    expect(row("abc123")?.failure?.kind).toBe("unauthorized");
+    expect(row("abc123")?.state).toBe("offline");
+    expect(recovery.attaches()).toBe(before);
+});
