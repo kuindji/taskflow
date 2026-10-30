@@ -184,6 +184,7 @@ export const config = {
      * data dir can be moved or synced.
      */
     devServersFile: join(BASE_DIR, `dev-servers-${instanceId}.json`),
+    browserTabsFile: join(BASE_DIR, `browser-tabs-${instanceId}.json`),
     /**
      * Stable backend identity. See readOrCreateBackendUid. Minted on first read,
      * not at import, so the many modules and tests that import config write

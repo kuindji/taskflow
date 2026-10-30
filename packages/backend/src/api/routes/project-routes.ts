@@ -1,3 +1,4 @@
+import type { BrowserTabService } from "../../services/browser-tab-service";
 import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
 import type { PtyManager } from "../../services/pty-manager";
@@ -14,6 +15,7 @@ import {
 } from "../../services/agent-accounts";
 
 interface ProjectRouteDeps {
+    browserTabService: Pick<BrowserTabService, "closeForOwner">;
     apiRouter: ApiRouter;
     taskStore: TaskStore;
     ptyManager: PtyManager;
@@ -23,7 +25,15 @@ interface ProjectRouteDeps {
 }
 
 function registerProjectRoutes(deps: ProjectRouteDeps): void {
-    const { apiRouter, taskStore, ptyManager, broadcast, gitService, changeTracker } = deps;
+    const {
+        apiRouter,
+        taskStore,
+        ptyManager,
+        broadcast,
+        gitService,
+        changeTracker,
+        browserTabService,
+    } = deps;
 
     apiRouter.register("POST", "/api/projects/:projectId/browser", async (req, params) => {
         let body: Record<string, unknown>;
@@ -106,6 +116,9 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
                     }
                 }
                 await taskStore.removeProject(params.id);
+                await browserTabService.closeForOwner({ projectId: params.id });
+                for (const task of tasks)
+                    await browserTabService.closeForOwner({ taskId: task.id });
                 changeTracker?.untrack(params.id);
                 broadcast({ type: MSG.PROJECT_REMOVED, payload: { id: params.id } });
                 return jsonResponse({ success: true });

@@ -41,6 +41,7 @@ describe("task handlers", () => {
     let projectId: string;
     let projectPath: string;
     let gitService: FakeGitService;
+    let closedOwners: Array<{ taskId: string } | { projectId: string }>;
     let generatedTitles: Array<{ taskId: string; description: string }>;
 
     beforeEach(async () => {
@@ -57,8 +58,20 @@ describe("task handlers", () => {
         router = new TestRouter();
         gitService = new FakeGitService();
         generatedTitles = [];
-        registerProjectHandlers(router, store, gitService as unknown as GitService);
+        closedOwners = [];
+        const browserTabService = {
+            closeForOwner: async (owner: { taskId: string } | { projectId: string }) => {
+                closedOwners.push(owner);
+            },
+        };
+        registerProjectHandlers(
+            router,
+            store,
+            gitService as unknown as GitService,
+            browserTabService,
+        );
         registerTaskHandlers({
+            browserTabService,
             router,
             store,
             gitService: gitService as unknown as GitService,
@@ -184,6 +197,7 @@ describe("task handlers", () => {
             title: "Task",
         })) as { id: string };
         await router.handle(MSG.TASK_ARCHIVE, { id: task.id });
+        expect(closedOwners).toEqual([{ taskId: task.id }]);
         const result = (await router.handle(MSG.TASK_LIST, {})) as {
             tasks: unknown[];
         };
@@ -196,11 +210,50 @@ describe("task handlers", () => {
             title: "Task",
         })) as { id: string };
         await router.handle(MSG.TASK_DELETE, { id: task.id });
+        expect(closedOwners).toEqual([{ taskId: task.id }]);
         const result = (await router.handle(MSG.TASK_LIST, {})) as {
             tasks: unknown[];
         };
         expect(result.tasks).toHaveLength(0);
     });
+
+    it("closes browser tabs for archived parents and subtasks", async () => {
+        const parent = await store.createTask({ projectId, title: "Parent", description: "" });
+        const child = await store.createTask({
+            projectId,
+            parentId: parent.id,
+            title: "Child",
+            description: "",
+        });
+        await router.handle(MSG.TASK_ARCHIVE, { id: parent.id });
+        expect(closedOwners).toEqual([{ taskId: child.id }, { taskId: parent.id }]);
+    });
+
+    for (const archived of [false, true]) {
+        it(`closes browser tabs when deleting a parent and active/archived subtasks, parent archived=${archived}`, async () => {
+            const parent = await store.createTask({ projectId, title: "Parent", description: "" });
+            const child = await store.createTask({
+                projectId,
+                parentId: parent.id,
+                title: "Child",
+                description: "",
+            });
+            const archivedChild = await store.createTask({
+                projectId,
+                parentId: parent.id,
+                title: "Archived",
+                description: "",
+            });
+            await store.archiveTask(archivedChild.id);
+            if (archived) await store.archiveTask(parent.id);
+            await router.handle(MSG.TASK_DELETE, { id: parent.id });
+            expect(closedOwners).toEqual([
+                { taskId: child.id },
+                { taskId: archivedChild.id },
+                { taskId: parent.id },
+            ]);
+        });
+    }
 
     it("cleans up worktree resources when requested on delete", async () => {
         const task = await store.createTask({

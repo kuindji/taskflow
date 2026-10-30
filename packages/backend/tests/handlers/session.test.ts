@@ -139,8 +139,9 @@ describe("session handlers", () => {
         events = [];
         discoveryHomes = [];
 
-        registerProjectHandlers(router, store, new GitService());
+        registerProjectHandlers(router, store, new GitService(), { closeForOwner: async () => {} });
         registerTaskHandlers({
+            browserTabService: { closeForOwner: async () => {} },
             router,
             store,
             gitService: new GitService(),

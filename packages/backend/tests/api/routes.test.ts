@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
 import { MSG, type AppSettings, type SessionOwnerRef, type WsEvent } from "@taskflow/shared";
+import type { BrowserTabService } from "../../src/services/browser-tab-service";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
 import { SettingsStore } from "../../src/services/settings-store";
@@ -34,7 +35,10 @@ class FakeTrayStateTracker {
 
 const moveCalls: Array<{ sessionId: string; target: SessionOwnerRef }> = [];
 
+const closeForOwner = mock(async (_owner: { taskId: string } | { projectId: string }) => {});
+
 const sharedTestDeps = {
+    browserTabService: { closeForOwner } as unknown as BrowserTabService,
     sessionLifecycle: {
         createSession: async () => "",
         resumeSession: async (sessionId: string) => sessionId,
@@ -456,7 +460,7 @@ describe("flow complete route", () => {
     });
 });
 
-describe("task creation routes", () => {
+describe("task creation and cleanup routes", () => {
     let apiRouter: ApiRouter;
     let tempDir: string;
     let taskStore: TaskStore;
@@ -464,6 +468,7 @@ describe("task creation routes", () => {
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-task-create-"));
+        closeForOwner.mockClear();
         apiRouter = new ApiRouter();
         taskStore = new TaskStore({
             projectsFile: join(tempDir, "projects.json"),
@@ -492,7 +497,7 @@ describe("task creation routes", () => {
             ptyManager: new FakePtyManager() as never,
             broadcast: () => {},
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
-            flowStore: {} as never,
+            flowStore: { getFlowRunsForOwner: async () => [] } as never,
             flowRunner: {} as never,
             gitService: {} as never,
             agents: [],
@@ -504,6 +509,65 @@ describe("task creation routes", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    for (const action of ["archive", "delete"] as const) {
+        it(`closes browser tabs for a task and its subtasks on ${action}`, async () => {
+            const parent = await taskStore.createTask({
+                projectId,
+                title: "Parent",
+                description: "",
+            });
+            const child = await taskStore.createTask({
+                projectId,
+                parentId: parent.id,
+                title: "Child",
+                description: "",
+            });
+            const archivedChild = await taskStore.createTask({
+                projectId,
+                parentId: parent.id,
+                title: "Archived",
+                description: "",
+            });
+            await taskStore.archiveTask(archivedChild.id);
+            const response = await apiRouter.handle(
+                new Request(
+                    `http://localhost/api/tasks/${parent.id}${action === "archive" ? "/archive" : ""}`,
+                    { method: action === "archive" ? "POST" : "DELETE" },
+                ),
+            );
+            expect(response?.status).toBe(200);
+            const expected = [
+                { taskId: child.id },
+                ...(action === "delete" ? [{ taskId: archivedChild.id }] : []),
+                { taskId: parent.id },
+            ];
+            expect(closeForOwner.mock.calls.map(([owner]) => owner)).toEqual(expected);
+            if (action === "archive") {
+                closeForOwner.mockClear();
+                const deleted = await apiRouter.handle(
+                    new Request(`http://localhost/api/tasks/${parent.id}`, { method: "DELETE" }),
+                );
+                expect(deleted?.status).toBe(200);
+                expect(closeForOwner).toHaveBeenCalledWith({ taskId: parent.id });
+                expect(closeForOwner).toHaveBeenCalledWith({ taskId: child.id });
+                expect(closeForOwner).toHaveBeenCalledWith({ taskId: archivedChild.id });
+            }
+        });
+    }
+
+    it("closes project and task browser tabs on project removal", async () => {
+        const first = await taskStore.createTask({ projectId, title: "First", description: "" });
+        const second = await taskStore.createTask({ projectId, title: "Second", description: "" });
+        const response = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/${projectId}`, { method: "DELETE" }),
+        );
+        expect(response?.status).toBe(200);
+        expect(closeForOwner).toHaveBeenCalledTimes(3);
+        expect(closeForOwner.mock.calls[0]).toEqual([{ projectId }]);
+        expect(closeForOwner).toHaveBeenCalledWith({ taskId: first.id });
+        expect(closeForOwner).toHaveBeenCalledWith({ taskId: second.id });
     });
 
     it("uses the project default init command for worktree task creation when none is provided", async () => {

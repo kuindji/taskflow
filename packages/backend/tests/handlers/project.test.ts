@@ -12,6 +12,7 @@ describe("project handlers", () => {
     let router: TestRouter;
     let store: TaskStore;
     let tempDir: string;
+    let closedOwners: Array<{ taskId: string } | { projectId: string }>;
     let broadcasts: Array<{ type: string; payload: unknown }>;
 
     beforeEach(async () => {
@@ -27,8 +28,20 @@ describe("project handlers", () => {
         await store.init();
         router = new TestRouter();
         broadcasts = [];
-        registerProjectHandlers(router, store, new GitService(), undefined, undefined, (event) =>
-            broadcasts.push(event),
+        closedOwners = [];
+        const browserTabService = {
+            closeForOwner: async (owner: { taskId: string } | { projectId: string }) => {
+                closedOwners.push(owner);
+            },
+        };
+        registerProjectHandlers(
+            router,
+            store,
+            new GitService(),
+            browserTabService,
+            undefined,
+            undefined,
+            (event) => broadcasts.push(event),
         );
     });
 
@@ -75,12 +88,25 @@ describe("project handlers", () => {
             name: "test",
             path: projectDir,
         })) as { id: string };
-        await store.createTask({ projectId: added.id, title: "Task", description: "test" });
+        const first = await store.createTask({
+            projectId: added.id,
+            title: "Task",
+            description: "test",
+        });
+        const second = await store.createTask({
+            projectId: added.id,
+            title: "Task 2",
+            description: "test",
+        });
         await router.handle(MSG.PROJECT_REMOVE, { id: added.id });
         const result = (await router.handle(MSG.PROJECT_LIST, {})) as {
             projects: unknown[];
         };
         expect(result.projects).toHaveLength(0);
+        expect(closedOwners).toHaveLength(3);
+        expect(closedOwners[0]).toEqual({ projectId: added.id });
+        expect(closedOwners).toContainEqual({ taskId: first.id });
+        expect(closedOwners).toContainEqual({ taskId: second.id });
     });
 
     it("reorders projects and broadcasts the new order", async () => {

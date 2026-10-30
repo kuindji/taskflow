@@ -54,6 +54,10 @@ import { registerNotificationHandlers } from "./handlers/notification";
 import { DevServerStore } from "./services/dev-server-store";
 import { createDevServerService } from "./services/dev-server-service";
 import { registerDevServerHandlers } from "./handlers/dev-server";
+import { BrowserTabStore } from "./services/browser-tab-store";
+import { createBrowserHostClient } from "./services/browser-host-client";
+import { createBrowserTabService } from "./services/browser-tab-service";
+import { registerBrowserHandlers } from "./handlers/browser";
 import { RemoteAgentService } from "./services/remote-agent-service";
 import { ConnectivityService } from "./services/connectivity-service";
 import { registerRemoteAgentHandlers } from "./handlers/remote-agent";
@@ -90,6 +94,20 @@ async function main() {
             masterSessionsFile: config.masterSessionsFile,
         });
         await store.init();
+        const browserTabService = createBrowserTabService({
+            store: new BrowserTabStore(config.browserTabsFile),
+            hostClient: createBrowserHostClient(),
+            broadcast: (event) => server.broadcast(event),
+            isOwnerActive: async (scope) => {
+                if (scope.kind === "task") {
+                    const task = await store.getTask(scope.taskId);
+                    return task !== null && task.status !== "archived";
+                }
+                if (scope.kind === "project")
+                    return (await store.getProject(scope.projectId)) !== null;
+                return true;
+            },
+        });
         await store.repairMovedSessions(config.instanceId);
         await store.reconcileInterruptedSessions(config.instanceId, config.bootId);
         await store.cleanExpiredArchives();
@@ -298,6 +316,7 @@ async function main() {
             router,
             store,
             gitService,
+            browserTabService,
             (sessionId) => {
                 ptyManager.close(sessionId);
             },
@@ -307,6 +326,7 @@ async function main() {
         registerTaskHandlers({
             router,
             store,
+            browserTabService,
             gitService,
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);
@@ -371,6 +391,7 @@ async function main() {
             broadcast: server.broadcast,
         });
         registerDevServerHandlers({ router, devServerService });
+        registerBrowserHandlers({ router, browserTabService });
         const generateScheduleName = createScheduleNameGenerator({ builtinActionRunner });
 
         registerScheduleHandlers({
@@ -413,6 +434,7 @@ async function main() {
             trayStateTracker,
             notificationStore,
             devServerService,
+            browserTabService,
             scheduleStore,
             shells,
             systemShellPath,
@@ -440,9 +462,12 @@ async function main() {
         // Broadcast on every connect and disconnect as well, but a client
         // cannot hear the broadcast announcing its own arrival, so it asks
         // once on startup and follows the broadcasts after that.
-        router.register(MSG.SYSTEM_CLIENTS, async (): Promise<SystemClientsEvent> => ({
-            count: server.clientCount(),
-        }));
+        router.register(
+            MSG.SYSTEM_CLIENTS,
+            async (): Promise<SystemClientsEvent> => ({
+                count: server.clientCount(),
+            }),
+        );
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
             systemShellPath,
@@ -492,6 +517,7 @@ async function main() {
             }`,
         );
 
+        await browserTabService.init();
         const startedServer = await server.start();
         serverPort = startedServer.port;
         stop = startedServer.stop;

@@ -9,6 +9,7 @@ import type { ChangeTracker } from "../services/change-tracker";
 import type { TrayStateTracker } from "../services/tray-state-tracker";
 import type { NotificationStore } from "../services/notification-store";
 import type { DevServerService } from "../services/dev-server-service";
+import type { BrowserTabService } from "../services/browser-tab-service";
 import type { ScheduleStore } from "../services/schedule-store";
 import type { RemoteAgentService } from "../services/remote-agent-service";
 import type { SchedulerService } from "../services/scheduler-service";
@@ -28,6 +29,7 @@ import { registerScheduleRoutes } from "./routes/schedule-routes";
 import { registerSettingsRoutes } from "./routes/settings-routes";
 import { registerNotificationRoutes } from "./routes/notification-routes";
 import { registerDevServerRoutes } from "./routes/dev-server-routes";
+import { registerBrowserRoutes } from "./routes/browser-routes";
 import { registerAttributeRoutes } from "./routes/attribute-routes";
 import { registerFileRoutes } from "./routes/file-routes";
 
@@ -49,6 +51,7 @@ interface ApiRouteDeps {
     trayStateTracker: TrayStateTracker;
     notificationStore: NotificationStore;
     devServerService: DevServerService;
+    browserTabService: BrowserTabService;
     scheduleStore: ScheduleStore;
     shells: ShellInfo[];
     systemShellPath: string | null;
@@ -68,6 +71,7 @@ function registerApiRoutes(deps: ApiRouteDeps): void {
     registerSettingsRoutes(deps);
     registerNotificationRoutes(deps);
     registerDevServerRoutes(deps);
+    registerBrowserRoutes(deps);
     registerFileRoutes(deps);
 }
 

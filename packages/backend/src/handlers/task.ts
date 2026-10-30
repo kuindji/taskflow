@@ -1,3 +1,4 @@
+import type { BrowserTabService } from "../services/browser-tab-service";
 import { MSG } from "@taskflow/shared";
 import type {
     TaskListPayload,
@@ -20,6 +21,7 @@ import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
 
 interface TaskHandlerDeps {
+    browserTabService: Pick<BrowserTabService, "closeForOwner">;
     router: Router;
     store: TaskStore;
     gitService: GitService;
@@ -42,6 +44,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
         flowStore,
         flowRunner,
         changeTracker,
+        browserTabService,
     } = deps;
 
     async function failActiveFlows(taskId: string): Promise<void> {
@@ -148,6 +151,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
                 for (const subtask of subtasks) {
                     await stopTaskSessions(subtask, true);
                     await store.archiveTask(subtask.id);
+                    await browserTabService.closeForOwner({ taskId: subtask.id });
                 }
             }
 
@@ -155,6 +159,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             await stopTaskSessions(task, true);
             const archived = await store.archiveTask(id);
             changeTracker?.untrack(id);
+            await browserTabService.closeForOwner({ taskId: id });
             return filterTaskSessions(archived, config.instanceId);
         });
     });
@@ -198,9 +203,11 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
                 for (const subtask of subtasks) {
                     await stopTaskSessions(subtask, false);
                     await store.deleteTask(subtask.id);
+                    await browserTabService.closeForOwner({ taskId: subtask.id });
                 }
                 for (const subtask of archivedSubtasks) {
                     await store.deleteArchived(subtask.id);
+                    await browserTabService.closeForOwner({ taskId: subtask.id });
                 }
             }
 
@@ -212,6 +219,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
                 await store.deleteArchived(id);
             }
             changeTracker?.untrack(id);
+            await browserTabService.closeForOwner({ taskId: id });
 
             // Clean up worktree in the background — don't block the response
             if (

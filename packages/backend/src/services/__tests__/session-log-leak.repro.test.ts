@@ -104,6 +104,7 @@ test("archiving a task with a live shell session deletes the session's log", asy
 
     const router = new TestRouter();
     registerTaskHandlers({
+        browserTabService: { closeForOwner: async () => {} },
         router,
         store,
         gitService: {} as GitService,

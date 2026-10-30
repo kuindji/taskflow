@@ -1,3 +1,4 @@
+import type { BrowserTabService } from "../../services/browser-tab-service";
 import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
 import type { PtyManager } from "../../services/pty-manager";
@@ -12,6 +13,7 @@ import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
 
 interface TaskRouteDeps {
+    browserTabService: Pick<BrowserTabService, "closeForOwner">;
     apiRouter: ApiRouter;
     taskStore: TaskStore;
     ptyManager: PtyManager;
@@ -65,6 +67,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         broadcast,
         gitService,
         changeTracker,
+        browserTabService,
         flowStore,
         flowRunner,
         generateTitle,
@@ -354,6 +357,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                             for (const session of subtask.sessions) ptyManager.close(session.id);
                         }
                         await taskStore.archiveTask(subtask.id);
+                        await browserTabService.closeForOwner({ taskId: subtask.id });
                     }
                 }
 
@@ -373,6 +377,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
 
                 const archived = await taskStore.archiveTask(params.taskId);
                 changeTracker?.untrack(params.taskId);
+                await browserTabService.closeForOwner({ taskId: params.taskId });
                 const filtered = filterTaskSessions(archived, config.instanceId);
                 broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
                 return jsonResponse(filtered);
@@ -437,9 +442,11 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                     for (const subtask of subtasks) {
                         for (const session of subtask.sessions) ptyManager.close(session.id);
                         await taskStore.deleteTask(subtask.id);
+                        await browserTabService.closeForOwner({ taskId: subtask.id });
                     }
                     for (const subtask of archivedSubtasks) {
                         await taskStore.deleteArchived(subtask.id);
+                        await browserTabService.closeForOwner({ taskId: subtask.id });
                     }
                 }
 
@@ -457,6 +464,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                     await taskStore.deleteArchived(params.taskId);
                 }
                 changeTracker?.untrack(params.taskId);
+                await browserTabService.closeForOwner({ taskId: params.taskId });
 
                 // Clean up worktree in the background — don't block the response
                 if (

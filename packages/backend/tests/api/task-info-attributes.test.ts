@@ -40,6 +40,7 @@ describe("GET /api/tasks/:taskId attributes", () => {
         await store.init();
         apiRouter = new ApiRouter();
         registerTaskRoutes({
+            browserTabService: { closeForOwner: async () => {} },
             apiRouter,
             taskStore: store,
             ptyManager: {} as never,

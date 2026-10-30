@@ -1,3 +1,4 @@
+import type { BrowserTabService } from "../services/browser-tab-service";
 import { MSG } from "@taskflow/shared";
 import type {
     Project,
@@ -29,6 +30,7 @@ export function registerProjectHandlers(
     router: Router,
     store: TaskStore,
     gitService: GitService,
+    browserTabService: Pick<BrowserTabService, "closeForOwner">,
     closeSession?: (sessionId: string) => void,
     changeTracker?: ChangeTracker,
     broadcast?: (event: WsEvent) => void,
@@ -65,6 +67,8 @@ export function registerProjectHandlers(
                 }
             }
             await store.removeProject(id);
+            await browserTabService.closeForOwner({ projectId: id });
+            for (const task of tasks) await browserTabService.closeForOwner({ taskId: task.id });
             changeTracker?.untrack(id);
             return { success: true };
         });
