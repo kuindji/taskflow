@@ -8,6 +8,7 @@ import {
     type WebPreferences,
 } from "electron";
 import { join } from "node:path";
+import { createCaptureQueue } from "./capture-queue";
 import { isNavigableScheme, isPermissionAllowed } from "./permission-policy";
 import { postBodyHeaders } from "./post-body-headers";
 import type { Bounds, HostedView, TabHost, ViewFactory } from "./tab-host";
@@ -98,7 +99,7 @@ export function createElectronViewFactory(deps: {
     function wrap(nativeView: WebContentsView, getTabId: () => string | undefined): HostedView {
         const wc = nativeView.webContents;
         let parent: BrowserWindow | null = null;
-        let captureTail = Promise.resolve();
+        const enqueueCapture = createCaptureQueue(3000);
 
         function detach(): void {
             if (parent && !parent.isDestroyed()) parent.contentView.removeChildView(nativeView);
@@ -152,32 +153,10 @@ export function createElectronViewFactory(deps: {
                 canGoForward: !wc.isDestroyed() && wc.navigationHistory.canGoForward(),
             }),
             capture() {
-                // The queue waits for Chromium's real completion, even after the caller's deadline.
-                const previous = captureTail;
-                const capture = previous.then(async () => {
+                return enqueueCapture(async () => {
                     if (wc.isDestroyed()) return "";
-                    try {
-                        const image = await wc.capturePage();
-                        return wc.isDestroyed() ? "" : image.toDataURL();
-                    } catch {
-                        return "";
-                    }
-                });
-                captureTail = capture.then(() => undefined);
-                return previous.then(async () => {
-                    let timer: ReturnType<typeof setTimeout> | undefined;
-                    try {
-                        return await Promise.race([
-                            capture,
-                            new Promise<string>((resolve) => {
-                                timer = setTimeout(() => {
-                                    resolve("");
-                                }, 3000);
-                            }),
-                        ]);
-                    } finally {
-                        clearTimeout(timer);
-                    }
+                    const image = await wc.capturePage();
+                    return wc.isDestroyed() ? "" : image.toDataURL();
                 });
             },
             destroy() {
