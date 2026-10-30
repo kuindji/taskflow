@@ -1,4 +1,4 @@
-import type { SessionOwnerRef } from "@taskflow/shared";
+import { browserTabLabel, type SessionOwnerRef } from "@taskflow/shared";
 import { findSessionTab, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
@@ -68,17 +68,10 @@ function openUrlInApp(url: string, workspaceKey: string | null) {
         store.setActiveTab(workspaceKey, existing.id);
         return;
     }
-    let label = url;
-    try {
-        const parsed = new URL(url);
-        label = parsed.hostname + (parsed.pathname !== "/" ? parsed.pathname : "");
-    } catch {
-        /* keep raw url as label */
-    }
     store.addTab(workspaceKey, {
         id: crypto.randomUUID(),
         type: "browser",
-        label,
+        label: browserTabLabel(url),
         url,
     });
 }

@@ -1,6 +1,7 @@
 export * from "./types/notification";
 export * from "./types/dev-server";
 export * from "./types/browser-tab";
+export * from "./utils/browser-tab-label";
 export * from "./types/project";
 export * from "./types/task";
 export * from "./types/ws";
