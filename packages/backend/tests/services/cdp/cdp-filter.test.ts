@@ -77,6 +77,24 @@ it("getTargets result lists only family targets", async () => {
     ]);
 });
 
+it("a request reusing an in-flight id is refused, so getTargets stays filtered", async () => {
+    const f = fixture();
+    await f.filter.fromClient({ id: 1, method: "Target.getTargets" });
+    await f.filter.fromClient({ id: 1, method: "Browser.getVersion" });
+    expect(f.upstream).toEqual([{ id: 1, method: "Target.getTargets" }]);
+    expect(f.client).toEqual([
+        {
+            id: 1,
+            error: { code: -32000, message: "Not allowed by Taskflow: duplicate request id" },
+        },
+    ]);
+    await f.filter.fromUpstream({
+        id: 1,
+        result: { targetInfos: [{ targetId: "T-other", type: "page" }] },
+    });
+    expect(f.client[1]).toEqual({ id: 1, result: { targetInfos: [] } });
+});
+
 it("targetCreated for another task's target is not forwarded", async () => {
     const f = fixture();
     await f.filter.fromUpstream({

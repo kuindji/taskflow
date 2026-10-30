@@ -116,8 +116,18 @@ class CdpTargetFilter {
     }
 
     private forward(request: CdpMessage): void {
-        if (request.id !== undefined && request.method)
-            this.requests.set(this.key(request), request.method);
+        if (request.id !== undefined && request.method) {
+            const key = this.key(request);
+            // Reusing an in-flight id would let the earlier reply skip its filtering.
+            if (this.requests.has(key))
+                return this.reply(request, {
+                    error: {
+                        code: -32000,
+                        message: "Not allowed by Taskflow: duplicate request id",
+                    },
+                });
+            this.requests.set(key, request.method);
+        }
         this.io.toUpstream(request);
     }
 
