@@ -1,6 +1,7 @@
 import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { MSG } from "@taskflow/shared";
 import type { MenuEntry, SystemInfo, TunnelFailure } from "@taskflow/shared";
+import { createReconnectPolicy } from "@taskflow/shared/remote/reconnect-policy";
 import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
 import type { BackendHandle } from "../backend/manager";
 import type { NetLike } from "../net/client";
@@ -69,6 +70,7 @@ interface MachineSessionDeps {
     onFatal(error: unknown): void;
     /** Arms a one-shot timer and returns its cancel. Defaults to `setTimeout`. */
     schedule?: (run: () => void, delayMs: number) => () => void;
+    random?: () => number;
 }
 
 type SwitchResult = { ok: true } | { ok: false; message: string };
@@ -89,7 +91,7 @@ interface CurrentMachine {
 /** A re-attach waiting on its timer or on the registry. Cancelled by a switch or quit. */
 interface Reattach {
     cancelled: boolean;
-    cancelTimer(): void;
+    policy: ReturnType<typeof createReconnectPolicy>;
 }
 
 /** Where a connect attempt landed. `current`: it resolved to the machine already open. */
@@ -106,8 +108,6 @@ interface OpenPicker {
 
 const EDITOR_OPEN_MESSAGE = "Close the external editor before switching machines.";
 const CONNECTION_LOST = "Connection lost";
-const REATTACH_BASE_DELAY_MS = 1_000;
-const REATTACH_MAX_DELAY_MS = 30_000;
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -124,11 +124,6 @@ function rowName(row: PickerRow): string {
 function isCurrentRow(row: PickerRow, current: CurrentMachine): boolean {
     if (row.kind === "local") return current.local;
     return row.kind === "machine" && row.entry.id === current.machineId;
-}
-
-function defaultSchedule(run: () => void, delayMs: number): () => void {
-    const timer = setTimeout(run, delayMs);
-    return () => clearTimeout(timer);
 }
 
 /**
@@ -224,6 +219,18 @@ class MachineSession {
             unsubscribeStatus,
         };
         this.current = opened;
+        if (!opened.local) {
+            const machine = opened;
+            const reattach: Reattach = {
+                cancelled: false,
+                policy: createReconnectPolicy({
+                    attempt: () => this.reattachOnce(machine, reattach),
+                    schedule: this.deps.schedule,
+                    random: this.deps.random,
+                }),
+            };
+            this.reattach = reattach;
+        }
         // The socket or the tunnel may have dropped while the workspace was opening.
         this.reconcile(opened, exit);
         const selection = state.selections[target.machineId];
@@ -375,9 +382,11 @@ class MachineSession {
         if (this.current !== machine) return;
         if (exit !== null && !machine.local) {
             this.setStatus(machine, { state: "offline", reason: exit.message });
-            if (this.reattach === null) this.scheduleReattach(machine, 0);
+            this.reattach?.policy.setConnected(false);
+            this.reattach?.policy.start();
             return;
         }
+        this.reattach?.policy.setConnected(machine.net.isConnected());
         if (machine.net.isConnected()) {
             if (machine.status.state !== "online") this.setStatus(machine, { state: "online" });
             return;
@@ -396,23 +405,8 @@ class MachineSession {
         if (status.state === "online" && !wasOnline) machine.workspace.resetSessionResizes();
     }
 
-    private scheduleReattach(machine: CurrentMachine, attempt: number): void {
-        const delay = Math.min(REATTACH_BASE_DELAY_MS * 2 ** attempt, REATTACH_MAX_DELAY_MS);
-        const schedule = this.deps.schedule ?? defaultSchedule;
-        const reattach: Reattach = { cancelled: false, cancelTimer: () => undefined };
-        this.reattach = reattach;
-        reattach.cancelTimer = schedule(
-            () => void this.reattachOnce(machine, reattach, attempt),
-            delay,
-        );
-    }
-
-    private async reattachOnce(
-        machine: CurrentMachine,
-        reattach: Reattach,
-        attempt: number,
-    ): Promise<void> {
-        if (reattach.cancelled) return;
+    private async reattachOnce(machine: CurrentMachine, reattach: Reattach): Promise<boolean> {
+        if (reattach.cancelled || this.current !== machine) return false;
         let result: AttachResult;
         try {
             result = await this.deps.machines.registry.attachBackend(machine.machineId);
@@ -422,29 +416,25 @@ class MachineSession {
                 failure: { kind: "unknown", message: errorMessage(error), stderr: "" },
             };
         }
-        if (reattach.cancelled) {
+        if (reattach.cancelled || this.current !== machine) {
             if (result.ok) this.dropOrphanTunnel(machine.machineId);
-            return;
+            return false;
         }
         if (!result.ok) {
             if (result.failure.kind === "no-backend") {
-                this.reattach = null;
-                this.setStatus(machine, { state: "stopped", reason: result.failure.message });
-                return;
+                this.setStatus(machine, { state: "offline", reason: result.failure.message });
             }
-            this.scheduleReattach(machine, attempt + 1);
-            return;
+            return false;
         }
         let target: { port: number; host: string };
         try {
             target = parseOrigin(result.origin);
         } catch {
-            this.scheduleReattach(machine, attempt + 1);
-            return;
+            return false;
         }
-        this.reattach = null;
         // The client's own retry loop dials the new port; its status goes online then.
         machine.net.retarget(target.port, target.host);
+        return true;
     }
 
     /** An attach that finished after a switch or quit gave the machine up. */
@@ -465,7 +455,7 @@ class MachineSession {
         if (reattach === null) return;
         this.reattach = null;
         reattach.cancelled = true;
-        reattach.cancelTimer();
+        reattach.policy.stop();
     }
 
     private async pick(row: PickerRow): Promise<void> {

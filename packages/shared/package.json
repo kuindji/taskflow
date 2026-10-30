@@ -8,6 +8,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./discovery": "./src/discovery/index.ts",
+        "./remote/reconnect-policy": "./src/remote/reconnect-policy.ts",
         "./remote": "./src/remote/index.ts"
     },
     "scripts": {

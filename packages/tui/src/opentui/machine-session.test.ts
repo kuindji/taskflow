@@ -127,8 +127,13 @@ function holdOpen(h: Harness): () => void {
 }
 
 /** Run every armed timer, then let the attempts they started settle. */
-async function fireTimers(h: Harness): Promise<void> {
-    const armed = h.timers.splice(0).filter((timer) => !timer.cancelled);
+async function fireTimers(h: Harness, delay?: number): Promise<void> {
+    const armed = h.timers.filter(
+        (timer) =>
+            !timer.cancelled &&
+            (delay !== undefined ? timer.delay === delay : timer.delay !== 60000),
+    );
+    for (const timer of armed) timer.cancelled = true;
     for (const timer of armed) timer.run();
     await Bun.sleep(1);
 }
@@ -269,6 +274,7 @@ describe("MachineSession", () => {
                 if (wait !== null) await wait;
                 return workspace(context.machineId);
             },
+            random: () => 0.5,
             schedule: (run, delay) => {
                 const timer: FakeTimer = { delay, run, cancelled: false };
                 timers.push(timer);
@@ -342,7 +348,9 @@ describe("MachineSession", () => {
         );
 
     const armed = (h: Harness): number[] =>
-        h.timers.filter((timer) => !timer.cancelled).map((timer) => timer.delay);
+        h.timers
+            .filter((timer) => !timer.cancelled && timer.delay !== 60000)
+            .map((timer) => timer.delay);
 
     it("marks a remote machine offline when its tunnel exits and refuses requests", async () => {
         const h = await harness();
@@ -402,7 +410,7 @@ describe("MachineSession", () => {
         expect(delays).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
     });
 
-    it("stops retrying when the machine has no backend", async () => {
+    it("keeps retrying when the remote backend is stopped", async () => {
         const h = await harness();
         await h.session.switchTo(machineRow("alpha"));
         h.exitTunnel("alpha", failure("unknown", "ssh exited"));
@@ -414,8 +422,55 @@ describe("MachineSession", () => {
 
         await fireTimers(h);
         expect(h.log).toEqual(["attach(alpha)"]);
+        expect(armed(h)).toEqual([2000]);
+        expect(statesOf(h).at(-1)).toBe("alpha:offline:Taskflow is not running on alpha");
+        await fireTimers(h);
+        expect(h.log).toEqual(["attach(alpha)", "attach(alpha)"]);
+    });
+
+    it("a short lived reconnect keeps the previous backoff", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        await fireTimers(h);
+        h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123" });
+        await fireTimers(h);
+        h.clients.get("alpha")?.emitStatus(true);
+        h.exitTunnel("alpha", failure("unknown", "ssh exited again"));
+        expect(armed(h)).toEqual([4000]);
+    });
+
+    it("a stable socket resets the next reattach delay", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        await fireTimers(h);
+        h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123" });
+        await fireTimers(h);
+        h.clients.get("alpha")?.emitStatus(true);
+        h.clients.get("alpha")?.emitStatus(true);
+        expect(h.timers.filter((t) => !t.cancelled && t.delay === 60000)).toHaveLength(1);
+        await fireTimers(h, 60000);
+        h.exitTunnel("alpha", failure("unknown", "ssh exited again"));
+        expect(armed(h)).toEqual([1000]);
+    });
+
+    it("a successful attach after switching machines closes its orphan tunnel", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        let resolve!: (value: AttachResult) => void;
+        h.registry.attachBackend = () =>
+            new Promise((r) => {
+                resolve = r;
+            });
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        await fireTimers(h);
+        await h.session.switchTo(machineRow("beta"));
+        h.log.length = 0;
+        resolve({ ok: true, origin: "http://127.0.0.1:5123" });
+        await Bun.sleep(1);
+        expect(h.log).toEqual(["detach(alpha)"]);
         expect(armed(h)).toEqual([]);
-        expect(statesOf(h).at(-1)).toBe("alpha:stopped:Taskflow is not running on alpha");
     });
 
     it("cancels a pending re-attach when switching machines", async () => {
