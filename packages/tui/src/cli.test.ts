@@ -235,6 +235,9 @@ test("TASKFLOW_TOKEN is the fallback", () => {
     );
     expect(parseArgs([], { TASKFLOW_TOKEN: "bad" }).connect).toBeNull();
 });
+test("an empty TASKFLOW_TOKEN counts as unset", () => {
+    expect(parseArgs(["--connect", "host:7777"], { TASKFLOW_TOKEN: "" }).connect?.token).toBeNull();
+});
 test("--token wins over TASKFLOW_TOKEN", () => {
     expect(
         parseArgs(["--connect", "host:7777", "--token", TOKEN], { TASKFLOW_TOKEN: "b".repeat(43) })

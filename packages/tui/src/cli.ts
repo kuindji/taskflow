@@ -146,7 +146,7 @@ function parseArgs(
     }
     if (token !== undefined && connect === null)
         throw new Error(`--token needs --connect. ${USAGE}`);
-    const accessToken = connect === null ? null : (token ?? env.TASKFLOW_TOKEN ?? null);
+    const accessToken = connect === null ? null : (token ?? (env.TASKFLOW_TOKEN || null));
     if (accessToken !== null && !isApiToken(accessToken))
         throw new Error(`--token expects a Taskflow access token (43 characters). ${USAGE}`);
     return { connect: connect === null ? null : { ...connect, token: accessToken }, machine };
