@@ -159,7 +159,12 @@ export function createTerminalAttachment(deps: {
         const run = (async () => {
             do {
                 followUp = false;
-                await replace();
+                try {
+                    await replace();
+                } catch (error) {
+                    // A recovery requested meanwhile still deserves its own attempt.
+                    if (!followUp || disposed) throw error;
+                }
             } while (followUp && !disposed);
         })();
         active = run.finally(() => {

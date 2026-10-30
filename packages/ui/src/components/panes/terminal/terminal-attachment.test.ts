@@ -351,6 +351,21 @@ describe("terminal attachment recovery", () => {
         f.snapshots[2].resolve(snapshot("complete", 7));
         await tick();
     });
+    it("a resync requested during a failed replacement still runs", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(7);
+        const p = f.attachment.resync().catch(() => undefined);
+        expect(f.snapshots.length).toBe(2);
+        f.snapshots[1].resolve(snapshot());
+        await tick();
+        f.histories[0].resolve({ data: "short-history", lastSequence: 4 });
+        await tick();
+        expect(f.snapshots.length).toBe(3);
+        f.snapshots[2].resolve(snapshot("complete", 7));
+        await p;
+        expect(f.writes[0]).toBe("complete");
+    });
     it("an incompatible non-null snapshot rejects without history fallback", async () => {
         const f = fixture();
         await f.load();
