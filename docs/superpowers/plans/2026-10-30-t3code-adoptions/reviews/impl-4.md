@@ -1,0 +1,1 @@
+No material regressions found in the changed code or directly affected integrations. Focused tests and direct typechecks passed; the default test invocation was blocked by sandbox restrictions on its temporary-directory setup.
