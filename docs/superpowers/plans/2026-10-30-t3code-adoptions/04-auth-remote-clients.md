@@ -27,7 +27,7 @@ Task 4.1, shared:
 - Modify `packages/shared/src/remote/backend-registry.ts`:
   - `RegistryDeps` (`:22-35`) gains `readRemoteToken`;
   - `AddBackendInput` (`:37-43`) gains `token?: string`;
-  - `persist` (`:94-104`) writes the temp file with `{ mode: 0o600 }`;
+  - `persist` (`:94-104`) writes a unique temp file (`${deps.file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`, the naming of `uniqueSibling` in `packages/backend/src/services/instance-port-file.ts:5`, which shared can't import) with `{ mode: 0o600, flag: "wx" }`, renames it, and removes it in `finally`;
   - `addBackend` (`:241-275`) validates and stores the token;
   - `attachBackend` (`:307-347`) reads a missing token and returns it;
   - add `refreshToken(id)`;
@@ -51,7 +51,7 @@ Task 4.2, Electron and renderer:
   - one module-level `createTokenRefreshGate()`.
 - Modify `packages/ui/src/stores/fake-desktop-bridge.ts`: add `refreshBackendToken` to `FakeMain` and to `bridge`, recording ids in `main.refreshed: string[]`.
 - Modify `electron/src/ipc-handlers.ts` `update-backend` (`:376`) and `packages/ui/src/env.d.ts` `updateBackend` (`:102`): the patch type gains `token?: string | null`.
-- Modify `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: the edit form (`:57-61`) gets an "Access token" field (same attributes as the connect dialog), sent as `token` only when the user changed it; an emptied field sends `null`. Extend `ManageBackendsDialog.test.tsx`.
+- Modify `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: the edit form (`:57-61`) gets an "Access token" field (same attributes as the connect dialog), sent as `token` only when the user changed it; an emptied field sends `null`. After a save that changed the token answers `ok`, when the machine's row has `failure?.kind === "unauthorized"` and `keepAttached`, call `useBackendStore.getState().retry(entry.id)`: `refresh` keeps the row's failure (`backend-store.ts:342`), so the save alone would leave it offline and unwanted. `retry`'s `attach` clears the failure (`:212`), which makes it wanted again. Extend `ManageBackendsDialog.test.tsx`.
 - Modify `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`: an "Access token" field under "Backend port" (`:119-128`), passed as `token: token.trim() || undefined` in `addBackend` (`:56-61`).
 - Create `packages/ui/src/components/settings/sections/AccessTokenRow.tsx` + `AccessTokenRow.test.tsx` (style of `AgentAccountsSection.test.tsx`: `createRoot`, `act`). Render it in `GeneralSection` (`sections/GeneralSection.tsx`), right under the "Discoverable on this network" row (see "Planner decisions"). It reuses `SettingRow` and `CopyButton` (`components/ui/copy-button.tsx`).
 
@@ -145,7 +145,7 @@ function parseArgs(argv: string[], env?: { TASKFLOW_TOKEN?: string }): CliOption
   - on failure leave the record alone and return the failure;
   - a missing record gives `{ ok: false, failure: unknownFailure("No such backend") }`.
 - `attached()` returns `{ id, origin, token }` for each live origin, with the token from its record and omitted when null.
-- `persist` writes mode `0600`: the file now holds secrets. `rename` keeps the temp file's mode, and the temp file is created fresh on every write.
+- `persist` writes mode `0600`: the file now holds secrets. Today's temp path is fixed (`backends.json.tmp`, `backend-registry.ts:96`), and an interrupted write can leave one behind with `0644`; `writeFile`'s `mode` doesn't apply to an existing file, so the token-bearing write would rename a `0644` file into place. A unique temp name created with `flag: "wx"` is always new, so `rename` publishes a `0600` file. A stale legacy `backends.json.tmp` is then never written again.
 
 **`createTokenRefreshGate`**
 - `unauthorized(id)` returns `"refresh"` the first time for an id, and `"reject"` on every call after that until `authenticated(id)`.
@@ -238,7 +238,7 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
     - `refreshToken leaves the record alone when the read fails`
     - `attached() lists each live origin with its token`
     - `addBackend stores a valid token and rejects an invalid one with the exact message`
-    - `backends.json is written with mode 0600` (skip on `win32`)
+    - `backends.json is written with mode 0600, even with a leftover 0644 backends.json.tmp next to it` (skip on `win32`)
 - [ ] **Step 2:** Run `bun test packages/shared/src`. Expected: FAIL.
 - [ ] **Step 3:** Implement. Wire `readRemoteToken` into `electron/src/main.ts` and `packages/tui/src/remote/machines.ts`. Add `token: null` to the fixtures.
 - [ ] **Step 4:** Run `bun test packages/shared/src`, `cd packages/tui && bun test`, `bun run typecheck`. Expected: PASS.
@@ -259,7 +259,11 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
     - `a remote that restarts with a new token while attached refreshes once through rehandshake and reattaches` (restart the fake backend accepting only the new token; the real `followSocket` path drives it)
     - `a refreshed token that is still wrong ends offline after exactly one refresh` (live path; `main.refreshed` has one entry)
     - `a detached machine's late 4401 starts no refresh`
-  - `ManageBackendsDialog.test.tsx`: `editing the access token sends it; emptying it sends null`
+    - `a primary remote that rotates its token is primary again after the refresh` (Section 3's primary restore in `attach`; assert `getPrimary()` and the primary status listener)
+  - `ManageBackendsDialog.test.tsx`:
+    - `editing the access token sends it; emptying it sends null`
+    - `saving a new token for a machine rejected as unauthorized reattaches it` (drive the dialog's save, not `retry` directly; the fake bridge's second `attachBackend` answer carries the accepted token, and the row ends `attached`)
+    - `saving only a new name does not retry an unauthorized machine`
   - `backend-registry.test.ts` (Task 4.1): `updateBackend stores a new token, clears it on null and rejects an invalid one`
   - `AccessTokenRow.test.tsx`:
     - `shows the first six characters and copies the full token`
@@ -320,5 +324,5 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
    - The remote-read argv is Section 3's `buildRemoteReadArgs(record, fileName)` in `tunnel-args.ts`.
 2. **The local token is shown in Settings → General**, under "Discoverable on this network", through the `AccessTokenRow` component. Don't put it in `RemoteSection.tsx`, which is the Claude remote-agent pane and only shows when Claude is installed. `design.md` and Section 13 are amended.
 3. A local `4401` shows `The local backend rejected the access token`.
-4. **The saved token is editable** on the desktop: `updateBackend` takes `token` and `ManageBackendsDialog` edits it (Task 4.1, 4.2 files). Tests as listed there, plus `editing the token of an unauthorized machine makes it wanted again` in `backend-store.test.ts`. The TUI only renames machines today; it gets no token edit (remove and re-add).
+4. **The saved token is editable** on the desktop: `updateBackend` takes `token` and `ManageBackendsDialog` edits it (Task 4.1, 4.2 files). A token save on an `unauthorized` row calls `retry` (Task 4.2's `ManageBackendsDialog` bullet). Tests as listed there. The TUI only renames machines today; it gets no token edit (remove and re-add).
 5. A remote without a readable token costs one failing ssh `cat` per attach. That's accepted.

@@ -27,8 +27,9 @@ Run against the real desktop app built from `main`, on macOS. Run the auth items
 5. **Remote** (needs a second machine reachable over SSH; otherwise "not run").
    - Adding the machine reads the token over ssh, and the connection works.
    - Rotate the remote token (delete its file, restart its backend): the client gets `4401`, re-reads the token once and reconnects.
-   - Enter a wrong token by hand: the client shows `Remote backend rejected the access token`.
-6. **Settings → General** (under "Discoverable on this network") shows the local token, and Copy puts it on the clipboard. Editing a machine's saved token reconnects it.
+   - Enter a wrong token by hand on a remote whose token ssh can read: the client gets `4401`, re-reads the token once and connects.
+   - Enter a wrong token by hand on a remote whose token can't be read (`TASKFLOW_CONFIG_DIR` set there): the client shows `Remote backend rejected the access token` and stops retrying.
+6. **Settings → General** (under "Discoverable on this network") shows the local token, and Copy puts it on the clipboard. Editing the saved token of a machine rejected as unauthorized reattaches it.
 7. **CDP.**
    - Playwright `connectOverCDP` with the `endpoint` from `taskflow-cli browser open` works.
    - `<endpoint>/json/version` with one character of the key changed gives 401.

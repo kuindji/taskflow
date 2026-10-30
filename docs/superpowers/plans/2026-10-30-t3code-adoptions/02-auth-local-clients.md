@@ -172,7 +172,7 @@ No call in the script feeds curl a body on stdin (`@-`); each passes `-d "<value
 ## Task 2.4: both CLIs
 
 - [ ] **Step 1:** Fake curl in `taskflow-cli.test.ts`: add a `-K)` case that reads stdin when `$2` is `-` and appends each `header = "<h>"` line's `<h>` to `headers`. It also appends the whole argv to `$CAPTURE_FILE` as `ARGV=<args>`. Tests:
-  - `every curl call in the script goes through tf_curl`: read the script text; the only lines matching `/(^|[^_a-zA-Z])curl /` are the two inside `tf_curl`
+  - `every curl call in the script goes through tf_curl`: read the script text; ignoring comment lines (first non-blank character `#`; `taskflow-cli.sh:43` mentions `` `curl -sf` `` in a comment), the only lines matching `/(^|[^_a-zA-Z])curl /` are the two inside `tf_curl`
   - `with TASKFLOW_API_TOKEN set, a plain command sends Authorization: Bearer <token>` (`system info`)
   - `the token is read from stdin and never appears in curl's argv`
   - `api_request calls carry the token too` (`devserver list --all`)
