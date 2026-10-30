@@ -8,7 +8,7 @@ import {
     buildKeyscanArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
-    hostKeyOptions,
+    buildRemoteReadArgs,
     KNOWN_HOSTS_FILE,
     knownHostsKey,
 } from "./tunnel-args";
@@ -133,29 +133,9 @@ async function readRemotePort(
             },
         };
     }
-    // Single-quoted so the remote shell treats it as one literal word, and
-    // `~` rather than `$HOME` so expansion still happens outside the quotes.
-    // `isSafeLabel` above already excludes a quote character; this is the second
-    // lock on the same door.
-    const remotePath = `~/.config/taskflow/'${record.instanceId}.port'`;
-    // The same host-key options as `buildTunnelArgs`, and they matter more here:
-    // this is the *first* ssh call a manual connect makes, so it is the one that
-    // produces the host-key failure the trust dialog reacts to. Left to the
-    // user's `~/.ssh/config`, an `accept-new` policy pins the key here, silently,
-    // before a tunnel is ever attempted — and every later call finds a host that
-    // is already trusted.
-    const { stdout, stderr, code } = await runSsh([
-        "-p",
-        String(record.sshPort),
-        "-o",
-        "BatchMode=yes",
-        ...hostKeyOptions(record),
-        "-l",
-        record.user,
-        "--",
-        record.host,
-        `cat ${remotePath}`,
-    ]);
+    const { stdout, stderr, code } = await runSsh(
+        buildRemoteReadArgs(record, `${record.instanceId}.port`),
+    );
     const port = Number.parseInt(stdout.trim(), 10);
     if (Number.isInteger(port) && port > 0) return { port };
 

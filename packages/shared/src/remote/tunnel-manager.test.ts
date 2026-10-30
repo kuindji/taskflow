@@ -11,6 +11,11 @@ import { createTunnelManager } from "./tunnel-manager";
 const FAKE_SSH = `#!/usr/bin/env bun
 const { appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
+if (!args.includes("-L")) {
+    appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify({ event: "read", args }) + "\\n");
+    process.stdout.write("54892\\n");
+    process.exit(0);
+}
 const localPort = Number(args[args.indexOf("-L") + 1].split(":")[1]);
 const log = (entry) => appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify(entry) + "\\n");
 log({ event: "spawn", pid: process.pid, localPort });
@@ -21,7 +26,8 @@ setTimeout(() => {
 `;
 
 interface LogEntry {
-    event: "spawn" | "ready";
+    event: "spawn" | "ready" | "read";
+    args?: string[];
     pid: number;
     localPort?: number;
     at?: number;
@@ -181,4 +187,13 @@ describe("separate managers", () => {
         expect(result.ok).toBe(true);
         expect(second.hasTunnel(record.id)).toBe(true);
     });
+});
+
+test("remote port reads pass the shared connection options to ssh", async () => {
+    useLog("remote-read.log");
+    expect(await createTunnelManager().readRemotePort(record)).toEqual({ port: 54892 });
+    const args = readLog()[0].args ?? [];
+    for (const option of ["ControlMaster=no", "ControlPath=none", "ControlPersist=no"]) {
+        expect(args[args.indexOf(option) - 1]).toBe("-o");
+    }
 });

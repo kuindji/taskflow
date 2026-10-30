@@ -91,9 +91,7 @@ export function buildTunnelArgs(
         `127.0.0.1:${localPort}:127.0.0.1:${backendPort}`,
         "-p",
         String(record.sshPort),
-        "-o",
-        "BatchMode=yes",
-        ...hostKeyOptions(record),
+        ...connectionOptions(record),
         "-o",
         "ExitOnForwardFailure=yes",
         "-o",
@@ -120,6 +118,34 @@ export function hostKeyOptions(record: BackendRecord): string[] {
         "GlobalKnownHostsFile=/dev/null",
         "-o",
         `HostKeyAlias=${hostKeyAlias(record)}`,
+    ];
+}
+
+function connectionOptions(record: BackendRecord): string[] {
+    return [
+        "-o",
+        "BatchMode=yes",
+        ...hostKeyOptions(record),
+        // Adapted from t3code (MIT, https://github.com/pingdotgg/t3code, 32ecd717): packages/ssh/src/tunnel.ts
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
+        "-o",
+        "ControlPersist=no",
+    ];
+}
+
+export function buildRemoteReadArgs(record: BackendRecord, fileName: string): string[] {
+    return [
+        "-p",
+        String(record.sshPort),
+        ...connectionOptions(record),
+        "-l",
+        record.user,
+        "--",
+        record.host,
+        `cat ~/.config/taskflow/'${fileName}'`,
     ];
 }
 

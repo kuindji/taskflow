@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendRecord } from "../types/backend";
 import {
     buildKeyscanArgs,
+    buildRemoteReadArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
     hostKeyAlias,
@@ -46,6 +48,12 @@ describe("buildTunnelArgs", () => {
             "GlobalKnownHostsFile=/dev/null",
             "-o",
             "HostKeyAlias=taskflow-192.168.1.20-22",
+            "-o",
+            "ControlMaster=no",
+            "-o",
+            "ControlPath=none",
+            "-o",
+            "ControlPersist=no",
             "-o",
             "ExitOnForwardFailure=yes",
             "-o",
@@ -237,3 +245,80 @@ describe("classifyTunnelFailure", () => {
         expect(failure.stderr).toBe("something nobody predicted");
     });
 });
+
+test("tunnel and remote file reads disable SSH multiplexing with the same options", () => {
+    for (const args of [
+        buildTunnelArgs(record, 7777, 54892),
+        buildRemoteReadArgs(record, "main.port"),
+    ]) {
+        for (const option of ["ControlMaster=no", "ControlPath=none", "ControlPersist=no"]) {
+            expect(args[args.indexOf(option) - 1]).toBe("-o");
+        }
+    }
+});
+
+test("remote file reads preserve the SSH user port host-key policy and quoted path", () => {
+    expect(buildRemoteReadArgs({ ...record, sshPort: 2222 }, "api-token-main")).toEqual([
+        "-p",
+        "2222",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
+        "-o",
+        "GlobalKnownHostsFile=/dev/null",
+        "-o",
+        "HostKeyAlias=taskflow-192.168.1.20-2222",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
+        "-o",
+        "ControlPersist=no",
+        "-l",
+        record.user,
+        "--",
+        record.host,
+        "cat ~/.config/taskflow/'api-token-main'",
+    ]);
+});
+
+test.skipIf(!Bun.which("ssh"))(
+    "SSH options override multiplexing enabled by the user configuration",
+    async () => {
+        const dir = mkdtempSync(join(tmpdir(), "taskflow-ssh-config-"));
+        try {
+            const config = join(dir, "config");
+            writeFileSync(
+                config,
+                "Host *\n  ControlMaster auto\n  ControlPath /tmp/taskflow-test-master-%h-%p\n  ControlPersist yes\n  ProxyJump jump.example\n",
+            );
+            for (const args of [
+                buildTunnelArgs(record, 7777, 54892),
+                buildRemoteReadArgs(record, "main.port"),
+            ]) {
+                const proc = Bun.spawn(["ssh", "-F", config, "-G", ...args], {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                const output = await new Response(proc.stdout).text();
+                expect(await proc.exited).toBe(0);
+                expect(output).toContain("controlmaster false\n");
+                expect(output).toContain("controlpersist no\n");
+                expect(output).toContain("proxyjump jump.example\n");
+                expect(
+                    output
+                        .split("\n")
+                        .filter(
+                            (line) =>
+                                line.startsWith("controlpath ") && line !== "controlpath none",
+                        ),
+                ).toEqual([]);
+            }
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    },
+);
