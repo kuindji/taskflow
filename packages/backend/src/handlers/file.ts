@@ -19,7 +19,8 @@ import type { ChangeTracker } from "../services/change-tracker";
 import { writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
 import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
 import { readFilePreview } from "../services/file-preview";
-import { buildShellPath } from "../services/shell-path";
+import { getKnownEditor } from "../services/editor-detector";
+import { resolveEditorCommand } from "../services/editor-resolver";
 
 interface FileHandlerDeps {
     router: Router;
@@ -27,10 +28,18 @@ interface FileHandlerDeps {
     taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
     changeTracker?: ChangeTracker;
+    resolveEditor?: typeof resolveEditorCommand;
+    spawnEditor?: (command: string, args: string[]) => void;
 }
 
 export function registerFileHandlers(deps: FileHandlerDeps): void {
     const { router, fileWatcher, taskStore, broadcast, changeTracker } = deps;
+    const resolveEditor = deps.resolveEditor ?? resolveEditorCommand;
+    const spawnEditor =
+        deps.spawnEditor ??
+        ((command: string, args: string[]) => {
+            Bun.spawn([command, ...args], { stdio: ["ignore", "ignore", "ignore"] });
+        });
 
     router.register(MSG.FILE_TREE, async (payload) => {
         const { path } = payload as FileTreePayload;
@@ -117,13 +126,13 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const { path } = payload as FilePathPayload;
         const resolvedPath = await assertWorkspacePath(taskStore, path);
         const editor = process.env.EDITOR || "code";
-        const which = Bun.which(editor, { PATH: buildShellPath() });
-        if (!which) {
-            throw new Error(`Editor "${editor}" not found on PATH`);
+        const command = await resolveEditor(
+            getKnownEditor(editor) ?? { id: editor, name: editor, command: editor },
+        );
+        if (!command) {
+            throw new Error(`Editor "${editor}" not found`);
         }
-        Bun.spawn([which, resolvedPath], {
-            stdio: ["ignore", "ignore", "ignore"],
-        });
+        spawnEditor(command, [resolvedPath]);
         return { success: true };
     });
 

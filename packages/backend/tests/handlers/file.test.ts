@@ -7,6 +7,8 @@ import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath } from "fs/prom
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
+import { expectRejects as expectPromiseRejects } from "../expect-rejects";
+import { resolveEditorCommand, type EditorResolverDeps } from "../../src/services/editor-resolver";
 
 async function expectRejects(fn: () => Promise<unknown>, match?: string) {
     try {
@@ -25,8 +27,10 @@ describe("file handlers", () => {
     let fileWatcher: FileWatcher;
     let tempDir: string;
     let projectDir: string;
+    let originalEditor: string | undefined;
 
     beforeEach(async () => {
+        originalEditor = process.env.EDITOR;
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-file-test-"));
         tempDir = await realpath(tempDir);
         store = new TaskStore({
@@ -49,8 +53,138 @@ describe("file handlers", () => {
     });
 
     afterEach(async () => {
+        if (originalEditor === undefined) delete process.env.EDITOR;
+        else process.env.EDITOR = originalEditor;
         await fileWatcher.stopAll();
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    describe("FILE_OPEN_EXTERNAL", () => {
+        function injectEditors(overrides: {
+            resolveEditor: typeof resolveEditorCommand;
+            spawnEditor: (command: string, args: string[]) => void;
+        }) {
+            registerFileHandlers({
+                router,
+                fileWatcher,
+                taskStore: store,
+                broadcast: () => {},
+                ...overrides,
+            });
+        }
+
+        it("external open launches the shared resolved command", async () => {
+            process.env.EDITOR = "idea";
+            const launched: unknown[] = [];
+            injectEditors({
+                resolveEditor: async (editor) => {
+                    const expected = {
+                        id: "idea",
+                        name: "IntelliJ IDEA",
+                        command: "idea",
+                        type: "external",
+                    };
+                    expect(editor).toEqual(expected);
+                    return "/bundle/idea";
+                },
+                spawnEditor: (command, args) => {
+                    launched.push([command, args]);
+                },
+            });
+            const filePath = join(projectDir, "source.ts");
+            await writeFile(filePath, "hello");
+            expect(await router.handle(MSG.FILE_OPEN_EXTERNAL, { path: filePath })).toEqual({
+                success: true,
+            });
+            expect(launched).toEqual([["/bundle/idea", [filePath]]]);
+        });
+
+        it("bundle-only Code is launchable", async () => {
+            process.env.EDITOR = "vscode";
+            const bundle = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code";
+            const resolverDeps: EditorResolverDeps = {
+                platform: "darwin",
+                env: {},
+                homeDir: "/home/tester",
+                path: "",
+                which: () => null,
+                executable: async (path) => path === bundle,
+                readDirectory: async () => [],
+                version: async () => null,
+            };
+            const launched: unknown[] = [];
+            injectEditors({
+                resolveEditor: (editor) => resolveEditorCommand(editor, resolverDeps),
+                spawnEditor: (command, args) => {
+                    launched.push([command, args]);
+                },
+            });
+            const filePath = join(projectDir, "source.ts");
+            await writeFile(filePath, "hello");
+            expect(await router.handle(MSG.FILE_OPEN_EXTERNAL, { path: filePath })).toEqual({
+                success: true,
+            });
+            expect(launched).toEqual([[bundle, [filePath]]]);
+            delete process.env.EDITOR;
+            expect(await router.handle(MSG.FILE_OPEN_EXTERNAL, { path: filePath })).toEqual({
+                success: true,
+            });
+            expect(launched).toHaveLength(2);
+        });
+
+        it("unknown editor reports the exact not-found message", async () => {
+            process.env.EDITOR = "taskflow-nonexistent-editor --wait";
+            const launched: unknown[] = [];
+            injectEditors({
+                resolveEditor: async (editor) => {
+                    expect(editor.command).toBe("taskflow-nonexistent-editor --wait");
+                    return null;
+                },
+                spawnEditor: (command, args) => {
+                    launched.push([command, args]);
+                },
+            });
+            await expectPromiseRejects(
+                router.handle(MSG.FILE_OPEN_EXTERNAL, { path: join(projectDir, "file") }),
+                /^Editor "taskflow-nonexistent-editor --wait" not found$/,
+            );
+            expect(launched).toEqual([]);
+        });
+
+        it("a rejected workspace path never reaches resolver or spawn", async () => {
+            const calls: string[] = [];
+            injectEditors({
+                resolveEditor: async () => {
+                    calls.push("resolve");
+                    return "/bin/editor";
+                },
+                spawnEditor: () => {
+                    calls.push("spawn");
+                },
+            });
+            await expectPromiseRejects(
+                router.handle(MSG.FILE_OPEN_EXTERNAL, { path: join(tempDir, "outside") }),
+                "outside",
+            );
+            expect(calls).toEqual([]);
+        });
+
+        it("a file path containing spaces is one spawn argument", async () => {
+            process.env.EDITOR = "/custom/taskflow-test-editor";
+            const launched: unknown[] = [];
+            injectEditors({
+                resolveEditor: async (editor) => editor.command,
+                spawnEditor: (command, args) => {
+                    launched.push([command, args]);
+                },
+            });
+            const filePath = join(projectDir, "a file with spaces.ts");
+            await writeFile(filePath, "hello");
+            expect(await router.handle(MSG.FILE_OPEN_EXTERNAL, { path: filePath })).toEqual({
+                success: true,
+            });
+            expect(launched).toEqual([["/custom/taskflow-test-editor", [filePath]]]);
+        });
     });
 
     describe("FILE_RENAME", () => {
