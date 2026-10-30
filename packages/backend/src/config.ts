@@ -1,7 +1,8 @@
+import { isApiToken } from "@taskflow/shared";
 import { execFileSync } from "child_process";
 import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { getConfigBaseDir } from "./services/platform";
 import { randomBytes, randomUUID } from "crypto";
@@ -81,11 +82,11 @@ function hasErrorCode(error: unknown, code: string): boolean {
     return error instanceof Error && "code" in error && error.code === code;
 }
 
-/** The uid stored in `file`, or null when there is none or it is not a valid uid. */
-function readBackendUid(file: string): string | null {
+/** The secret stored in `file`, or null when missing or invalid. */
+function readSecret(file: string, isValid: (value: string) => boolean): string | null {
     try {
         const value = readFileSync(file, "utf-8").trim();
-        return /^[0-9a-f]{32}$/.test(value) ? value : null;
+        return isValid(value) ? value : null;
     } catch (error) {
         if (hasErrorCode(error, "ENOENT")) return null;
         throw error;
@@ -104,15 +105,32 @@ function readBackendUid(file: string): string | null {
  * promise.
  */
 export function readOrCreateBackendUid(baseDir: string, instanceId: string): string {
-    const file = join(baseDir, `backend-uid-${instanceId}`);
-    const existing = readBackendUid(file);
+    return readOrCreateSecret(
+        join(baseDir, `backend-uid-${instanceId}`),
+        (value) => /^[0-9a-f]{32}$/.test(value),
+        () => randomBytes(16).toString("hex"),
+    );
+}
+
+export function readOrCreateApiToken(baseDir: string, instanceId: string): string {
+    return readOrCreateSecret(join(baseDir, `api-token-${instanceId}`), isApiToken, () =>
+        randomBytes(32).toString("base64url"),
+    );
+}
+
+function readOrCreateSecret(
+    file: string,
+    isValid: (value: string) => boolean,
+    mint: () => string,
+): string {
+    const existing = readSecret(file, isValid);
     if (existing) return existing;
 
-    mkdirSync(baseDir, { recursive: true });
-    const minted = randomBytes(16).toString("hex");
+    mkdirSync(dirname(file), { recursive: true });
+    const minted = mint();
     // Written whole to a private temp file, then published with link(), which
-    // fails if the uid file already exists. Of several backends starting at once
-    // exactly one mints and the rest adopt its uid, and none reads a torn file.
+    // fails if the secret file already exists. Of several backends starting at once
+    // exactly one mints and the rest adopt its secret, and none reads a torn file.
     const temp = `${file}.${process.pid}.${minted.slice(0, 8)}.tmp`;
     writeFileSync(temp, minted, { mode: 0o600 });
     try {
@@ -120,13 +138,13 @@ export function readOrCreateBackendUid(baseDir: string, instanceId: string): str
         return minted;
     } catch (error) {
         if (!hasErrorCode(error, "EEXIST")) throw error;
-        const winner = readBackendUid(file);
+        const winner = readSecret(file, isValid);
         if (winner) return winner;
-        // The file exists but holds no valid uid (corrupt or hand-edited). Every
+        // The file exists but holds no valid secret (corrupt or hand-edited). Every
         // backend starting now sees that, so the repair is serialized and re-checked:
         // the first replaces the file and the rest adopt what it wrote.
         return withFileLock(file, () => {
-            const repaired = readBackendUid(file);
+            const repaired = readSecret(file, isValid);
             if (repaired) return repaired;
             renameSync(temp, file);
             return minted;
@@ -169,6 +187,7 @@ function withFileLock<T>(file: string, run: () => T): T {
 }
 
 let backendUid: string | undefined;
+let apiToken: string | undefined;
 
 export const config = {
     baseDir: BASE_DIR,
@@ -193,6 +212,11 @@ export const config = {
     get backendUid(): string {
         backendUid ??= readOrCreateBackendUid(BASE_DIR, instanceId);
         return backendUid;
+    },
+    /** Minted on first read so importing config creates no token file. */
+    get apiToken(): string {
+        apiToken ??= readOrCreateApiToken(BASE_DIR, instanceId);
+        return apiToken;
     },
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
     instanceId,
