@@ -1,4 +1,4 @@
-import { app, dialog, nativeTheme, Notification } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, Notification } from "electron";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 
@@ -51,6 +51,7 @@ import { initAutoUpdater, clearUpdaterCache, setupAutoUpdater } from "./auto-upd
 import { createNotificationPoller, fetchBackendNotifications } from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { listAttachedBackends } from "./attached-backends";
+import * as browserHost from "./browser-host";
 
 declare const BUILD_GIT_BRANCH: string;
 
@@ -60,6 +61,9 @@ let exitConfirmed = false;
 let devBranch: string | null = null;
 
 nativeTheme.themeSource = "dark";
+app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+app.commandLine.appendSwitch("remote-debugging-port", "0");
+app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
 
 // --- Dev mode setup ---
 
@@ -94,6 +98,9 @@ initWindowManager({
     onWindowClosed: () => {
         resetRendererTraySync();
         trayOnWindowClosed();
+        if (BrowserWindow.getAllWindows().every(browserHost.isParkWindow)) {
+            onAllAppWindowsClosed();
+        }
     },
 });
 
@@ -195,6 +202,7 @@ void app.whenReady().then(async () => {
     try {
         const port = await startBackend(devBranch);
         setBackendPort(port);
+        await browserHost.initBrowserHost({ getBackendPort, getMainWindow });
         console.log(`Backend started on port ${port}`);
         // Main does not redial persisted records: the renderer does, through
         // `attachedRecordIds()`, because only it can finish the handshake.
@@ -216,14 +224,16 @@ void app.whenReady().then(async () => {
     }
 });
 
-app.on("window-all-closed", () => {
+function onAllAppWindowsClosed(): void {
     if (process.platform !== "darwin") {
         app.quit();
         return;
     }
 
     hideDockIcon();
-});
+}
+
+app.on("window-all-closed", onAllAppWindowsClosed);
 
 app.on("activate", () => {
     void showMainWindow();

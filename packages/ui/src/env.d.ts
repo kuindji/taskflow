@@ -16,7 +16,25 @@ interface NativeMenuPosition {
     y: number;
 }
 
+interface TaskflowBrowserBridge {
+    show(
+        tabId: string,
+        url: string,
+        bounds: { x: number; y: number; width: number; height: number },
+    ): Promise<void>;
+    hide(tabId: string): Promise<void>;
+    navigate(tabId: string, url: string): Promise<void>;
+    back(tabId: string): Promise<void>;
+    forward(tabId: string): Promise<void>;
+    reload(tabId: string): Promise<void>;
+    freeze(tabId: string): Promise<string>;
+    onNavState(
+        callback: (tabId: string, state: { canGoBack: boolean; canGoForward: boolean }) => void,
+    ): () => void;
+}
+
 interface TaskflowBridge {
+    browser: TaskflowBrowserBridge;
     getBackendPort(): Promise<number>;
     selectProjectDirectory(): Promise<string | null>;
     selectThemeFile(): Promise<string | null>;

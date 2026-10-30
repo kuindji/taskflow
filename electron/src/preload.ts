@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { BackendRecord, MenuEntry, TunnelFailure } from "@taskflow/shared";
+import type { Bounds, HostedView } from "./browser-host/tab-host";
 
 interface NativeMenuItem {
     id?: string;
@@ -16,6 +17,32 @@ interface NativeMenuPosition {
 }
 
 contextBridge.exposeInMainWorld("taskflow", {
+    browser: {
+        show: (tabId: string, url: string, bounds: Bounds): Promise<void> =>
+            ipcRenderer.invoke("browser:show", tabId, url, bounds),
+        hide: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:hide", tabId),
+        navigate: (tabId: string, url: string): Promise<void> =>
+            ipcRenderer.invoke("browser:navigate", tabId, url),
+        back: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:back", tabId),
+        forward: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:forward", tabId),
+        reload: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:reload", tabId),
+        freeze: (tabId: string): Promise<string> => ipcRenderer.invoke("browser:freeze", tabId),
+        onNavState: (
+            callback: (tabId: string, state: ReturnType<HostedView["navState"]>) => void,
+        ) => {
+            const listener = (
+                _event: Electron.IpcRendererEvent,
+                tabId: string,
+                state: ReturnType<HostedView["navState"]>,
+            ) => {
+                callback(tabId, state);
+            };
+            ipcRenderer.on("browser:nav-state", listener);
+            return () => {
+                ipcRenderer.removeListener("browser:nav-state", listener);
+            };
+        },
+    },
     getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
     selectProjectDirectory: () => ipcRenderer.invoke("select-project-directory"),
     selectThemeFile: () => ipcRenderer.invoke("select-theme-file"),

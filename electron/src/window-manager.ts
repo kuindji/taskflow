@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen } from "electron";
 import { join } from "path";
 import { backendOrigin } from "./backend-url";
+import * as browserHost from "./browser-host";
 
 interface SavedWindowBounds {
     x?: number;
@@ -90,6 +91,16 @@ async function createWindow(): Promise<void> {
 
     mainWindow = new BrowserWindow(windowOptions);
 
+    mainWindow.webContents.on(
+        "did-start-navigation",
+        (_event, _url, isSameDocument, isMainFrame) => {
+            if (isMainFrame && !isSameDocument) browserHost.detachAll();
+        },
+    );
+    mainWindow.webContents.on("render-process-gone", () => {
+        browserHost.detachAll();
+    });
+
     mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
         webPreferences.nodeIntegration = false;
         webPreferences.nodeIntegrationInSubFrames = false;
@@ -129,6 +140,7 @@ async function createWindow(): Promise<void> {
     });
 
     mainWindow.on("close", () => {
+        browserHost.detachAll();
         const port = deps.getBackendPort();
         if (!mainWindow || !port) return;
         const isMaximized = mainWindow.isMaximized();
