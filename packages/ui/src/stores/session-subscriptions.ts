@@ -1,4 +1,5 @@
 import type {
+    BrowserTabScope,
     MasterSessionsListResponse,
     SessionStatusEvent,
     TerminalOutputEvent,
@@ -6,7 +7,7 @@ import type {
     SessionStatus,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { getPrimary, onEvent } from "@/lib/connection-registry";
+import { getPrimary, onEvent, onPrimaryChange } from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useUIStore } from "./ui-store";
 import {
@@ -107,6 +108,13 @@ function onWindowFocusChanged(focused: boolean, store: SessionStoreApi): void {
     }
 }
 
+function browserWorkspaceKey(backendId: string, scope: BrowserTabScope): string | null {
+    if (scope.kind === "task") return getTaskWorkspaceKey(scope.taskId);
+    if (scope.kind === "project") return getProjectWorkspaceKey(scope.projectId);
+    // The "master" workspace key is a singleton and belongs to primary alone.
+    return backendId === getPrimary() ? MASTER_WORKSPACE_KEY : null;
+}
+
 function initSessionSubscriptions(store: SessionStoreApi): void {
     // Every attached machine's sessions report here. Session ids are UUIDs, so
     // the status map is flat; the owner is noted so a detach can clear them.
@@ -184,17 +192,23 @@ function initSessionSubscriptions(store: SessionStoreApi): void {
                     tabs: current?.tabs ?? [],
                     knownIds: new Set(old?.tabs.map((tab) => tab.id)),
                     initial: state.initialByBackend[backendId] ?? !old,
-                    workspaceKeyFor: (scope) =>
-                        scope.kind === "task"
-                            ? getTaskWorkspaceKey(scope.taskId)
-                            : scope.kind === "project"
-                              ? getProjectWorkspaceKey(scope.projectId)
-                              : backendId === getPrimary()
-                                ? MASTER_WORKSPACE_KEY
-                                : null,
+                    workspaceKeyFor: (scope) => browserWorkspaceKey(backendId, scope),
                 }),
             );
         }
+    });
+    // A list that landed before its backend became primary skipped the master tabs.
+    const _unsubPrimaryBrowserTabs = onPrimaryChange((primary) => {
+        const list = primary ? useBrowserTabStore.getState().byBackend[primary] : undefined;
+        if (!primary || !list) return;
+        store.setState((session) =>
+            syncBrowserTabs(session, {
+                tabs: list.tabs,
+                knownIds: new Set(list.tabs.map((tab) => tab.id)),
+                initial: true,
+                workspaceKeyFor: (scope) => browserWorkspaceKey(primary, scope),
+            }),
+        );
     });
     // The "master" workspace key is a singleton and belongs to primary alone.
     const _unsubMasterSessions = onEvent(MSG.MASTER_SESSIONS_LIST, (payload, backendId) => {
