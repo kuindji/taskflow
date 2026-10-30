@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 11.
+Implement Section 12.
 
 ## Status
 
@@ -26,12 +26,14 @@ Implement Section 11.
 | 8 | Git safety | done: Codex review 2 P2 confirmed and fixed (conflicted-file preview threw; HTTP task delete dropped by Bun's 10 s idle timeout); 2 own fixes (per-file `git status` in bulk diffs; 30 s client timeout vs awaited cleanup); backend 1311/0, shared 258/0, TUI 491/0, all 85 UI files, typecheck pass | c24dbf43, 04f3d6ee, e0363a13 |
 | 9 | Agent discovery | done: Codex review 1 P2 confirmed and fixed (pre-Section-9 backend answer without `account` crashed Codex settings); backend 1142/0, shared 261/0, TUI 491/0, all 92 UI files, typecheck pass | 24a63c96, f3142c06, 1d0186d2, f8584236 |
 | 10 | Desktop updater | done: Codex review 1 P2 confirmed and fixed (macOS Squirrel staging failure after `update-downloaded` left Restart stuck in `installing`); Step 8 packaged check moved to Section 13; electron 100/0, shared 261/0, all 93 UI files, typecheck, Electron build pass | 42829761, 205473a0 |
-| 11 | Editor discovery | not started | |
+| 11 | Editor discovery | done: Codex review 1 P2 confirmed and fixed (remote TUI ran the backend's absolute internal-editor path locally); backend 1370/0, shared 261/0, open-file-plan 9/0, typecheck pass; real macOS detection checked | 4b5da463, c01619e8 |
 | 12 | GitLab | not started | |
 | 13 | Verification, final review | not started | |
 
 ## Facts for the next step
 
+- Section 11 outputs: `services/editor-resolver.ts` `resolveEditorCommand(editor, deps?)`, exported `EditorResolverDeps` (platform, env, homeDir, path, which, executable, readDirectory, version; private bounded `--version` probe, 1 s / 8 KiB). `detectEditors({ resolve? })`: external editors carry the resolved path; internal editors only check availability and keep their bare command, because a remote TUI spawns it locally. `getKnownEditor(commandOrId)` is used by `FILE_OPEN_EXTERNAL`; `FileHandlerDeps.resolveEditor`/`spawnEditor`; error `Editor "<editor>" not found`.
+- Section 11 open for Section 13: Linux `zeditor`/OpenZFS, versioned JetBrains/Toolbox and Windows native executables are covered only by injected-platform tests (no such machines here). Flaky test from Section 7, not fixed: `scheduler-service.test.ts` "startup runs an overdue cron once…" sometimes hits `JSON Parse error`, because `ScheduleStore` writes with plain `writeFile` and `drain()` reads in the middle of a write. Real readers can hit the same torn read; an atomic temp+rename write would fix both. See `reviews/impl-11-triage.md`.
 - Section 10 outputs: `electron/src/update-machine.ts` (`createInitialDesktopUpdateState`, `reduceDesktopUpdateState`), `update-controller.ts` (`createUpdateController`; one active operation, failure latch; a download stays active after its promise settles until `download-completed` or a failure). `initAutoUpdater({ getMainWindow, buildAppMenu, setExitConfirmed })` returns the controller; app menu and IPC take it as `updateController`. On darwin, `download-completed` comes from Electron's native `autoUpdater` `update-downloaded` (Squirrel staged), not electron-updater's. Shared `DesktopUpdateState`/`DesktopUpdateEvent`. IPC `get-update-state` (invoke), `retry-update` (send); preload `getUpdateState`, `retryUpdate`. `UpdateDialog` takes `onInstall`/`onRetry`.
 - Section 10 open for Section 13 (item 19): Step 8 packaged check not run. On macOS it needs two signed builds and a local feed (Squirrel validates signatures), signing may raise keychain prompts, and the user's Taskflow.app was running. Checked by code only: `setupAutoUpdater` returns when `!app.isPackaged`, and it is the only startup caller of `check`. Still to check on a packaged app: failed feed check keeps Restart, install failure offers Retry, menu and renderer agree, reload shows readiness, a failed staging shows `Update Download Failed` with Retry. New: an offline startup check now shows the update button with `Update Check Failed` (see `reviews/impl-10-triage.md`).
 - Section 9 outputs: `runtime-detector.ts` private `withProbeProcess` (injected `ProbeDeps`: `now`, `resolveCli`, `spawn`, `schedule`; one deadline, non-blocking cleanup), `fetchCodexModels(env?, deps?)` → `{ models, account }`, `fetchPiModels({ env?, cwd?, signal? }, deps?)` → `{ models, defaultModel? }` (RPC then `--list-models` fallback within the remaining budget). `handlers/agent-discovery.ts` `registerAgentDiscoveryHandlers`. `services/pi-options.ts` `normalizePiLaunchOptions` (10 s budget, aborts the probe), called in `session-lifecycle.ts` after the defaults merge and in `runHeadlessAgent(request, { discoverPiModels?, spawn? })`. Shared `supportsPiXhigh`, `normalizePiThinkingLevel`, `CodexAccountStatus`, `CodexModelsPayload`. UI `lib/agent-discovery.ts` `loadCodexDiscovery(backendId, payload, request?)` (absent `account` = unknown) and `loadPiModels`, allowlisted as stateless in `store-reset.test.ts`. Template label `Models for the default account; launch may inherit a project account` in ActionEditor/InlineActionEditor (no project) and BuiltinActionEditor.
@@ -74,6 +76,7 @@ Implement Section 11.
 
 ## Deviations from the design
 
+- Section 11: the gate kept internal editors' bare command (the section said every detected command becomes the resolved path); the remote TUI runs it on its own machine.
 - Section 10: none to the design. Added by the gate: macOS readiness waits for Squirrel's staged event, and a download that settles without an outcome stays active (electron-updater 6.8.3 announces the download before staging).
 - Section 9: none to the design. `fetchPiModels` takes an optional `signal` so the launch budget kills the probe; `store-reset.test.ts` allowlists `lib/agent-discovery.ts`; the gate made `loadCodexDiscovery` tolerate a missing `account`.
 - Section 8: none to the design. Added by the gate: 300 s task-delete timeout (UI, TUI, HTTP server) and the TUI cleanup warning, because the awaited cleanup outlasted the 30 s request timeout. `GitRunOptions.onStdout` keeps the 8 KiB binary check on raw bytes. Git handlers and TUI `git-changes.ts` needed no edits.
