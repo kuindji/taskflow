@@ -6,12 +6,13 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Plan review round 1.
+Plan review round 2. The Codex round-2 output is already saved in `reviews/round-2.md` (it reviewed commit 3b82b51e). Start at chain step 2: verify and triage it into `reviews/round-2-triage.md`.
 
 ## Status
 
 | # | Section | Status | Commits |
 |---|---|---|---|
+| — | Plan review round 1 | done: 1 blocker and 14 majors confirmed and folded in; round 2 output saved | 3b82b51e |
 | 1 | Spike (gate) | not started | |
 | 2 | Shared types, store, host client, service | not started | |
 | 3 | HTTP/WS API, wiring, cleanup hooks | not started | |
