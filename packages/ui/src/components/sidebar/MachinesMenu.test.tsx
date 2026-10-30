@@ -362,3 +362,12 @@ test("a changed host key is never offered for trust and shows the offending line
     expect(document.body.textContent).not.toContain("SHA256:abcDEF");
     expect(calls.trusted).toEqual([]);
 });
+
+test("the machines menu labels a reconnecting backend and keeps it checked", async () => {
+    setup([local, machine({ state: "reconnecting" })], []);
+    await render();
+    await openMenu();
+    expect(checkboxNamed("Laptop")?.textContent).toContain("reconnecting");
+    expect(checkboxNamed("Laptop")?.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector("button[aria-label='Machines'] .animate-spin")).not.toBeNull();
+});

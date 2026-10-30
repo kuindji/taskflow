@@ -79,12 +79,14 @@ export function emitBackendSeen(id: string): void {
 }
 
 let previousBridge: Window["taskflow"];
+let loadedStore: typeof BackendStoreModule | undefined;
 
 /** Install the bridge and load the store against it; undo with `uninstallFakeBridge`. */
 export async function installFakeBridge(): Promise<typeof BackendStoreModule> {
     previousBridge = window.taskflow;
     window.taskflow = bridge as Bridge;
-    return import("./backend-store");
+    loadedStore = await import("./backend-store");
+    return loadedStore;
 }
 
 /** Later test files must not run against this bridge: it lacks most of the API. */
@@ -93,10 +95,17 @@ export function uninstallFakeBridge(): void {
 }
 
 /** Main refuses everything again and nothing is recorded. */
-export function resetFakeMain(): void {
+export function resetFakeMain(): Promise<void> {
+    let detaches: Promise<unknown>[] = [];
+    if (loadedStore) {
+        const store = loadedStore.useBackendStore;
+        detaches = store.getState().machines.map((m) => store.getState().detach(m.id));
+        store.setState({ machines: [], primaryId: null });
+    }
     main.attachBackend = () => Promise.resolve({ ok: false, failure: tunnelFailure("unset") });
     main.confirmBackend = () => Promise.reject(new Error("unset"));
     main.detachBackend = () => Promise.resolve();
     main.detached = [];
     main.confirmed = [];
+    return Promise.allSettled(detaches).then(() => {});
 }

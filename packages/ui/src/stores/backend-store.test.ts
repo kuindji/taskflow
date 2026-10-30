@@ -4,6 +4,8 @@ import type { MenuEntry } from "@taskflow/shared";
 import {
     BackendDetachedError,
     closeConnection,
+    getPrimary,
+    onPrimaryStatusChange,
     sendRequest,
     tokenFor,
 } from "@/lib/connection-registry";
@@ -19,6 +21,8 @@ import {
     uninstallFakeBridge,
 } from "./fake-desktop-bridge";
 
+import { useProjectStore } from "./project-store";
+import { useUIStore } from "./ui-store";
 import { onBackendReady } from "@/lib/backend-ready";
 
 type Bridge = NonNullable<Window["taskflow"]>;
@@ -84,10 +88,10 @@ beforeAll(async () => {
 afterAll(uninstallFakeBridge);
 
 const cleanups: (() => void)[] = [];
-afterEach(() => {
+afterEach(async () => {
+    await resetFakeMain();
     for (const machine of store.getState().machines) closeConnection(machine.id, "detach");
     cleanups.splice(0).forEach((cleanup) => cleanup());
-    resetFakeMain();
 });
 
 function seedRow(id: string): void {
@@ -306,7 +310,7 @@ describe("backend store attach", () => {
         answerConfirm();
 
         expect(await attaching).toBeNull();
-        expect(row("abc123")?.state).toBe("offline");
+        expect(row("abc123")?.state).toBe("reconnecting");
         expect(row("abc123")?.failure?.message).toBe("ssh exited");
     });
 
@@ -614,4 +618,176 @@ describe("backend terminal readiness", () => {
         await attaching;
         expect(ids).toEqual([]);
     });
+});
+
+async function recoverySetup() {
+    const backend = startBackend(() => ({
+        protocolVersion: PROTOCOL_VERSION,
+        backendUid: "abc123",
+    }));
+    cleanups.push(backend.stop);
+    seedRow("abc123");
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+    main.confirmBackend = (id) => Promise.resolve({ id, merged: false });
+    await store.getState().attach("abc123");
+    return backend;
+}
+
+test("a tunnel exit keeps the desired machine reconnecting and preserves its data", async () => {
+    await recoverySetup();
+    const projects = [
+        {
+            id: "p",
+            name: "project",
+            path: "/repo",
+            sessions: [],
+            attributes: [],
+            createdAt: "today",
+            backendId: "abc123",
+        },
+    ];
+    useProjectStore.setState({ projects });
+    useUIStore.setState({ activeProjectId: "p" });
+    emitBackendDropped("abc123", failure("ssh exited"));
+    expect(row("abc123")?.state).toBe("reconnecting");
+    expect(row("abc123")?.keepAttached).toBe(true);
+    expect(useProjectStore.getState().projects).toBe(projects);
+    expect(useUIStore.getState().activeProjectId).toBe("p");
+    expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+});
+test("a remote reconnects automatically without receiving a beacon", async () => {
+    await recoverySetup();
+    const ids: string[] = [];
+    cleanups.push(onBackendReady((id) => ids.push(id)));
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await waitUntil(() => ids.length > 0);
+    expect(row("abc123")?.state).toBe("attached");
+    expect(ids).toEqual(["abc123"]);
+});
+test("detaching during an automatic attach wins over its late result", async () => {
+    const backend = await recoverySetup();
+    let answer: ((result: AttachResult) => void) | undefined;
+    main.attachBackend = () =>
+        new Promise((resolve) => {
+            answer = resolve;
+        });
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await waitUntil(() => answer !== undefined);
+    await store.getState().detach("abc123");
+    main.detached = [];
+    answer?.({ ok: true, origin: backend.origin });
+    await Bun.sleep(20);
+    expect(row("abc123")?.state).toBe("offline");
+    expect(row("abc123")?.keepAttached).toBe(false);
+    expect(main.detached).toEqual(["abc123"]);
+    expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+});
+test("refresh preserves attachment intent while a reconnect is in flight", async () => {
+    await recoverySetup();
+    let answer: ((result: AttachResult) => void) | undefined;
+    main.attachBackend = () =>
+        new Promise((resolve) => {
+            answer = resolve;
+        });
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await waitUntil(() => answer !== undefined);
+    const original = bridge.listBackends;
+    bridge.listBackends = () =>
+        Promise.resolve([
+            {
+                id: "abc123",
+                displayName: "desktop",
+                host: "desktop.local",
+                instanceId: "main",
+                saved: true,
+                attached: false,
+                seen: false,
+            },
+        ]);
+    cleanups.push(() => {
+        bridge.listBackends = original;
+    });
+    await store.getState().refresh();
+    expect(row("abc123")?.keepAttached).toBe(true);
+    expect(row("abc123")?.state).toBe("reconnecting");
+    answer?.({ ok: false, failure: failure("asleep") });
+    await Bun.sleep(10);
+});
+test("an automatic reconnect still refuses a different backend uid", async () => {
+    await recoverySetup();
+    const backend = startBackend(() => ({
+        protocolVersion: PROTOCOL_VERSION,
+        backendUid: "different-uid",
+    }));
+    cleanups.push(backend.stop);
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+    let confirms = 0;
+    main.confirmBackend = () => {
+        confirms++;
+        return Promise.reject(new Error("A different backend answered on that host"));
+    };
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await waitUntil(() => confirms > 0);
+    await Bun.sleep(20);
+    expect(row("abc123")?.state).toBe("reconnecting");
+    expect(row("abc123")?.failure?.message).toMatch(/different backend/);
+    expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+});
+test("a protocol mismatch remains incompatible during automatic recovery", async () => {
+    await recoverySetup();
+    const backend = startBackend(() => ({
+        protocolVersion: PROTOCOL_VERSION + 1,
+        backendUid: "abc123",
+    }));
+    cleanups.push(backend.stop);
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await waitUntil(() => row("abc123")?.state === "incompatible");
+    expect(await outcomeOf(sendRequest("abc123", "ping"))).toBeInstanceOf(BackendDetachedError);
+});
+test("a primary remote that reconnects after a tunnel exit is primary again", async () => {
+    await recoverySetup();
+    expect(await store.getState().workAs("abc123")).toEqual({ ok: true });
+    const connected: boolean[] = [];
+    cleanups.push(onPrimaryStatusChange((status) => connected.push(status.connected)));
+    emitBackendDropped("abc123", failure("ssh exited"));
+    expect(getPrimary()).toBeNull();
+    expect(connected.at(-1)).toBe(false);
+    await waitUntil(() => row("abc123")?.state === "attached");
+    expect(getPrimary()).toBe("abc123");
+    expect(connected.at(-1)).toBe(true);
+});
+
+test("a refresh announcing the canonical id during confirmation preserves its reconnect", async () => {
+    const backend = startBackend(() => ({
+        protocolVersion: PROTOCOL_VERSION,
+        backendUid: "abc123",
+    }));
+    cleanups.push(backend.stop);
+    seedRow("provisional");
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+    const original = bridge.listBackends;
+    cleanups.push(() => {
+        bridge.listBackends = original;
+    });
+    main.confirmBackend = async () => {
+        bridge.listBackends = () =>
+            Promise.resolve([
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    saved: true,
+                    attached: true,
+                    seen: false,
+                },
+            ]);
+        await store.getState().refresh();
+        return { id: "abc123", merged: false };
+    };
+    emitBackendDropped("provisional", failure("ssh exited"));
+    await waitUntil(() => row("abc123")?.state === "attached");
+    expect(store.getState().machines.map((m) => m.id)).toEqual(["abc123"]);
+    expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
 });

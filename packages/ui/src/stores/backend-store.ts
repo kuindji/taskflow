@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
 import type { SystemInfoResponse, TunnelFailure } from "@taskflow/shared";
+import { createBackendReconnects } from "@/lib/backend-reconnect";
 import { notifyBackendReady } from "@/lib/backend-ready";
 import { dirtyFilePaths } from "@/components/panes/editor-dirty-state";
 import { initConnectivity } from "@/hooks/useConnectivity";
@@ -38,7 +39,7 @@ export type MachineState = {
     displayName: string;
     host: string;
     instanceId: string;
-    state: "attaching" | "attached" | "offline" | "incompatible";
+    state: "attaching" | "attached" | "offline" | "incompatible" | "reconnecting";
     failure?: TunnelFailure;
     isLocal: boolean;
     /**
@@ -123,6 +124,68 @@ function nextAttempt(id: string): number {
     return attempt;
 }
 
+/** Automatic attempts retain the recovering row through transport and bootstrap. */
+const automaticAttempts = new Map<string, symbol>();
+const recovering = new Set<string>();
+const confirmingIds = new Map<string, { uid: string; attempt: number }>();
+const reconnects = createBackendReconnects({
+    isWanted(id) {
+        return useBackendStore
+            .getState()
+            .machines.some((m) => m.id === id && !m.isLocal && m.keepAttached);
+    },
+    async attempt(id) {
+        const owner = Symbol();
+        automaticAttempts.set(id, owner);
+        try {
+            const canonical = await useBackendStore.getState().attach(id);
+            return canonical &&
+                useBackendStore
+                    .getState()
+                    .machines.some((m) => m.id === canonical && m.state === "attached")
+                ? canonical
+                : null;
+        } catch (error) {
+            if (automaticAttempts.get(id) === owner && recovering.has(id)) {
+                patch(id, {
+                    state: recoveryState(id),
+                    failure: unknownFailure(error instanceof Error ? error.message : String(error)),
+                });
+            }
+            return null;
+        } finally {
+            for (const [key, value] of automaticAttempts)
+                if (value === owner) automaticAttempts.delete(key);
+        }
+    },
+});
+
+function recoveryState(id: string): "reconnecting" | "incompatible" | "offline" {
+    if (!automaticAttempts.has(id)) return "offline";
+    return useBackendStore.getState().machines.find((m) => m.id === id)?.state === "incompatible"
+        ? "incompatible"
+        : "reconnecting";
+}
+
+function removeRecovery(id: string): void {
+    reconnects.remove(id);
+    recovering.delete(id);
+}
+
+function rekeyRecovery(fromId: string, toId: string): void {
+    reconnects.rekey(fromId, toId);
+    if (recovering.delete(fromId)) recovering.add(toId);
+    const owner = automaticAttempts.get(fromId);
+    if (owner && !automaticAttempts.has(toId)) automaticAttempts.set(toId, owner);
+    automaticAttempts.delete(fromId);
+}
+
+/** A late tunnel belongs to nobody only while no newer attach wants this id. */
+async function releaseLateTunnel(id: string): Promise<void> {
+    const row = useBackendStore.getState().machines.find((m) => m.id === id);
+    if (!row || !row.keepAttached) await bridge().detachBackend(id);
+}
+
 /** One status subscription per machine, dropped whenever its connection is. */
 const statusUnsubs = new Map<string, () => void>();
 
@@ -133,6 +196,7 @@ function unfollow(id: string): void {
 
 /** Close the connection and stop following it; the row is the caller's. */
 function drop(id: string): void {
+    reconnects.setConnected(id, false);
     unfollow(id);
     closeConnection(id, "detach");
 }
@@ -154,7 +218,7 @@ async function handshake(id: string, current: () => boolean): Promise<SystemInfo
     } catch {
         if (!current()) return null;
         drop(id);
-        patch(id, { state: "offline", failure: unknownFailure("No handshake") });
+        patch(id, { state: recoveryState(id), failure: unknownFailure("No handshake") });
         return null;
     }
     if (!current()) return null;
@@ -210,13 +274,24 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
 
     async attach(id) {
         const attempt = nextAttempt(id);
-        const current = () => attempts.get(id) === attempt;
-        patch(id, { state: "attaching", failure: undefined, keepAttached: true });
+        const current = () =>
+            attempts.get(id) === attempt &&
+            get().machines.some((m) => m.id === id && m.keepAttached);
+        patch(id, {
+            state: automaticAttempts.has(id) ? recoveryState(id) : "attaching",
+            failure: automaticAttempts.has(id)
+                ? get().machines.find((m) => m.id === id)?.failure
+                : undefined,
+            keepAttached: true,
+        });
 
         const result = await bridge().attachBackend(id);
-        if (!current()) return null;
+        if (!current()) {
+            if (result.ok) await releaseLateTunnel(id);
+            return null;
+        }
         if (!result.ok) {
-            patch(id, { state: "offline", failure: result.failure });
+            patch(id, { state: recoveryState(id), failure: result.failure });
             return null;
         }
 
@@ -233,7 +308,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             // Drop the connection too, or it keeps reconnecting in the
             // background with nobody to handshake when it succeeds.
             drop(id);
-            patch(id, { state: "offline", failure: unknownFailure("Socket refused") });
+            patch(id, { state: recoveryState(id), failure: unknownFailure("Socket refused") });
             return null;
         }
         if (!current()) return null;
@@ -244,6 +319,8 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         let liveId = id;
         if (info.backendUid) {
             let confirmed: { id: string; merged: boolean };
+            const confirmation = { uid: info.backendUid, attempt };
+            confirmingIds.set(id, confirmation);
             try {
                 confirmed = await bridge().confirmBackend(id, {
                     backendUid: info.backendUid,
@@ -257,20 +334,26 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 if (!current()) return null;
                 drop(id);
                 patch(id, {
-                    state: "offline",
+                    state: recoveryState(id),
                     failure: unknownFailure(
                         error instanceof Error ? error.message : "Backend was refused",
                     ),
                 });
                 return null;
+            } finally {
+                if (confirmingIds.get(id) === confirmation) confirmingIds.delete(id);
             }
-            if (!current()) return null;
+            if (!current()) {
+                await releaseLateTunnel(confirmed.id);
+                return null;
+            }
 
             if (confirmed.merged && confirmed.id !== id) {
                 // The genuine alias case: another record already held this uid,
                 // so there are two connections to one machine. Main closed this
                 // alias's tunnel, so this socket goes either way.
                 drop(id);
+                rekeyRecovery(id, confirmed.id);
                 attempts.delete(id);
                 const canonical = get().machines.find((m) => m.id === confirmed.id);
                 if (canonical) {
@@ -283,7 +366,15 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 // Main's "merged" means it holds the canonical's tunnel, not that
                 // this renderer holds a socket there: that attach may have failed
                 // or still be running. Only an attached row is the answer as is.
-                if (canonical?.state === "attached") return confirmed.id;
+                if (canonical?.state === "attached") {
+                    recovering.delete(confirmed.id);
+                    reconnects.setConnected(confirmed.id, true);
+                    return confirmed.id;
+                }
+                if (canonical && recovering.has(confirmed.id)) {
+                    reconnects.retryNow(confirmed.id);
+                    return null;
+                }
                 return get().attach(confirmed.id);
             }
 
@@ -293,6 +384,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 // a pre-uid backends.json. The socket just handshaken over is
                 // the only one there is; refile it rather than close it.
                 rekeyConnection(id, confirmed.id);
+                rekeyRecovery(id, confirmed.id);
                 renameRow(id, confirmed.id);
                 attempts.delete(id);
                 nextAttempt(confirmed.id);
@@ -300,21 +392,38 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             }
         }
 
-        patch(liveId, { state: "attached", failure: undefined, backendUid: info.backendUid });
+        if (get().primaryId === id || get().primaryId === liveId) setPrimaryBackend(liveId);
+        const automatic = automaticAttempts.has(liveId);
+        patch(liveId, {
+            state: automatic ? "reconnecting" : "attached",
+            failure: undefined,
+            backendUid: info.backendUid,
+        });
         followSocket(liveId);
         const liveAttempt = attempts.get(liveId);
         await get().bootstrapBackend(liveId);
         if (
+            automatic &&
+            attempts.get(liveId) === liveAttempt &&
+            !get().machines.find((m) => m.id === liveId)?.failure
+        ) {
+            patch(liveId, { state: "attached" });
+        }
+        if (
             attempts.get(liveId) === liveAttempt &&
             get().machines.find((m) => m.id === liveId)?.state === "attached"
         ) {
+            recovering.delete(liveId);
+            reconnects.setConnected(liveId, true);
             notifyBackendReady(liveId);
         }
         return liveId;
     },
 
     async detach(id, reason = "detach") {
+        removeRecovery(id);
         nextAttempt(id);
+        patch(id, { keepAttached: false });
         unfollow(id);
         closeConnection(id, reason);
         resetBackend(id);
@@ -354,7 +463,10 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 // Main persists `attached` only once the tunnel is open, so a
                 // refresh landing mid-attach would read the old `false` and
                 // drop the section of a machine the user just ticked.
-                keepAttached: previous?.state === "attaching" ? true : base.keepAttached,
+                keepAttached:
+                    previous?.state === "attaching" || automaticAttempts.has(id)
+                        ? (previous?.keepAttached ?? true)
+                        : base.keepAttached,
             };
         }
 
@@ -391,7 +503,26 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             // is unknown: `getAttached()` omits it then, and the row `attach`
             // already drove to "attached" must not vanish under the workspace.
             for (const previous of state.machines) {
-                if (previous.isLocal && !known.has(previous.id)) rows.unshift(previous);
+                if (known.has(previous.id)) continue;
+                const confirmation = confirmingIds.get(previous.id);
+                // Main may publish the uid rename before its confirm IPC resolves.
+                // Keep the old row until that same attempt transfers ownership.
+                if (
+                    previous.isLocal ||
+                    (confirmation &&
+                        confirmation.attempt === attempts.get(previous.id) &&
+                        known.has(confirmation.uid))
+                ) {
+                    rows.unshift(previous);
+                }
+            }
+            for (const previous of state.machines) {
+                const row = rows.find((m) => m.id === previous.id);
+                if (!row || !row.keepAttached) {
+                    removeRecovery(previous.id);
+                    nextAttempt(previous.id);
+                    drop(previous.id);
+                }
             }
             return { machines: rows };
         });
@@ -420,7 +551,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         // Only this machine goes offline; every other machine's slices stay.
         if (legs.some((leg) => leg.status === "rejected")) {
             patch(id, {
-                state: "offline",
+                state: recoveryState(id),
                 failure: unknownFailure("Could not load this machine's projects and tasks"),
             });
         }
@@ -444,11 +575,16 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             attempts.get(id) === attempt &&
             get().machines.find((m) => m.id === id)?.state === "attached"
         ) {
+            reconnects.setConnected(id, true);
             notifyBackendReady(id);
         }
     },
 
     retry(id) {
+        if (recovering.has(id)) {
+            reconnects.retryNow(id);
+            return;
+        }
         void (async () => {
             const attempt = nextAttempt(id);
             unfollow(id);
@@ -488,7 +624,8 @@ function followSocket(backendId: string): void {
             }
             if (!status.connected && wasConnected) {
                 wasConnected = false;
-                patch(backendId, { state: "offline" });
+                reconnects.setConnected(backendId, false);
+                patch(backendId, { state: recovering.has(backendId) ? "reconnecting" : "offline" });
             }
         }),
     );
@@ -592,13 +729,13 @@ async function runSwitch(id: string): Promise<SwitchResult> {
 window.taskflow?.onBackendsChanged(() => void useBackendStore.getState().refresh());
 
 window.taskflow?.onBackendDropped((id, failure) => {
-    // The ssh child died. Its forwarded port points at nothing, so stop the
-    // socket retrying it; the records stay and only this machine goes offline.
-    // An attach or rehandshake still awaiting over that tunnel is now stale: it
-    // must not report success, or overwrite the drop's reason.
+    const machine = useBackendStore.getState().machines.find((m) => m.id === id);
+    if (!machine || machine.isLocal || !machine.keepAttached) return;
     nextAttempt(id);
     drop(id);
-    patch(id, { state: "offline", failure });
+    patch(id, { state: "reconnecting", failure });
+    recovering.add(id);
+    reconnects.lost(id);
 });
 
 window.taskflow?.onBackendSeen((id) => {
@@ -613,6 +750,8 @@ window.taskflow?.onBackendSeen((id) => {
         if (attempts.get(id) !== attempt) return;
         if (!entries.some((entry) => entry.id === id && entry.attached)) return;
         const machine = useBackendStore.getState().machines.find((m) => m.id === id);
-        if (machine && machine.state === "offline") useBackendStore.getState().retry(id);
+        if (!machine || machine.isLocal || !machine.keepAttached) return;
+        if (recovering.has(id)) reconnects.retryNow(id);
+        else if (machine.state === "offline") useBackendStore.getState().retry(id);
     })();
 });

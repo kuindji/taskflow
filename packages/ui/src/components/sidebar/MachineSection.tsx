@@ -18,7 +18,7 @@ interface MachineSectionProps {
     renderProjects: (projects: Scoped<Project>[]) => ReactNode;
 }
 
-const DOT_CLASS: Record<Exclude<MachineState["state"], "attaching">, string> = {
+const DOT_CLASS: Record<Exclude<MachineState["state"], "attaching" | "reconnecting">, string> = {
     attached: "bg-success",
     offline: "bg-destructive",
     incompatible: "bg-warning",
@@ -59,7 +59,7 @@ function MachineSection({
                         />
                     </button>
                 )}
-                {machine.state === "attaching" ? (
+                {machine.state === "attaching" || machine.state === "reconnecting" ? (
                     <Loader2 className="text-muted-foreground h-3 w-3 shrink-0 animate-spin" />
                 ) : (
                     <span

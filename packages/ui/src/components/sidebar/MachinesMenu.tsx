@@ -69,6 +69,8 @@ function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
 function statusOf(machine: MachineState, seen: boolean): string {
     if (machine.isLocal) return "";
     switch (machine.state) {
+        case "reconnecting":
+            return "reconnecting";
         case "attaching":
             return "connecting";
         case "attached":
@@ -264,7 +266,9 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
         await showNativeMenuAndRun(items, actions, getElementMenuPosition(target, "start"));
     }
 
-    const attaching = machines.some((m) => m.keepAttached && m.state === "attaching");
+    const attaching = machines.some(
+        (m) => m.keepAttached && (m.state === "attaching" || m.state === "reconnecting"),
+    );
     const unhealthy = machines.some(
         (m) =>
             !m.isLocal && m.keepAttached && (m.state === "offline" || m.state === "incompatible"),
