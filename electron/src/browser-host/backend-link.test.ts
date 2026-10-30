@@ -165,3 +165,35 @@ test("an event answered with HTTP 400 is not retried", async () => {
     expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
     expect(calls[1].method).toBe("PUT");
 });
+
+test("heartbeats queued behind a stuck event collapse into one", async () => {
+    const { link, calls, setResponse, tick } = setup();
+    setResponse(() => Promise.reject(new Error("offline")));
+    await link.event(event);
+    await link.flush();
+    await tick();
+    await tick();
+    setResponse(() => Promise.resolve({ status: 200 }));
+    await tick();
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
+});
+
+test("a flush while a heartbeat is in flight sends another one after it", async () => {
+    const { link, calls, setResponse } = setup();
+    let finish!: (value: { status: number }) => void;
+    setResponse(
+        () =>
+            new Promise((resolve) => {
+                finish = resolve;
+            }),
+    );
+    const first = link.flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toHaveLength(1);
+    const second = link.flush();
+    setResponse(() => Promise.resolve({ status: 200 }));
+    finish({ status: 200 });
+    await Promise.all([first, second]);
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(2);
+});

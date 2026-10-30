@@ -60,6 +60,18 @@ describe("BrowserHostClient", () => {
         );
     }
 
+    it("keeps the control url's secret path prefix", async () => {
+        const paths: string[] = [];
+        const origin = serve((request) => {
+            paths.push(new URL(request.url).pathname);
+            return Response.json(paths.length === 1 ? { targetId: "target-1" } : { ok: true });
+        });
+        const url = `${origin}/secret`;
+        await client.ensure(url, { tabId: "tab-1", url: "https://example.com" });
+        await client.close(url, "tab-1");
+        expect(paths).toEqual(["/secret/tabs/ensure", "/secret/tabs/close"]);
+    });
+
     it("a 500 throws BrowserHostUnavailableError", async () => {
         const url = serve(() => new Response("failed", { status: 500 }));
         await expectUnavailable(client.ensure(url, { tabId: "tab-1", url: "https://example.com" }));

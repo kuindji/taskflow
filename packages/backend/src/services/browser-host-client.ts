@@ -11,7 +11,8 @@ interface BrowserHostClient {
 function createBrowserHostClient(): BrowserHostClient {
     async function post(controlUrl: string, path: string, body: unknown): Promise<Response> {
         try {
-            const response = await fetch(new URL(path, controlUrl), {
+            // Concatenated, not resolved: controlUrl ends in main's secret path segment.
+            const response = await fetch(`${controlUrl}${path}`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify(body),

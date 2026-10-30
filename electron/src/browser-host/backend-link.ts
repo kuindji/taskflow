@@ -67,7 +67,11 @@ export function createBackendLink(deps: BackendLinkDeps) {
 
     function flush(): Promise<void> {
         if (stopped) return Promise.resolve();
-        queue.push({ heartbeat: true });
+        // A heartbeat is built when sent, so one still waiting at the tail covers this one.
+        // While draining, the head is in flight and already built.
+        const last = queue.at(-1);
+        const waiting = last && "heartbeat" in last && (queue.length > 1 || !active);
+        if (!waiting) queue.push({ heartbeat: true });
         return pump();
     }
 

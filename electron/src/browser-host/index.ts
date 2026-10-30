@@ -54,6 +54,10 @@ export async function initBrowserHost(deps: {
         link?.stop();
         control.close();
     });
+    // A new window is a new app target; report it now rather than on the next tick.
+    app.on("browser-window-created", () => {
+        void link?.flush();
+    });
 
     ipcMain.handle("browser:show", (_event, tabId: string, url: string, bounds: Bounds) =>
         tabHost.show(tabId, url, bounds),

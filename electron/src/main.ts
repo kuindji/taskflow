@@ -98,7 +98,10 @@ initWindowManager({
     onWindowClosed: () => {
         resetRendererTraySync();
         trayOnWindowClosed();
-        if (BrowserWindow.getAllWindows().every(browserHost.isParkWindow)) {
+        // The browser host's park window keeps "window-all-closed" from firing; with no
+        // windows left it fires by itself.
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0 && windows.every(browserHost.isParkWindow)) {
             onAllAppWindowsClosed();
         }
     },
