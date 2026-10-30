@@ -45,6 +45,16 @@ function offeredProtocols(req: Request): string[] {
     );
 }
 
+// Bun echoes the first offered protocol when the upgrade sets none, so an
+// auth entry offered without `taskflow` would come back in the response.
+export function offersUnansweredToken(req: Request): boolean {
+    const protocols = offeredProtocols(req);
+    return (
+        !protocols.includes("taskflow") &&
+        protocols.some((protocol) => protocol.startsWith("taskflow.auth."))
+    );
+}
+
 export function upgradeHeaders(req: Request): Record<string, string> | undefined {
     return offeredProtocols(req).includes("taskflow")
         ? { "Sec-WebSocket-Protocol": "taskflow" }

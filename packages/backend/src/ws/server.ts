@@ -10,7 +10,13 @@ import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskfl
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
 import { errorResponse } from "../api/routes/response-helpers";
-import { checkRequest, isUpgradeRequest, upgradeHeaders, type AuthContext } from "./auth";
+import {
+    checkRequest,
+    isUpgradeRequest,
+    offersUnansweredToken,
+    upgradeHeaders,
+    type AuthContext,
+} from "./auth";
 import type { CdpGateway, CdpSocketData } from "../services/cdp/cdp-gateway";
 
 import { createTerminalBroadcaster, type BroadcastOptions } from "./terminal-broadcaster";
@@ -76,6 +82,8 @@ export function createServer(
                     else if (!isUpgradeRequest(req)) return errorResponse("Unauthorized", 401);
                     else unauthorized = true;
                 }
+                if (isUpgradeRequest(req) && offersUnansweredToken(req))
+                    return errorResponse("Unauthorized", 401);
                 if (unauthorized) {
                     if (
                         server.upgrade(req, {

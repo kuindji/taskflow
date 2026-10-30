@@ -251,6 +251,21 @@ describe("request authentication", () => {
         expect(closed.reason).toBe("unauthorized");
         expect(clientCount()).toBe(0);
     });
+    test("an auth-only subprotocol offer is refused before the upgrade, so Bun never echoes its token", async () => {
+        const { port, clientCount } = await startTestServer(testAuth());
+        const res = await fetch(`http://127.0.0.1:${port}/`, {
+            headers: {
+                Connection: "Upgrade",
+                Upgrade: "websocket",
+                "Sec-WebSocket-Version": "13",
+                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Protocol": `taskflow.auth.${T}`,
+            },
+        });
+        expect(res.status).toBe(401);
+        expect(res.headers.get("sec-websocket-protocol")).toBeNull();
+        expect(clientCount()).toBe(0);
+    });
     test("a message sent on a rejected socket reaches no router handler", async () => {
         const router = new Router();
         const calls: unknown[] = [];
