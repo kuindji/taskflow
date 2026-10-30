@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Implement Section 8. Section 7 Step 6c was skipped as requested; the orchestrating session runs that manual smoke check.
+Section 8.
 
 ## Status
 
@@ -22,14 +22,14 @@ Implement Section 8. Section 7 Step 6c was skipped as requested; the orchestrati
 | 4 | CDP gateway | done: review had 1 finding (worker targets stalled the ordered stream), confirmed and fixed | e1ebcb34, 07e1af62 |
 | 5 | Electron host | done: smoke test passed; review had 1 finding (client dropped the control url's secret prefix), plus 3 own; all confirmed and fixed | e46c0d85, 2f853a0f |
 | 6 | UI | done: Sol stopped at Step 7 (bootstrap placement); 4 own fixes before commit; review had 1 finding (connection overlay not registered), confirmed and fixed | 30f1c8da, c3c85776 (+ the user-agent move landed in 29122909, see Facts) |
-| 7 | CLI, doc, prompt | done: open/list/close, legacy removal, docs and exact prompt nudge; manual smoke delegated | `feat(cli): browser open/list/close with CDP endpoints and agent nudge` |
+| 7 | CLI, doc, prompt | done: smoke check passed; review clean; 1 own finding (empty url saved while the first load is pending), confirmed and fixed | 9cdd8d03, 2286b550 |
 | 8 | Manual verification, final review | not started | |
 
 ## Facts for the next section
 
-- Section 7 outputs: both CLIs use `/api/browser/tabs` with context headers and print the response JSON. `browser open`, the legacy URL form, `list`, `close`, `--project`, and `--master` are implemented. The old task/project browser routes, `BROWSER_OPEN`, `BrowserOpenPayload`, and UI listener are removed. The browser doc covers Playwright and Puppeteer; every agent gets the exact browser prompt nudge.
-- Section 7 verification: red run 106 pass / 26 fail before implementation; final three files 134/134, CLI/API check 177/177, UI 74 files individually pass, shared suite passes, sh/dash syntax and scoped lint/Prettier pass. Root typecheck initially hit Bun tempdir EPERM, then passed with `TMPDIR=/private/tmp BUN_INSTALL_CACHE_DIR=/private/tmp/taskflow-section7-bun-cache bun run typecheck`. Backend full suite: 1068 pass, 2 skip, 20 fail; `platform.test.ts` passed 7/7 on its one retry, leaving the same 19 sandbox process-stopper/watcher failures noted above. Full output: `/tmp/taskflow-section7-backend.log`. No dedicated session-subscriptions test exists; browser-tab-sync and all UI files passed. Step 6c was intentionally not run.
-
+- Section 7 outputs: both CLIs use `/api/browser/tabs` with the context headers and print the response JSON; `open`, the old `browser "<url>"` form, `list`, `close`, `--project`/`--master` (mutually exclusive) are implemented. The old task/project browser routes, `MSG.BROWSER_OPEN`, `BrowserOpenPayload` and the UI listener are gone. Every agent prompt carries the exact nudge.
+- Section 7 smoke (Step 6c), sandboxed dev app as in the Section 5 smoke, project and task seeded over WS (`project:add`, `task:create`; the open UI only showed them after a renderer reload): the generated `<config>/bin/taskflow-cli browser open https://example.com --label Smoke` with `TASKFLOW_API_URL`/`TASKFLOW_TASK_ID` set → `{tab, endpoint}`; selecting the task shows the tab (label from the title, `Example Domain`); `browser close <id>` → `{"success":true}`, the UI tab and the Chromium target disappear; a second close → `{"error":"Browser tab not found"}` + exit 1; bare `browser` → usage, exit 1. The app's own renderer can be driven over the raw debug port from the `DevTools listening on ws://127.0.0.1:<port>/...` line in the Electron log (`Runtime.evaluate`, `Page.captureScreenshot`); scripts in this session's scratchpad aren't kept.
+- Backend suite outside Sol's sandbox: 1088 pass, 0 fail (after Section 7).
 - Base commit before implementation (final-review base): `91a3e89c`.
 - Section 2 outputs: `browserTabLabel(url)` lives in `packages/shared/src/utils/browser-tab-label.ts` (exported from the shared index; `terminal-links.ts` uses it). `BrowserTabStore` exports `SavedBrowserTab`. The service's deps type is `BrowserTabServiceDeps` (not exported). The staleness timer re-checks 1 ms past 15000 ms, because availability includes the 15000 ms boundary.
 - Section 3 outputs: `registerBrowserRoutes` (`api/routes/browser-routes.ts`) wraps each handler with an error→status mapper (400/404/503); Section 4 adds the `/cdp/:tabId/json*` routes there via a required `ApiRouteDeps.cdpGateway`. The service is built in `index.ts` right after `store.init()`; `browserTabService.init()` runs just before `server.start()`. Task/project route and handler deps take `browserTabService: Pick<BrowserTabService, "closeForOwner">`; `registerProjectHandlers` takes it positionally (4th arg).
