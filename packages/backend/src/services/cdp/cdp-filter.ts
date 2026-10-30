@@ -85,21 +85,21 @@ class CdpTargetFilter {
     private readonly targetTypes = new Map<string, string>();
     private readonly tabPages = new Map<string, Promise<string | null>>();
     private readonly decisions = new Map<string, boolean>();
-    private readonly requests = new Map<string, string>();
+    // Forwarded requests by the id the filter gave them upstream. Client ids never
+    // correlate replies, so a reused id or a sessionId Chromium echoes differently
+    // can't make a reply skip its filtering.
+    private readonly requests = new Map<number, { id?: number; method: string }>();
     private readonly internalIds = new Set<number>();
     private readonly announcedPages = new Set<string>();
     private readonly attachWaiters = new Map<string, Set<() => void>>();
     private nextInternalId = -1;
+    private nextRequestId = 1;
     private upstreamChain: Promise<void> = Promise.resolve();
 
     constructor(
         private readonly deps: CdpFilterDeps,
         private readonly io: CdpFilterIo,
     ) {}
-
-    private key(m: CdpMessage): string {
-        return JSON.stringify([m.sessionId ?? null, m.id]);
-    }
 
     private reply(request: CdpMessage, response: Pick<CdpMessage, "result" | "error">): void {
         this.io.toClient({
@@ -116,19 +116,9 @@ class CdpTargetFilter {
     }
 
     private forward(request: CdpMessage): void {
-        if (request.id !== undefined && request.method) {
-            const key = this.key(request);
-            // Reusing an in-flight id would let the earlier reply skip its filtering.
-            if (this.requests.has(key))
-                return this.reply(request, {
-                    error: {
-                        code: -32000,
-                        message: "Not allowed by Taskflow: duplicate request id",
-                    },
-                });
-            this.requests.set(key, request.method);
-        }
-        this.io.toUpstream(request);
+        const id = this.nextRequestId++;
+        this.requests.set(id, { id: request.id, method: request.method ?? "" });
+        this.io.toUpstream({ ...request, id });
     }
 
     private remember(raw: unknown): Record<string, unknown> {
@@ -189,7 +179,8 @@ class CdpTargetFilter {
     }
 
     async fromClient(m: CdpMessage): Promise<void> {
-        if (m.sessionId && !this.allowedSessions.has(m.sessionId)) return this.deny(m);
+        if (m.sessionId !== undefined && !this.allowedSessions.has(m.sessionId))
+            return this.deny(m);
         const method = m.method ?? "";
         const params = m.params ?? {};
         const targetId = typeof params.targetId === "string" ? params.targetId : null;
@@ -310,12 +301,12 @@ class CdpTargetFilter {
                 this.io.toClient(m);
             return;
         }
-        if (m.sessionId && !this.allowedSessions.has(m.sessionId)) return;
         if (m.id !== undefined) {
-            const key = this.key(m);
-            const method = this.requests.get(key);
-            this.requests.delete(key);
-            if (method === "Target.getTargets" && Array.isArray(m.result?.targetInfos)) {
+            const request = this.requests.get(m.id);
+            this.requests.delete(m.id);
+            if (!request || (m.sessionId && !this.allowedSessions.has(m.sessionId))) return;
+            const reply: CdpMessage = { ...m, id: request.id };
+            if (request.method === "Target.getTargets" && Array.isArray(m.result?.targetInfos)) {
                 const targetInfos: Record<string, unknown>[] = [];
                 for (const raw of m.result.targetInfos) {
                     const target = this.remember(raw);
@@ -325,11 +316,14 @@ class CdpTargetFilter {
                     )
                         targetInfos.push(target);
                 }
-                this.io.toClient({ ...m, result: { ...m.result, targetInfos } });
+                this.io.toClient({ ...reply, result: { ...m.result, targetInfos } });
                 return;
             }
             if (m.result?.targetInfo) this.remember(m.result.targetInfo);
+            this.io.toClient(reply);
+            return;
         }
+        if (m.sessionId && !this.allowedSessions.has(m.sessionId)) return;
         if (m.method === "Target.attachedToTarget") {
             const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
             const targetId = typeof info?.targetId === "string" ? info.targetId : "";

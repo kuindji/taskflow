@@ -77,22 +77,34 @@ it("getTargets result lists only family targets", async () => {
     ]);
 });
 
-it("a request reusing an in-flight id is refused, so getTargets stays filtered", async () => {
+it("client ids are rewritten upstream, so a reused id can't skip getTargets filtering", async () => {
     const f = fixture();
     await f.filter.fromClient({ id: 1, method: "Target.getTargets" });
     await f.filter.fromClient({ id: 1, method: "Browser.getVersion" });
-    expect(f.upstream).toEqual([{ id: 1, method: "Target.getTargets" }]);
-    expect(f.client).toEqual([
-        {
-            id: 1,
-            error: { code: -32000, message: "Not allowed by Taskflow: duplicate request id" },
-        },
+    expect(f.upstream).toEqual([
+        { id: 1, method: "Target.getTargets" },
+        { id: 2, method: "Browser.getVersion" },
     ]);
+    await f.filter.fromUpstream({ id: 2, result: { product: "Chrome/130" } });
     await f.filter.fromUpstream({
         id: 1,
         result: { targetInfos: [{ targetId: "T-other", type: "page" }] },
     });
-    expect(f.client[1]).toEqual({ id: 1, result: { targetInfos: [] } });
+    await f.filter.fromUpstream({ id: 99, result: { stray: true } });
+    expect(f.client).toEqual([
+        { id: 1, result: { product: "Chrome/130" } },
+        { id: 1, result: { targetInfos: [] } },
+    ]);
+});
+
+it("a request with an empty or unknown sessionId is refused", async () => {
+    const f = fixture();
+    for (const sessionId of ["", "S-unknown"]) {
+        const request = { id: 3, sessionId, method: "Target.getTargets" };
+        await f.filter.fromClient(request);
+        expect(f.client.at(-1)).toEqual(refusal(request));
+    }
+    expect(f.upstream).toEqual([]);
 });
 
 it("targetCreated for another task's target is not forwarded", async () => {
@@ -434,7 +446,7 @@ it("targetCreated and getTargets list a family tab target and drop another task'
     for (const targetInfo of targetInfos)
         await f.filter.fromUpstream({ method: "Target.targetCreated", params: { targetInfo } });
     await f.filter.fromClient({ id: 12, method: "Target.getTargets" });
-    await f.filter.fromUpstream({ id: 12, result: { targetInfos } });
+    await f.filter.fromUpstream({ id: f.upstream.at(-1)?.id, result: { targetInfos } });
     expect(f.client).toEqual([
         { method: "Target.targetCreated", params: { targetInfo: targetInfos[0] } },
         { id: 12, result: { targetInfos: [targetInfos[0]] } },
@@ -459,7 +471,7 @@ it("attachToTarget and closeTarget naming a family tab target are allowed; close
         method: "Target.closeTarget",
         params: { targetId: "tab-root" },
     });
-    expect(f.upstream).toEqual([request]);
+    expect(f.upstream).toEqual([{ ...request, id: 1 }]);
     expect(f.deps.closeTarget).toHaveBeenCalledWith("T-root");
 });
 
