@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 12.
+Section 13.
 
 ## Status
 
@@ -27,11 +27,13 @@ Implement Section 12.
 | 9 | Agent discovery | done: Codex review 1 P2 confirmed and fixed (pre-Section-9 backend answer without `account` crashed Codex settings); backend 1142/0, shared 261/0, TUI 491/0, all 92 UI files, typecheck pass | 24a63c96, f3142c06, 1d0186d2, f8584236 |
 | 10 | Desktop updater | done: Codex review 1 P2 confirmed and fixed (macOS Squirrel staging failure after `update-downloaded` left Restart stuck in `installing`); Step 8 packaged check moved to Section 13; electron 100/0, shared 261/0, all 93 UI files, typecheck, Electron build pass | 42829761, 205473a0 |
 | 11 | Editor discovery | done: Codex review 1 P2 confirmed and fixed (remote TUI ran the backend's absolute internal-editor path locally); backend 1370/0, shared 261/0, open-file-plan 9/0, typecheck pass; real macOS detection checked | 4b5da463, c01619e8 |
-| 12 | GitLab | not started | |
+| 12 | GitLab | done: Codex review 1 P2 confirmed and fixed (HTTPS remote port dropped); 2 own minors fixed (header/card unavailable message placement); backend 1395/0, shared 261/0, TUI 491/0, section UI files, typecheck pass | 9b7f3f5c, d25ab5af |
 | 13 | Verification, final review | not started | |
 
 ## Facts for the next step
 
+- Section 12 outputs: `git-pr.ts` exported `GitPrDeps` (remoteUrl, branch, which, run); private `parseRemote`, `selectProvider`, `normalizeRequest`. `GitService` constructor `(deps?: { pr?: GitPrDeps })`. Shared `GitPrProvider`, `GitPrState`, `GitPrUnavailableReason`, `GitCheckPrResult`; `TaskWorktreePr.provider?/state?`; `GitCreatePrResult` extends it. `GIT_CHECK_PR` returns `GitCheckPrResult` directly. `PROTOCOL_VERSION = 3`. UI `stores/pull-request-store.ts` (`usePullRequestStore`, `pullRequestKey`, backend reset), `lib/pull-request-labels.ts` (`pullRequestLabels`, `openPullRequestUrl`), `CommitDialogBody`.
+- Section 12 open for Section 13 (item 21): no hand check in a running app (Sol has no browser): GitHub PR, GitLab MR, none, missing CLI, bad auth, failed query, merged MR, machine switch at the same path, Retry not repeating creation. Legacy `{ number, url }` renders as `PR #n open` (by code). No GitLab account here.
 - Section 11 outputs: `services/editor-resolver.ts` `resolveEditorCommand(editor, deps?)`, exported `EditorResolverDeps` (platform, env, homeDir, path, which, executable, readDirectory, version; private bounded `--version` probe, 1 s / 8 KiB). `detectEditors({ resolve? })`: external editors carry the resolved path; internal editors only check availability and keep their bare command, because a remote TUI spawns it locally. `getKnownEditor(commandOrId)` is used by `FILE_OPEN_EXTERNAL`; `FileHandlerDeps.resolveEditor`/`spawnEditor`; error `Editor "<editor>" not found`.
 - Section 11 open for Section 13: Linux `zeditor`/OpenZFS, versioned JetBrains/Toolbox and Windows native executables are covered only by injected-platform tests (no such machines here). Flaky test from Section 7, not fixed: `scheduler-service.test.ts` "startup runs an overdue cron once…" sometimes hits `JSON Parse error`, because `ScheduleStore` writes with plain `writeFile` and `drain()` reads in the middle of a write. Real readers can hit the same torn read; an atomic temp+rename write would fix both. See `reviews/impl-11-triage.md`.
 - Section 10 outputs: `electron/src/update-machine.ts` (`createInitialDesktopUpdateState`, `reduceDesktopUpdateState`), `update-controller.ts` (`createUpdateController`; one active operation, failure latch; a download stays active after its promise settles until `download-completed` or a failure). `initAutoUpdater({ getMainWindow, buildAppMenu, setExitConfirmed })` returns the controller; app menu and IPC take it as `updateController`. On darwin, `download-completed` comes from Electron's native `autoUpdater` `update-downloaded` (Squirrel staged), not electron-updater's. Shared `DesktopUpdateState`/`DesktopUpdateEvent`. IPC `get-update-state` (invoke), `retry-update` (send); preload `getUpdateState`, `retryUpdate`. `UpdateDialog` takes `onInstall`/`onRetry`.
@@ -76,6 +78,7 @@ Implement Section 12.
 
 ## Deviations from the design
 
+- Section 12: none to the design. `openPullRequestUrl` moved from `TaskHeader.tsx` into `pull-request-labels.ts` for reuse; DOM tests use a Chromium user agent (Monaco's Safari clipboard path); the gate kept HTTPS ports in the host and shows the unavailable message only beside a request action.
 - Section 11: the gate kept internal editors' bare command (the section said every detected command becomes the resolved path); the remote TUI runs it on its own machine.
 - Section 10: none to the design. Added by the gate: macOS readiness waits for Squirrel's staged event, and a download that settles without an outcome stays active (electron-updater 6.8.3 announces the download before staging).
 - Section 9: none to the design. `fetchPiModels` takes an optional `signal` so the launch budget kills the probe; `store-reset.test.ts` allowlists `lib/agent-discovery.ts`; the gate made `loadCodexDiscovery` tolerate a missing `account`.
