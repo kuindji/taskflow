@@ -1,16 +1,9 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { isLoopback } from "@taskflow/shared";
 
-export const AUTH_ENFORCED = false;
-
-interface AuthContext {
+export interface AuthContext {
     token: string;
     allowedOrigins: ReadonlySet<string>;
-}
-
-export interface ServerAuth extends AuthContext {
-    enforce: boolean;
-    log?: (line: string) => void;
 }
 
 type AuthReason = "host" | "origin" | "credential";
@@ -97,25 +90,4 @@ export function checkRequest(req: Request, url: URL, ctx: AuthContext): AuthVerd
         (cdpPath !== null && tokensEqual(cdpPath[2], cdpKey(ctx.token, cdpPath[1])))
         ? { ok: true }
         : { ok: false, reason: "credential" };
-}
-
-export function createReportOnce(
-    log: (line: string) => void,
-): (reason: AuthReason, req: Request, url: URL) => void {
-    const seen = new Set<string>();
-    return (reason, req, url) => {
-        const pattern = url.pathname.startsWith("/cdp/")
-            ? "/cdp/*"
-            : "/" + url.pathname.split("/").filter(Boolean).slice(0, 2).join("/");
-        const origin = req.headers.get("origin");
-        const client =
-            origin !== null
-                ? `origin=${origin}`
-                : `ua=${req.headers.get("user-agent")?.split(/[/ ]/, 1)[0] || "none"}`;
-        const key = JSON.stringify([reason, pattern, client]);
-        if (seen.has(key)) return;
-        seen.add(key);
-        const method = isUpgradeRequest(req) ? "WS" : req.method;
-        log(`[auth] report-only: would reject (${reason}) ${method} ${pattern} from ${client}`);
-    };
 }

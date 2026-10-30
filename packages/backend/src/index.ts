@@ -5,7 +5,7 @@ import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
-import { AUTH_ENFORCED, cdpKey, parseUiOrigins } from "./ws/auth";
+import { cdpKey, parseUiOrigins } from "./ws/auth";
 import { createCdpGateway } from "./services/cdp/cdp-gateway";
 import { TaskStore } from "./services/task-store";
 import { PtyManager } from "./services/pty-manager";
@@ -143,7 +143,6 @@ async function main() {
         const server = createServer(router, config.port, apiRouter, cdpGateway, {
             token: apiToken,
             allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS),
-            enforce: AUTH_ENFORCED,
         });
         const changeTracker = new ChangeTracker(gitService, server.broadcast);
         const wikiIndex = new WikiIndexService({

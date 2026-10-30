@@ -220,13 +220,15 @@ async function fixture(
     const backend = createServer(new Router(), 0, apiRouter, gateway, {
         token: TOKEN,
         allowedOrigins: new Set(["file://", "null"]),
-        enforce: false,
     });
     const running = await backend.start();
     cleanups.push(() => running.stop());
     const origin = `http://127.0.0.1:${running.port}`;
-    function connect(path = `/cdp/root/${cdpKey(TOKEN, "root")}/devtools/browser`) {
-        const ws = new WebSocket(`${origin.replace("http:", "ws:")}${path}`);
+    function connect(
+        path = `/cdp/root/${cdpKey(TOKEN, "root")}/devtools/browser`,
+        protocols?: string[],
+    ) {
+        const ws = new WebSocket(`${origin.replace("http:", "ws:")}${path}`, protocols);
         const messages: CdpMessage[] = [];
         ws.addEventListener("message", (event) => {
             messages.push(JSON.parse(String(event.data)) as CdpMessage);
@@ -479,7 +481,7 @@ it("json routes map missing tabs to 404 and unavailable hosts to 503", async () 
 it("app WS clients still receive broadcasts and cdp sockets do not", async () => {
     const f = await fixture();
     const cdp = f.connect();
-    const app = f.connect("/existing-app-socket");
+    const app = f.connect("/existing-app-socket", ["taskflow", `taskflow.auth.${TOKEN}`]);
     await app.opened;
     await until(() => f.changes.length === 1 && f.backend.clientCount() === 1);
     const event: WsEvent = { type: "test:broadcast", payload: { value: 42 } };

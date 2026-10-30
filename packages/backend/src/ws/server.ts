@@ -5,13 +5,7 @@ import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskfl
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
 import { errorResponse } from "../api/routes/response-helpers";
-import {
-    checkRequest,
-    createReportOnce,
-    isUpgradeRequest,
-    upgradeHeaders,
-    type ServerAuth,
-} from "./auth";
+import { checkRequest, isUpgradeRequest, upgradeHeaders, type AuthContext } from "./auth";
 import type { CdpGateway, CdpSocketData } from "../services/cdp/cdp-gateway";
 
 import { createTerminalBroadcaster, type BroadcastOptions } from "./terminal-broadcaster";
@@ -21,7 +15,7 @@ export function createServer(
     port: number = 0,
     apiRouter: ApiRouter | undefined,
     cdpGateway: CdpGateway | undefined,
-    auth: ServerAuth,
+    auth: AuthContext,
 ): {
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
@@ -31,7 +25,6 @@ export function createServer(
 } {
     type AppSocketData = { kind: "app"; clientId: string };
     type SocketData = AppSocketData | CdpSocketData | { kind: "unauthorized" };
-    const report = createReportOnce(auth.log ?? console.warn);
     let server: Server<SocketData>;
     const clients = new Set<ServerWebSocket<SocketData>>();
     const broadcaster = createTerminalBroadcaster(clients);
@@ -74,9 +67,7 @@ export function createServer(
                 const verdict = checkRequest(req, url, auth);
                 let unauthorized = false;
                 if (!verdict.ok) {
-                    if (!auth.enforce) report(verdict.reason, req, url);
-                    else if (verdict.reason !== "credential")
-                        return errorResponse("Forbidden", 403);
+                    if (verdict.reason !== "credential") return errorResponse("Forbidden", 403);
                     else if (!isUpgradeRequest(req)) return errorResponse("Unauthorized", 401);
                     else unauthorized = true;
                 }

@@ -3,7 +3,6 @@ import { createHmac } from "crypto";
 import {
     cdpKey,
     checkRequest,
-    createReportOnce,
     isUpgradeRequest,
     parseUiOrigins,
     upgradeHeaders,
@@ -178,41 +177,5 @@ describe("checkRequest", () => {
         expect(
             check(request("/", { ...upgrade, "Sec-WebSocket-Protocol": `taskflow.auth.${T}` })),
         ).toEqual({ ok: false, reason: "credential" });
-    });
-});
-
-describe("createReportOnce", () => {
-    test("logs one line per reason, pattern and client, with the exact format", () => {
-        const lines: string[] = [];
-        const report = createReportOnce((line) => lines.push(line));
-        const req = request("/api/settings?token=secret", { "User-Agent": "node/22.0" });
-        report("credential", req, new URL(req.url));
-        report("credential", req, new URL(req.url));
-        report("host", req, new URL(req.url));
-        const other = request("/api/settings", { "User-Agent": "curl 8.0" });
-        report("credential", other, new URL(other.url));
-        expect(lines).toEqual([
-            "[auth] report-only: would reject (credential) GET /api/settings from ua=node",
-            "[auth] report-only: would reject (host) GET /api/settings from ua=node",
-            "[auth] report-only: would reject (credential) GET /api/settings from ua=curl",
-        ]);
-    });
-    test("report patterns: /api/tasks/abc/log gives /api/tasks, /cdp/x/json/version gives /cdp/*, an upgrade is WS", () => {
-        const lines: string[] = [];
-        const report = createReportOnce((line) => lines.push(line));
-        for (const req of [
-            request("/api/tasks/abc/log"),
-            request("/api/tasks/def/log"),
-            request("/cdp/x/json/version"),
-            request("/cdp/y/json/version"),
-            request("/", { ...upgrade, Origin: "file://" }),
-        ]) {
-            report("credential", req, new URL(req.url));
-        }
-        expect(lines).toEqual([
-            "[auth] report-only: would reject (credential) GET /api/tasks from ua=none",
-            "[auth] report-only: would reject (credential) GET /cdp/* from ua=none",
-            "[auth] report-only: would reject (credential) WS / from origin=file://",
-        ]);
     });
 });
