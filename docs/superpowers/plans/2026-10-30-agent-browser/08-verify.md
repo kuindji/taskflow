@@ -20,6 +20,8 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
    - the main window is closed to the tray (macOS).
 
    Screenshots are non-blank and the interval counter advances in all three. Reopening the window shows the tab live, without a reload.
+
+   Also disconnect the client and connect a new one while the tab is hidden: a click still works (the spike found that a view in no window stops painting after a reconnect; the park window must prevent it). Closing the main window still hides the dock icon on macOS, and on Windows/Linux (if available) still quits the app, although the park window exists.
 4. **Shared use.** The user types into A's tab by hand while the agent reads the field. Both see the same page.
 5. **Popups.** A `window.open` OAuth-like popup appears as a child tab in A and as a new page to the client; `window.opener` works. Closing A closes the popup.
 6. **`newPage()`** from Playwright opens a child tab in A.

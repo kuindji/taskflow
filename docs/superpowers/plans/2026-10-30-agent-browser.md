@@ -74,7 +74,7 @@ export interface BrowserHostHeartbeat {
     debugPort: number;        // Chromium remote debugging port
     loaded: { tabId: string; targetId: string; url: string; title?: string; parentId?: string }[];
         // url/title also reconcile the registry; parentId lets the backend re-adopt live children it doesn't know
-    appTargetIds: string[];   // targets that are not browser tabs (the main window's renderer); always denied
+    appTargetIds: string[];   // page targets that are not browser tabs (the main and park windows' renderers); always denied
 }
 
 /** Host → backend events (POST /api/browser/host/events). */
@@ -214,7 +214,7 @@ interface TaskflowBrowserBridge {
 - **No new runtime dependencies** in `electron/` or `packages/backend`. Playwright and Puppeteer may be used only by the spike and by manual checks, run with `bunx`/`uvx` or a scratch install outside the workspace.
 - **Loopback only:** the control server, the debugging port and the CDP gateway bind `127.0.0.1`. The raw debugging port is never printed to agents or documented.
 - **Partition:** `persist:browser` for every hosted tab. Keep the `navigator.webdriver` preload (`electron/src/browser-preload.ts`) and the Chrome-like user agent (today computed in `BrowserPane.tsx`; it moves to main).
-- **Hidden tabs:** `backgroundThrottling: false`. A tab never shown renders at 1280×800.
+- **Hidden tabs:** `backgroundThrottling: false`. A tab that isn't shown lives in the hidden park window at 1280×800, never in no window (Section 1).
 - **Timings:** heartbeat every 5000 ms; host stale after 15000 ms; `resolveTarget` waits at most 2000 ms; host client timeout 10000 ms.
 - **Error strings** (exact; shown to agents and users):
   - `Browser not available on this machine: the Taskflow desktop app must be running here`
@@ -292,3 +292,8 @@ interface TaskflowBrowserBridge {
   - Main detaches every view when the UI reloads or its renderer dies.
   - `close` survives a failed store write and `closed` is idempotent; the host link retries a 5xx up to 3 attempts.
   - The chain stopped here for the user's decision (round cap reached with a blocker confirmed).
+- Spike amendments (Section 1, own findings, `2026-10-30-agent-browser/spike/results.md`):
+  - Section 4: context-scoped rule 3 rewritten (no-op download behaviour, cookies through `CdpFilterDeps.runOnRootPage`, permissions refused); the `createTarget` reply waits for the attach; new tests.
+  - Section 5: hidden tabs live in a park window (`HostedView.hide` moves the view there); guest popups are wrapped with prefs minus `partition`; `disable-blink-features=AutomationControlled`; `create` awaits an `about:blank` first load; `appTargetIds` includes the park window; `window-all-closed` moves to the main window's `closed`.
+  - Spec Amendment 11.
+

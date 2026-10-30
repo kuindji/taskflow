@@ -1,6 +1,6 @@
 # Section 4: CDP gateway
 
-Read `handoff.md` first. Section 1 recorded every CDP method the three clients send (browser level and session level), Electron's `createTarget` behavior, the tabs' `browserContextId` and the handling of context-scoped commands. This section's tables **must** cover that list. If the spike saw a method missing from the tables below, decide it by the rule "pass if it only touches the caller's own targets or is read-only browser info; deny otherwise", and list it in the handoff.
+Read `handoff.md` first, and `spike/results.md` for the method log. Section 1 recorded every CDP method the three clients send (browser level and session level), Electron's `createTarget` behavior, the tabs' `browserContextId` and the handling of context-scoped commands. This section's tables **must** cover that list. If the spike saw a method missing from the tables below, decide it by the rule "pass if it only touches the caller's own targets or is read-only browser info; deny otherwise", and list it in the handoff.
 
 **Files:**
 - Create: `packages/backend/src/services/cdp/cdp-filter.ts` + `packages/backend/tests/services/cdp/cdp-filter.test.ts`. A pure message filter with no sockets.
@@ -33,7 +33,8 @@ interface CdpFilterDeps {
     pageOfTabTarget(tabTargetId: string): Promise<string | null>; // the page targetId inside a `tab` target; null if none (see "Tab targets")
     openChild(url: string): Promise<{ targetId: string }>;        // service.openChild(rootTabId, url)
     closeTarget(targetId: string): Promise<boolean>;
-    browserContextId: string | null; // the tabs' context from the spike's facts, read from the root target; null if unknown
+    runOnRootPage(method: string, params: Record<string, unknown>): Promise<CdpMessage>; // one command on the root tab's page (see "runOnRootPage"); resolves to the reply ({ result } or { error })
+    browserContextId: string | null; // the tabs' context, read from the root target; null if unknown
 }
 interface CdpFilterIo { toClient(m: CdpMessage): void; toUpstream(m: CdpMessage): void }
 class CdpTargetFilter {
@@ -77,9 +78,14 @@ function createCdpGateway(deps: {
    - `Target.attachToBrowserTarget`, `Target.createBrowserContext`, `Target.disposeBrowserContext`, `Target.exposeDevToolsProtocol`, `Target.setRemoteLocations`: error.
    - `Target.attachToTarget`, `Target.activateTarget`, `Target.getTargetInfo` with a `targetId`: forward only if `resolveTarget` maps it to an allowed tab; otherwise error. `getTargetInfo` without a `targetId` at browser level describes the browser: forward.
    - `Target.closeTarget` with an allowed target: call `deps.closeTarget` and reply `{ success: true }`. Never forward it. Otherwise error.
-   - `Target.createTarget`: call `deps.openChild(params.url ?? "about:blank")`, reply `{ targetId }`, never forward. A `browserContextId` param other than the tabs' context: error.
+   - `Target.createTarget`: call `deps.openChild(params.url ?? "about:blank")`, reply `{ targetId }`, never forward. A `browserContextId` param other than the tabs' context: error. Electron answers a forwarded `createTarget` with `Not supported`, so the intercept is required.
+     - **Hold the reply** until the filter has forwarded the new target's browser-level `attachedToTarget` to the client (the page itself, or a `tab` target whose page is it), at most 2000 ms, then reply anyway. Chromium sends the auto-attach before the `createTarget` reply, and Playwright reads the page right after the reply (`crBrowser.ts`: `_crPages.get(targetId)`); an early reply fails `newPage()` with `Cannot read properties of undefined (reading '_page')`. The spike saw the attach 1–5 ms after `openChild` returned.
    - `Target.setAutoAttach` (flattened), `setDiscoverTargets`, `getTargets`, `getBrowserContexts`, `detachFromTarget` (for an allowed session): forward.
-3. **Context-scoped commands, at any level** (`Browser.setDownloadBehavior`, `Browser.setPermission`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`, plus any the spike found): handled the way the spike recorded. The default is: when `browserContextId` is missing, set it to `deps.browserContextId`; when it is another context, error. If `deps.browserContextId` is null, error. Chromium's `BrowserHandler` also runs on page sessions (`render_frame_devtools_agent_host.cc`) and picks the default context, the app's, when the id is omitted, so a page session gets no exemption.
+3. **Context-scoped commands, at any level** (`Browser.setDownloadBehavior`, `Browser.setPermission`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`). The spike showed none of them can reach the tabs' context: Electron registers no partition with DevTools (`Target.getBrowserContexts` is `[]`), the tabs' `browserContextId` fails with `Failed to find browser context for id <id>`, and an omitted id acts on the app's default session, at browser level and on page sessions alike. So:
+   - a `browserContextId` other than `deps.browserContextId` (or any id when that is null): error;
+   - `Browser.setDownloadBehavior`: reply `{}`, never forward. Playwright's `connectOverCDP` sends it at connect and fails the connect on an error. Downloads in hosted tabs are not reported to agents (spec Amendment 11);
+   - `Storage.getCookies` / `Storage.setCookies` / `Storage.clearCookies`: run `Network.getAllCookies` / `Network.setCookies { cookies: params.cookies }` / `Network.clearBrowserCookies` through `deps.runOnRootPage` and reply with its `result` (or its `error`). These act on the `persist:browser` jar, inside the boundary of rule 6. Playwright's `context.cookies()`/`addCookies()` and Puppeteer's `browser.cookies()`/`setCookie()` work through this;
+   - `Browser.setPermission`, `Browser.grantPermissions`, `Browser.resetPermissions`: error.
 4. **The rest of the `Browser` and `SystemInfo` domains, at any level:** forward only `Browser.getVersion`, `Browser.getWindowForTarget` with an allowed `targetId` (or none, on an allowed session), `SystemInfo.getInfo`, plus the spike's recorded methods that pass the rule above. Everything else is an error: `Browser.crash`, `Browser.crashGpuProcess`, `Browser.close`, `Browser.cancelDownload`, `Browser.getHistograms`, `Browser.getBrowserCommandLine`, and any unknown `Browser.*`.
 5. **Browser level, everything else** (no `sessionId`): forward only methods on the browser-level allowlist (rules 2–4 plus the spike's recorded browser-level methods that pass the rule above). Everything else is an error, `Tracing.*` included.
 6. **On an allowed session, everything else:** a domain allowlist, default deny. Chromium puts browser-reaching handlers on page sessions too (`render_frame_devtools_agent_host.cc`: `TracingHandler` traces the browser and GPU processes, `ServiceWorkerHandler` acts on the whole partition's workers and reports other pages' target ids), so a known `sessionId` proves nothing.
@@ -116,6 +122,8 @@ function createCdpGateway(deps: {
 
 **`pageOfTabTarget`** runs on a **separate** short-lived upstream connection to the same `webSocketDebuggerUrl`, never on the client's: the client's upstream is processed strictly in order, and the `attachedToTarget` waiting on the answer would block the messages that carry it. On that connection: `Target.attachToTarget { targetId, flatten: true }`; on the new session `Target.setAutoAttach { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }`; the first nested `attachedToTarget` of type `page` gives the answer; then close the connection. Timeout 2000 ms, then `null`. Use the method the spike recorded if it differs.
 
+**`runOnRootPage`** uses the same kind of separate short-lived upstream connection: `Target.attachToTarget { targetId: <root targetId>, flatten: true }`, then the command on the new session; the command's reply is the answer; then close the connection. Timeout 5000 ms, then `{ error: { code: -32000, message: "Timeout" } }`. The spike measured both helpers at 1–3 ms.
+
 **`listJson`**
 - The real `/json/list`, filtered to the family's targets.
 - `webSocketDebuggerUrl` and `devtoolsFrontendUrl` are removed (page-level sockets aren't proxied).
@@ -140,16 +148,23 @@ function createCdpGateway(deps: {
   - `an unlisted browser-level method (Tracing.start) is refused`
   - `Browser.crash and Browser.crashGpuProcess on an allowed page session are refused`
   - `Browser.close on an allowed page session is refused`
-  - `Browser.setPermission on an allowed page session without browserContextId gets the tabs' context injected`
-  - `Browser.setPermission on an allowed page session naming another browserContextId is refused`
-  - `setDownloadBehavior without browserContextId gets the tabs' context injected`
+  - `Browser.setPermission on an allowed page session is refused with that sessionId`
+  - `Browser.grantPermissions at browser level is refused`
+  - `setDownloadBehavior without browserContextId replies {} and is not forwarded`
+  - `setDownloadBehavior naming another browserContextId is refused`
+  - `Storage.getCookies runs Network.getAllCookies through runOnRootPage and replies with its cookies`
+  - `Storage.setCookies runs Network.setCookies with the same cookies; Storage.clearCookies runs Network.clearBrowserCookies`
+  - `Storage.getCookies on an allowed page session replies with that sessionId`
   - `Storage.getCookies naming another browserContextId is refused`
+  - `a runOnRootPage error is passed back as the reply's error`
   - `Tracing.start on an allowed page session is refused with that sessionId`
   - `ServiceWorker.enable and ServiceWorker.stopAllWorkers on an allowed page session are refused`
   - `Memory.simulatePressureNotification on an allowed page session is refused`
   - `a method of an unknown domain on an allowed session is refused`
   - `Page.navigate and Runtime.evaluate on an allowed session are forwarded`
-  - `createTarget calls openChild and replies with its targetId`
+  - `createTarget calls openChild and replies with its targetId only after the new target's attachedToTarget was forwarded`
+  - `createTarget whose target is announced through a family tab target replies after that tab's attach`
+  - `createTarget replies after 2000 ms when no attach arrives`
   - `closeTarget on T-child calls closeTarget and is not forwarded`
   - `closeTarget on T-other is refused`
   - `createTarget and closeTarget sent on an allowed child session reply with that sessionId`
@@ -176,6 +191,7 @@ function createCdpGateway(deps: {
     - `tab-gone for the root closes the client with 1001`
     - `upstream close closes the client`
     - `pageOfTabTarget answers from a separate upstream connection and closes it` (the fake upstream scripts the tab → page auto-attach)
+    - `runOnRootPage attaches to the root page on a separate connection, returns the command's reply and closes it`
     - `json/version rewrites webSocketDebuggerUrl to the gateway path using Host`
     - `json/version/ with trailing slash works`
     - `json/list lists only family page targets without debugger urls`

@@ -1,6 +1,6 @@
 # Section 5: Electron browser host
 
-Read `handoff.md` first. Section 1 recorded how to read the debug port, how hidden views render (removed from the window, or parked in a hidden window), and whether `createWindow` keeps `window.opener`. Use those facts as recorded.
+Read `handoff.md` first. Section 1 recorded how to read the debug port, how hidden views render, and how guest popups keep their preferences; the rules below already apply them (spike amendments). The working reference is `spike/main.cjs`.
 
 The Electron-free logic lives in pure modules with tests (`bun test electron/src/browser-host/...`, the same as `notification-poller.test.ts`). The Electron glue stays thin and is verified in Section 8.
 
@@ -19,7 +19,9 @@ The Electron-free logic lives in pure modules with tests (`bun test electron/src
 - `index.ts`: `initBrowserHost({ getBackendPort, getMainWindow })`. It composes everything and registers the IPC handlers.
 - Modify `electron/src/main.ts`:
   - `app.commandLine.appendSwitch("remote-debugging-port", "0")` before `whenReady`, next to the other pre-ready setup;
-  - after `setBackendPort(port)`, `await initBrowserHost(...)`.
+  - `app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled")` next to it. Remote debugging turns Blink's `AutomationControlled` on, so `navigator.webdriver` is `true` in every page's main world; `browser-preload.ts` can't fix it because with `contextIsolation` its patch only reaches the isolated world. The switch gives `false`. Keep the preload;
+  - after `setBackendPort(port)`, `await initBrowserHost(...)`;
+  - the park window (below) is a `BrowserWindow`, so `app.on("window-all-closed")` (`main.ts:219`: quit on Windows/Linux, hide the dock icon on macOS) would never fire again. Move that body into a named function and also call it when the main window is `closed` and every remaining window is the park window (`browserHost.isParkWindow(w)`, exported from `index.ts`). Section 8 checks both platforms' close behaviour.
 - Modify `electron/src/window-manager.ts`:
   - on the main window's `close`, call `browserHost.detachAll()` **before** the window is destroyed, so views survive the close to tray;
   - on the main window's `webContents` `did-start-navigation` with `isMainFrame && !isSameDocument` (a reload, force reload or full navigation of the UI), and on its `render-process-gone`, call `browserHost.detachAll()`. A reload runs no React cleanup and the rebuilt UI may not show the pane that was visible, so an attached view would cover it. Views stay alive; the new renderer shows its active panes;
@@ -37,7 +39,7 @@ interface HostedView {
     url(): string;
     title(): string;
     show(bounds: Bounds): void;      // attach to the main window at bounds (DIP)
-    hide(): void;                    // detach; keeps rendering (spike's method)
+    hide(): void;                    // move into the park window at 0,0 1280×800; keeps rendering
     navigate(url: string): void;
     back(): void;
     forward(): void;
@@ -102,18 +104,23 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `backgroundThrottling: false`;
   - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
 - **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`.
-- **Initial size:** 1280×800 until first shown. Apply the spike's hidden-rendering method.
+- **Park window.** One hidden `BrowserWindow` (`show: false`, `paintWhenInitiallyHidden: true`, 1280×800), created lazily by the factory and never shown. Every view that isn't shown lives in it at `{ x: 0, y: 0, width: 1280, height: 800 }`: a new view is added to it at creation, `hide()` moves the view back into it, `show()` moves it into the main window. The spike found the two alternatives broken:
+  - a view that was never in any window has a 0×0 viewport whatever `setBounds` says: `Page.captureScreenshot` fails (`Cannot take screenshot with 0 width`) and nothing in it is visible, so Playwright's `waitForSelector` hangs;
+  - a view removed from every window keeps painting only while the CDP client attached at the time stays connected. After a reconnect `requestAnimationFrame` never fires, so clicks and visibility waits hang.
+
+  A parked view survives reconnects, screenshots at 1280×800 and keeps timers and rAF running. The main window being hidden or minimized doesn't stop a shown view. Electron gives a view one parent, so remove it from its current window before adding it to the other.
+- **First load:** for a new view whose URL is `about:blank`, `create` resolves only after that `loadURL` settles (log a failure, don't throw). Otherwise a client's first `goto` on a page from `Target.createTarget` is cut off: `Navigation ... is interrupted by another navigation to "about:blank"`. Other URLs start loading and `create` resolves at once, inside the host client's 10 s timeout.
 - **`targetId`:** `debugger.attach("1.3")`, then `Target.getTargetInfo`, then `detach()`. This runs once, at creation.
 - **Popups:** if `!tabHost.claimPopupName(parentTabId, details.frameName)`, `setWindowOpenHandler` returns `{ action: "deny" }`. Otherwise it returns `{ action: "allow", overrideBrowserWindowOptions: { webPreferences: <the shared tab prefs above> }, createWindow }`. Electron fixes a guest's preferences from `overrideBrowserWindowOptions` before `createWindow` runs, so this is the only place the preload and `backgroundThrottling: false` reach guest popups. Keep the prefs in one builder used by both. `createWindow` handles both of Electron's paths, as the spike recorded:
-  - **with a guest:** wrap it in `new WebContentsView({ webContents })` and return that same `webContents` (Electron throws on any other). `BrowserWindowConstructorOptions` doesn't declare `webContents`, and on the no-guest path the key is present with `undefined`. An `in` check plus a null check narrows only to `{}` (TS2740 on 33.4.11), so read it as `const guest = "webContents" in options ? options.webContents : undefined` and test it with a real predicate, `isWebContents(value: unknown): value is WebContents`: an object with a numeric `id` where `webContents.fromId(value.id) === value`. No `as any`.
-  - **without a guest:** create a view with the shared prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data, extraHeaders })`. `extraHeaders` is `content-type: <contentType>` plus `; boundary=<boundary>` when `postBody` has one, built by a pure `postBodyHeaders(postBody)` in `post-body-headers.ts` (+ test).
+  - **with a guest:** wrap it in `new WebContentsView({ webContents, webPreferences: <the shared tab prefs without partition> })` and return that same `webContents` (Electron throws on any other). The `webPreferences` are required: on an existing `webContents` the constructor runs `SetFromDictionary` with them (`electron_api_web_contents.cc` `CreateFromWebPreferences`), and without them the guest's prefs are reset and the preload is lost. `partition` must be left out: with it, the next `new WebContentsView` after that guest closes crashes main (SIGSEGV). The prefs builder therefore has two outputs, the tab prefs and the guest prefs (the same minus `partition`). In the spike every popup kind took this path: `<a target=_blank>`, `rel=opener`, `window.open` and both `target=_blank` form posts (Electron 33 posts them itself, with the right `content-type` and boundary). `BrowserWindowConstructorOptions` doesn't declare `webContents`, and on the no-guest path the key is present with `undefined`. An `in` check plus a null check narrows only to `{}` (TS2740 on 33.4.11), so read it as `const guest = "webContents" in options ? options.webContents : undefined` and test it with a real predicate, `isWebContents(value: unknown): value is WebContents`: an object with a numeric `id` where `webContents.fromId(value.id) === value`. No `as any`.
+  - **without a guest** (not reached in the spike; keep it, Electron documents it): create a view with the shared prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data, extraHeaders })`. `extraHeaders` is `content-type: <contentType>` plus `; boundary=<boundary>` when `postBody` has one, built by a pure `postBodyHeaders(postBody)` in `post-body-headers.ts` (+ test).
 
   Either way, call `tabHost.reportChildOpened(parentTabId, view, details.frameName)` and return the view's `webContents`.
 - **Navigation events:** `did-navigate`, `did-navigate-in-page` and `page-title-updated` call `reportNavigated` and emit `navState`.
 - **`show` emits `navState` too.** `TabHost.show` fires `events.navState(tabId, view.navState())` after showing, so a remounted toolbar (task switch, renderer reload) gets the current history state of an already loaded view.
-- **Closing:** `destroyed` and a `render-process-gone` that can't reload call `reportClosed`. The page's own `window.close()` is covered by `destroyed`: Electron's `CloseContents` emits `close` and then destroys the contents. Don't listen for `close`; 33.4.11's typings don't declare it (TS2769).
+- **Closing:** on `destroyed`, remove the view from whichever window holds it. `destroyed` and a `render-process-gone` that can't reload call `reportClosed`. The page's own `window.close()` is covered by `destroyed`: Electron's `CloseContents` emits `close` and then destroys the contents. Don't listen for `close`; 33.4.11's typings don't declare it (TS2769).
 - **Bounds:** the renderer sends CSS pixels relative to the window content. Multiply by `mainWindow.webContents.getZoomFactor()` before `setBounds`.
-- **`appTargetIds`:** the main window's own targetId, found by the same debugger method on `mainWindow.webContents`.
+- **`appTargetIds`:** the main window's and the park window's own targetIds, found by the same debugger method on their `webContents`. Every page target that isn't a tab must be listed: an unknown target makes the gateway's `resolveTarget` wait 2000 ms inside the ordered upstream chain. In the spike the unlisted park window stalled Puppeteer's connect past its protocol timeout.
 
 ## `index.ts` wiring
 
@@ -124,7 +131,7 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `closed` → `link.event({ type: "closed", tabId })` and `link.flush()`;
   - `loadedChanged` → `link.flush()`;
   - `navState` → send `browser:nav-state` to the main window, if it exists.
-- The debug port comes from `parseDevToolsActivePort(readFile(join(app.getPath("userData"), "DevToolsActivePort")))` (or the spike's recorded path). Retry every 200 ms for up to 5 s. If it still fails, log it and don't start the backend link, so the backend reports the host unavailable.
+- The debug port comes from `parseDevToolsActivePort(readFile(join(app.getPath("userData"), "DevToolsActivePort")))`. The spike confirmed the path and format: line 1 is the port, line 2 the `/devtools/browser/<uuid>` path; the file exists shortly after `ready`. Retry every 200 ms for up to 5 s. If it still fails, log it and don't start the backend link, so the backend reports the host unavailable.
 - IPC handlers map one-to-one onto `TabHost` methods.
 
 ## Steps
