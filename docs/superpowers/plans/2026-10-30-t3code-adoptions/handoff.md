@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 2.
+Implement Section 6.
 
 ## Status
 
@@ -17,7 +17,7 @@ Implement Section 2.
 | — | Plan review round 2 | done: round-1 fixes hold; 2 majors and 5 minors confirmed and folded in | 29122909 |
 | — | Plan review round 3 | done: round-2 fixes hold; 0 majors (2 downgraded), 5 minors confirmed and folded in; reviews done | 321591d4 |
 | 1 | Auth core | done: Codex review clean, 1 minor triaged (no change); backend 1137/0, shared, TUI, typecheck, Electron build pass | 4bcd5792, cf6b9ad0, f651167e, 6c5641dc |
-| 2 | Auth, local clients | not started | |
+| 2 | Auth, local clients | done: Codex review clean; Task 2.5 manual checks pass; backend 1148/0, electron 76/0, TUI 453/0, typecheck, Electron build and package pass | 427eefd0, bbc9182e, 50de5869, f9324890 |
 | 3 | Remote connectivity | not started | |
 | 4 | Auth, remote clients | not started | |
 | 5 | Auth, browser endpoints, enforcement | not started | |
@@ -34,6 +34,12 @@ Implement Section 2.
 
 - Base commit before implementation (final-review base): `bf807eaea354b57763e3f994a4a77ddef519152f`.
 - Section 1 outputs: `config.apiToken` (lazy, file `api-token-<instanceId>`, `0600`). Spawn handshake `<port>\n<token>\n` via `writePortHandshake`; Electron `startBackend` resolves `{ port, token }` (main.ts keeps only `port` for now); TUI `BackendHandle.token`. Stable `<instanceId>.port` files still hold only the port. `createServer(router, port, apiRouter, cdpGateway, auth: ServerAuth)`; `AUTH_ENFORCED = false` in `ws/auth.ts`. PTY sessions get `TASKFLOW_API_TOKEN`.
+- Section 2 outputs: `electron/src/backend-fetch.ts` (`BackendFetch`, `createBackendFetch({ tokenFor, fetchImpl? })`), used by every main-process backend call except `browser-host/backend-link.ts` (Section 5). `get/setBackendToken` in `backend-manager.ts`. `AttachedBackend.token`, `listAttachedBackends(localPort, localToken, remote)`. `AttachResult.token?`. UI: `openConnection(id, origin, token)`, `tokenFor(id)`, `Connection.authToken`; `rawFileUrl` appends `&token=`. TUI: `new WsClient(port, host, token)`, `createLocalClient(port, token)`. CLIs: sh `tf_curl` (token via `-K -` on stdin), TS bin `authHeaders()`.
+- Section 2 Task 2.5 results (sandbox config dirs): plain-browser dev UI, Electron dev against Vite, a real PTY session running the sh CLI (`system info`, `devserver list --all`, `--help`) and the TS bin, and the raw image URL in both renderers produced no report-only line. Tokenless controls did log (`ua=curl`, `GET /api/file from ua=Mozilla`). The only remaining line in Electron dev is `PUT /api/browser from ua=node` (browser host, Section 5). Report-only lines are de-duplicated per backend process (`ws/auth.ts` `seen`), so a control must come first or use a fresh backend.
+- Packaged renderer Origin: `file://`; protocol answer: `taskflow` (packaged app with `TASKFLOW_DEV=1`, read via CDP `Network.webSocketWillSendHandshakeRequest`).
+- TUI local log check: deferred to Section 13. The TUI connected to its spawned backend and started a session end to end.
+- Dev UI token: `VITE_BACKEND_TOKEN=$(cat "$TASKFLOW_CONFIG_DIR/api-token-dev-<branch>")` (or `~/.config/taskflow/...` without `TASKFLOW_CONFIG_DIR`), next to `VITE_BACKEND_PORT`. Remote records still send no token (Section 4). After Section 5, a remote backend also needs `TASKFLOW_UI_ORIGINS` set for a dev renderer to attach to it.
+- Driving the dev or packaged app without stealing focus: launch the packaged app with `open -g -n --env ...`. Both use userData `~/.config/taskflow-dev-main`, and its `DevToolsActivePort` gives the CDP port. In Electron dev, the renderer page can `import('/src/lib/backend-url.ts')` through Vite to reach the app's live module instances.
 - Section 1 smoke (sandbox, `TASKFLOW_DEV_PORT=18799`): handshake has two lines, it and `api-token-dev-main` are `-rw-------`; two `curl /api/settings` answer and log one `[auth] report-only: would reject (credential) GET /api/settings from ua=curl`.
 - Report-only log lines today, from the backend's own tests: CDP clients give `(credential) GET /cdp/* from ua=Bun` and `WS /cdp/* from ua=none`. Section 5 handles CDP.
 - Running Sol: `codex exec -m gpt-6.1-sol -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir "$PWD/.git" -C "$PWD" -o <report> - < <brief>`. In its sandbox 19 backend tests fail (process-stopper, watchers: `ps` EPERM, no FS events) and typecheck needs `TMPDIR=/private/tmp`; rerun the suites yourself outside it. Sol also edits `handoff.md`; rewrite its entries tightly.
@@ -50,4 +56,5 @@ Implement Section 2.
 
 ## Deviations from the design
 
+- Section 2: none to the design. `Connection`'s token parameter defaults to `null`; the TUI types Bun's header-capable `WebSocket` constructor locally.
 - Section 1: none to the design. The TUI late-write deadline fixture writes a full two-line handshake; `server.test.ts` types Bun's header-capable `WebSocket` constructor locally (DOM typings omit it).
