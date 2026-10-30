@@ -292,6 +292,27 @@ it("upstream close closes the client", async () => {
     expect(f.changes).toEqual([1, -1]);
 });
 
+it("keeps the root page awake on its own upstream connection while the client is connected", async () => {
+    const f = await fixture();
+    const c = f.connect();
+    await until(() =>
+        f.records.some((r) => r.message.method === "Emulation.setFocusEmulationEnabled"),
+    );
+    expect(f.records.filter((r) => r.connection === 2).map((r) => r.message)).toEqual([
+        { id: 1, method: "Target.attachToTarget", params: { targetId: "T-root", flatten: true } },
+        {
+            id: 2,
+            sessionId: "helper-2",
+            method: "Emulation.setFocusEmulationEnabled",
+            params: { enabled: true },
+        },
+    ]);
+    expect(f.upstreamSockets.size).toBe(2);
+    c.ws.close();
+    await c.closed;
+    await until(() => f.upstreamSockets.size === 0);
+});
+
 it("pageOfTabTarget answers from a separate upstream connection and closes it", async () => {
     const f = await fixture();
     const c = f.connect();
@@ -305,16 +326,18 @@ it("pageOfTabTarget answers from a separate upstream connection and closes it", 
     );
     await until(() => c.messages.some((m) => m.id === 20) && f.closedConnections() === 1);
     expect(c.messages[0]?.params?.targetInfo).toEqual({ targetId: "tab-root", type: "tab" });
-    expect(f.connections()).toBe(2);
-    expect(f.upstreamSockets.size).toBe(1);
-    const attach = f.records.find((r) => r.message.method === "Target.attachToTarget");
-    expect(attach?.connection).toBe(2);
+    // Connection 2 is the keep-awake session.
+    expect(f.connections()).toBe(3);
+    expect(f.upstreamSockets.size).toBe(2);
+    const attach = f.records.find(
+        (r) => r.connection === 3 && r.message.method === "Target.attachToTarget",
+    );
     expect(attach?.message.params).toEqual({ targetId: "tab-root", flatten: true });
     expect(
-        f.records.find((r) => r.connection === 2 && r.message.method === "Target.setAutoAttach")
+        f.records.find((r) => r.connection === 3 && r.message.method === "Target.setAutoAttach")
             ?.message,
     ).toMatchObject({
-        sessionId: "helper-2",
+        sessionId: "helper-3",
         params: { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
     });
 });
@@ -329,13 +352,14 @@ it("runOnRootPage attaches to the root page on a separate connection, returns th
         { id: 21, result: { cookies: [{ name: "session", value: "browser" }] } },
     ]);
     expect(
-        f.records.find((r) => r.message.method === "Target.attachToTarget")?.message.params,
+        f.records.find((r) => r.connection === 3 && r.message.method === "Target.attachToTarget")
+            ?.message.params,
     ).toEqual({ targetId: "T-root", flatten: true });
     expect(f.records.find((r) => r.message.method === "Network.getAllCookies")).toMatchObject({
-        connection: 2,
-        message: { sessionId: "helper-2", params: {} },
+        connection: 3,
+        message: { sessionId: "helper-3", params: {} },
     });
-    expect(f.upstreamSockets.size).toBe(1);
+    expect(f.upstreamSockets.size).toBe(2);
 });
 
 for (const suffix of ["/json/version", "/json/version/"]) {

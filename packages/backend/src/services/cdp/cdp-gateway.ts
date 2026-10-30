@@ -26,6 +26,7 @@ interface Connection {
     counted: boolean;
     closed: boolean;
     unsubscribe: () => void;
+    release?: () => void;
 }
 
 function record(raw: unknown): Record<string, unknown> {
@@ -136,11 +137,51 @@ function createCdpGateway({
         });
     }
 
+    // A parked tab sits in a window that is never shown, so its compositor ticks at
+    // about 1 Hz and rAF and screenshots crawl. Focus emulation on a session of our
+    // own keeps the page rendering at full rate while an agent is connected.
+    // Playwright turns it on itself; Puppeteer doesn't.
+    function keepAwake(url: string, targetId: string): () => void {
+        let ws: WebSocket;
+        try {
+            ws = connectUpstream(url);
+        } catch {
+            return () => {};
+        }
+        ws.addEventListener("open", () => {
+            ws.send(
+                JSON.stringify({
+                    id: 1,
+                    method: "Target.attachToTarget",
+                    params: { targetId, flatten: true },
+                }),
+            );
+        });
+        ws.addEventListener("message", (event) => {
+            try {
+                const m = JSON.parse(String(event.data)) as CdpMessage;
+                if (m.id === 1 && !m.sessionId && typeof m.result?.sessionId === "string")
+                    ws.send(
+                        JSON.stringify({
+                            id: 2,
+                            sessionId: m.result.sessionId,
+                            method: "Emulation.setFocusEmulationEnabled",
+                            params: { enabled: true },
+                        }),
+                    );
+            } catch {
+                // Rendering stays throttled; the agent's connection is unaffected.
+            }
+        });
+        return () => ws.close();
+    }
+
     function finish(connection: Connection, code = 1001, reason = ""): void {
         if (connection.closed) return;
         connection.closed = true;
         connections.delete(connection.client.data.connId);
         connection.unsubscribe();
+        connection.release?.();
         connection.pendingClient.length = 0;
         connection.pendingUpstream.length = 0;
         connection.upstream?.close();
@@ -216,6 +257,7 @@ function createCdpGateway({
                             },
                         );
                         connection.filter = filter;
+                        connection.release = keepAwake(upstreamInfo.url, upstreamInfo.targetId);
                         connection.counted = true;
                         service.addAgentConnection(tabId, 1);
                         for (const message of connection.pendingUpstream.splice(0))
