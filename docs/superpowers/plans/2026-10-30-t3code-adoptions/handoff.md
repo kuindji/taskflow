@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 6.
+Implement Section 3.
 
 ## Status
 
@@ -21,7 +21,7 @@ Implement Section 6.
 | 3 | Remote connectivity | not started | |
 | 4 | Auth, remote clients | not started | |
 | 5 | Auth, browser endpoints, enforcement | not started | |
-| 6 | Terminal | not started | |
+| 6 | Terminal | done: Codex review 1 P2 confirmed and fixed (queued resync lost on a failed replacement); backend 1160/0, shared 224/0, TUI 464/0, every UI file, typecheck pass | 24d21dc8, 3259c05b, 2660ddc5, 0532144b, 6a3e31bd |
 | 7 | Scheduler | not started | |
 | 8 | Git safety | not started | |
 | 9 | Agent discovery | not started | |
@@ -36,6 +36,8 @@ Implement Section 6.
 - Section 1 outputs: `config.apiToken` (lazy, file `api-token-<instanceId>`, `0600`). Spawn handshake `<port>\n<token>\n` via `writePortHandshake`; Electron `startBackend` resolves `{ port, token }` (main.ts keeps only `port` for now); TUI `BackendHandle.token`. Stable `<instanceId>.port` files still hold only the port. `createServer(router, port, apiRouter, cdpGateway, auth: ServerAuth)`; `AUTH_ENFORCED = false` in `ws/auth.ts`. PTY sessions get `TASKFLOW_API_TOKEN`.
 - Section 2 outputs: `electron/src/backend-fetch.ts` (`BackendFetch`, `createBackendFetch({ tokenFor, fetchImpl? })`), used by every main-process backend call except `browser-host/backend-link.ts` (Section 5). `get/setBackendToken` in `backend-manager.ts`. `AttachedBackend.token`, `listAttachedBackends(localPort, localToken, remote)`. `AttachResult.token?`. UI: `openConnection(id, origin, token)`, `tokenFor(id)`, `Connection.authToken`; `rawFileUrl` appends `&token=`. TUI: `new WsClient(port, host, token)`, `createLocalClient(port, token)`. CLIs: sh `tf_curl` (token via `-K -` on stdin), TS bin `authHeaders()`.
 - Section 2 Task 2.5 results (sandbox config dirs): plain-browser dev UI, Electron dev against Vite, a real PTY session running the sh CLI (`system info`, `devserver list --all`, `--help`) and the TS bin, and the raw image URL in both renderers produced no report-only line. Tokenless controls did log (`ua=curl`, `GET /api/file from ua=Mozilla`). The only remaining line in Electron dev is `PUT /api/browser from ua=node` (browser host, Section 5). Report-only lines are de-duplicated per backend process (`ws/auth.ts` `seen`), so a control must come first or use a fresh backend.
+- Section 6 outputs: event `terminal:resync` (`MSG.TERMINAL_RESYNC`, payload `TerminalResyncEvent { sessionIds }`), sent per socket from `websocket.drain` by `ws/terminal-broadcaster.ts`. Output sequences are per session and contiguous (`pty-manager.ts` `lastSequence += 1` per batch). `PtyManager.getSnapshot` is async and waits up to 2000 ms for the parser, else answers `snapshot: null` and logs `snapshot returned before parser caught up`. Web: `terminal-attachment.ts` (`createTerminalAttachment`, `subscribeTerminalRecovery`), `CachedTerminal.attachment`. Readiness hook: `packages/ui/src/lib/backend-ready.ts` `notifyBackendReady/onBackendReady`, published by `backend-store` `attach`/`rehandshake` after bootstrap (same attempt, row still attached) and by the dev renderer on reconnect. Section 3's desktop reconnect must end in `attach`/`rehandshake` (or call `notifyBackendReady`) so terminals resync. TUI: `SessionBridge.attach()` is one coalesced operation; resync event and gaps trigger it.
+- Section 6 open for the user (Section 13): a web terminal on a remote backend whose snapshot lacks `mouseEncoding` now stays blank (plan decision: compatibility error, no history fallback; the old web code fell back silently). See `reviews/impl-6-triage.md`.
 - Packaged renderer Origin: `file://`; protocol answer: `taskflow` (packaged app with `TASKFLOW_DEV=1`, read via CDP `Network.webSocketWillSendHandshakeRequest`).
 - TUI local log check: deferred to Section 13. The TUI connected to its spawned backend and started a session end to end.
 - Dev UI token: `VITE_BACKEND_TOKEN=$(cat "$TASKFLOW_CONFIG_DIR/api-token-dev-<branch>")` (or `~/.config/taskflow/...` without `TASKFLOW_CONFIG_DIR`), next to `VITE_BACKEND_PORT`. Remote records still send no token (Section 4). After Section 5, a remote backend also needs `TASKFLOW_UI_ORIGINS` set for a dev renderer to attach to it.
@@ -56,5 +58,6 @@ Implement Section 6.
 
 ## Deviations from the design
 
+- Section 6: none to the design. The provider test uses a stub Bun WebSocket server, not a real backend.
 - Section 2: none to the design. `Connection`'s token parameter defaults to `null`; the TUI types Bun's header-capable `WebSocket` constructor locally.
 - Section 1: none to the design. The TUI late-write deadline fixture writes a full two-line handshake; `server.test.ts` types Bun's header-capable `WebSocket` constructor locally (DOM typings omit it).
