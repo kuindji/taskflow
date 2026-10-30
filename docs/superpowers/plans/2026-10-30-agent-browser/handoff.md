@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Review Section 5, including its deferred manual smoke test, then implement Section 6.
+Implement Section 6.
 
 ## Status
 
@@ -20,7 +20,7 @@ Review Section 5, including its deferred manual smoke test, then implement Secti
 | 2 | Shared types, store, host client, service | done: review had 1 finding (late `ensure` after close), confirmed and fixed | e78299eb, 0a8c1025, caf2df69, cdb54a6f |
 | 3 | HTTP/WS API, wiring, cleanup hooks | done: review clean, no fixes | ac8169ba |
 | 4 | CDP gateway | done: review had 1 finding (worker targets stalled the ordered stream), confirmed and fixed | e1ebcb34, 07e1af62 |
-| 5 | Electron host | implemented: 47 host tests, 66 Electron tests, 425 UI tests (69 files individually), typecheck/lint/format/build pass; Step 8 deferred to reviewing session | feat(electron): browser host with WebContentsView tabs |
+| 5 | Electron host | done: smoke test passed; review had 1 finding (client dropped the control url's secret prefix), plus 3 own; all confirmed and fixed | e46c0d85, 2f853a0f |
 | 6 | UI | not started | |
 | 7 | CLI, doc, prompt | not started | |
 | 8 | Manual verification, final review | not started | |
@@ -33,7 +33,10 @@ Review Section 5, including its deferred manual smoke test, then implement Secti
 - Section 4 outputs: `createCdpGateway({ service })` (`services/cdp/cdp-gateway.ts`, exports `CdpGateway`, `CdpSocketData`) is `createServer`'s 4th argument and `ApiRouteDeps.cdpGateway`. CDP sockets aren't app clients and get no broadcasts. `pageOfTabTarget` and `runOnRootPage` use separate short-lived upstream sockets. The filter denies recorded target types other than `page`/`tab` without a `resolveTarget` wait (workers, browser); nested attaches under allowed sessions still pass. `WebMCP.enable` is denied (unknown domain, Puppeteer tolerates it); no spike method needed a table addition.
 - Host-side expectation for Section 5: any page target that isn't a tab (main window, park window, any other app window) must be in `appTargetIds`, or every decision about it costs a 2 s wait in the gateway's ordered stream.
 - Section 5 outputs: `electron/src/browser-host/index.ts` exports `initBrowserHost`, `detachAll`, and `isParkWindow`. Preload exposes `window.taskflow.browser`; `browser:nav-state` sends separate `tabId` and state arguments. The factory reports every live BrowserWindow's renderer in `appTargetIds`, including the park window.
-- Section 5 execution: Step 8 was skipped at the user's direction; no dev app was started. The referenced Superpowers execution skills were unavailable, so the written TDD sequence was followed directly. Electron tests cannot import the backend's `expectRejects` helper because it is outside Electron's TypeScript `rootDir`; the pending-close test asserts rejection inline instead.
+- Section 5 notes: Electron tests can't import the backend's `expectRejects` (outside Electron's `rootDir`); they assert rejections inline. The backend host client now concatenates `controlUrl + path` (the control url ends in main's secret segment). The link sends a heartbeat on `browser-window-created`.
+- Section 5 smoke test (sandbox: `TASKFLOW_DEV=1 TASKFLOW_CONFIG_DIR=<scratch> electron/node_modules/.bin/electron .` from `electron/` after `bun run build` at the root; backend port from the `Backend started on port` log line): `POST /api/browser/tabs` with `{"scope":"master"}` → 201; `/cdp/<id>/json/version` has the gateway `webSocketDebuggerUrl`; Playwright over the endpoint on a parked tab: `visibilityState` visible, rAF, 212 KB screenshot, click navigates; `DELETE` destroys the view.
+- A raw CDP probe (no Playwright setup) sees a parked tab as `hidden`, with rAF and `Page.captureScreenshot` hanging. The spike's parked tab behaves the same; Playwright's session setup makes it visible. Section 8 should check Puppeteer on a parked tab too.
+- Dev builds' UA keeps `TaskflowDev(main)/<v>` (only `Taskflow/<v>` is stripped, as in the old renderer rule). Section 8 item 15 should compare UAs on a packaged build or account for it.
 - `load` (used by `open`, `openChild`, `ensureLoaded`) throws `BrowserTabNotFoundError` and closes the host view when the tab was closed while `ensure` was pending.
 - Running Sol: `codex exec -m gpt-6.1-sol -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir "$PWD/.git" -C "$PWD" -o <report> - < <brief>`. Without `--add-dir .git` it can't commit (`.git` is read-only under workspace-write). In its sandbox the backend process-stopper and watcher tests fail (19); rerun the suite yourself outside it.
 - Spike facts: full detail in `spike/results.md` (method log, raw facts). Summary:
