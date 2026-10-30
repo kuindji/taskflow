@@ -515,3 +515,95 @@ describe("backend registry", () => {
         reg.stopDiscovery();
     });
 });
+
+test("a failed cached port is refreshed over SSH without a discovery beacon", async () => {
+    const tried: number[] = [];
+    let reads = 0;
+    const { reg, dir } = await registry({
+        readRemotePort: async () => {
+            reads++;
+            return { port: 60000 };
+        },
+        openTunnel: async (_record, port) => {
+            tried.push(port);
+            return port === 60000
+                ? { ok: true, localPort: 45001 }
+                : { ok: false, failure: { kind: "no-route", message: "stale", stderr: "" } };
+        },
+    });
+    const record = await reg.addBackend({ host: "desktop.local", port: 54892 });
+    expect(await reg.attachBackend(record.id)).toEqual({
+        ok: true,
+        origin: "http://127.0.0.1:45001",
+    });
+    expect(tried).toEqual([54892, 60000]);
+    expect(reads).toBe(1);
+    const saved = JSON.parse(await readFile(join(dir, "backends.json"), "utf-8")) as {
+        lastKnownPort: number;
+    }[];
+    expect(saved[0].lastKnownPort).toBe(60000);
+    await reg.tunnelExited(record.id);
+    await reg.attachBackend(record.id);
+    expect(tried).toEqual([54892, 60000, 60000]);
+    expect(reads).toBe(1);
+});
+
+test("a successful cached port does not issue an extra SSH read", async () => {
+    let reads = 0;
+    const { reg } = await registry({
+        readRemotePort: async () => {
+            reads++;
+            return { port: 60000 };
+        },
+    });
+    const record = await reg.addBackend({ host: "desktop.local", port: 54892 });
+    expect((await reg.attachBackend(record.id)).ok).toBe(true);
+    expect(reads).toBe(0);
+});
+
+test("an unavailable remote port file retains the explicit port for later retries", async () => {
+    const tried: number[] = [];
+    let reads = 0;
+    const lastFailure = { kind: "no-route" as const, message: "stale tunnel", stderr: "refused" };
+    const { reg, dir } = await registry({
+        readRemotePort: async () => {
+            reads++;
+            return { failure: { kind: "no-backend", message: "no file", stderr: "" } };
+        },
+        openTunnel: async (_record, port) => {
+            tried.push(port);
+            return { ok: false, failure: lastFailure };
+        },
+    });
+    const record = await reg.addBackend({ host: "desktop.local", port: 54892 });
+    expect(await reg.attachBackend(record.id)).toEqual({ ok: false, failure: lastFailure });
+    expect(await reg.attachBackend(record.id)).toEqual({ ok: false, failure: lastFailure });
+    expect(reads).toBe(2);
+    expect(tried).toEqual([54892, 54892]);
+    const saved = JSON.parse(await readFile(join(dir, "backends.json"), "utf-8")) as {
+        lastKnownPort: number;
+    }[];
+    expect(saved[0].lastKnownPort).toBe(54892);
+});
+
+test("a refreshed port equal to one already tried is not tried twice", async () => {
+    const tried: number[] = [];
+    let reads = 0;
+    const lastFailure = { kind: "no-route" as const, message: "stale tunnel", stderr: "refused" };
+    const { reg } = await registry({
+        readRemotePort: async () => {
+            reads++;
+            return { port: 54892 };
+        },
+        openTunnel: async (_record, port) => {
+            tried.push(port);
+            return { ok: false, failure: lastFailure };
+        },
+    });
+    const added = await reg.addBackend({ host: "desktop.local", port: 54892 });
+    const { id } = await reg.confirmBackend(added.id, { backendUid: "abc123", protocolVersion: 1 });
+    reg.__setDiscoveredForTest([discovered({ port: 54893 })]);
+    expect(await reg.attachBackend(id)).toEqual({ ok: false, failure: lastFailure });
+    expect(reads).toBe(1);
+    expect(tried).toEqual([54892, 54893]);
+});

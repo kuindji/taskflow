@@ -126,14 +126,16 @@ function createRegistry(deps: RegistryDeps) {
      * A port we have actually reached goes first. The readiness probe rejects
      * anything that is not a Taskflow, so a wrong candidate costs a probe.
      */
-    async function backendPortCandidates(record: BackendRecord): Promise<number[] | TunnelFailure> {
+    async function backendPortCandidates(
+        record: BackendRecord,
+    ): Promise<{ ports: number[]; refreshed: boolean } | TunnelFailure> {
         const live = discovered.find((entry) => matchesDiscovered(record, entry));
         const candidates: number[] = [];
         if (record.lastKnownPort) candidates.push(record.lastKnownPort);
         if (live && live.port !== record.lastKnownPort) candidates.push(live.port);
-        if (candidates.length > 0) return candidates;
+        if (candidates.length > 0) return { ports: candidates, refreshed: false };
         const result = await deps.readRemotePort(record);
-        return "port" in result ? [result.port] : result.failure;
+        return "port" in result ? { ports: [result.port], refreshed: true } : result.failure;
     }
 
     /**
@@ -312,18 +314,25 @@ function createRegistry(deps: RegistryDeps) {
                 if (!record) return { ok: false, failure: unknownFailure("No such backend") };
 
                 const candidates = await backendPortCandidates(record);
-                if (!Array.isArray(candidates)) return { ok: false, failure: candidates };
+                if ("kind" in candidates) return { ok: false, failure: candidates };
 
                 let tunnel: TunnelResult = {
                     ok: false,
                     failure: unknownFailure("No candidate port"),
                 };
                 let port = 0;
-                for (const candidate of candidates) {
+                for (const candidate of candidates.ports) {
                     tunnel = await deps.openTunnel(record, candidate);
                     if (tunnel.ok) {
                         port = candidate;
                         break;
+                    }
+                    if (!candidates.refreshed && candidate === candidates.ports.at(-1)) {
+                        candidates.refreshed = true;
+                        const fresh = await deps.readRemotePort(record);
+                        if ("port" in fresh && !candidates.ports.includes(fresh.port)) {
+                            candidates.ports.push(fresh.port);
+                        }
                     }
                 }
                 if (!tunnel.ok) return tunnel;
