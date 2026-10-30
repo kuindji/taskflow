@@ -1,0 +1,1 @@
+No material regressions were found in the authentication enforcement, keyed CDP routes, or browser-host integration. The 134 focused tests and package typechecks passed; broader test execution was limited by sandbox filesystem permissions.
