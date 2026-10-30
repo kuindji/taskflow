@@ -11,6 +11,7 @@ interface Schedule {
     agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
 
+    // Timing tuple: expressionType, expression and enabled. Other edits keep the due time.
     expression: string;
     expressionType: "cron" | "rate";
     timeout: number;
@@ -18,6 +19,7 @@ interface Schedule {
 
     lastRunAt: string | null;
     lastError: string | null;
+    // Persisted wall-clock due time; authoritative until a run attempt or timing edit.
     nextRunAt: string | null;
     runningSessionId: string | null;
 

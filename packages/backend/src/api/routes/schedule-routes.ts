@@ -115,16 +115,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
         }
 
         try {
-            if (typeof body.expression === "string") {
-                const existing = await scheduleStore.getById(params.id);
-                const type =
-                    typeof body.expressionType === "string"
-                        ? (body.expressionType as "cron" | "rate")
-                        : (existing?.expressionType ?? "rate");
-                validateExpression(body.expression, type);
-            }
-
-            const updated = await scheduleStore.update(params.id, (existing) => {
+            const result = await scheduleStore.updateDefinition(params.id, (existing) => {
                 const next: Schedule = { ...existing, updatedAt: new Date().toISOString() };
                 if (typeof body.name === "string") next.name = body.name;
                 if (typeof body.prompt === "string") next.prompt = body.prompt;
@@ -142,10 +133,11 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
                             : undefined;
                 if ("agentOptions" in body)
                     next.agentOptions = body.agentOptions as Schedule["agentOptions"];
+                validateExpression(next.expression, next.expressionType);
                 return next;
             });
-            await schedulerService.onScheduleUpdated(updated.id);
-            return jsonResponse(updated);
+            await schedulerService.onScheduleUpdated(result.schedule.id, result.timingChanged);
+            return jsonResponse(await scheduleStore.getById(result.schedule.id));
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             if (message.includes("not found")) return errorResponse(message, 404);

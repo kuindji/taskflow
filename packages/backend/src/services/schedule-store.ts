@@ -56,6 +56,22 @@ class ScheduleStore {
         });
     }
 
+    async updateDefinition(
+        id: string,
+        updater: (schedule: Schedule) => Schedule,
+    ): Promise<{ schedule: Schedule; timingChanged: boolean }> {
+        let timingChanged = false;
+        const schedule = await this.update(id, (current) => {
+            const proposed = updater(current);
+            timingChanged =
+                current.expressionType !== proposed.expressionType ||
+                current.expression !== proposed.expression ||
+                current.enabled !== proposed.enabled;
+            return { ...proposed, nextRunAt: timingChanged ? null : current.nextRunAt };
+        });
+        return { schedule, timingChanged };
+    }
+
     private async readJsonFile<T>(filePath: string): Promise<T | null> {
         let data: string;
         try {

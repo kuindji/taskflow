@@ -15,6 +15,8 @@ interface SchedulerDeps {
     broadcast: (event: WsEvent) => void;
     isOnline: () => boolean;
     enabled?: boolean;
+    now?: () => number;
+    schedule?: (callback: () => void, delayMs: number) => () => void;
 }
 
 const SYSTEM_PROMPT_ADDON = `You are running as a scheduled job. When you have completed your work, you MUST call the following command to signal completion:
@@ -40,13 +42,14 @@ function parseRateExpression(expression: string): number {
     }
 }
 
-function computeNextRun(schedule: Schedule): Date {
+function computeNextRun(schedule: Schedule, nowMs: number): Date {
     if (schedule.expressionType === "cron") {
-        return CronExpressionParser.parse(schedule.expression).next().toDate();
+        return CronExpressionParser.parse(schedule.expression, { currentDate: new Date(nowMs) })
+            .next()
+            .toDate();
     }
     const intervalMs = parseRateExpression(schedule.expression);
-    const base = schedule.lastRunAt ? new Date(schedule.lastRunAt).getTime() : Date.now();
-    return new Date(base + intervalMs);
+    return new Date(nowMs + intervalMs);
 }
 
 function validateExpression(expression: string, expressionType: "cron" | "rate"): void {
@@ -59,13 +62,23 @@ function validateExpression(expression: string, expressionType: "cron" | "rate")
 
 class SchedulerService {
     private deps: SchedulerDeps;
-    private timers = new Map<string, ReturnType<typeof setTimeout>>();
-    private timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private timers = new Map<string, () => void>();
+    private timeoutTimers = new Map<string, () => void>();
     private runningSessions = new Map<string, SpawnResult>(); // scheduleId -> session info
     private deferredSchedules = new Set<string>();
 
+    private now: () => number;
+    private schedule: (callback: () => void, delayMs: number) => () => void;
+
     constructor(deps: SchedulerDeps) {
         this.deps = deps;
+        this.now = deps.now ?? Date.now;
+        this.schedule =
+            deps.schedule ??
+            ((callback, delayMs) => {
+                const timer = setTimeout(callback, delayMs);
+                return () => clearTimeout(timer);
+            });
     }
 
     assertEnabled(): void {
@@ -85,7 +98,7 @@ class SchedulerService {
                     ...s,
                     runningSessionId: null,
                     lastError: "Previous run did not complete (app restarted)",
-                    updatedAt: new Date().toISOString(),
+                    updatedAt: new Date(this.now()).toISOString(),
                 }));
             }
         }
@@ -104,7 +117,7 @@ class SchedulerService {
                     await this.deps.scheduleStore.update(schedule.id, (s) => ({
                         ...s,
                         lastError: `Failed to schedule: ${err instanceof Error ? err.message : String(err)}`,
-                        updatedAt: new Date().toISOString(),
+                        updatedAt: new Date(this.now()).toISOString(),
                     }));
                 }
             }
@@ -117,16 +130,18 @@ class SchedulerService {
         const schedule = await this.deps.scheduleStore.getById(scheduleId);
         if (!schedule || !schedule.enabled) return;
 
-        const nextRun = computeNextRun(schedule);
-        const delay = nextRun.getTime() - Date.now();
-
-        // Update nextRunAt in store
-        const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-            ...s,
-            nextRunAt: nextRun.toISOString(),
-            updatedAt: new Date().toISOString(),
-        }));
-        this.broadcastUpdated(updated);
+        let nextRunAt = schedule.nextRunAt;
+        if (!nextRunAt || !Number.isFinite(Date.parse(nextRunAt))) {
+            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
+                ...s,
+                nextRunAt: computeNextRun(s, this.now()).toISOString(),
+                updatedAt: new Date(this.now()).toISOString(),
+            }));
+            nextRunAt = updated.nextRunAt;
+            this.broadcastUpdated(updated);
+        }
+        if (this.runningSessions.has(scheduleId)) return;
+        const delay = Date.parse(nextRunAt ?? "") - this.now();
 
         if (delay <= 0) {
             // Run immediately if past due
@@ -134,7 +149,7 @@ class SchedulerService {
         } else {
             this.timers.set(
                 scheduleId,
-                setTimeout(() => {
+                this.schedule(() => {
                     void this.execute(scheduleId);
                 }, delay),
             );
@@ -154,7 +169,7 @@ class SchedulerService {
                 ...s,
                 lastError: "Skipped: offline",
                 nextRunAt: null,
-                updatedAt: new Date().toISOString(),
+                updatedAt: new Date(this.now()).toISOString(),
             }));
             this.broadcastUpdated(updated);
             return;
@@ -171,8 +186,8 @@ class SchedulerService {
             const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
                 ...s,
                 lastError: `Failed to spawn session: ${errorMessage}`,
-                lastRunAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                lastRunAt: new Date(this.now()).toISOString(),
+                updatedAt: new Date(this.now()).toISOString(),
             }));
             this.broadcastUpdated(updated);
             await this.scheduleNext(scheduleId);
@@ -184,10 +199,10 @@ class SchedulerService {
         const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
             ...s,
             runningSessionId: result.sessionId,
-            lastRunAt: new Date().toISOString(),
+            lastRunAt: new Date(this.now()).toISOString(),
             lastError: null,
             nextRunAt: null,
-            updatedAt: new Date().toISOString(),
+            updatedAt: new Date(this.now()).toISOString(),
         }));
         this.broadcastUpdated(updated);
 
@@ -195,7 +210,7 @@ class SchedulerService {
         if (schedule.timeout > 0) {
             this.timeoutTimers.set(
                 scheduleId,
-                setTimeout(
+                this.schedule(
                     () => {
                         void this.handleTimeout(scheduleId);
                     },
@@ -218,7 +233,7 @@ class SchedulerService {
             ...s,
             runningSessionId: null,
             lastError: null,
-            updatedAt: new Date().toISOString(),
+            updatedAt: new Date(this.now()).toISOString(),
         }));
         this.broadcastUpdated(updated);
 
@@ -242,7 +257,7 @@ class SchedulerService {
             lastError: isShellSuccess
                 ? null
                 : `${runInfo?.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`,
-            updatedAt: new Date().toISOString(),
+            updatedAt: new Date(this.now()).toISOString(),
         }));
         this.broadcastUpdated(updated);
 
@@ -262,7 +277,7 @@ class SchedulerService {
             ...s,
             runningSessionId: null,
             lastError: `Timed out after ${s.timeout} minutes`,
-            updatedAt: new Date().toISOString(),
+            updatedAt: new Date(this.now()).toISOString(),
         }));
         this.broadcastUpdated(updated);
 
@@ -275,24 +290,14 @@ class SchedulerService {
         await this.scheduleNext(scheduleId);
     }
 
-    async onScheduleUpdated(scheduleId: string): Promise<void> {
-        this.clearTimer(scheduleId);
-        this.clearTimeoutTimer(scheduleId);
-
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (!schedule) return;
-
-        if (schedule.enabled) {
+    async onScheduleUpdated(scheduleId: string, timingChanged: boolean): Promise<void> {
+        if (timingChanged) {
+            this.clearTimer(scheduleId);
+            this.deferredSchedules.delete(scheduleId);
             await this.scheduleNext(scheduleId);
-        } else {
-            // If disabled while running, let it finish but don't reschedule
-            const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({
-                ...s,
-                nextRunAt: null,
-                updatedAt: new Date().toISOString(),
-            }));
-            this.broadcastUpdated(updated);
         }
+        const schedule = await this.deps.scheduleStore.getById(scheduleId);
+        if (schedule) this.broadcastUpdated(schedule);
     }
 
     async onScheduleDeleted(scheduleId: string, runningSessionId: string | null): Promise<void> {
@@ -337,13 +342,13 @@ class SchedulerService {
     shutdown(): void {
         // Cancel all scheduled timers
         for (const timer of this.timers.values()) {
-            clearTimeout(timer);
+            timer();
         }
         this.timers.clear();
 
         // Cancel all timeout timers
         for (const timer of this.timeoutTimers.values()) {
-            clearTimeout(timer);
+            timer();
         }
         this.timeoutTimers.clear();
 
@@ -359,7 +364,7 @@ class SchedulerService {
     private clearTimer(scheduleId: string): void {
         const timer = this.timers.get(scheduleId);
         if (timer) {
-            clearTimeout(timer);
+            timer();
             this.timers.delete(scheduleId);
         }
     }
@@ -367,7 +372,7 @@ class SchedulerService {
     private clearTimeoutTimer(scheduleId: string): void {
         const timer = this.timeoutTimers.get(scheduleId);
         if (timer) {
-            clearTimeout(timer);
+            timer();
             this.timeoutTimers.delete(scheduleId);
         }
     }

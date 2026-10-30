@@ -94,16 +94,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
         MSG.SCHEDULE_UPDATE,
         typed<ScheduleUpdatePayload>(async (payload) => {
             schedulerService.assertEnabled();
-            // Validate new expression if provided
-            if (payload.expression !== undefined) {
-                const type =
-                    payload.expressionType ??
-                    (await scheduleStore.getById(payload.id))?.expressionType ??
-                    "rate";
-                validateExpression(payload.expression, type);
-            }
-
-            const updated = await scheduleStore.update(payload.id, (existing) => {
+            const result = await scheduleStore.updateDefinition(payload.id, (existing) => {
                 const next: Schedule = {
                     ...existing,
                     updatedAt: new Date().toISOString(),
@@ -119,10 +110,11 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                 if ("agentType" in payload) next.agentType = payload.agentType ?? undefined;
                 if ("agentOptions" in payload)
                     next.agentOptions = payload.agentOptions ?? undefined;
+                validateExpression(next.expression, next.expressionType);
                 return next;
             });
-            await schedulerService.onScheduleUpdated(updated.id);
-            return updated;
+            await schedulerService.onScheduleUpdated(result.schedule.id, result.timingChanged);
+            return await scheduleStore.getById(result.schedule.id);
         }),
     );
 
