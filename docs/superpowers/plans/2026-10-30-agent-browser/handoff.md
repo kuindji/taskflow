@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-**Stopped for the user (round cap).** Round 4 confirmed 1 blocker (Puppeteer's `tab` targets), 2 majors (popup-name reservation race, an attached view covering the UI after a renderer reload) and 1 minor (a `closed` event lost on HTTP 500). All are folded in (`reviews/round-4-triage.md`, spec Amendment 10). Per `chain.md` no round 5 runs. The user decides: accept the plan as amended and continue with "Implement Section 1", or run one more review round on the round-4 fixes first. The new design to look at is the tab-target resolution (`04-cdp-gateway.md` "Tab targets" and `pageOfTabTarget`), which the spike must confirm.
+Implement Section 1. The user accepted the plan as amended after round 4 (2026-10-30). The tab-target resolution (`04-cdp-gateway.md` "Tab targets", `pageOfTabTarget`) is new and unreviewed: the spike must confirm it (`01-spike.md` "Tab targets").
 
 ## Status
 
