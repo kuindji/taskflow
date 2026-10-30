@@ -26,12 +26,18 @@ import { useBackendStore } from "@/stores/backend-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useRegisterOverlay } from "@/lib/overlay-registry";
 
 function ConnectionOverlay() {
     const { connected, error } = useWsStatus();
+    const ref = useRef<HTMLDivElement>(null);
+    // Hosted browser views sit above the DOM; registering freezes them under the blocker.
+    useRegisterOverlay(ref, !connected);
     if (connected) return null;
     return (
-        <div className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+        <div
+            ref={ref}
+            className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
             <div className="space-y-2 text-center">
                 <div className="text-foreground text-sm font-medium">
                     {error ? "Connection Failed" : "Connecting to backend..."}
