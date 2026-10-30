@@ -6,6 +6,7 @@ import {
     closeConnection,
     getPrimary,
     onPrimaryStatusChange,
+    onStatusChange,
     sendRequest,
     tokenFor,
 } from "@/lib/connection-registry";
@@ -38,16 +39,27 @@ function startBackend(
     holdInfo?: (answer: () => void) => void,
     answerLists = true,
     holdRequest?: (type: string, answer: () => void) => void,
+    accept?: (protocolHeader: string | null) => boolean,
+    port = 0,
 ): {
     origin: string;
     stop(): void;
 } {
-    const server = Bun.serve({
-        port: 0,
+    const server = Bun.serve<{ accepted: boolean }>({
+        port,
         hostname: "127.0.0.1",
-        fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("ok")),
+        fetch: (req, server) =>
+            server.upgrade(req, {
+                data: { accepted: accept?.(req.headers.get("sec-websocket-protocol")) ?? true },
+            })
+                ? undefined
+                : new Response("ok"),
         websocket: {
+            open(ws) {
+                if (!ws.data.accepted) ws.close(4401, "unauthorized");
+            },
             message(ws, raw) {
+                if (!ws.data.accepted) return;
                 const request = JSON.parse(String(raw)) as { correlationId?: string; type: string };
                 if (!request.correlationId) return;
                 const correlationId = request.correlationId;
@@ -871,4 +883,140 @@ test("a repeated failure keeps its identity across automatic retries", async () 
     await waitUntil(() => calls === 2);
     await Bun.sleep(10);
     expect(row("abc123")?.failure).toBe(first);
+});
+
+const AUTH_TOKEN = "a".repeat(43);
+const NEW_AUTH_TOKEN = "b".repeat(43);
+async function untilAuth(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 4000;
+    while (!predicate() && Date.now() < deadline) await Bun.sleep(10);
+    expect(predicate()).toBe(true);
+}
+function authBackend(accept: (header: string | null) => boolean) {
+    const backend = startBackend(
+        () => ({ protocolVersion: PROTOCOL_VERSION }),
+        undefined,
+        true,
+        undefined,
+        accept,
+    );
+    cleanups.push(backend.stop);
+    return backend;
+}
+test("a remote attach refused with 4401 refreshes the token once and attaches with the new one", async () => {
+    const backend = authBackend((h) => h?.includes(NEW_AUTH_TOKEN) ?? false);
+    seedRow("auth1");
+    let calls = 0;
+    main.attachBackend = async () => ({
+        ok: true,
+        origin: backend.origin,
+        token: ++calls === 1 ? AUTH_TOKEN : NEW_AUTH_TOKEN,
+    });
+    expect(await store.getState().attach("auth1")).toBe("auth1");
+    expect(row("auth1")?.state).toBe("attached");
+    expect(main.refreshed).toEqual(["auth1"]);
+});
+test("a remote attach refused twice ends offline with Remote backend rejected the access token and kind unauthorized", async () => {
+    const backend = authBackend(() => false);
+    seedRow("auth2");
+    main.attachBackend = async () => ({ ok: true, origin: backend.origin, token: AUTH_TOKEN });
+    await store.getState().attach("auth2");
+    expect(row("auth2")?.state).toBe("offline");
+    expect(row("auth2")?.failure).toEqual({
+        kind: "unauthorized",
+        message: "Remote backend rejected the access token",
+        stderr: "",
+    });
+    expect(main.refreshed).toEqual(["auth2"]);
+});
+test("a local attach refused with 4401 ends offline with The local backend rejected the access token and no refresh", async () => {
+    const backend = authBackend(() => false);
+    seedRow("local");
+    main.attachBackend = async () => ({ ok: true, origin: backend.origin, token: AUTH_TOKEN });
+    await store.getState().attach("local");
+    expect(row("local")?.state).toBe("offline");
+    expect(row("local")?.failure?.message).toBe("The local backend rejected the access token");
+    expect(main.refreshed).toEqual([]);
+});
+test("a successful handshake re-arms the refresh for a later 4401", async () => {
+    let accepted = NEW_AUTH_TOKEN;
+    const backend = authBackend((h) => h?.includes(accepted) ?? false);
+    seedRow("auth3");
+    let token = AUTH_TOKEN;
+    main.refreshBackendToken = async () => {
+        token = accepted;
+        return { ok: true };
+    };
+    main.attachBackend = async () => ({ ok: true, origin: backend.origin, token });
+    await store.getState().attach("auth3");
+    expect(row("auth3")?.state).toBe("attached");
+    accepted = "c".repeat(43);
+    await store.getState().attach("auth3");
+    expect(row("auth3")?.state).toBe("attached");
+    expect(main.refreshed).toEqual(["auth3", "auth3"]);
+});
+async function liveRotation(id: string, wrong: boolean, primary = false) {
+    let accepted = AUTH_TOKEN;
+    const backend = authBackend((h) => h?.includes(accepted) ?? false);
+    seedRow(id);
+    let token = AUTH_TOKEN;
+    main.attachBackend = async () => ({ ok: true, origin: backend.origin, token });
+    main.refreshBackendToken = async () => {
+        if (!wrong) token = NEW_AUTH_TOKEN;
+        return { ok: true };
+    };
+    if (primary) store.setState({ primaryId: id });
+    await store.getState().attach(id);
+    const status: boolean[] = [];
+    const off = onPrimaryStatusChange((s) => status.push(s.connected));
+    cleanups.push(off);
+    // Restart the real server on its existing port, as a remote backend restart does.
+    accepted = NEW_AUTH_TOKEN;
+    backend.stop();
+    const port = Number(new URL(backend.origin).port);
+    const restarted = startBackend(
+        () => ({ protocolVersion: PROTOCOL_VERSION }),
+        undefined,
+        true,
+        undefined,
+        (h) => h?.includes(accepted) ?? false,
+        port,
+    );
+    cleanups.push(restarted.stop);
+    await untilAuth(
+        () => main.refreshed.length > 0 && row(id)?.state === (wrong ? "offline" : "attached"),
+    );
+    return status;
+}
+test("a remote that restarts with a new token while attached refreshes once through rehandshake and reattaches", async () => {
+    await liveRotation("live1", false);
+    expect(main.refreshed).toEqual(["live1"]);
+    expect(tokenFor("live1")).toBe(NEW_AUTH_TOKEN);
+});
+test("a refreshed token that is still wrong ends offline after exactly one refresh", async () => {
+    await liveRotation("live2", true);
+    await Bun.sleep(1100);
+    expect(main.refreshed).toEqual(["live2"]);
+    expect(row("live2")?.failure?.kind).toBe("unauthorized");
+});
+test("a detached machine's late 4401 starts no refresh", async () => {
+    const backend = authBackend(() => false);
+    seedRow("late-auth");
+    main.attachBackend = async () => ({ ok: true, origin: backend.origin, token: AUTH_TOKEN });
+    const off = onStatusChange("late-auth", (status) => {
+        if (status.connected) void store.getState().detach("late-auth");
+    });
+    try {
+        await store.getState().attach("late-auth");
+        await Bun.sleep(30);
+        expect(main.refreshed).toEqual([]);
+    } finally {
+        off();
+    }
+});
+test("a primary remote that rotates its token is primary again after the refresh", async () => {
+    const statuses = await liveRotation("live-primary", false, true);
+    expect(getPrimary()).toBe("live-primary");
+    expect(statuses).toContain(false);
+    expect(statuses.at(-1)).toBe(true);
 });

@@ -286,6 +286,9 @@ contextBridge.exposeInMainWorld("taskflow", {
         ipcRenderer.invoke("get-attached-backends") as Promise<
             { id: string; origin: string; isLocal: boolean }[]
         >,
+    refreshBackendToken: (id: string) =>
+        ipcRenderer.invoke("refresh-backend-token", id) as Promise<{ ok: boolean }>,
+    getLocalApiToken: () => ipcRenderer.invoke("get-local-api-token") as Promise<string | null>,
     attachBackend: (id: string) =>
         ipcRenderer.invoke("attach-backend", id) as Promise<
             { ok: true; origin: string } | { ok: false; failure: TunnelFailure }
@@ -303,10 +306,14 @@ contextBridge.exposeInMainWorld("taskflow", {
         sshPort?: number;
         port?: number;
         instanceId?: string;
+        token?: string;
     }) => ipcRenderer.invoke("add-backend", input) as Promise<BackendRecord>,
     addDiscoveredBackend: (entryId: string) =>
         ipcRenderer.invoke("add-discovered-backend", entryId) as Promise<BackendRecord | null>,
-    updateBackend: (id: string, patch: { displayName?: string; user?: string; sshPort?: number }) =>
+    updateBackend: (
+        id: string,
+        patch: { displayName?: string; user?: string; sshPort?: number; token?: string | null },
+    ) =>
         ipcRenderer.invoke("update-backend", id, patch) as Promise<{
             ok: boolean;
             reason?: string;

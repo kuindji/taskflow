@@ -313,6 +313,12 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
         return port === null ? null : backendOrigin(port);
     }
 
+    ipcMain.handle("get-local-api-token", () => deps.getBackendToken());
+    ipcMain.handle("refresh-backend-token", async (_event, id: string) => {
+        if (id === LOCAL_BACKEND_ID) return { ok: false };
+        const result = await registry.refreshToken(id);
+        return { ok: result.ok };
+    });
     ipcMain.handle("list-backends", () => registry.listBackends());
 
     ipcMain.handle("get-attached-backends", () =>
@@ -369,6 +375,7 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
                 sshPort?: number;
                 port?: number;
                 instanceId?: string;
+                token?: string;
             },
         ) => registry.addBackend(input),
     );
@@ -379,8 +386,11 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
 
     ipcMain.handle(
         "update-backend",
-        (_event, id: string, patch: { displayName?: string; user?: string; sshPort?: number }) =>
-            registry.updateBackend(id, patch),
+        (
+            _event,
+            id: string,
+            patch: { displayName?: string; user?: string; sshPort?: number; token?: string | null },
+        ) => registry.updateBackend(id, patch),
     );
 
     ipcMain.handle("remove-backend", (_event, id: string) => registry.removeBackend(id));

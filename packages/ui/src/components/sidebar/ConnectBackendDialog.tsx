@@ -23,6 +23,7 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
     const refresh = useBackendStore((s) => s.refresh);
     const attach = useBackendStore((s) => s.attach);
     const [host, setHost] = useState("");
+    const [token, setToken] = useState("");
     const [port, setPort] = useState("");
     const [user, setUser] = useState("");
     const [sshPort, setSshPort] = useState("");
@@ -33,6 +34,7 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
         if (!next) {
             setHost("");
             setPort("");
+            setToken("");
             setUser("");
             setSshPort("");
             setError(null);
@@ -58,6 +60,7 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
                 user: user.trim() || undefined,
                 sshPort: parsedSshPort,
                 port: parsedPort,
+                token: token.trim() || undefined,
             });
             // `attach` reports progress on the machine's row, so the row must
             // exist first; a patch to a missing row is dropped.
@@ -127,6 +130,17 @@ function ConnectBackendDialog({ open, onOpenChange }: ConnectBackendDialogProps)
                             />
                         </div>
 
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="connect-backend-token">Access token</Label>
+                            <Input
+                                id="connect-backend-token"
+                                placeholder="read over ssh"
+                                type="password"
+                                autoComplete="off"
+                                value={token}
+                                onChange={(e) => setToken(e.target.value)}
+                            />
+                        </div>
                         {error && <p className="text-destructive text-xs">{error}</p>}
                     </div>
 

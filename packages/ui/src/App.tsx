@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { WebSocketProvider } from "@/providers/WebSocketProvider";
-import { useWsStatus } from "@/providers/ws-context";
+import { ConnectionOverlay } from "@/components/ConnectionOverlay";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTheme } from "@/hooks/useTheme";
 import { useUIStore } from "@/stores/ui-store";
@@ -26,28 +26,6 @@ import { useBackendStore } from "@/stores/backend-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useFlowStore } from "@/stores/flow-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useRegisterOverlay } from "@/lib/overlay-registry";
-
-function ConnectionOverlay() {
-    const { connected, error } = useWsStatus();
-    const ref = useRef<HTMLDivElement>(null);
-    // Hosted browser views sit above the DOM; registering freezes them under the blocker.
-    useRegisterOverlay(ref, !connected);
-    if (connected) return null;
-    return (
-        <div
-            ref={ref}
-            className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
-            <div className="space-y-2 text-center">
-                <div className="text-foreground text-sm font-medium">
-                    {error ? "Connection Failed" : "Connecting to backend..."}
-                </div>
-                {error && <div className="text-destructive text-xs">{error}</div>}
-                {!error && <div className="text-muted-foreground text-xs">Reconnecting...</div>}
-            </div>
-        </div>
-    );
-}
 
 export function App() {
     useTheme();

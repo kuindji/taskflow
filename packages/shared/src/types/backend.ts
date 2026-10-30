@@ -58,6 +58,7 @@ export interface MenuEntry {
     /** The saved record's ssh login, for editing. Absent on an unsaved discovered row. */
     user?: string;
     sshPort?: number;
+    token?: string | null;
 }
 
 export type TunnelFailureKind =

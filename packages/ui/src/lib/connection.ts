@@ -1,3 +1,4 @@
+import { BackendUnauthorizedError, WS_CLOSE_UNAUTHORIZED } from "@taskflow/shared";
 import type { WsRequest } from "@taskflow/shared";
 
 export interface ConnectionStatus {
@@ -41,6 +42,7 @@ export class Connection {
     private pending = new Map<string, Pending>();
     private status: ConnectionStatus = { connected: false, reconnecting: false };
     private closed = false;
+    private unauthorized = false;
     /** Rejects the `open()` still waiting on its socket; null once it settles. */
     private rejectOpen: ((reason: Error) => void) | null = null;
 
@@ -107,6 +109,7 @@ export class Connection {
             socket.onopen = () => {
                 if (epoch !== this.epoch) return;
                 if (this.rejectOpen === fail) this.rejectOpen = null;
+                this.unauthorized = false;
                 this.reconnectAttempt = 0;
                 this.setStatus({ connected: true, reconnecting: false });
                 resolve();
@@ -119,8 +122,15 @@ export class Connection {
                 if (epoch !== this.epoch) return;
                 this.receive(event.data as string, epoch);
             };
-            socket.onclose = () => {
+            socket.onclose = (event) => {
                 if (epoch !== this.epoch) return;
+                if (event.code === WS_CLOSE_UNAUTHORIZED) {
+                    this.unauthorized = true;
+                    fail(new BackendUnauthorizedError());
+                    this.failPending(new BackendUnauthorizedError(), epoch);
+                    this.setStatus({ connected: false, reconnecting: false });
+                    return;
+                }
                 // A socket can close before it opens without an error event;
                 // the open waiting on it must not hang.
                 fail(new Error("WebSocket closed"));
@@ -175,7 +185,14 @@ export class Connection {
 
     sendRequest<T>(type: string, payload: unknown): Promise<T> {
         return new Promise<T>((resolve, reject) => {
-            if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            if (this.unauthorized) {
+                reject(new BackendUnauthorizedError());
+                return;
+            }
+            if (
+                !this.socket ||
+                (!this.status.connected && this.socket.readyState !== WebSocket.OPEN)
+            ) {
                 reject(new Error(`Backend ${this.backendId} is not connected`));
                 return;
             }
@@ -193,7 +210,10 @@ export class Connection {
                 epoch,
             });
             const request: WsRequest = { correlationId, type, payload };
-            this.socket.send(JSON.stringify(request));
+            // Bun can update readyState before delivering the close event.
+            // Keep the request pending so that event supplies the close reason.
+            if (this.socket.readyState === WebSocket.OPEN)
+                this.socket.send(JSON.stringify(request));
         });
     }
 

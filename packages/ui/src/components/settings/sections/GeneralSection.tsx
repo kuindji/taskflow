@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { AccessTokenRow } from "./AccessTokenRow";
 import { SettingRow } from "./SettingRow";
 
 interface DataDirInfo {
@@ -122,6 +123,7 @@ function GeneralSection({
                 />
             </SettingRow>
 
+            <AccessTokenRow />
             <SettingRow
                 label="Name on the network"
                 hint="How this machine appears in other clients' backend menu. Blank uses the hostname."

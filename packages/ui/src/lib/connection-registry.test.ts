@@ -1,3 +1,5 @@
+import { BackendUnauthorizedError } from "@taskflow/shared";
+import { Connection } from "./connection";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
     BackendDetachedError,
@@ -177,4 +179,61 @@ test("tokenFor returns the token a backend was opened with, and null once it is 
     expect(tokenFor("a")).toBe("TOKEN");
     closeConnection("a", "detach");
     expect(tokenFor("a")).toBeNull();
+});
+
+function startTestServer(options: { rejectAll?: boolean } = {}) {
+    const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("ok")),
+        websocket: {
+            open(ws) {
+                if (options.rejectAll) ws.close(4401, "unauthorized");
+            },
+            message() {},
+        },
+    });
+    const result = {
+        origin: `http://127.0.0.1:${server.port}`,
+        stop: () => void server.stop(true),
+    };
+    servers.push(result);
+    return result;
+}
+test("a 4401 close after open rejects the pending request with BackendUnauthorizedError", async () => {
+    const server = startTestServer({ rejectAll: true });
+    let pending: Promise<unknown> = Promise.resolve("no request");
+    const connection = new Connection("a", server.origin, {
+        onEvent() {},
+        onStatus(status) {
+            if (status.connected)
+                pending = connection.sendRequest("never", {}).catch((error: unknown) => error);
+        },
+    });
+    try {
+        await connection.open();
+        expect(await pending).toBeInstanceOf(BackendUnauthorizedError);
+    } finally {
+        connection.close(new Error("cleanup"));
+    }
+});
+test("after a 4401 close a new request rejects with BackendUnauthorizedError", async () => {
+    const server = startTestServer({ rejectAll: true });
+    await openConnection("a", server.origin);
+    await Bun.sleep(30);
+    expect(await sendRequest("a", "ping").catch((error: unknown) => error)).toBeInstanceOf(
+        BackendUnauthorizedError,
+    );
+});
+test("a 4401 close does not reconnect", async () => {
+    const server = startTestServer({ rejectAll: true });
+    const statuses: boolean[] = [];
+    const off = onStatusChange("a", (status) => statuses.push(status.reconnecting));
+    try {
+        await openConnection("a", server.origin);
+        await Bun.sleep(1150);
+        expect(statuses).not.toContain(true);
+    } finally {
+        off();
+    }
 });

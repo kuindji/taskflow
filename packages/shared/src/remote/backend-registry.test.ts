@@ -711,3 +711,17 @@ test.skipIf(process.platform === "win32")(
         expect(await readFile(join(dir, "backends.json.tmp"), "utf8")).toBe("old");
     },
 );
+
+test("updateBackend stores a new token, clears it on null and rejects an invalid one", async () => {
+    const { reg, dir } = await registry();
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    expect(await reg.updateBackend(record.id, { token: NEXT_TOKEN })).toEqual({ ok: true });
+    expect(await savedToken(dir)).toBe(NEXT_TOKEN);
+    expect(await reg.updateBackend(record.id, { token: "bad" })).toEqual({
+        ok: false,
+        reason: "That access token is not valid.",
+    });
+    expect(await savedToken(dir)).toBe(NEXT_TOKEN);
+    expect(await reg.updateBackend(record.id, { token: null })).toEqual({ ok: true });
+    expect(await savedToken(dir)).toBeNull();
+});

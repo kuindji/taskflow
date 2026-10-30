@@ -105,6 +105,8 @@ interface TaskflowBridge {
     ): Promise<
         { ok: true; origin: string; token?: string } | { ok: false; failure: TunnelFailure }
     >;
+    refreshBackendToken(id: string): Promise<{ ok: boolean }>;
+    getLocalApiToken(): Promise<string | null>;
     detachBackend(id: string): Promise<void>;
     confirmBackend(
         id: string,
@@ -117,11 +119,12 @@ interface TaskflowBridge {
         sshPort?: number;
         port?: number;
         instanceId?: string;
+        token?: string;
     }): Promise<BackendRecord>;
     addDiscoveredBackend(entryId: string): Promise<BackendRecord | null>;
     updateBackend(
         id: string,
-        patch: { displayName?: string; user?: string; sshPort?: number },
+        patch: { displayName?: string; user?: string; sshPort?: number; token?: string | null },
     ): Promise<{ ok: boolean; reason?: string }>;
     removeBackend(id: string): Promise<{ ok: boolean; reason?: string }>;
     trustBackendHost(id: string): Promise<{ ok: boolean; reason?: string }>;

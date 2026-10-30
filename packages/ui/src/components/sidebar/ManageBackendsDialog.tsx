@@ -28,11 +28,14 @@ function BackendRow({ entry, isPrimary, onError }: BackendRowProps) {
     const [displayName, setDisplayName] = useState(entry.displayName);
     const [user, setUser] = useState(entry.user ?? "");
     const [sshPort, setSshPort] = useState(savedSshPort);
+    const [token, setToken] = useState(entry.token ?? "");
+    const tokenChanged = token !== (entry.token ?? "");
     const [busy, setBusy] = useState(false);
     const dirty =
         displayName !== entry.displayName ||
         user !== (entry.user ?? "") ||
-        sshPort !== savedSshPort;
+        sshPort !== savedSshPort ||
+        tokenChanged;
 
     async function handleSave(): Promise<void> {
         const bridge = window.taskflow;
@@ -58,8 +61,18 @@ function BackendRow({ entry, isPrimary, onError }: BackendRowProps) {
                 displayName: name,
                 user: sshUser,
                 sshPort: parsedSshPort,
+                ...(tokenChanged ? { token: token.trim() || null } : {}),
             });
             onError(result.ok ? null : (result.reason ?? "Could not save that backend."));
+            const row = useBackendStore.getState().machines.find((m) => m.id === entry.id);
+            if (
+                result.ok &&
+                tokenChanged &&
+                row?.failure?.kind === "unauthorized" &&
+                row.keepAttached
+            ) {
+                useBackendStore.getState().retry(entry.id);
+            }
         } catch (saveError) {
             onError(ipcErrorMessage(saveError, "Could not save that backend."));
         } finally {
@@ -111,6 +124,14 @@ function BackendRow({ entry, isPrimary, onError }: BackendRowProps) {
                     placeholder="22"
                     value={sshPort}
                     onChange={(e) => setSshPort(e.target.value)}
+                />
+                <Input
+                    aria-label="Access token"
+                    placeholder="read over ssh"
+                    type="password"
+                    autoComplete="off"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
                 />
                 <Button
                     size="sm"

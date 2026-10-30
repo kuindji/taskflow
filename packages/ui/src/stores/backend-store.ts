@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
+import {
+    MSG,
+    PROTOCOL_VERSION,
+    BackendUnauthorizedError,
+    createTokenRefreshGate,
+    unauthorizedFailure,
+} from "@taskflow/shared";
 import type { SystemInfoResponse, TunnelFailure } from "@taskflow/shared";
 import { createBackendReconnects } from "@/lib/backend-reconnect";
 import { notifyBackendReady } from "@/lib/backend-ready";
@@ -131,6 +137,7 @@ function sameFailure(a: TunnelFailure, b: TunnelFailure): boolean {
  * row whose connection is already gone.
  */
 const attempts = new Map<string, number>();
+const gate = createTokenRefreshGate();
 
 function nextAttempt(id: string): number {
     const attempt = (attempts.get(id) ?? 0) + 1;
@@ -146,7 +153,13 @@ const reconnects = createBackendReconnects({
     isWanted(id) {
         return useBackendStore
             .getState()
-            .machines.some((m) => m.id === id && !m.isLocal && m.keepAttached);
+            .machines.some(
+                (m) =>
+                    m.id === id &&
+                    !m.isLocal &&
+                    m.keepAttached &&
+                    m.failure?.kind !== "unauthorized",
+            );
     },
     async attempt(id) {
         const owner = Symbol();
@@ -251,12 +264,16 @@ function drop(id: string): void {
  * replaces the socket, which fails this request; the connection and row are
  * then the newer attach's, so a stale caller leaves both alone.
  */
-async function handshake(id: string, current: () => boolean): Promise<SystemInfoResponse | null> {
+async function handshake(
+    id: string,
+    current: () => boolean,
+): Promise<SystemInfoResponse | "unauthorized" | null> {
     let info: SystemInfoResponse;
     try {
         info = await sendRequest<SystemInfoResponse>(id, MSG.SYSTEM_INFO, {});
-    } catch {
+    } catch (error) {
         if (!current()) return null;
+        if (error instanceof BackendUnauthorizedError) return "unauthorized";
         drop(id);
         patch(id, { state: recoveryState(id), failure: unknownFailure("No handshake") });
         return null;
@@ -270,6 +287,25 @@ async function handshake(id: string, current: () => boolean): Promise<SystemInfo
         return null;
     }
     return info;
+}
+
+async function recoverUnauthorized(
+    id: string,
+    attempt: number | undefined,
+): Promise<string | null> {
+    const current = () =>
+        attempts.get(id) === attempt &&
+        useBackendStore.getState().machines.some((m) => m.id === id && m.keepAttached);
+    if (!current()) return null;
+    if (id === LOCAL_BACKEND_ID || gate.unauthorized(id) === "reject") {
+        drop(id);
+        patch(id, { state: "offline", failure: unauthorizedFailure(id === LOCAL_BACKEND_ID) });
+        return null;
+    }
+    await bridge().refreshBackendToken(id);
+    if (!current()) return null;
+    drop(id);
+    return useBackendStore.getState().attach(id);
 }
 
 /** Move a row to the id main refiled its record under. */
@@ -343,8 +379,9 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
 
         try {
             await openConnection(id, result.origin, result.token ?? null);
-        } catch {
+        } catch (error) {
             if (!current()) return null;
+            if (error instanceof BackendUnauthorizedError) return recoverUnauthorized(id, attempt);
             // Drop the connection too, or it keeps reconnecting in the
             // background with nobody to handshake when it succeeds.
             drop(id);
@@ -354,7 +391,9 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         if (!current()) return null;
 
         const info = await handshake(id, current);
+        if (info === "unauthorized") return recoverUnauthorized(id, attempt);
         if (!info) return null;
+        gate.authenticated(id);
 
         let liveId = id;
         if (info.backendUid) {
@@ -432,6 +471,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             }
         }
 
+        gate.authenticated(liveId);
         if (get().primaryId === id || get().primaryId === liveId) setPrimaryBackend(liveId);
         const automatic = automaticAttempts.has(liveId);
         patch(liveId, {
@@ -600,8 +640,18 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
     async rehandshake(id) {
         const expectedUid = get().machines.find((m) => m.id === id)?.backendUid;
         const attempt = attempts.get(id);
-        const info = await handshake(id, () => attempts.get(id) === attempt);
+        const info = await handshake(
+            id,
+            () =>
+                attempts.get(id) === attempt &&
+                get().machines.some((m) => m.id === id && m.keepAttached),
+        );
+        if (info === "unauthorized") {
+            await recoverUnauthorized(id, attempt);
+            return;
+        }
         if (!info) return;
+        gate.authenticated(id);
         if (expectedUid && info.backendUid !== expectedUid) {
             // A different backend is answering on this port. Detach rather than
             // adopt it: its data would be filed under another machine's id.

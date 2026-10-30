@@ -11,6 +11,8 @@ interface FakeMain {
     detachBackend: Bridge["detachBackend"];
     detached: string[];
     confirmed: string[];
+    refreshBackendToken: Bridge["refreshBackendToken"];
+    refreshed: string[];
 }
 
 export function tunnelFailure(message: string): TunnelFailure {
@@ -23,6 +25,8 @@ export const main: FakeMain = {
     detachBackend: () => Promise.resolve(),
     detached: [],
     confirmed: [],
+    refreshed: [],
+    refreshBackendToken: async () => ({ ok: true }),
 };
 
 let remoteResume: () => void = () => {};
@@ -37,6 +41,7 @@ let backendDropped: (id: string, failure: TunnelFailure) => void = () => {};
  */
 export const bridge: Pick<
     Bridge,
+    | "refreshBackendToken"
     | "attachBackend"
     | "confirmBackend"
     | "detachBackend"
@@ -50,6 +55,10 @@ export const bridge: Pick<
 > = {
     // Session state reports the tray on import; the bootstrap's flow store pulls it in.
     sendTrayState: () => {},
+    refreshBackendToken: (id) => {
+        main.refreshed.push(id);
+        return main.refreshBackendToken(id);
+    },
     attachBackend: (id) => main.attachBackend(id),
     confirmBackend: (id, info) => {
         main.confirmed.push(id);
@@ -123,5 +132,7 @@ export function resetFakeMain(): Promise<void> {
     main.detachBackend = () => Promise.resolve();
     main.detached = [];
     main.confirmed = [];
+    main.refreshed = [];
+    main.refreshBackendToken = async () => ({ ok: true });
     return Promise.allSettled(detaches).then(() => {});
 }

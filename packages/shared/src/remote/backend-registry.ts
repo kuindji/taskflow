@@ -47,6 +47,7 @@ interface AddBackendInput {
 }
 
 interface BackendPatch {
+    token?: string | null;
     displayName?: string;
     user?: string;
     sshPort?: number;
@@ -493,10 +494,14 @@ function createRegistry(deps: RegistryDeps) {
                 if (patch.sshPort !== undefined && !isValidPort(patch.sshPort)) {
                     return { ok: false, reason: `${String(patch.sshPort)} is not a valid port.` };
                 }
+                if (patch.token !== undefined && patch.token !== null && !isApiToken(patch.token)) {
+                    return { ok: false, reason: "That access token is not valid." };
+                }
                 // Named fields only: the patch arrives over IPC, and spreading it
                 // whole would let it rewrite `id` or `backendUid`.
                 const next: BackendRecord = {
                     ...record,
+                    token: patch.token === undefined ? record.token : patch.token,
                     displayName:
                         typeof patch.displayName === "string"
                             ? patch.displayName

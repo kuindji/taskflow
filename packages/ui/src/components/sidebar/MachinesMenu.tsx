@@ -55,7 +55,7 @@ function labelOf(machine: MachineState): string {
 }
 
 /** Why a switch did not happen. */
-function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
+export function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
     switch (result.reason) {
         case "dirty":
             return `Save or discard unsaved changes first: ${result.files.join(", ")}`;
