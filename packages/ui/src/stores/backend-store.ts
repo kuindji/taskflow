@@ -106,8 +106,22 @@ function bridge(): NonNullable<Window["taskflow"]> {
 
 function patch(id: string, changes: Partial<MachineState>): void {
     useBackendStore.setState((state) => ({
-        machines: state.machines.map((m) => (m.id === id ? { ...m, ...changes } : m)),
+        machines: state.machines.map((m) => {
+            if (m.id !== id) return m;
+            const next = { ...m, ...changes };
+            // The same failure again keeps its identity: the machines menu
+            // remembers a dismissed host-key dialog by object, and automatic
+            // retries must not reopen it on every attempt.
+            if (m.failure && next.failure && sameFailure(m.failure, next.failure)) {
+                next.failure = m.failure;
+            }
+            return next;
+        }),
     }));
+}
+
+function sameFailure(a: TunnelFailure, b: TunnelFailure): boolean {
+    return a.kind === b.kind && a.message === b.message && a.stderr === b.stderr;
 }
 
 /**
@@ -138,6 +152,15 @@ const reconnects = createBackendReconnects({
         const owner = Symbol();
         automaticAttempts.set(id, owner);
         try {
+            // A failed attempt may have left a tunnel to a port the backend has
+            // since left; reusing it would fail the same way forever.
+            const live = await closeLiveTunnel(
+                id,
+                () =>
+                    automaticAttempts.get(id) === owner &&
+                    useBackendStore.getState().machines.some((m) => m.id === id && m.keepAttached),
+            );
+            if (!live) return null;
             const canonical = await useBackendStore.getState().attach(id);
             return canonical &&
                 useBackendStore
@@ -178,6 +201,23 @@ function rekeyRecovery(fromId: string, toId: string): void {
     const owner = automaticAttempts.get(fromId);
     if (owner && !automaticAttempts.has(toId)) automaticAttempts.set(toId, owner);
     automaticAttempts.delete(fromId);
+}
+
+/**
+ * A tunnel main still holds for this id is handed back as-is by the tunnel
+ * manager, even when the remote backend has since moved port. Close it so the
+ * next attach dials afresh. Only when one exists: a detach also clears the
+ * persisted intent, which a machine whose tunnel already died must keep so the
+ * next launch redials it. False once `current` lapses.
+ */
+async function closeLiveTunnel(id: string, current: () => boolean): Promise<boolean> {
+    const live = await bridge().getAttached();
+    if (!current()) return false;
+    if (live.some((entry) => entry.id === id && !entry.isLocal)) {
+        await bridge().detachBackend(id);
+        if (!current()) return false;
+    }
+    return true;
 }
 
 /** A late tunnel belongs to nobody only while no newer attach wants this id. */
@@ -589,17 +629,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             const attempt = nextAttempt(id);
             unfollow(id);
             closeConnection(id, "detach");
-            // A tunnel main still holds for this id is handed back as-is by the
-            // tunnel manager, even when the remote backend has since moved port.
-            // Close it first so the attach dials afresh. Only when one exists:
-            // a detach also clears the persisted intent, which a machine whose
-            // tunnel already died must keep so the next launch redials it.
-            const live = await bridge().getAttached();
-            if (attempts.get(id) !== attempt) return;
-            if (live.some((entry) => entry.id === id && !entry.isLocal)) {
-                await bridge().detachBackend(id);
-                if (attempts.get(id) !== attempt) return;
-            }
+            if (!(await closeLiveTunnel(id, () => attempts.get(id) === attempt))) return;
             await get().attach(id);
         })();
     },

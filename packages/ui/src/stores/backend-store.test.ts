@@ -802,7 +802,7 @@ test("OS resume wakes a pending remote reconnect", async () => {
     };
     emitBackendDropped("abc123", failure("ssh exited"));
     emitRemoteResume();
-    expect(calls).toBe(1);
+    await waitUntil(() => calls === 1);
     await Bun.sleep(10);
     expect(row("abc123")?.state).toBe("reconnecting");
 });
@@ -815,7 +815,7 @@ test("online wakes a pending remote reconnect", async () => {
     };
     emitBackendDropped("abc123", failure("ssh exited"));
     window.dispatchEvent(new Event("online"));
-    expect(calls).toBe(1);
+    await waitUntil(() => calls === 1);
     await Bun.sleep(10);
 });
 test("resume and online do not reconnect an explicitly detached backend", async () => {
@@ -835,4 +835,40 @@ test("resume and online do not reconnect an explicitly detached backend", async 
     window.dispatchEvent(new Event("online"));
     await Bun.sleep(20);
     expect(calls).toBe(0);
+});
+test("an automatic retry closes a tunnel left by a failed attempt", async () => {
+    await recoverySetup();
+    const original = bridge.getAttached;
+    bridge.getAttached = () =>
+        Promise.resolve([{ id: "abc123", origin: "http://127.0.0.1:1", isLocal: false }]);
+    cleanups.push(() => (bridge.getAttached = original));
+    const calls: string[] = [];
+    const attach = main.attachBackend;
+    main.attachBackend = (id) => {
+        calls.push(`attach ${main.detached.length}`);
+        return attach(id);
+    };
+    main.detached = [];
+    emitBackendDropped("abc123", failure("ssh exited"));
+    emitRemoteResume();
+    await waitUntil(() => row("abc123")?.state === "attached");
+    expect(main.detached).toEqual(["abc123"]);
+    expect(calls).toEqual(["attach 1"]);
+    expect(row("abc123")?.keepAttached).toBe(true);
+});
+test("a repeated failure keeps its identity across automatic retries", async () => {
+    await recoverySetup();
+    let calls = 0;
+    main.attachBackend = () => {
+        calls++;
+        return Promise.resolve({ ok: false, failure: failure("Host key is not trusted") });
+    };
+    emitBackendDropped("abc123", failure("ssh exited"));
+    emitRemoteResume();
+    await waitUntil(() => row("abc123")?.failure?.message === "Host key is not trusted");
+    const first = row("abc123")?.failure;
+    emitRemoteResume();
+    await waitUntil(() => calls === 2);
+    await Bun.sleep(10);
+    expect(row("abc123")?.failure).toBe(first);
 });

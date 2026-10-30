@@ -136,6 +136,14 @@ function connectionOptions(record: BackendRecord): string[] {
     ];
 }
 
+/**
+ * `cat` of one file in the remote's config dir. Single-quoted so the remote
+ * shell treats it as one literal word, and `~` rather than `$HOME` so expansion
+ * still happens outside the quotes; callers build `fileName` from a validated
+ * instance id. The host-key options matter more here than for the tunnel: a
+ * manual connect's first ssh call is this read, so it is the one that produces
+ * the host-key failure the trust dialog reacts to.
+ */
 export function buildRemoteReadArgs(record: BackendRecord, fileName: string): string[] {
     return [
         "-p",
