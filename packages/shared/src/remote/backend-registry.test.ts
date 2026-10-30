@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DiscoveredBackend } from "../types/backend";
 import { createRegistry } from "./backend-registry";
 
+const TOKEN = "a".repeat(43);
+const NEXT_TOKEN = "b".repeat(43);
 const dirs: string[] = [];
 afterEach(async () => {
     await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
@@ -52,6 +54,7 @@ async function registry(overrides: Partial<Parameters<typeof createRegistry>[0]>
             closeTunnel: () => {},
             rekeyTunnel: () => {},
             readRemotePort: async () => ({ port: 7777 }),
+            readRemoteToken: async () => ({ token: TOKEN }),
             fetchHostKeyFingerprint: async () => "256 SHA256:abc desktop (ED25519)",
             trustHostKey: async () => {},
             forgetScannedHostKey: () => {},
@@ -134,7 +137,9 @@ describe("backend registry", () => {
         expect(rekeyed).toEqual([[record.id, "abc123"]]);
         expect(reg.originFor("abc123")).not.toBeNull();
         expect(reg.originFor(record.id)).toBeNull();
-        expect(reg.attached()).toEqual([{ id: "abc123", origin: "http://127.0.0.1:45001" }]);
+        expect(reg.attached()).toEqual([
+            { id: "abc123", origin: "http://127.0.0.1:45001", token: TOKEN },
+        ]);
     });
 
     test("a second alias is a merge: its tunnel is closed by the id it was opened under", async () => {
@@ -535,6 +540,7 @@ test("a failed cached port is refreshed over SSH without a discovery beacon", as
     expect(await reg.attachBackend(record.id)).toEqual({
         ok: true,
         origin: "http://127.0.0.1:45001",
+        token: TOKEN,
     });
     expect(tried).toEqual([54892, 60000]);
     expect(reads).toBe(1);
@@ -607,3 +613,101 @@ test("a refreshed port equal to one already tried is not tried twice", async () 
     expect(reads).toBe(1);
     expect(tried).toEqual([54892, 54893]);
 });
+
+async function savedToken(dir: string): Promise<string | null> {
+    const records = JSON.parse(await readFile(join(dir, "backends.json"), "utf8")) as {
+        token: string | null;
+    }[];
+    return records[0].token;
+}
+test("attach reads a missing token once and stores it", async () => {
+    let reads = 0;
+    const { reg, dir } = await registry({
+        readRemoteToken: async () => {
+            reads++;
+            return { token: TOKEN };
+        },
+    });
+    const record = await reg.addBackend({ host: "remote" });
+    await reg.attachBackend(record.id);
+    await reg.attachBackend(record.id);
+    expect(reads).toBe(1);
+    expect(await savedToken(dir)).toBe(TOKEN);
+});
+test("attach of a record with a token does not read it again", async () => {
+    let reads = 0;
+    const { reg } = await registry({
+        readRemoteToken: async () => {
+            reads++;
+            return { token: NEXT_TOKEN };
+        },
+    });
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    await reg.attachBackend(record.id);
+    expect(reads).toBe(0);
+});
+test("a failed token read does not fail the attach and returns no token", async () => {
+    const { reg } = await registry({
+        readRemoteToken: async () => ({
+            failure: { kind: "unknown", message: "failed", stderr: "" },
+        }),
+    });
+    const record = await reg.addBackend({ host: "remote" });
+    expect(await reg.attachBackend(record.id)).toEqual({
+        ok: true,
+        origin: "http://127.0.0.1:45001",
+    });
+});
+test("attach returns the token", async () => {
+    const { reg } = await registry();
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    expect(await reg.attachBackend(record.id)).toEqual({
+        ok: true,
+        origin: "http://127.0.0.1:45001",
+        token: TOKEN,
+    });
+});
+test("refreshToken re-reads, stores and returns the new token", async () => {
+    const { reg, dir } = await registry({ readRemoteToken: async () => ({ token: NEXT_TOKEN }) });
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    expect(await reg.refreshToken(record.id)).toEqual({ ok: true, token: NEXT_TOKEN });
+    expect(await savedToken(dir)).toBe(NEXT_TOKEN);
+    expect(await reg.refreshToken("missing")).toEqual({
+        ok: false,
+        failure: { kind: "unknown", message: "No such backend", stderr: "" },
+    });
+});
+test("refreshToken leaves the record alone when the read fails", async () => {
+    const failure = { kind: "unknown" as const, message: "failed", stderr: "" };
+    const { reg, dir } = await registry({ readRemoteToken: async () => ({ failure }) });
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    expect(await reg.refreshToken(record.id)).toEqual({ ok: false, failure });
+    expect(await savedToken(dir)).toBe(TOKEN);
+});
+test("attached() lists each live origin with its token", async () => {
+    const { reg } = await registry();
+    const record = await reg.addBackend({ host: "remote", token: TOKEN });
+    await reg.attachBackend(record.id);
+    expect(reg.attached()).toEqual([
+        { id: record.id, origin: "http://127.0.0.1:45001", token: TOKEN },
+    ]);
+});
+test("addBackend stores a valid token and rejects an invalid one with the exact message", async () => {
+    const { reg, dir } = await registry();
+    expect((await reg.addBackend({ host: "remote", token: TOKEN })).token).toBe(TOKEN);
+    expect(await savedToken(dir)).toBe(TOKEN);
+    expect((await rejectionOf(reg.addBackend({ host: "bad", token: "bad" }))).message).toBe(
+        "That access token is not valid.",
+    );
+    expect((await reg.addBackend({ host: "empty", token: "" })).token).toBeNull();
+});
+test.skipIf(process.platform === "win32")(
+    "backends.json is written with mode 0600, even with a leftover 0644 backends.json.tmp next to it",
+    async () => {
+        const { reg, dir } = await registry();
+        await writeFile(join(dir, "backends.json.tmp"), "old", { mode: 0o644 });
+        await reg.addBackend({ host: "remote", token: TOKEN });
+        expect((await stat(join(dir, "backends.json"))).mode & 0o777).toBe(0o600);
+        expect(await readFile(join(dir, "backends.json.tmp"), "utf8")).toBe("old");
+    },
+);

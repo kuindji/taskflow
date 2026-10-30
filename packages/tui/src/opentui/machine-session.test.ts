@@ -820,6 +820,7 @@ describe("MachineSession", () => {
                     user: "",
                     sshPort: 22,
                     lastKnownPort: null,
+                    token: null,
                     attached: false,
                     addedAt: "2026-09-15T00:00:00.000Z",
                 });

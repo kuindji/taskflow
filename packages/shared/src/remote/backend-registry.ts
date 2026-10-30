@@ -1,4 +1,6 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { isApiToken } from "../utils/api-token";
+import { readFile, rename, writeFile, rm } from "node:fs/promises";
 import type { BackendRecord, DiscoveredBackend, MenuEntry, TunnelFailure } from "../types/backend";
 import {
     backendIdFor,
@@ -27,6 +29,7 @@ interface RegistryDeps {
     /** Move a live ssh child from one record id to another, killing nothing. */
     rekeyTunnel(fromId: string, toId: string): void;
     readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>;
+    readRemoteToken(record: BackendRecord): Promise<{ token: string } | { failure: TunnelFailure }>;
     fetchHostKeyFingerprint(record: BackendRecord): Promise<string>;
     trustHostKey(record: BackendRecord): Promise<void>;
     /** Drop a fingerprint scanned for `id`, so an edited or removed record is never
@@ -40,6 +43,7 @@ interface AddBackendInput {
     sshPort?: number;
     port?: number;
     instanceId?: string;
+    token?: string;
 }
 
 interface BackendPatch {
@@ -95,10 +99,14 @@ function createRegistry(deps: RegistryDeps) {
     let persistChain: Promise<void> = Promise.resolve();
     function persist(): Promise<void> {
         const snapshot = JSON.stringify(records, null, 2);
-        const temp = `${deps.file}.tmp`;
+        const temp = `${deps.file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
         const write = persistChain.then(async () => {
-            await writeFile(temp, snapshot);
-            await rename(temp, deps.file);
+            try {
+                await writeFile(temp, snapshot, { mode: 0o600, flag: "wx" });
+                await rename(temp, deps.file);
+            } finally {
+                await rm(temp, { force: true });
+            }
         });
         persistChain = write.catch(() => {});
         return write;
@@ -239,8 +247,12 @@ function createRegistry(deps: RegistryDeps) {
         },
 
         /** Every record with a live tunnel, and the origin that reaches it. */
-        attached(): { id: string; origin: string }[] {
-            return [...origins].map(([id, origin]) => ({ id, origin }));
+        attached(): { id: string; origin: string; token?: string }[] {
+            return [...origins].map(([id, origin]) => ({
+                id,
+                origin,
+                ...(findRecord(id)?.token ? { token: findRecord(id)!.token! } : {}),
+            }));
         },
 
         addBackend(input: AddBackendInput): Promise<BackendRecord> {
@@ -255,6 +267,9 @@ function createRegistry(deps: RegistryDeps) {
                     return Promise.reject(new Error(`${String(value)} is not a valid port.`));
                 }
             }
+            const token = input.token || null;
+            if (token !== null && !isApiToken(token))
+                return Promise.reject(new Error("That access token is not valid."));
             const id = backendIdFor(host, instanceId);
             // Serialized: adding a host that is already saved must not overwrite
             // that record while an attach of it holds a stale copy.
@@ -270,6 +285,7 @@ function createRegistry(deps: RegistryDeps) {
                     user: input.user || deps.defaultUser,
                     sshPort: input.sshPort ?? 22,
                     lastKnownPort: input.port ?? null,
+                    token,
                     attached: false,
                     addedAt: new Date().toISOString(),
                 };
@@ -345,16 +361,37 @@ function createRegistry(deps: RegistryDeps) {
                     return { ok: false, failure: unknownFailure("Backend was removed") };
                 }
 
+                let token = current.token;
+                if (token === null) {
+                    const read = await deps.readRemoteToken(current);
+                    if ("token" in read) token = read.token;
+                }
                 const origin = `http://127.0.0.1:${tunnel.localPort}`;
                 origins.set(id, origin);
                 records = upsertRecord(records, {
                     ...current,
+                    token,
                     attached: true,
                     lastKnownPort: port,
                 });
                 await persist();
                 notifyChanged();
-                return { ok: true, origin };
+                return { ok: true, origin, ...(token === null ? {} : { token }) };
+            });
+        },
+
+        refreshToken(
+            requestedId: string,
+        ): Promise<{ ok: true; token: string } | { ok: false; failure: TunnelFailure }> {
+            return serializeCanonical(requestedId, async (id) => {
+                const record = findRecord(id);
+                if (!record) return { ok: false, failure: unknownFailure("No such backend") };
+                const result = await deps.readRemoteToken(record);
+                if ("failure" in result) return { ok: false, failure: result.failure };
+                records = upsertRecord(records, { ...record, token: result.token });
+                await persist();
+                notifyChanged();
+                return { ok: true, token: result.token };
             });
         },
 

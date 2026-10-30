@@ -39,6 +39,8 @@ export interface BackendRecord {
     sshPort: number;
     /** The backend's own port, refreshed from the beacon. Not the tunnel's. */
     lastKnownPort: number | null;
+    /** Backend API token, or null until known. */
+    token: string | null;
     /** Restored at launch. Attach is attempted in the background, never blocking. */
     attached: boolean;
     addedAt: string;
@@ -68,6 +70,7 @@ export type TunnelFailureKind =
     | "no-ssh-binary"
     /** ssh refused the user or host string itself. See `classifyTunnelFailure`. */
     | "bad-destination"
+    | "unauthorized"
     | "unknown";
 
 export interface TunnelFailure {

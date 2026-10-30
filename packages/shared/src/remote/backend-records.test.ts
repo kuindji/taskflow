@@ -18,6 +18,7 @@ function record(patch: Partial<BackendRecord> = {}): BackendRecord {
         user: "kuindji",
         sshPort: 22,
         lastKnownPort: null,
+        token: null,
         attached: false,
         addedAt: "2026-08-24T00:00:00.000Z",
         ...patch,
@@ -240,4 +241,23 @@ describe("upsertRecord", () => {
         expect(next.map((r) => r.id)).toEqual(["a", "b"]);
         expect(next[0].displayName).toBe("renamed");
     });
+});
+
+test("normalizeRecords keeps a valid token and drops an invalid one", () => {
+    for (const [token, expected] of [
+        ["a".repeat(43), "a".repeat(43)],
+        ["bad", null],
+        [undefined, null],
+    ] as const) {
+        expect(normalizeRecords([{ ...record(), token }])[0].token).toBe(expected);
+    }
+});
+test("adoptUid keeps the source token, else the existing one", () => {
+    const existing = record({ id: "uid", backendUid: "uid", token: "a".repeat(43) });
+    for (const token of ["b".repeat(43), null]) {
+        const source = record({ token });
+        expect(adoptUid([existing, source], source.id, "uid")[0].token).toBe(
+            token ?? existing.token,
+        );
+    }
 });

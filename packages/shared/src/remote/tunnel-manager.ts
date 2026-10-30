@@ -1,3 +1,4 @@
+import { isApiToken } from "../utils/api-token";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -100,8 +101,11 @@ function runSsh(args: string[]): Promise<{ stdout: string; stderr: string; code:
             // A non-numeric `code` means the spawn itself failed — ENOENT for a
             // missing ssh binary — so it must not be flattened to 0, which reads
             // as success.
-            const code =
-                error && "code" in error && typeof error.code === "number" ? error.code : null;
+            const code = !error
+                ? 0
+                : "code" in error && typeof error.code === "number"
+                  ? error.code
+                  : null;
             resolve({ stdout, stderr: stderr + (error ? error.message : ""), code });
         });
     });
@@ -153,6 +157,46 @@ async function readRemotePort(
                 kind: "no-backend",
                 message: `Could not read Taskflow's port on ${record.host}. Check it is running there as ${record.user}, or enter its port in the connect dialog.`,
                 stderr,
+            },
+        };
+    }
+    return { failure: classifyTunnelFailure(stderr, code) };
+}
+
+async function readRemoteToken(
+    record: BackendRecord,
+): Promise<{ token: string } | { failure: TunnelFailure }> {
+    // The record can come from the connect dialog rather than the beacon codec,
+    // so the one value that reaches a remote shell is re-checked here.
+    if (!isSafeLabel(record.instanceId)) {
+        return {
+            failure: {
+                kind: "unknown",
+                message: `"${record.instanceId}" is not a valid instance name.`,
+                stderr: "",
+            },
+        };
+    }
+    const { stdout, stderr, code } = await runSsh(
+        buildRemoteReadArgs(record, `api-token-${record.instanceId}`),
+    );
+    const token = stdout.trim();
+    if (isApiToken(token)) return { token };
+    if (code !== null && code !== 255 && code !== 0) {
+        return {
+            failure: {
+                kind: "no-backend",
+                message: `Could not read Taskflow's access token on ${record.host}. Enter it in the connect dialog.`,
+                stderr,
+            },
+        };
+    }
+    if (code === 0) {
+        return {
+            failure: {
+                kind: "unknown",
+                message: `Taskflow's access token on ${record.host} is not valid.`,
+                stderr: "",
             },
         };
     }
@@ -587,6 +631,7 @@ function createTunnelManager() {
         onTunnelExit,
         openTunnel,
         readRemotePort,
+        readRemoteToken,
         rekeyTunnel,
         trustHostKey,
     };

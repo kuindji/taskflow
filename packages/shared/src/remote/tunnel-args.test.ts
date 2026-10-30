@@ -22,6 +22,7 @@ const record: BackendRecord = {
     user: "kuindji",
     sshPort: 22,
     lastKnownPort: 54892,
+    token: null,
     attached: false,
     addedAt: "2026-08-23T00:00:00.000Z",
 };

@@ -1,3 +1,4 @@
+import { isApiToken } from "../utils/api-token";
 import { backendIdFor, isSafeLabel, isStale, isValidPort } from "../discovery";
 import type { BackendRecord, DiscoveredBackend, MenuEntry } from "../types/backend";
 
@@ -50,6 +51,7 @@ export function normalizeRecords(parsed: unknown): BackendRecord[] {
             user: typeof entry.user === "string" ? entry.user : "",
             sshPort: isValidPort(entry.sshPort) ? entry.sshPort : 22,
             lastKnownPort: isValidPort(entry.lastKnownPort) ? entry.lastKnownPort : null,
+            token: isApiToken(entry.token) ? entry.token : null,
             attached: entry.attached === true,
             addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date(0).toISOString(),
         };
@@ -100,6 +102,7 @@ export function adoptUid(
         sshPort: source.sshPort,
         user: source.user || existing.user,
         lastKnownPort: source.lastKnownPort ?? existing.lastKnownPort,
+        token: source.token ?? existing.token,
         attached: existing.attached || source.attached,
     };
     return records
@@ -131,6 +134,7 @@ export function recordFromDiscovered(
         user: defaultUser,
         sshPort: 22,
         lastKnownPort: entry.port,
+        token: null,
         attached: false,
         addedAt,
     };
@@ -176,6 +180,7 @@ export function mergeForMenu(
             displayName: entry.displayName || entry.hostname,
             instanceId: entry.instanceId,
             host: entry.address,
+            token: null,
             attached: false,
             saved: false,
             seen: true,
