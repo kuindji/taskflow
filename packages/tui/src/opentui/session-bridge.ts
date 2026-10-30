@@ -5,6 +5,7 @@ import type {
     SessionHistoryResponse,
     SessionSnapshotResponse,
     TerminalOutputEvent,
+    TerminalResyncEvent,
 } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { inputBytesToString } from "./input-bytes";
@@ -48,7 +49,13 @@ class SessionBridge {
     private pending: PendingChunk[] = [];
     private recent: PendingChunk[] = [];
     private recentBytes = 0;
-    private attachQueue: Promise<void> = Promise.resolve();
+    private attachOperation: Promise<void> | null = null;
+    private followUp = false;
+    private buffering = true;
+    private dirty = false;
+    private lastAccepted: number | null = null;
+    private highestReceived = 0;
+    private readonly exitMarkers: string[] = [];
     private readonly disposers: Array<() => void> = [];
     private lastResize: { cols: number; rows: number } | null = null;
     /** The pane size `setActive` last gave the renderable, whose own width is layout-computed. */
@@ -83,6 +90,13 @@ class SessionBridge {
             }),
         );
         this.disposers.push(
+            deps.net.on(MSG.TERMINAL_RESYNC, (payload) => {
+                const event = payload as TerminalResyncEvent;
+                if (event.sessionIds.includes(deps.sessionId))
+                    void this.attach().catch(() => undefined);
+            }),
+        );
+        this.disposers.push(
             deps.net.on(MSG.SESSION_EXITED, (payload) => {
                 const event = payload as SessionExitedEvent;
                 if (event.sessionId !== deps.sessionId) return;
@@ -96,11 +110,25 @@ class SessionBridge {
 
     private receive(chunk: PendingChunk): void {
         if (this.destroyed) return;
-        if (!this.loaded) {
+        if (chunk.sequence === null) {
+            this.exitMarkers.push(chunk.data);
+            if (!this.buffering) this.writeLive(chunk.data);
+            return;
+        }
+        if (this.lastAccepted !== null && chunk.sequence <= this.lastAccepted) return;
+        this.highestReceived = Math.max(this.highestReceived, chunk.sequence);
+        if (this.buffering) {
             this.pending.push(chunk);
+            if (this.dirty && !this.attachOperation) void this.attach().catch(() => undefined);
+            return;
+        }
+        if (this.lastAccepted !== null && chunk.sequence !== this.lastAccepted + 1) {
+            this.pending.push(chunk);
+            void this.attach().catch(() => undefined);
             return;
         }
         this.remember(chunk);
+        this.lastAccepted = chunk.sequence;
         this.osc52.feed(chunk.data);
         this.writeLive(chunk.data);
     }
@@ -138,62 +166,99 @@ class SessionBridge {
     }
 
     attach(): Promise<void> {
-        const run = this.attachQueue.then(() => this.attachOnce());
-        this.attachQueue = run.catch(() => undefined);
-        return run;
+        if (this.destroyed) return Promise.resolve();
+        if (this.attachOperation) {
+            this.followUp = true;
+            return this.attachOperation;
+        }
+        const run = (async () => {
+            do {
+                this.followUp = false;
+                await this.attachOnce();
+            } while (this.followUp && !this.destroyed);
+        })();
+        this.attachOperation = run.finally(() => {
+            this.attachOperation = null;
+        });
+        return this.attachOperation;
+    }
+
+    private catchUp(sequence: number): {
+        chunks: PendingChunk[];
+        sequence: number;
+        complete: boolean;
+    } {
+        const numbered = new Map<number, PendingChunk>();
+        for (const chunk of this.pending)
+            if (chunk.sequence !== null) numbered.set(chunk.sequence, chunk);
+        const chunks: PendingChunk[] = [];
+        for (const [next, chunk] of [...numbered].sort(([a], [b]) => a - b)) {
+            if (next <= sequence) continue;
+            if (next !== sequence + 1) break;
+            chunks.push(chunk);
+            sequence = next;
+        }
+        return { chunks, sequence, complete: sequence >= this.highestReceived };
     }
 
     private async attachOnce(): Promise<void> {
-        const snapshot: SessionSnapshotResponse | Record<string, unknown> | null =
-            await this.deps.net
-                .request<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, {
-                    sessionId: this.deps.sessionId,
-                })
-                .catch(() => null);
-
-        if (snapshot !== null) {
-            assertCompatibleSnapshot(snapshot);
-            if (snapshot.snapshot !== null) {
-                this.beginReplacement();
-                this.writeReplay(snapshot.snapshot);
-                this.writeReplay(supplementalSnapshotSequence(snapshot));
-                this.finishReplacement(snapshot.lastSequence);
-                return;
-            }
-        }
-
-        try {
-            const history = await this.deps.net.request<SessionHistoryResponse>(
-                MSG.SESSION_HISTORY,
-                { ...this.deps.owner, sessionId: this.deps.sessionId },
-            );
+        // Buffer from before the request, preserving the visible screen until
+        // either response can establish a complete replacement.
+        this.buffering = true;
+        this.dirty = true;
+        this.pending = [...this.takeRecent(), ...this.pending];
+        const snapshot = await this.deps.net
+            .request<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, {
+                sessionId: this.deps.sessionId,
+            })
+            .catch(() => null);
+        if (this.destroyed) return;
+        if (snapshot !== null) assertCompatibleSnapshot(snapshot);
+        if (snapshot?.snapshot != null && this.catchUp(snapshot.lastSequence).complete) {
             this.beginReplacement();
-            this.writeReplay(history.data);
-            this.finishReplacement(history.lastSequence);
-        } catch {
-            this.finishReplacement(-1, false);
+            this.writeReplay(snapshot.snapshot);
+            this.writeReplay(supplementalSnapshotSequence(snapshot));
+            this.finishReplacement(snapshot.lastSequence);
+            return;
         }
+
+        let history: SessionHistoryResponse;
+        try {
+            history = await this.deps.net.request<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
+                ...this.deps.owner,
+                sessionId: this.deps.sessionId,
+            });
+        } catch {
+            // Leave the last good screen and the dirty buffer for a later trigger.
+            return;
+        }
+        if (this.destroyed) return;
+        if (!this.catchUp(history.lastSequence).complete) return;
+        this.beginReplacement();
+        this.writeReplay(history.data);
+        this.finishReplacement(history.lastSequence);
     }
 
     private beginReplacement(): void {
-        if (this.loaded) {
-            this.loaded = false;
-            this.pending = this.takeRecent();
-            this.outputFilter.reset();
-            this.writeReplay("\x1bc");
-        }
+        this.outputFilter.reset();
+        this.osc52.reset();
+        if (this.loaded) this.writeReplay("\x1bc");
     }
 
-    private finishReplacement(lastSequence: number, replacementApplied = true): void {
-        if (!replacementApplied && this.loaded) return;
+    private finishReplacement(lastSequence: number): void {
+        const bridge = this.catchUp(lastSequence);
+        for (const chunk of bridge.chunks) {
+            this.remember(chunk);
+            this.writeReplay(chunk.data);
+        }
+        for (const marker of this.exitMarkers) this.writeReplay(marker);
         this.loaded = true;
-        const pending = this.pending;
-        this.pending = [];
-        for (const chunk of pending) {
-            if (chunk.sequence === null || chunk.sequence > lastSequence) {
-                this.remember(chunk);
-                this.writeReplay(chunk.data);
-            }
+        this.lastAccepted = bridge.sequence;
+        this.highestReceived = Math.max(this.highestReceived, bridge.sequence);
+        this.dirty = !this.catchUp(bridge.sequence).complete;
+        if (!this.dirty) {
+            this.pending = [];
+            this.buffering = false;
         }
     }
 
@@ -251,6 +316,10 @@ class SessionBridge {
     destroy(): void {
         if (this.destroyed) return;
         this.destroyed = true;
+        this.followUp = false;
+        this.pending = [];
+        this.recent = [];
+        this.exitMarkers.length = 0;
         for (const dispose of this.disposers) dispose();
         this.disposers.length = 0;
         this.osc52.reset();

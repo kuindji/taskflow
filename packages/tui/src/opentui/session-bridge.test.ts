@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { KeyEvent, PasteEvent } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { MSG } from "@taskflow/shared";
+import type { SessionSnapshotResponse } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { SessionBridge } from "./session-bridge";
 import { prepareForEmbeddedTerminal } from "./keys";
@@ -11,6 +12,7 @@ class FakeNet implements NetLike {
     readonly requests: Array<{ type: string; payload: unknown }> = [];
     readonly handlers = new Map<string, Set<(payload: unknown) => void>>();
     responses = new Map<string, unknown>();
+    requestHandler?: (type: string, payload?: unknown) => Promise<unknown> | undefined;
 
     on(type: string, handler: (payload: unknown) => void): () => void {
         const handlers = this.handlers.get(type) ?? new Set();
@@ -25,6 +27,8 @@ class FakeNet implements NetLike {
 
     async request<T>(type: string, payload?: unknown): Promise<T> {
         this.requests.push({ type, payload });
+        const deferred = this.requestHandler?.(type, payload);
+        if (deferred) return (await deferred) as T;
         if (!this.responses.has(type)) throw new Error(`No response for ${type}`);
         return this.responses.get(type) as T;
     }
@@ -87,6 +91,228 @@ describe("SessionBridge", () => {
             }),
         );
     }
+
+    function deferred<T>() {
+        let resolve!: (value: T) => void;
+        let reject!: (error: Error) => void;
+        const promise = new Promise<T>((yes, no) => {
+            resolve = yes;
+            reject = no;
+        });
+        return { promise, resolve, reject };
+    }
+    const snapshot = (text = "base", lastSequence = 4): SessionSnapshotResponse => ({
+        snapshot: text,
+        lastSequence,
+        cursorHidden: false,
+        kittyStack: [],
+        mouseEncoding: "x10",
+    });
+    const tick = async () => {
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+    };
+    const count = (net: FakeNet, type: string = MSG.SESSION_SNAPSHOT) =>
+        net.requests.filter((r) => r.type === type).length;
+    async function recovering(clipboard?: Osc52Sink) {
+        const f = await setup(40, 8, clipboard);
+        f.net.responses.set(MSG.SESSION_SNAPSHOT, snapshot());
+        await f.bridge.attach();
+        await f.test.renderOnce();
+        const snapshots: Array<ReturnType<typeof deferred<SessionSnapshotResponse>>> = [];
+        f.net.requestHandler = (type) => {
+            if (type !== MSG.SESSION_SNAPSHOT) return;
+            const d = deferred<SessionSnapshotResponse>();
+            snapshots.push(d);
+            return d.promise;
+        };
+        return {
+            ...f,
+            snapshots,
+            output(sequence: number, data = ` ${sequence}`, sessionId = "s1") {
+                f.net.emit(MSG.TERMINAL_OUTPUT, { sessionId, data, sequence });
+            },
+            resync(sessionIds = ["s1"]) {
+                f.net.emit(MSG.TERMINAL_RESYNC, { sessionIds });
+            },
+            screen: () => f.bridge.renderable.screen().text,
+        };
+    }
+
+    it("terminal resync reattaches only the listed bridge session", async () => {
+        const f = await recovering();
+        f.resync(["s2"]);
+        await tick();
+        expect(count(f.net)).toBe(1);
+        f.resync(["s1", "s2"]);
+        await tick();
+        expect(count(f.net)).toBe(2);
+        f.snapshots[0].resolve(snapshot("replacement"));
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("replacement");
+    });
+    it("a live output gap reattaches without waiting for terminal resync", async () => {
+        const f = await recovering();
+        f.output(5);
+        f.output(6);
+        f.output(8);
+        await tick();
+        expect(count(f.net)).toBe(2);
+        expect(f.screen()).not.toContain("8");
+        f.snapshots[0].resolve(snapshot("complete-through-eight", 8));
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("complete-through-eight");
+        expect(count(f.net, MSG.SESSION_HISTORY)).toBe(0);
+    });
+    it("output received during resync is buffered until the replacement is applied", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        f.output(5, " five");
+        f.output(6, " six");
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("base");
+        expect(f.screen()).not.toContain("five");
+        f.snapshots[0].resolve(snapshot("replacement"));
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("replacement five six");
+        f.output(6, " duplicate");
+        expect(f.screen()).not.toContain("duplicate");
+    });
+    it("a lagging replacement snapshot replays recent newer chunks once", async () => {
+        const f = await recovering();
+        f.output(5, " five");
+        f.output(6, " six");
+        f.resync();
+        await tick();
+        f.snapshots[0].resolve(snapshot("replacement"));
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("replacement five six");
+        expect(f.screen().match(/five/g)).toHaveLength(1);
+        f.output(7);
+        expect(count(f.net)).toBe(2);
+        expect(count(f.net, MSG.SESSION_HISTORY)).toBe(0);
+    });
+    it("unbridgeable snapshot history falls back to session history", async () => {
+        const f = await recovering();
+        f.output(5);
+        f.output(6);
+        f.output(8);
+        await tick();
+        f.net.responses.set(MSG.SESSION_HISTORY, { data: "complete-history", lastSequence: 8 });
+        f.snapshots[0].resolve(snapshot("incomplete"));
+        await tick();
+        await f.test.renderOnce();
+        expect(count(f.net, MSG.SESSION_HISTORY)).toBe(1);
+        expect(f.screen()).toContain("complete-history");
+        expect(f.screen()).not.toContain("incomplete");
+    });
+    it("repeated resync signals coalesce while attach is pending", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        f.resync();
+        f.resync();
+        const manual = f.bridge.attach();
+        await tick();
+        expect(count(f.net)).toBe(2);
+        f.snapshots[0].resolve(snapshot());
+        await tick();
+        expect(count(f.net)).toBe(3);
+        f.snapshots[1].resolve(snapshot("latest"));
+        await manual;
+        await f.test.renderOnce();
+        expect(count(f.net)).toBe(3);
+        expect(f.screen()).toContain("latest");
+    });
+    it("an exit marker during resync is displayed once and does not create a gap", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        f.output(5);
+        f.net.emit(MSG.SESSION_EXITED, { sessionId: "s1", exitCode: 7 });
+        f.output(6);
+        f.snapshots[0].resolve(snapshot());
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen().match(/Process exited with code 7/g)).toHaveLength(1);
+        f.output(7);
+        expect(count(f.net)).toBe(2);
+    });
+    it("resync replay suppresses terminal replies and clipboard writes", async () => {
+        const copies: string[] = [];
+        const clears: string[] = [];
+        const f = await recovering({
+            copy: (text) => copies.push(text),
+            clear: (target) => clears.push(target),
+        });
+        f.resync();
+        await tick();
+        f.output(5, "\x1b[5n\x1b[6n\x1b]52;c;cmVwbGF5\x07");
+        f.snapshots[0].resolve(snapshot("\x1b[5n\x1b[6n\x1b]52;c;\x07"));
+        await tick();
+        expect(sessionInputs(f.net)).toEqual([]);
+        expect(copies).toEqual([]);
+        expect(clears).toEqual([]);
+        f.output(6, "\x1b[5n\x1b]52;c;bGl2ZQ==\x07");
+        expect(sessionInputs(f.net)).toHaveLength(1);
+        expect(copies).toEqual(["live"]);
+    });
+    it("destroying during resync ignores the late snapshot and removes subscriptions", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        const writes: string[] = [];
+        f.bridge.renderable.write = (data) => {
+            writes.push(String(data));
+        };
+        f.bridge.destroy();
+        const requests = f.net.requests.length;
+        f.snapshots[0].resolve(snapshot("late\x1b[5n"));
+        await tick();
+        f.net.emit(MSG.TERMINAL_RESYNC, { sessionIds: ["s1"] });
+        f.output(8);
+        expect(writes).toEqual([]);
+        expect(f.net.requests.length).toBe(requests);
+        expect(f.net.handlers.get(MSG.TERMINAL_RESYNC)?.size).toBe(0);
+        expect(f.net.handlers.get(MSG.TERMINAL_OUTPUT)?.size).toBe(0);
+        expect(f.net.handlers.get(MSG.SESSION_EXITED)?.size).toBe(0);
+    });
+    it("a null snapshot on a resync falls back to session history and repairs a missing tail with no later output", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        f.net.responses.set(MSG.SESSION_HISTORY, {
+            data: "base-and-missing-tail",
+            lastSequence: 5,
+        });
+        f.snapshots[0].resolve({ ...snapshot(), snapshot: null, lastSequence: 0 });
+        await tick();
+        await f.test.renderOnce();
+        expect(count(f.net, MSG.SESSION_HISTORY)).toBe(1);
+        expect(f.screen()).toContain("base-and-missing-tail");
+        f.output(5, "duplicate-tail");
+        expect(f.screen()).not.toContain("duplicate-tail");
+        expect(sessionInputs(f.net)).toEqual([]);
+    });
+    it("a failed resync retains the good screen dirty until new output retries", async () => {
+        const f = await recovering();
+        f.resync();
+        await tick();
+        f.snapshots[0].reject(new Error("offline"));
+        await tick();
+        expect(f.screen()).toContain("base");
+        f.output(5);
+        await tick();
+        expect(count(f.net)).toBe(3);
+        f.snapshots[1].resolve(snapshot("recovered", 5));
+        await tick();
+        await f.test.renderOnce();
+        expect(f.screen()).toContain("recovered");
+    });
 
     it("subscribes before attach and applies snapshot state before fresh output", async () => {
         const { test, net, bridge } = await setup();
