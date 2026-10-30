@@ -27,7 +27,7 @@ const expectedCatalog: EditorInfo[] = [
 ];
 
 describe("detectEditors", () => {
-    it("detected editors contain resolved commands and unchanged metadata", async () => {
+    it("detected external editors contain resolved commands and unchanged metadata", async () => {
         const calls: string[] = [];
         let resolving = false;
         const editors = await detectEditors({
@@ -43,20 +43,21 @@ describe("detectEditors", () => {
         expect(editors).toEqual(
             expectedCatalog.map((editor) => ({
                 ...editor,
-                command: `/resolved/${editor.command}`,
+                command:
+                    editor.type === "internal" ? editor.command : `/resolved/${editor.command}`,
             })),
         );
         expect(calls).toEqual(expectedCatalog.map((editor) => editor.id));
     });
 
-    it("internal line flags and extra args survive resolution", async () => {
+    it("internal editors keep their bare command, line flags and extra args", async () => {
         const editors = await detectEditors({
             resolve: async (editor) => `/bin/${editor.command}`,
         });
         expect(editors.find((editor) => editor.id === "emacs")).toEqual({
             id: "emacs",
             name: "Emacs",
-            command: "/bin/emacs",
+            command: "emacs",
             type: "internal",
             lineFlag: "+{line}",
             extraArgs: ["-nw"],
@@ -64,7 +65,7 @@ describe("detectEditors", () => {
         expect(editors.find((editor) => editor.id === "helix")).toEqual({
             id: "helix",
             name: "Helix",
-            command: "/bin/hx",
+            command: "hx",
             type: "internal",
             lineFlag: "{file}:{line}",
         });
@@ -82,7 +83,8 @@ describe("detectEditors", () => {
         expect(second).toEqual(
             expectedCatalog.map((editor) => ({
                 ...editor,
-                command: `/resolved/${editor.command}`,
+                command:
+                    editor.type === "internal" ? editor.command : `/resolved/${editor.command}`,
             })),
         );
     });

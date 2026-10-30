@@ -42,7 +42,9 @@ export async function detectEditors(
         if (command)
             available.push({
                 ...editor,
-                command,
+                // Clients such as a remote TUI run internal editors on their own
+                // machine, so they keep the bare command for that machine's PATH.
+                command: editor.type === "internal" ? editor.command : command,
                 ...(editor.extraArgs ? { extraArgs: [...editor.extraArgs] } : {}),
             });
     }
