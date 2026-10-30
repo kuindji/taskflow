@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Plan review round 4. The Codex round-4 output is already saved in `reviews/round-4.md` (it reviewed commit 84c0815b: 1 blocker, 3 majors claimed: Puppeteer's tab-target hierarchy, popup-name reservation race, close event lost on HTTP 500, renderer reload leaving a view attached). Start at chain step 2: verify and triage it into `reviews/round-4-triage.md`, fold confirmed findings in. Round 4 is the cap: if a blocker or major is confirmed, fold it in, then stop the chain and notify the user (don't run round 5).
+**Stopped for the user (round cap).** Round 4 confirmed 1 blocker (Puppeteer's `tab` targets), 2 majors (popup-name reservation race, an attached view covering the UI after a renderer reload) and 1 minor (a `closed` event lost on HTTP 500). All are folded in (`reviews/round-4-triage.md`, spec Amendment 10). Per `chain.md` no round 5 runs. The user decides: accept the plan as amended and continue with "Implement Section 1", or run one more review round on the round-4 fixes first. The new design to look at is the tab-target resolution (`04-cdp-gateway.md` "Tab targets" and `pageOfTabTarget`), which the spike must confirm.
 
 ## Status
 
@@ -15,6 +15,7 @@ Plan review round 4. The Codex round-4 output is already saved in `reviews/round
 | — | Plan review round 1 | done: 1 blocker and 14 majors confirmed and folded in; round 2 output saved | 3b82b51e |
 | — | Plan review round 2 | done: 1 blocker, 7 majors, 1 minor + 1 own major confirmed and folded in; round 3 output saved | 0286d1f4 |
 | — | Plan review round 3 | done: 1 blocker, 3 majors, 1 minor confirmed and folded in; round 4 output saved | 84c0815b |
+| — | Plan review round 4 (cap) | done: 1 blocker, 2 majors, 1 minor confirmed and folded in; chain stopped for the user | cd1699ab |
 | 1 | Spike (gate) | not started | |
 | 2 | Shared types, store, host client, service | not started | |
 | 3 | HTTP/WS API, wiring, cleanup hooks | not started | |
