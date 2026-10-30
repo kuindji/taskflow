@@ -47,4 +47,4 @@ The chain protocol is in `2026-10-30-t3code-adoptions/chain.md`. The research be
 
 ## Plan review log
 
-(empty)
+- **Round 1** (2026-10-30, gpt-6.1-sol, `reviews/round-1.md`, triage `reviews/round-1-triage.md`): 12 findings, all confirmed (the blocker downgraded to minor), plus 4 of the session's own. 5 majors folded in: desktop live-`4401` recovery goes through `rehandshake` (S4); the TUI refresh gate re-arms only after `SYSTEM_INFO` (S4); `no-backend` keeps retrying (S4, design §2); a parser-timeout snapshot answers `null` (S6, design §3); Pi launch discovery has a 10 s budget (S9). Minors: handshake file via `0600` temp + rename (S1), subprotocol answer only when `taskflow` offered (S1, design §1), `ssh -G` output (S3, S13), Windows editor candidates (S11), CDP 401 vs 404 (S5, S13), full t3code SHA (design), `buildRemoteReadArgs(record, fileName)` (S3/S4), token in Settings → General and editable (S4), S6 wording.

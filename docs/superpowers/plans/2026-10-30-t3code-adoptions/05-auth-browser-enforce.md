@@ -161,7 +161,8 @@ The gate runs first, so an unauthenticated `/cdp/` request is `401` before it ca
     - browser: `POST /api/browser/tabs`, `PUT /api/browser/host`, `POST /api/browser/host/events`
     - CDP: `GET /cdp/tab1/json/version`, `GET /cdp/tab1/wrong-key/json/version`, `GET /cdp/tab1/<cdpKey(T, "tab2")>/json/list`
     - unknown: `GET /nothing-here`
-  - `the same requests with Authorization: Bearer <token> reach their handlers`
+  - `the same requests with Authorization: Bearer <token> reach their handlers`, for every row except the obsolete unkeyed `GET /cdp/tab1/json/version` and `GET /nothing-here`, which have no handler
+  - `with a Bearer token, the unkeyed /cdp/tab1/json/version gets 404 and GET /nothing-here gets the 200 "Taskflow backend" fallback`
   - `a text/plain cross-site POST with Origin https://evil.example gets 403 and its handler is not called` (`POST /api/flow/artifact`, the arbitrary-file-read vector from design.md §1)
   - `GET /api/file/raw?token=<token> reaches its handler; the same token query on GET /api/settings gets 401`
   - `GET / with no credential still answers "Taskflow backend"`

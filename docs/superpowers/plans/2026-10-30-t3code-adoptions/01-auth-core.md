@@ -22,7 +22,8 @@ Line anchors are against HEAD `3397b225` plus the agent-browser Section 4 work i
   - right after `await ensureCliScript(config.binDir)` (`:82`): `const apiToken = config.apiToken;`, so the file exists from startup on;
   - `createServer(router, config.port, apiRouter, cdpGateway, { token: apiToken, allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS), enforce: AUTH_ENFORCED })` (`~:138`);
   - `createSessionLifecycle({ ..., apiToken })` (`~:149`);
-  - the handshake write (`await writeFile(config.portFile, String(startedServer.port))`, `~:527`) becomes `await writeFile(config.portFile, \`${startedServer.port}\n${apiToken}\n\`, { mode: 0o600 })`.
+  - the handshake write (`await writeFile(config.portFile, String(startedServer.port))`, `~:527`) becomes `await writePortHandshake(config.portFile, startedServer.port, apiToken)`.
+- Modify `packages/backend/src/services/instance-port-file.ts`: add `export async function writePortHandshake(file: string, port: number, token: string): Promise<void>`. Same shape as `writeInstancePortFile` (`uniqueSibling` temp, `rename`, `rm` in `finally`), but the temp file is created with `writeFile(temp, \`${port}\n${token}\n\`, { mode: 0o600, flag: "wx" })`. `writeFile`'s `mode` only applies to a new file, so writing the path in place would keep a pre-existing file's `0644` (a hand-set `TASKFLOW_PORT_FILE`, or the predictable `$TMPDIR/.taskflow-port-<pid>` fallback, `config.ts:178`). The rename replaces the path with the fresh `0600` file; if the rename is refused (another user's file in a sticky `/tmp`), startup fails rather than leaking the token. Its test is in Task 1.2.
 - Modify the handshake readers to `parsePortHandshake`:
   - `electron/src/backend-manager.ts`: `waitForBackendPort` (`:75-99`) becomes `waitForBackendHandshake`, which returns the parsed handshake; `startBackend` (`:108-147`) resolves to it;
   - `electron/src/main.ts:196-198`: `const { port } = await startBackend(devBranch);`. Section 2 keeps the token;
@@ -50,6 +51,9 @@ const WS_CLOSE_UNAUTHORIZED = 4401;
 // packages/backend/src/config.ts
 function readOrCreateApiToken(baseDir: string, instanceId: string): string;
 config.apiToken: string; // getter
+
+// packages/backend/src/services/instance-port-file.ts
+function writePortHandshake(file: string, port: number, token: string): Promise<void>; // fresh 0600 temp + rename
 
 // packages/backend/src/ws/auth.ts
 const AUTH_ENFORCED = false;                                  // deleted in Section 5
@@ -80,9 +84,9 @@ TASKFLOW_API_TOKEN=<token>   // next to TASKFLOW_API_URL
 
 **Token file** (`readOrCreateApiToken`): a valid token in the file is returned. A missing file is minted through the shared writer (temp file mode `0600`, `link`, lock-and-rename repair of an invalid file). Concurrent starts agree on one token. The file persists across restarts; deleting it rotates the token on the next start.
 
-**Handshake file** (`TASKFLOW_PORT_FILE`): `<port>\n<token>\n`, mode `0600` on create. `parsePortHandshake`:
+**Handshake file** (`TASKFLOW_PORT_FILE`): `<port>\n<token>\n`, mode `0600`, published by temp file and rename (`writePortHandshake`), so it is `0600` even when the path already existed. `parsePortHandshake`:
 - line 1 is digits only, `1..65535`; line 2 passes `isApiToken`; a trailing newline is allowed;
-- anything else returns `null`: an empty file, one line, a half-written token, extra text. Readers treat `null` as "not written yet" and keep polling, so no atomic write is needed.
+- anything else returns `null`: an empty file, one line, a half-written token, extra text. Readers treat `null` as "not written yet" and keep polling. The rename already makes the write atomic; the `null` rule is the reader's safety net.
 
 **`parseUiOrigins(raw)`**: always contains `file://` and `null`. Each comma-separated entry of `raw` is trimmed and normalised with `new URL(entry).origin`. An entry that doesn't parse, or whose origin is `"null"`, is skipped.
 
@@ -92,14 +96,14 @@ TASKFLOW_API_TOKEN=<token>   // next to TASKFLOW_API_URL
 3. **Exempt:** `GET /` that is not an upgrade. It returns `{ ok: true }` (the tunnel readiness probe, `tunnel-manager.ts:79-93`).
 4. **Credential.** The candidates are:
    - `Authorization: Bearer <t>` (scheme case-insensitive), on any request;
-   - on an upgrade, each `Sec-WebSocket-Protocol` entry (comma-separated, trimmed) that starts with `taskflow.auth.`, minus that prefix;
+   - on an upgrade whose `Sec-WebSocket-Protocol` list (comma-separated, trimmed) also contains `taskflow`, each entry that starts with `taskflow.auth.`, minus that prefix. An auth entry without `taskflow` is not a candidate;
    - on `GET` of `/api/file/raw` or `^/api/flow/artifact/[^/]+/[^/]+/[^/]+/raw$`, the `token` query parameter.
 
    The request passes if any candidate equals `ctx.token` under `tokensEqual`: `timingSafeEqual` on UTF-8 buffers, and `false` without comparing when the lengths differ. No candidate, or none equal: reason `credential`.
 
 **`isUpgradeRequest`**: `req.headers.get("upgrade")?.toLowerCase() === "websocket"`.
 
-**`upgradeHeaders(req)`**: `{ "Sec-WebSocket-Protocol": "taskflow" }` when the offered list contains `taskflow` or any `taskflow.auth.` entry, otherwise `undefined`. It is sent whether or not the credential passed, because a browser fails a socket that offered protocols and got none back.
+**`upgradeHeaders(req)`**: `{ "Sec-WebSocket-Protocol": "taskflow" }` when the offered list contains `taskflow`, otherwise `undefined`. It is sent whether or not the credential passed, because a browser fails a socket that offered protocols and got none back. Answering a protocol the client did not offer fails the handshake (RFC 6455 §4.1), so an auth-only offer gets no `taskflow` answer.
 
 The explicit answer is required. Probed on Bun 1.4.2: with no `headers`, `server.upgrade` answers with the **first** offered protocol itself, so a client offering `taskflow.auth.<t>` first would get its token echoed. With the header set, the response carries exactly one `Sec-WebSocket-Protocol: taskflow`.
 
@@ -161,13 +165,14 @@ Simplest choices made here:
   - `returns null for an empty file, a port alone, and a port with a half-written token`
   - `returns null for a non-numeric, zero or out-of-range port`
   - `returns null when a third non-empty line follows`
+  - in `packages/backend/tests/services/instance-port-file.test.ts`: `the handshake replaces a pre-existing 0644 file with a 0600 one` (skip on `win32`)
   - `isApiToken accepts 43 base64url characters and rejects 42, 44, padding and other characters`
 - [ ] **Step 2:** In `packages/tui/src/backend/manager.test.ts` add `const TOKEN = "a".repeat(43);` and `function handshake(port: number): string { return \`printf '%s\\n%s\\n' ${port} ${TOKEN} > "$TASKFLOW_PORT_FILE"\`; }`. Replace every `echo <port> > "$TASKFLOW_PORT_FILE"` in the fake backends with `${handshake(<port>)}`; the template strings become backtick strings. Keep the `printf "43x\\n"` case at `:233`, which is still invalid. Add:
   - `resolves with the port and token the backend writes to its handshake file`
   - `a port without its token line is not taken as started`: the fake writes `echo 4335`, sleeps 1 s, then writes the full handshake; expect port 4335 and the token.
 - [ ] **Step 3:** In `platform.test.ts:107-110`, poll until `parsePortHandshake(await readFile(portFile, "utf-8"))` is non-null. Assert its port is `> 0`, and that its token equals the trimmed contents of `join(isolated, "api-token-dev-config-isolation-test")`, whose mode is `0o600` (skip the mode check on `win32`).
-- [ ] **Step 4:** Run `bun test packages/shared/src/utils/api-token.test.ts packages/tui/src/backend/manager.test.ts packages/backend/tests/services/platform.test.ts`. Expected: FAIL.
-- [ ] **Step 5:** Implement `parsePortHandshake` and both exports; the backend write in `index.ts`; `waitForBackendHandshake` and `startBackend` in Electron; `main.ts`; `readHandshake` and `BackendHandle.token` in the TUI; the `machine-session.test.ts` fake.
+- [ ] **Step 4:** Run `bun test packages/shared/src/utils/api-token.test.ts packages/tui/src/backend/manager.test.ts packages/backend/tests/services/platform.test.ts packages/backend/tests/services/instance-port-file.test.ts`. Expected: FAIL.
+- [ ] **Step 5:** Implement `parsePortHandshake` and both exports; `writePortHandshake` and the backend write in `index.ts`; `waitForBackendHandshake` and `startBackend` in Electron; `main.ts`; `readHandshake` and `BackendHandle.token` in the TUI; the `machine-session.test.ts` fake.
 - [ ] **Step 6:** Run the Step 4 tests. Expected: PASS. Run `bun run typecheck`, `cd packages/tui && bun test`, `cd electron && bun run build`.
 - [ ] **Step 7:** Commit `feat(shared): two-line port handshake carrying the API token`.
 
@@ -190,7 +195,8 @@ Simplest choices made here:
   - `the subprotocol credential is ignored on a plain HTTP request`
   - `token query passes GET /api/file/raw and GET /api/flow/artifact/o/f/t/raw`
   - `token query fails POST /api/file/raw, GET /api/settings and GET /api/flow/artifact/o/f/t`
-  - `upgradeHeaders answers taskflow when taskflow or a taskflow.auth entry was offered, and nothing otherwise`
+  - `upgradeHeaders answers taskflow only when taskflow was offered, in either order with the auth entry, and nothing for an auth-only offer`
+  - `an auth-only subprotocol offer is not a credential`
   - `createReportOnce logs one line per reason, pattern and client, with the exact format`
   - `report patterns: /api/tasks/abc/log gives /api/tasks, /cdp/x/json/version gives /cdp/*, an upgrade is WS`
 - [ ] **Step 2:** Add to `src/ws/server.test.ts`. `testAuth(enforce = false, lines: string[] = [])` returns `{ token: T, allowedOrigins: parseUiOrigins(undefined), enforce, log: (l) => lines.push(l) }`. The `connect` helper takes an optional second `WebSocket` argument (protocols or `{ headers }`). The probe confirmed that Bun's `WebSocket` and `fetch` send a custom `Host` and `Origin`.
@@ -198,7 +204,7 @@ Simplest choices made here:
   - `report-only: two identical rejected requests log one line`
   - `report-only: a request from a foreign Origin is served and logged with reason origin`
   - `a client offering taskflow and taskflow.auth.<token> gets protocol "taskflow" and no log line`
-  - `a client offering taskflow.auth.<token> first never gets its token back as the protocol` (assert `ws.protocol === "taskflow"`)
+  - `a client offering taskflow.auth.<token> first, then taskflow, never gets its token back as the protocol` (assert `ws.protocol === "taskflow"`)
   - `a Bearer header on the upgrade connects with no log line`
   - `GET / answers "Taskflow backend" with no credential and no log line`
   - `enforced: an upgrade without a credential closes with 4401 "unauthorized" and never counts as a client`

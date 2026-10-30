@@ -15,7 +15,7 @@ Read `handoff.md`, the index and `design.md` first. This section applies design 
 
 ```ts
 // tunnel-args.ts. Both exports have production callers in tunnel-manager.ts.
-export function buildRemoteReadArgs(record: BackendRecord, remotePath: string): string[];
+export function buildRemoteReadArgs(record: BackendRecord, fileName: string): string[];
 // Keep this helper private: both builders are in this module.
 function connectionOptions(record: BackendRecord): string[];
 ```
@@ -27,7 +27,7 @@ function connectionOptions(record: BackendRecord): string[];
 
 - The SSH inventory is complete at the inspected baseline: `buildTunnelArgs` builds the tunnel command; `readRemotePort` builds the remote-file command inline. `runSsh` at `tunnel-manager.ts:97` executes supplied arguments. Electron builds no SSH argv: `electron/src/main.ts:126` constructs the shared tunnel manager and passes `tunnels.readRemotePort` into the registry at `:133`.
 - `connectionOptions` returns the existing `BatchMode=yes` and `hostKeyOptions(record)`, followed by exactly `['-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ControlPersist=no']`. Both builders spread this one helper before the destination. Keep port selection, `-l user -- host`, explicit loopback forwarding, `ExitOnForwardFailure=yes` and keepalives unchanged.
-- `buildRemoteReadArgs` returns `['-p', String(record.sshPort), ...connectionOptions(record), '-l', record.user, '--', record.host, \`cat ${remotePath}\`]`. `remotePath` is an already constructed shell path, not arbitrary UI input. Retain `isSafeLabel(record.instanceId)` before constructing `~/.config/taskflow/'<instanceId>.port'`.
+- `buildRemoteReadArgs` returns `['-p', String(record.sshPort), ...connectionOptions(record), '-l', record.user, '--', record.host, \`cat ~/.config/taskflow/'${fileName}'\`]`. It builds the quoted path itself, so `readRemotePort` passes `\`${record.instanceId}.port\`` and Section 4's token read passes `\`api-token-${record.instanceId}\``. `fileName` is built from a validated instance id, never from UI input: keep `isSafeLabel(record.instanceId)` in the manager before calling the builder.
 - Keep the exact existing port-read errors and classification, including `"<instanceId>" is not a valid instance name.` and `Could not read Taskflow's port on <host>. Check it is running there as <user>, or enter its port in the connect dialog.`
 - `buildKeyscanArgs` at `tunnel-args.ts:135` builds `ssh-keyscan` arguments, and `tunnel-manager.ts:533` runs `ssh-keygen`. These programs do not accept SSH connection-multiplexing options. Leave both alone.
 - Retain the user's `ProxyJump`, identity and login configuration. Do not add `-F /dev/null` to production calls. Application-owned connections must close with their child and perform their own host-key check. Reference: t3code `packages/ssh/src/tunnel.ts`.
@@ -39,7 +39,7 @@ function connectionOptions(record: BackendRecord): string[];
   - `tunnel and remote file reads disable SSH multiplexing with the same options`
   - `remote file reads preserve the SSH user port host-key policy and quoted path`
   - `SSH options override multiplexing enabled by the user configuration`
-  Update the existing exact tunnel-array expectation. For the last test, write a temporary config containing `Host *`, `ControlMaster auto`, `ControlPath /tmp/taskflow-test-master-%h-%p`, `ControlPersist yes`, and `ProxyJump jump.example`. Run `ssh -F <temp-config> -G <builder-args>` for both builders, with no network connection. Assert effective `controlmaster false`, `controlpath none`, `controlpersist no` and `proxyjump jump.example`. Skip only if `Bun.which("ssh")` is absent; remove the temporary directory in cleanup.
+  Update the existing exact tunnel-array expectation. For the last test, write a temporary config containing `Host *`, `ControlMaster auto`, `ControlPath /tmp/taskflow-test-master-%h-%p`, `ControlPersist yes`, and `ProxyJump jump.example`. Run `ssh -F <temp-config> -G <builder-args>` for both builders, with no network connection. Assert effective `controlmaster false`, `controlpersist no` and `proxyjump jump.example`, and that no `controlpath` line other than `controlpath none` appears (OpenSSH 10.5p1 prints no `controlpath` line for `ControlPath=none`; older versions may print `controlpath none`). The exact-argv tests separately pin `ControlPath=none`. Skip only if `Bun.which("ssh")` is absent; remove the temporary directory in cleanup.
 - [ ] **Step 2:** Extend the executable fake in `tunnel-manager.test.ts` and write `remote port reads pass the shared connection options to ssh`. For a command without `-L`, record argv and print `54892\n`; call the real manager's `readRemotePort(record)` and assert `{ port: 54892 }` plus the three exact overrides in the recorded argv. Retain the existing tunnel-child readiness tests. No `mock.module`.
 - [ ] **Step 3:** Run `bun test packages/shared/src/remote/tunnel-args.test.ts packages/shared/src/remote/tunnel-manager.test.ts`. Expected: FAIL on the missing overrides and builder.
 - [ ] **Step 4:** Implement the shared options and remote-read builder. Route both SSH connections through them; keep validation and error mapping in the manager.

@@ -31,13 +31,13 @@ Run against the real desktop app built from `main`, on macOS. Run the auth items
 6. **Settings → General** (under "Discoverable on this network") shows the local token, and Copy puts it on the clipboard. Editing a machine's saved token reconnects it.
 7. **CDP.**
    - Playwright `connectOverCDP` with the `endpoint` from `taskflow-cli browser open` works.
-   - The same URL with one character of the key changed gives 404.
-   - Tab A's key on tab B's path gives 404.
+   - `<endpoint>/json/version` with one character of the key changed gives 401.
+   - Tab A's key on tab B's path gives 401.
    - After an app restart, the endpoint path (key included) is unchanged.
 
 ### Remote connectivity (Section 3)
 
-8. `ssh -G` with the argv Taskflow builds (take it from the debug log or a unit-test fixture) shows `controlmaster no`, `controlpath none` and `controlpersist no`, even with a `ControlMaster auto` block in a test `ssh_config`.
+8. `ssh -G` with the argv Taskflow builds (take it from the debug log or a unit-test fixture) shows `controlmaster false` and `controlpersist no`, and no `controlpath` other than `none` (OpenSSH 10.5 omits the line), even with a `ControlMaster auto` block in a test `ssh_config`.
 9. Desktop app attached to a remote (or to a second local backend through `ssh localhost`, if sshd is on):
    - `kill` the tunnel's ssh process: the backend shows reconnecting and comes back by itself;
    - sleep and wake the Mac: it reconnects at once after wake;

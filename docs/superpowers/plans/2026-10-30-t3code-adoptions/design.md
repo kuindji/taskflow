@@ -2,10 +2,10 @@
 
 These are the decisions every section follows. Sections apply them and add only the details they need. When a section disagrees with this file, this file wins. Fix the section and record the change under "Plan review log" in the index.
 
-Source: research in `reviews/research-*.md` (gpt-6.1-sol, 2026-10-30) against t3code (MIT, https://github.com/pingdotgg/t3code, commit `32ecd717`). The reports cite t3code paths under a scratchpad that no longer exists. To read the cited code, fetch it into your own scratchpad:
+Source: research in `reviews/research-*.md` (gpt-6.1-sol, 2026-10-30) against t3code (MIT, https://github.com/pingdotgg/t3code, commit `32ecd717`, full SHA `32ecd71726fee16f335484c1f95cbce126d461f6`; fetch needs the full SHA). The reports cite t3code paths under a scratchpad that no longer exists. To read the cited code, fetch it into your own scratchpad:
 
 ```bash
-git init -q <scratch>/t3code && cd <scratch>/t3code && git remote add origin https://github.com/pingdotgg/t3code.git && git fetch -q --depth 1 origin 32ecd717 && git checkout -q FETCH_HEAD
+git init -q <scratch>/t3code && cd <scratch>/t3code && git remote add origin https://github.com/pingdotgg/t3code.git && git fetch -q --depth 1 origin 32ecd71726fee16f335484c1f95cbce126d461f6 && git checkout -q FETCH_HEAD
 ```
 
 Code copied from t3code keeps an attribution comment at the top of the file or block: `// Adapted from t3code (MIT, https://github.com/pingdotgg/t3code, 32ecd717): <path>`.
@@ -24,7 +24,7 @@ Code copied from t3code keeps an attribution comment at the top of the file or b
 
 These are checked in one pure module, `packages/backend/src/ws/auth.ts`. Every comparison uses `timingSafeEqual`.
 1. **`Authorization: Bearer <token>` header**, on HTTP and on WebSocket upgrades. Used by the CLI (sh and TS), Electron main, the TUI and every other header-capable client.
-2. **WebSocket subprotocol**, for the browser renderer, which can't set headers. The client offers `["taskflow", "taskflow.auth.<token>"]`. The server checks the auth entry and answers with `Sec-WebSocket-Protocol: taskflow`, never echoing the token.
+2. **WebSocket subprotocol**, for the browser renderer, which can't set headers. The client offers `["taskflow", "taskflow.auth.<token>"]`. The server checks the auth entry and answers with `Sec-WebSocket-Protocol: taskflow`, never echoing the token. It answers `taskflow` only when the client offered it; an auth entry offered without `taskflow` is not a credential.
 3. **`token` query parameter**, only on `GET` of the raw file routes the renderer loads through `<img src>` and links: `/api/file/raw` and the flow-artifact raw route. Nowhere else.
 4. **CDP key in the path** (Section 5): `/cdp/<tabId>/<key>/...`, where `key = base64url(HMAC-SHA256(token, "cdp:" + tabId))`. Agents' CDP clients can't add headers, and a key per tab means a leaked endpoint exposes one tab, not the API.
 
@@ -52,7 +52,7 @@ These are checked in one pure module, `packages/backend/src/ws/auth.ts`. Every c
 | TUI, local | its spawn handshake file (same parser) | header on the Bun `WebSocket` |
 | TUI `--connect host:port` | new `--token <t>` flag, falling back to `TASKFLOW_TOKEN` | header |
 | PTY sessions and the CLIs they run | `TASKFLOW_API_TOKEN` in the session env, next to `TASKFLOW_API_URL` (`session-lifecycle.ts:541`) | header. **POSIX sh:** one wrapper, `tf_curl`, replaces every bare `curl` call. **TS bin:** `api()` and its one outlier. Both CLIs change (see memory: the sh script is what runs on macOS/Linux). |
-| Remote backends over SSH (Section 4) | read once over ssh, `cat ~/.config/taskflow/'api-token-<instanceId>'`, with the same command builder as the port read. Stored in the client's backend record. Re-read once after a `4401`; a second `4401` shows `Remote backend rejected the access token` (local: `The local backend rejected the access token`). | as for the local client of that kind |
+| Remote backends over SSH (Section 4) | read once over ssh, `cat ~/.config/taskflow/'api-token-<instanceId>'`, with the same command builder as the port read. Stored in the client's backend record. Re-read once after a `4401`, and re-armed only after an application handshake (`SYSTEM_INFO`) succeeds, never on socket open alone (an unauthorized socket opens, then closes `4401`); a second `4401` shows `Remote backend rejected the access token` (local: `The local backend rejected the access token`). | as for the local client of that kind |
 | Remotes whose token can't be read over ssh (Windows, `TASKFLOW_CONFIG_DIR`) | entered by hand where the record's port can be. The remote machine shows its own token in Settings → General, under "Discoverable on this network", with a copy button (Electron, local backend only, read through main). The saved token is editable in the machine's edit dialog. | same |
 
 ### Out of scope
@@ -66,7 +66,7 @@ These are checked in one pure module, `packages/backend/src/ws/auth.ts`. Every c
 - **Desktop reconnects by itself.** When a desktop remote's tunnel exits, the desktop keeps the backend in a "reconnecting" state and retries, instead of dropping it to manual Retry. Reuse the TUI's reattachment logic (`packages/tui/src/opentui/machine-session.ts:399`) by moving its policy into `packages/shared/src/remote/`, where both use it. Don't write a second copy.
   - Backoff: 1 s, 2 s, 4 s … capped at 30 s, with ±20 % jitter. Reset after a connection stays up for 60 s.
   - Retry at once on OS resume (Electron `powerMonitor` `resume`) and on network change (`online`).
-  - Give up only when the user removes or disconnects the backend.
+  - Give up only when the user removes or disconnects the backend, or when its token is rejected again after the one refresh (Section 4). A stopped remote backend (`no-backend`) keeps retrying.
   - Terminal state resyncs through the snapshot attach path, which Section 6 (run before Section 3) adds to the web UI. Uncertain terminal input is never replayed.
 - **Stale cached port.** When every cached and discovered port fails, read the port over ssh once and try it if it's new. An explicitly entered port is a fallback: it's kept and retried when the port file can't be read.
 
@@ -74,7 +74,7 @@ These are checked in one pure module, `packages/backend/src/ws/auth.ts`. Every c
 
 - **No replies during replay.** While the web UI writes a snapshot or history into xterm, every `onData` it produces is dropped: from before the first write until the writer's flush resolves **and** xterm's write callback for the last chunk has fired. The same invariant as the TUI (`session-bridge.ts:72`). User keys typed in that window are dropped too; that's accepted.
 - **Recover dropped output.** When `broadcast(..., { dropOnBackpressure })` skips a client, the server records `(client, sessionId)` as dirty. In the Bun `websocket.drain` handler it sends that client `{ type: MSG.TERMINAL_RESYNC, payload: { sessionIds } }` and clears the record. The web UI and the TUI each answer by re-running their existing snapshot attach for those sessions: buffer live chunks, apply the snapshot, flush chunks with a newer sequence. A client that sees a sequence gap in `terminal:output` does the same without waiting for the event.
-- **Snapshots cover what was sent.** `SESSION_SNAPSHOT` records the issued output sequence when the request arrives, and answers once the headless parser has consumed up to it, or after 2000 ms with the current state (logged). Without this, a quiet session's last dropped chunk could be missing from the snapshot meant to repair it.
+- **Snapshots cover what was sent.** `SESSION_SNAPSHOT` records the issued output sequence when the request arrives, and answers once the headless parser has consumed up to it, or after 2000 ms with `snapshot: null` (logged), which sends the client to `SESSION_HISTORY` as a restore-pending session does. A timed-out snapshot must never look complete. Without this, a quiet session's last dropped chunk could be missing from the snapshot meant to repair it.
 
 ## 4. Scheduler (Section 7)
 

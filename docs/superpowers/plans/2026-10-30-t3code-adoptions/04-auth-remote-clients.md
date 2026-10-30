@@ -20,9 +20,8 @@ Task 4.1, shared:
   - `normalizeRecords` (`:15-58`) reads `token: isApiToken(entry.token) ? entry.token : null`;
   - `adoptUid` merge (`:96-104`) keeps `token: source.token ?? existing.token`;
   - `recordFromDiscovered` (`~:112`) sets `token: null`.
-- Modify `packages/shared/src/remote/tunnel-args.ts`: `buildRemoteReadArgs(record: BackendRecord, fileName: string): string[]`. This is the argv of `readRemotePort` (`tunnel-manager.ts:146-156`) with the remote command `cat ~/.config/taskflow/'<fileName>'`, plus Section 3's multiplexing options. If Section 3 already moved that argv into a builder, extend it with the `fileName` parameter instead of adding a second one.
+- `packages/shared/src/remote/tunnel-args.ts`: no change. Section 3 defines `buildRemoteReadArgs(record, fileName)`, which runs `cat ~/.config/taskflow/'<fileName>'` with the port read's options; the token read reuses it.
 - Modify `packages/shared/src/remote/tunnel-manager.ts`:
-  - `readRemotePort` (`:122-176`) calls `runSsh(buildRemoteReadArgs(record, \`${record.instanceId}.port\`))`;
   - new `readRemoteToken(record)` with the same `isSafeLabel` guard, `runSsh(buildRemoteReadArgs(record, \`api-token-${record.instanceId}\`))` and the failure rules below;
   - returned from `createTunnelManager` next to `readRemotePort` (`:609`).
 - Modify `packages/shared/src/remote/backend-registry.ts`:
@@ -32,7 +31,8 @@ Task 4.1, shared:
   - `addBackend` (`:241-275`) validates and stores the token;
   - `attachBackend` (`:307-347`) reads a missing token and returns it;
   - add `refreshToken(id)`;
-  - `attached()` (`:236-238`) returns each record's token.
+  - `attached()` (`:236-238`) returns each record's token;
+  - `BackendPatch` (`:45`) gains `token?: string | null`; `updateBackend` (`:438`) validates a string with `isApiToken` (else `{ ok: false, reason: "That access token is not valid." }`), stores it, or clears it on `null`.
 - Wire `readRemoteToken: tunnels.readRemoteToken` into both registries: `electron/src/main.ts:127-137` and `packages/tui/src/remote/machines.ts:46-55`.
 - Fixtures: every `BackendRecord` literal in tests gains `token: null` (`tunnel-manager.test.ts:31-42`, `tunnel-args.test.ts`, `backend-records.test.ts`, `backend-registry.test.ts`, `machine-session.test.ts`; `grep -rl lastKnownPort packages --include=*.test.ts`). The registry test harness (`backend-registry.test.ts:44-58`) gets `readRemoteToken: async () => ({ token: TOKEN })`.
 
@@ -44,16 +44,14 @@ Task 4.2, Electron and renderer:
   - the `add-backend` input type (`:355-367`) gains `token?: string`.
 - Modify `electron/src/preload.ts` (the backend bridge entries next to `attachBackend`): `refreshBackendToken(id)` and `getLocalApiToken()`.
 - Modify `packages/ui/src/env.d.ts:83-114`: `refreshBackendToken(id: string): Promise<{ ok: boolean }>`, `getLocalApiToken(): Promise<string | null>`, and `addBackend` input `token?: string`.
-- Modify `packages/ui/src/lib/connection.ts`:
-  - `ConnectionHooks` (`:19-23`) gains `onUnauthorized(): void`;
-  - `socket.onclose` (`:114-122`) handles code `WS_CLOSE_UNAUTHORIZED` (below).
-- Modify `packages/ui/src/lib/connection-registry.ts`: `onUnauthorized(handler: (backendId: string) => void): () => void`, one listener set shared by every connection (the `onEvent` pattern, `:152-165`), fed from each `Connection`'s hook with `connection.backendId`.
+- Modify `packages/ui/src/lib/connection.ts`: `socket.onclose` (`:114-122`) handles code `WS_CLOSE_UNAUTHORIZED`, and an `unauthorized` flag makes later requests reject with `BackendUnauthorizedError` (below). No new hook and no registry listener: every `4401` lands on a handshake (see "Desktop" below).
 - Modify `packages/ui/src/stores/backend-store.ts`:
   - `handshake` (`:148-167`) answers `"unauthorized"` instead of patching when the error is a `BackendUnauthorizedError`;
-  - `attach` (`:209-...`) runs the refresh rule;
-  - one module-level `createTokenRefreshGate()`;
-  - an `onUnauthorized` listener next to `onBackendDropped` (`:578`).
+  - one private `recoverUnauthorized(id, attempt)`, called from both `attach` (`:209-...`) and `rehandshake` (`:419-432`) when `handshake` answers `"unauthorized"`;
+  - one module-level `createTokenRefreshGate()`.
 - Modify `packages/ui/src/stores/fake-desktop-bridge.ts`: add `refreshBackendToken` to `FakeMain` and to `bridge`, recording ids in `main.refreshed: string[]`.
+- Modify `electron/src/ipc-handlers.ts` `update-backend` (`:376`) and `packages/ui/src/env.d.ts` `updateBackend` (`:102`): the patch type gains `token?: string | null`.
+- Modify `packages/ui/src/components/sidebar/ManageBackendsDialog.tsx`: the edit form (`:57-61`) gets an "Access token" field (same attributes as the connect dialog), sent as `token` only when the user changed it; an emptied field sends `null`. Extend `ManageBackendsDialog.test.tsx`.
 - Modify `packages/ui/src/components/sidebar/ConnectBackendDialog.tsx`: an "Access token" field under "Backend port" (`:119-128`), passed as `token: token.trim() || undefined` in `addBackend` (`:56-61`).
 - Create `packages/ui/src/components/settings/sections/AccessTokenRow.tsx` + `AccessTokenRow.test.tsx` (style of `AgentAccountsSection.test.tsx`: `createRoot`, `act`). Render it in `GeneralSection` (`sections/GeneralSection.tsx`), right under the "Discoverable on this network" row (see "Planner decisions"). It reuses `SettingRow` and `CopyButton` (`components/ui/copy-button.tsx`).
 
@@ -83,12 +81,11 @@ Task 4.3, TUI:
 **Interfaces:**
 - Consumes from Section 1: `isApiToken`, `WS_CLOSE_UNAUTHORIZED`, the token file name `api-token-<instanceId>`.
 - Consumes from Section 2: `BackendFetch`, `AttachedBackend.token`, `AttachResult.token?`, `openConnection(id, origin, token)`, `getBackendToken()`, the `WsClient` token parameter.
-- **Consumes from Section 3** (assumed; reconcile names when both drafts are merged):
-  - a reconnect loop in `packages/shared/src/remote/` that the TUI machine session (and the desktop, if Section 3 moves it there) runs per remote machine. Each attempt resolves to `{ ok: true } | { ok: false; failure: TunnelFailure }`;
-  - an "on connect failure" hook, given the failure, that can **stop** the loop. That's where TUI's existing stop on `failure.kind === "no-backend"` (`machine-session.ts:428-432`) lives after Section 3.
+- **Consumes from Section 3** (see Planner decision 1 for how this section hooks in):
+  - `createReconnectPolicy` (`packages/shared/src/remote/reconnect-policy.ts`), run by the TUI machine session, and `createBackendReconnects` (`packages/ui/src/lib/backend-reconnect.ts`) on the desktop;
+  - `buildRemoteReadArgs(record, fileName)` in `tunnel-args.ts`.
 
-  This section adds one rule there: **`failure.kind === "unauthorized"` stops the loop**, and the machine shows `failure.message`. A rejected token is not retried on a timer: the refresh below has already run once.
-  - the argv builder for remote file reads in `tunnel-args.ts` (see Files).
+  This section adds one rule: **a token rejected after its one refresh stops the loop**, and the machine shows `Remote backend rejected the access token`. Every other failure, `no-backend` included, keeps retrying (design.md §2).
 - Produces:
 
 ```ts
@@ -111,13 +108,11 @@ attachBackend(id): Promise<{ ok: true; origin: string; token?: string } | { ok: 
 refreshToken(id: string): Promise<{ ok: true; token: string } | { ok: false; failure: TunnelFailure }>;
 attached(): { id: string; origin: string; token?: string }[];
 addBackend(input: { host; user?; sshPort?; port?; instanceId?; token?: string }): Promise<BackendRecord>;
+updateBackend(id, patch: { displayName?; user?; sshPort?; token?: string | null }): Promise<{ ok: boolean; reason?: string }>;
 
 // IPC (main ⇄ renderer)
 "refresh-backend-token"(id) -> { ok: boolean }
 "get-local-api-token"() -> string | null
-
-// packages/ui/src/lib/connection-registry.ts
-function onUnauthorized(handler: (backendId: string) => void): () => void;
 
 // packages/tui/src/net/client.ts
 retarget(port: number, host: string | null, token: string | null): void;
@@ -157,26 +152,26 @@ function parseArgs(argv: string[], env?: { TASKFLOW_TOKEN?: string }): CliOption
 - `authenticated(id)` forgets the id.
 
 **Renderer `Connection` on close code `4401`** (`event.code === WS_CLOSE_UNAUTHORIZED`):
-- the waiting `open()` (`fail`) and every pending request reject with `new BackendUnauthorizedError()`;
+- the server upgrades before it closes, so `open()` has normally resolved already. A still-waiting `open()` (`fail`) and every pending request reject with `new BackendUnauthorizedError()`;
+- `this.unauthorized = true`: until the next successful open, `request()` rejects at once with `new BackendUnauthorizedError()` instead of a generic not-connected error. That covers a handshake request sent just after the close;
 - status becomes `{ connected: false, reconnecting: false }`;
-- **no** `scheduleReconnect`: retrying with the same token can't succeed;
-- `hooks.onUnauthorized()` runs.
+- **no** `scheduleReconnect`: retrying with the same token can't succeed.
 
 Every other close is handled as today.
 
-**Desktop `attach(id)`**, when `handshake` answers `"unauthorized"` (or `openConnection` rejected with `BackendUnauthorizedError`). Check `current()` after every await, as today:
+**Desktop `recoverUnauthorized(id, attempt)`**, called by `attach` and by `rehandshake` when `handshake` answers `"unauthorized"` (or `openConnection` rejected with `BackendUnauthorizedError`). It returns at once unless `attempts.get(id) === attempt` and the machine is still wanted (its row's `keepAttached`), and checks both again after every await. It does not look at the row's `state`: `followSocket` has already patched it `offline` by then (`backend-store.ts:473-476`).
 - `id === LOCAL_BACKEND_ID`: `drop(id)`, `patch(id, { state: "offline", failure: unauthorizedFailure(true) })`, return `null`.
 - Otherwise ask `gate.unauthorized(id)`:
   - `"refresh"`: `await bridge().refreshBackendToken(id)` (the result doesn't matter: a failed read leaves the old token, and the second `4401` decides), then `drop(id)` and `return useBackendStore.getState().attach(id)`. The new attach bumps the attempt and dials with whatever token main now holds.
   - `"reject"`: `drop(id)`, `patch(id, { state: "offline", failure: unauthorizedFailure(false) })`, return `null`.
-- A handshake that succeeds calls `gate.authenticated(id)` (and `gate.authenticated(liveId)` after a rename).
+- A handshake that succeeds calls `gate.authenticated(id)` (and `gate.authenticated(liveId)` after a rename). A socket open alone never does.
 
-**Desktop, a `4401` on a connection that was already attached** (a reconnect after the remote restarted with a new token): the `onUnauthorized` listener calls `retry(id)` only when that machine's row is `"attached"`. A row in `"attaching"` is the attach's own business. `retry` re-runs `attach`, which applies the rule above, so one refresh happens, then a reject.
+**Desktop, a `4401` on a connection that was already attached** (the remote restarted with a new token): the `Connection` redials by itself, the upgrade opens, `followSocket` sees `connected` and runs `rehandshake`, whose `SYSTEM_INFO` rejects with `BackendUnauthorizedError` when the `4401` close arrives. `rehandshake` then calls `recoverUnauthorized`, so one refresh happens, then a reject. No separate listener is needed.
 
-**Desktop reconnect loop** (Section 3): an attempt whose row ends with `failure.kind === "unauthorized"` stops the loop.
+**Desktop reconnect loop** (Section 3): an attempt whose row ends with `failure.kind === "unauthorized"` stops the loop. Any other failure, `no-backend` included, keeps retrying (design.md §2).
 
 **TUI `WsClient` on close code `4401`**: the same as the renderer:
-- `settle(new BackendUnauthorizedError())` and `failPending(new BackendUnauthorizedError())`;
+- `settle(new BackendUnauthorizedError())` (normally a no-op: `onopen` has already settled `connect()`) and `failPending(new BackendUnauthorizedError())`; a `request()` made while the flag is set rejects with `BackendUnauthorizedError`;
 - `this.unauthorized = true`;
 - no `scheduleReconnect`;
 - `setStatus(false)`.
@@ -197,7 +192,7 @@ The retry-once is structural here (one function call), so no gate is needed.
 - `!machine.local && machine.net.wasUnauthorized()` → `this.gate.unauthorized(machine.machineId)`:
   - `"refresh"`: `await registry.refreshToken(id)`, then `scheduleReattach(machine, 0)`. `reattachOnce` retargets with `result.token ?? null`;
   - `"reject"`: `cancelReattach()`, then `setStatus(machine, { state: "offline", reason: ACCESS_TOKEN_REJECTED })`.
-- Going `online` calls `this.gate.authenticated(machine.machineId)`.
+- Going `online` does **not** reset the gate: an unauthorized socket opens before it is closed `4401`. Instead, each time a remote goes `online` the session sends `MSG.SYSTEM_INFO` once; success calls `this.gate.authenticated(machine.machineId)`, and a `BackendUnauthorizedError` leaves the gate as it is, so the next `4401` rejects.
 - A local machine with `wasUnauthorized()` gets `{ state: "offline", reason: LOCAL_ACCESS_TOKEN_REJECTED }`.
 - `connectLocal`'s catch rethrows a `BackendUnauthorizedError` as `new Error(LOCAL_ACCESS_TOKEN_REJECTED)`.
 
@@ -214,7 +209,7 @@ The retry-once is structural here (one function call), so no gate is needed.
 
 Both validate through `addBackend`, so a bad token shows `That access token is not valid.`.
 
-**Settings → Remote: the local token** (`AccessTokenRow`):
+**Settings → General: the local token** (`AccessTokenRow`):
 - only when `window.taskflow` exists. The token is read once through `getLocalApiToken()` in an effect; `null` renders nothing;
 - `SettingRow` label `Access token`, hint `For machines that can't read it over ssh: paste it in their connect dialog`;
 - the value shows as its first 6 characters followed by `…`, plus `<CopyButton value={token} />` copying the whole token;
@@ -227,13 +222,10 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
     - `the gate refreshes once per id, then rejects until authenticated`
     - `ids are independent`
     - `unauthorizedFailure has kind unauthorized and the exact remote and local messages`
-  - `tunnel-args.test.ts`:
-    - `buildRemoteReadArgs reads the named file under ~/.config/taskflow with the port read's options` (single-quoted name, `BatchMode=yes`, host-key options, Section 3's multiplexing options)
   - `tunnel-manager.test.ts`: extend `FAKE_SSH` so a call without `-L` logs its last argument and prints `process.env.FAKE_SSH_CAT_OUTPUT`, exiting with `FAKE_SSH_CAT_CODE` (default 0). Tests:
     - `readRemoteToken cats api-token-<instanceId> and returns a valid token`
     - `readRemoteToken reports no-backend with the exact message when cat fails`
     - `readRemoteToken refuses content that is not a token`
-    - `readRemotePort uses the same builder` (the logged command is `cat ~/.config/taskflow/'main.port'`)
   - `backend-records.test.ts`:
     - `normalizeRecords keeps a valid token and drops an invalid one`
     - `adoptUid keeps the source token, else the existing one`
@@ -256,29 +248,33 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
 
 - [ ] **Step 1:** Tests, each UI file run on its own from the repo root:
   - `connection-registry.test.ts` (the test server closes with 4401: give `startTestServer` an option `rejectAll?: boolean` that upgrades and then calls `ws.close(4401, "unauthorized")` on open):
-    - `a 4401 close rejects open with BackendUnauthorizedError`
+    - `a 4401 close after open rejects the pending request with BackendUnauthorizedError` (send a request in the open callback, before the close)
+    - `after a 4401 close a new request rejects with BackendUnauthorizedError`
     - `a 4401 close does not reconnect`
-    - `onUnauthorized hears the backend id`
   - `backend-store.test.ts` (its `startBackend` gains `accept?: (protocolHeader: string | null) => boolean`; refused sockets close 4401 on open):
     - `a remote attach refused with 4401 refreshes the token once and attaches with the new one` (the second `main.attachBackend` answer carries the accepted token)
     - `a remote attach refused twice ends offline with "Remote backend rejected the access token" and kind unauthorized`
     - `a local attach refused with 4401 ends offline with "The local backend rejected the access token" and no refresh`
     - `a successful handshake re-arms the refresh for a later 4401`
-    - `a 4401 on an attached machine re-runs attach`
+    - `a remote that restarts with a new token while attached refreshes once through rehandshake and reattaches` (restart the fake backend accepting only the new token; the real `followSocket` path drives it)
+    - `a refreshed token that is still wrong ends offline after exactly one refresh` (live path; `main.refreshed` has one entry)
+    - `a detached machine's late 4401 starts no refresh`
+  - `ManageBackendsDialog.test.tsx`: `editing the access token sends it; emptying it sends null`
+  - `backend-registry.test.ts` (Task 4.1): `updateBackend stores a new token, clears it on null and rejects an invalid one`
   - `AccessTokenRow.test.tsx`:
     - `shows the first six characters and copies the full token`
     - `renders nothing without the desktop bridge or without a token`
   - `ConnectBackendDialog`: no test file exists; Step 5 checks it by hand.
 - [ ] **Step 2:** Run them. Expected: FAIL.
-- [ ] **Step 3:** Implement the IPC handlers, preload, `env.d.ts`, `connection.ts`, `connection-registry.ts`, `backend-store.ts`, the fake bridge, `ConnectBackendDialog.tsx`, `AccessTokenRow.tsx` and its use in `GeneralSection.tsx`. Add the "unauthorized stops the loop" rule to Section 3's desktop loop hook.
-- [ ] **Step 4:** Run the Step 1 files and `hard-switch.test.ts` one by one; `cd packages/ui && bun run typecheck`; `cd electron && bun run typecheck && bun run build`. Expected: PASS.
+- [ ] **Step 3:** Implement the IPC handlers, preload, `env.d.ts`, `connection.ts`, `backend-store.ts`, the fake bridge, `ConnectBackendDialog.tsx`, `ManageBackendsDialog.tsx`, `AccessTokenRow.tsx` and its use in `GeneralSection.tsx`. Make `isWanted` false for a row whose failure is `unauthorized` (decision 1).
+- [ ] **Step 4:** Run the Step 1 files, `ManageBackendsDialog.test.tsx` and `hard-switch.test.ts` one by one; `cd packages/ui && bun run typecheck`; `cd electron && bun run typecheck && bun run build`. Expected: PASS.
 - [ ] **Step 5:** Commit `feat(ui): token refresh after 4401, manual token entry and the local token in Settings`.
 
 ## Task 4.3: TUI
 
 - [ ] **Step 1:** Tests:
   - `client.test.ts` (a `Bun.serve` that closes 4401 on open, and one that accepts only a given `authorization`):
-    - `a 4401 close rejects connect with BackendUnauthorizedError and does not redial`
+    - `a 4401 close after open rejects the pending request with BackendUnauthorizedError and does not redial`
     - `wasUnauthorized is set by a 4401 and cleared by the next successful open`
     - `retarget with a new token redials an unauthorized client and sends the new token`
   - `connect.test.ts`:
@@ -288,7 +284,10 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
   - `machine-session.test.ts`:
     - `a live 4401 on a remote refreshes once and reattaches with the token the attach returns`
     - `a second live 4401 shows "Remote backend rejected the access token" and stops reattaching`
-    - `an unauthorized attach failure stops the reconnect loop` (Section 3's hook)
+    - `a refreshed token that is still wrong is refused after exactly one refresh` (the socket opens before each `4401`; `refreshToken` is called once)
+    - `the gate re-arms only after SYSTEM_INFO succeeds`
+    - `a rejected token stops the reconnect policy`
+    - `a stopped remote backend (no-backend) keeps retrying after Section 4` (Section 3's regression test still passes)
     - `a local 4401 shows "The local backend rejected the access token"`
   - `cli.test.ts`:
     - `--token and --token= set the connect token`
@@ -311,16 +310,15 @@ Both validate through `addBackend`, so a bad token shows `That access token is n
   - `backends.json` (desktop `userData`, TUI state dir) holds the token and is `-rw-------`.
 - [ ] **Step 2:** Delete the remote's `api-token-<instanceId>` and restart it. Report-only mode sends no `4401`, so the clients keep the stale token. The remote's stderr shows one `(credential)` line per client kind, which proves a stale token is detected. Remove and re-add the record, and check that `backends.json` now holds the fresh token. The refresh after `4401` is pinned by the tests and checked live in Section 5.
 - [ ] **Step 3:** `taskflow-tui --connect 127.0.0.1:<tunnel port> --token "$(ssh <host> cat ~/.config/taskflow/api-token-main)"` connects with no report line.
-- [ ] **Step 4:** Settings → Remote Agent shows the local token, and Copy puts the full token on the clipboard.
+- [ ] **Step 4:** Settings → General (under "Discoverable on this network") shows the local token, and Copy puts the full token on the clipboard.
 
 ## Planner decisions (2026-10-30)
 
 1. **Section 3's interface, reconciled.** Section 3 provides `createReconnectPolicy({ attempt(): Promise<boolean>, schedule?, random? })` with `start / retryNow / setConnected / stop` in `packages/shared/src/remote/reconnect-policy.ts` (a pure subpath the renderer can import), and the desktop's `createBackendReconnects({ isWanted(id), attempt(id), … })` in `packages/ui/src/lib/backend-reconnect.ts`, which runs in the renderer. There is no failure hook. Instead:
-   - **TUI:** the TUI adapter's `attempt` calls `policy.stop()` and returns `false` when the attach failure is `no-backend` or `unauthorized`. Today's `no-backend` stop moves there.
+   - **TUI:** no attach failure kind stops the policy. `no-backend` keeps retrying, as Section 3 made it (design.md §2). A token rejected after its one refresh stops it: the live-`4401` `"reject"` branch calls the policy's `stop()` (through `cancelReattach`).
    - **Desktop:** a row whose failure is `unauthorized` is not wanted: `isWanted(id)` returns `false` for it, so `createBackendReconnects` drops it. A later manual Retry or a token edit makes it wanted again.
-   - The remote-read argv is this section's `buildRemoteReadArgs` in `tunnel-args.ts`. It reuses Section 3's multiplexing options from the same file.
-   Wherever this section says "Section 3's hook", use these instead. The test `an unauthorized attach failure stops the reconnect loop` stays.
+   - The remote-read argv is Section 3's `buildRemoteReadArgs(record, fileName)` in `tunnel-args.ts`.
 2. **The local token is shown in Settings → General**, under "Discoverable on this network", through the `AccessTokenRow` component. Don't put it in `RemoteSection.tsx`, which is the Claude remote-agent pane and only shows when Claude is installed. `design.md` and Section 13 are amended.
 3. A local `4401` shows `The local backend rejected the access token`.
-4. **The saved token is editable:** add `token` to `updateBackend` and to the machine's edit dialog. Tests: `updateBackend stores a new token`, `editing the token of an unauthorized machine makes it wanted again`.
+4. **The saved token is editable** on the desktop: `updateBackend` takes `token` and `ManageBackendsDialog` edits it (Task 4.1, 4.2 files). Tests as listed there, plus `editing the token of an unauthorized machine makes it wanted again` in `backend-store.test.ts`. The TUI only renames machines today; it gets no token edit (remove and re-add).
 5. A remote without a readable token costs one failing ssh `cat` per attach. That's accepted.
