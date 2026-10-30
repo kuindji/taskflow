@@ -294,6 +294,12 @@ describe("BrowserTabService", () => {
         expect(service.tabIdForTarget("first")).toBeNull();
         expect(service.tabIdForTarget("second")).toBe("child");
     });
+    it("heartbeat keeps the known url while the view reports none (first load pending)", async () => {
+        await seed(saved("root"));
+        heartbeat([{ tabId: "root", targetId: "target", url: "" }]);
+        expect(service.get("root")?.url).toBe(saved("root").url);
+        expect((await store.list())[0]?.url).toBe(saved("root").url);
+    });
     it("heartbeat updates url and title of loaded tabs and persists saved ones", async () => {
         await seed(saved("root"));
         heartbeat([

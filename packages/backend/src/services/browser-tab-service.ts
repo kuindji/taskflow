@@ -339,9 +339,11 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
                     if (wasLoaded) tabGone(tab.id);
                     continue;
                 }
-                const changed = tab.url !== entry.url || tab.title !== entry.title;
+                // A view whose first load hasn't committed reports no url yet.
+                const url = entry.url || tab.url;
+                const changed = tab.url !== url || tab.title !== entry.title;
                 tab.loaded = true;
-                tab.url = entry.url;
+                tab.url = url;
                 tab.title = entry.title;
                 setTarget(tab.id, entry.targetId);
                 if (changed && !tab.parentId) {
