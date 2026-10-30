@@ -93,3 +93,21 @@ it("a save replaces the file by rename, so an unlocked reader never sees it trun
     expect((await readdir(dir)).sort()).toEqual(["schedules.json"]);
     expect((await store.getById("s1"))?.name).toBe("Renamed");
 });
+
+it("a read issued during a save waits for it, whatever the filesystem's write fallback", async () => {
+    const original = await store.getById("s1");
+    if (!original) throw new Error("seed schedule missing");
+    const saving = store.save({ ...original, id: "s2" });
+    const read = store.getAll();
+    await saving;
+    expect((await read).map((s) => s.id)).toEqual(["s1", "s2"]);
+});
+
+it("getById issued during a save waits for it", async () => {
+    const original = await store.getById("s1");
+    if (!original) throw new Error("seed schedule missing");
+    const saving = store.save({ ...original, id: "s2" });
+    const read = store.getById("s2");
+    await saving;
+    expect((await read)?.id).toBe("s2");
+});

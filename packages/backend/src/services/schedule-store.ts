@@ -11,8 +11,10 @@ class ScheduleStore {
 
     constructor(private schedulesFile: string) {}
 
+    // Reads queue behind writes: under a File Provider mount writeJsonAtomic
+    // falls back to an in-place write, which a concurrent read could see torn.
     async getAll(): Promise<Schedule[]> {
-        return (await this.readJsonFile<Schedule[]>(this.schedulesFile)) ?? [];
+        return await this.withMutation("schedules", () => this.readAll());
     }
 
     async getById(id: string): Promise<Schedule | null> {
@@ -27,7 +29,7 @@ class ScheduleStore {
 
     async save(schedule: Schedule): Promise<void> {
         await this.withMutation("schedules", async () => {
-            const schedules = await this.getAll();
+            const schedules = await this.readAll();
             const index = schedules.findIndex((s) => s.id === schedule.id);
             if (index >= 0) {
                 schedules[index] = schedule;
@@ -40,7 +42,7 @@ class ScheduleStore {
 
     async delete(id: string): Promise<void> {
         await this.withMutation("schedules", async () => {
-            const schedules = await this.getAll();
+            const schedules = await this.readAll();
             const filtered = schedules.filter((s) => s.id !== id);
             await writeJsonAtomic(this.schedulesFile, filtered);
         });
@@ -48,7 +50,7 @@ class ScheduleStore {
 
     async update(id: string, updater: (schedule: Schedule) => Schedule): Promise<Schedule> {
         return await this.withMutation("schedules", async () => {
-            const schedules = await this.getAll();
+            const schedules = await this.readAll();
             const index = schedules.findIndex((s) => s.id === id);
             if (index < 0) throw new Error(`Schedule not found: ${id}`);
             schedules[index] = updater(schedules[index]);
@@ -71,6 +73,10 @@ class ScheduleStore {
             return { ...proposed, nextRunAt: timingChanged ? null : current.nextRunAt };
         });
         return { schedule, timingChanged };
+    }
+
+    private async readAll(): Promise<Schedule[]> {
+        return (await this.readJsonFile<Schedule[]>(this.schedulesFile)) ?? [];
     }
 
     private async readJsonFile<T>(filePath: string): Promise<T | null> {
