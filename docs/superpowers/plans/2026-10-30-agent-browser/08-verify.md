@@ -12,6 +12,8 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
    - Task B opens its own tab.
    - From A's endpoint: `getTargets`, `context.pages()` and an `attachToTarget` with B's targetId (read it from B's `/json/list`) all fail or show nothing of B's. Neither the Taskflow UI nor B is listed.
    - `browser.close()` from A's client leaves the app and both tabs alive.
+   - On A's page session (a raw `CDPSession` from Playwright), `Tracing.start` and `ServiceWorker.stopAllWorkers` fail with `Not allowed by Taskflow: <method>`.
+   - Named popups: B's page runs `window.open(url, "oauth")`, then A's page runs `window.open(otherUrl, "oauth")`. A's call opens nothing (it returns `null`), and B's popup keeps its URL. A second `window.open(..., "oauth")` from B reuses B's popup.
 3. **Background.** While a client is clicking and taking screenshots in a loop on A:
    - the user is on task B;
    - the user is then on A's other tabs;

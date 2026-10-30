@@ -304,3 +304,7 @@ the viewer are the same app.
    - Popup preferences (partition aside: preload, `backgroundThrottling: false`) go through `overrideBrowserWindowOptions`, because Electron fixes a guest's preferences before `createWindow` runs.
    - A plain `target=_blank` popup has no `window.opener` (implicit noopener). That is correct behaviour, not a failure.
    - **Endpoint stability:** the backend binds an OS-assigned port, so after an app restart a tab keeps its id and its `/cdp/<tabId>` path, but the port can change. Agents rediscover the endpoint with `taskflow-cli browser list`.
+9. **CDP filter boundary and popup names (plan review round 3).**
+   - Page sessions are a domain allowlist, not default-forward. Chromium's page sessions also carry `Tracing` (which traces the browser and GPU processes) and `ServiceWorker` (which acts on every worker in the partition). The boundary: effects inside the shared `persist:browser` partition are accepted, as with logins; effects on the browser or GPU process, the app's session, or other tasks' live tabs are not. Puppeteer's `page.tracing` therefore doesn't work through the endpoint.
+   - Electron reuses a named popup (`window.open(url, name)`) across the whole process, before any ownership check. A popup name belongs to the family that opened it; another family's `window.open` with that name is refused.
+   - Host events are retried until the backend answers, because a lost `closed` event can't be inferred from the heartbeat (unloaded tabs are absent too).

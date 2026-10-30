@@ -75,7 +75,10 @@ function createCdpGateway(deps: {
 3. **Context-scoped commands, at any level** (`Browser.setDownloadBehavior`, `Browser.setPermission`, `Browser.grantPermissions`, `Browser.resetPermissions`, `Storage.getCookies`, `Storage.setCookies`, `Storage.clearCookies`, plus any the spike found): handled the way the spike recorded. The default is: when `browserContextId` is missing, set it to `deps.browserContextId`; when it is another context, error. If `deps.browserContextId` is null, error. Chromium's `BrowserHandler` also runs on page sessions (`render_frame_devtools_agent_host.cc`) and picks the default context, the app's, when the id is omitted, so a page session gets no exemption.
 4. **The rest of the `Browser` and `SystemInfo` domains, at any level:** forward only `Browser.getVersion`, `Browser.getWindowForTarget` with an allowed `targetId` (or none, on an allowed session), `SystemInfo.getInfo`, plus the spike's recorded methods that pass the rule above. Everything else is an error: `Browser.crash`, `Browser.crashGpuProcess`, `Browser.close`, `Browser.cancelDownload`, `Browser.getHistograms`, `Browser.getBrowserCommandLine`, and any unknown `Browser.*`.
 5. **Browser level, everything else** (no `sessionId`): forward only methods on the browser-level allowlist (rules 2–4 plus the spike's recorded browser-level methods that pass the rule above). Everything else is an error, `Tracing.*` included.
-6. **On an allowed session, everything else:** forward. Rules 2–4 have already taken every domain that reaches beyond the page.
+6. **On an allowed session, everything else:** a domain allowlist, default deny. Chromium puts browser-reaching handlers on page sessions too (`render_frame_devtools_agent_host.cc`: `TracingHandler` traces the browser and GPU processes, `ServiceWorkerHandler` acts on the whole partition's workers and reports other pages' target ids), so a known `sessionId` proves nothing.
+   - **Boundary:** effects inside the shared `persist:browser` partition are accepted (the spec's non-goal "per-task login isolation"), e.g. `Network.clearBrowserCookies`. Effects on the browser or GPU process, the app's own session, or other tasks' live targets are not.
+   - **Forwarded domains:** `Accessibility`, `Animation`, `Audits`, `Autofill`, `CSS`, `CacheStorage`, `Console`, `DOM`, `DOMDebugger`, `DOMSnapshot`, `DOMStorage`, `Debugger`, `DeviceAccess`, `DeviceOrientation`, `Emulation`, `EventBreakpoints`, `FedCm`, `Fetch`, `HeapProfiler`, `IO`, `IndexedDB`, `Input`, `Inspector`, `LayerTree`, `Log`, `Media`, `Network`, `Overlay`, `Page`, `Performance`, `PerformanceTimeline`, `Preload`, `Profiler`, `Runtime`, `Schema`, `Security`, `WebAudio`, `WebAuthn`. Plus `Storage.getStorageKeyForFrame`, and the spike's recorded session-level methods that pass the boundary (add each to the table with its reason).
+   - **Everything else is an error**, including `Tracing.*`, `ServiceWorker.*`, `Memory.*`, `BackgroundService.*`, `PWA.*`, `Extensions.*`, `Cast.*`, `Tethering.*`, the rest of `Storage.*`, and any unknown domain. Puppeteer's `page.tracing` fails as a result; that is a documented limitation (spec amendment 9).
 7. **Replies made by the filter** (intercept results and errors) go through one helper that copies the request's `id` and, when present, its `sessionId`. Clients route replies by `sessionId` (Playwright's `crConnection.ts`), so a reply without it hangs the caller. Errors are `{ id, sessionId?, error: { code: -32000, message: "Not allowed by Taskflow: <method>" } }`.
 
 **Upstream → client**
@@ -132,6 +135,11 @@ function createCdpGateway(deps: {
   - `Browser.setPermission on an allowed page session naming another browserContextId is refused`
   - `setDownloadBehavior without browserContextId gets the tabs' context injected`
   - `Storage.getCookies naming another browserContextId is refused`
+  - `Tracing.start on an allowed page session is refused with that sessionId`
+  - `ServiceWorker.enable and ServiceWorker.stopAllWorkers on an allowed page session are refused`
+  - `Memory.simulatePressureNotification on an allowed page session is refused`
+  - `a method of an unknown domain on an allowed session is refused`
+  - `Page.navigate and Runtime.evaluate on an allowed session are forwarded`
   - `createTarget calls openChild and replies with its targetId`
   - `closeTarget on T-child calls closeTarget and is not forwarded`
   - `closeTarget on T-other is refused`

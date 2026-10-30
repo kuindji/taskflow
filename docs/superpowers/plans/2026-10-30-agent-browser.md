@@ -197,7 +197,7 @@ interface TaskflowBrowserBridge {
     back(tabId: string): Promise<void>;
     forward(tabId: string): Promise<void>;
     reload(tabId: string): Promise<void>;
-    freeze(tabId: string): Promise<string>; // PNG data URL of the page; the view is hidden until the next show()
+    freeze(tabId: string): Promise<string>; // PNG data URL of the page ("" when the tab has no view); the view is hidden until the next show()
     onNavState(cb: (tabId: string, s: { canGoBack: boolean; canGoForward: boolean }) => void): () => void;
 }
 ```
@@ -280,3 +280,9 @@ interface TaskflowBrowserBridge {
   - The gateway reaches the `/json` routes through `ApiRouteDeps.cdpGateway`.
   - Endpoints keep their path, not their port, across an app restart (spec Amendment 8).
   - `TabHost.show` emits `navState`.
+- Round 3 (gpt-6.1-sol): 1 blocker, 3 majors, 1 minor confirmed (`reviews/round-3-triage.md`). Changes:
+  - CDP filter: page sessions get a domain allowlist (default deny); `Tracing`, `ServiceWorker`, `Memory` and other browser-reaching domains are refused (spec Amendment 9).
+  - Popups: `TabHost` owns popup frame names per family and the open handler denies cross-family name reuse (Electron's process-wide name map).
+  - `TabHost` visibility generations, so a stale `show` or `freeze` can't override a newer hide or show; a creation that finishes after `close` is destroyed.
+  - The host link retries an event that got no HTTP response, so a lost `closed` can't leave a dead tab behind.
+  - `isWebContents` predicate for the guest guard; closure via `destroyed` only.

@@ -10,7 +10,10 @@ The Electron-free logic lives in pure modules with tests (`bun test electron/src
 - `chrome-user-agent.ts` + `chrome-user-agent.test.ts`: `toChromeUserAgent(ua: string): string`. It strips `Electron/x` and `Taskflow/x` tokens; the rule moves from `BrowserPane.tsx:11-13` (Section 6 deletes the renderer copy).
 - `tab-host.ts` + `tab-host.test.ts`: `TabHost`, the view registry over an injected `ViewFactory` (below).
 - `control-server.ts` + `control-server.test.ts`: `startControlServer(tabHost): Promise<{ url: string; close(): void }>`. A Node `http` server on `127.0.0.1:0` with `POST /tabs/ensure` and `POST /tabs/close`. Bad JSON returns 400; an unknown path returns 404.
-- `backend-link.ts` + `backend-link.test.ts`: `createBackendLink(deps)`. Every 5000 ms it `PUT`s the heartbeat to `<backendOrigin(getBackendPort())>/api/browser/host`, and it `POST`s events to `/api/browser/host/events`. Failures are swallowed (the next heartbeat repairs state). `flush()` sends a heartbeat now; it is called whenever the loaded set changes. All posts (heartbeats and events) go out one at a time, in call order, on one queue, so an event is never overtaken by a later heartbeat.
+- `backend-link.ts` + `backend-link.test.ts`: `createBackendLink(deps)`. Every 5000 ms it `PUT`s the heartbeat to `<backendOrigin(getBackendPort())>/api/browser/host`, and it `POST`s events to `/api/browser/host/events`. `flush()` sends a heartbeat now; it is called whenever the loaded set changes. All posts (heartbeats and events) go out one at a time, in call order, on one queue, so an event is never overtaken by a later heartbeat. Failures:
+  - a heartbeat that fails is dropped; the next one replaces it;
+  - an event that fails **without an HTTP response** (backend down or restarting) stays at the head of the queue. Nothing behind it is sent; each tick retries it first. The heartbeat can't repair a lost event: a tab missing from `loaded` is only unloaded, never closed, because lazy tabs are missing too;
+  - an event answered with any HTTP status is done, so the backend can't wedge the queue.
 - `electron-views.ts`: the real `ViewFactory`, built on `WebContentsView`. No unit test.
 - `index.ts`: `initBrowserHost({ getBackendPort, getMainWindow })`. It composes everything and registers the IPC handlers.
 - Modify `electron/src/main.ts`:
@@ -61,15 +64,26 @@ class TabHost {
     forward(tabId: string): void;
     reload(tabId: string): void;
     detachAll(): void;
-    freeze(tabId: string): Promise<string>; // capture, then hide
+    freeze(tabId: string): Promise<string>; // capture, then hide; "" when the tab has no view
     loaded(): { tabId: string; targetId: string; url: string; title?: string; parentId?: string }[];
     // the factory's glue calls these:
     reportNavigated(tabId: string): void;
-    reportChildOpened(parentId: string, view: HostedView): string; // assigns a new tabId (randomUUID), registers it, returns the id
+    mayOpenNamed(parentId: string, frameName: string): boolean; // see "Popup names"
+    reportChildOpened(parentId: string, view: HostedView, frameName: string): string; // assigns a new tabId (randomUUID), registers it and its frame name, returns the id
     reportClosed(tabId: string): void;
 }
 type Bounds = { x: number; y: number; width: number; height: number };
 ```
+
+**Visibility ordering.** `show` and `freeze` await (creation, capture), so an older call can finish after a newer one. `TabHost` keeps a per-tab visibility generation:
+- `show`, `hide` and `freeze` bump the tab's generation; `detachAll` and `close` bump every affected tab's.
+- After its await, `show` attaches the view only if its generation is still current. `freeze` returns the image either way, but hides only if its generation is still current.
+- `hide` of a tab whose creation is pending records the hidden state, so the pending `show` doesn't attach it.
+- A creation that finishes after `close` destroys the new view and doesn't register it; the waiting `ensure` rejects.
+
+**Popup names.** Electron 33 keeps one process-wide frame-name map (`guest-window-manager.ts` `frameNamesToWindow`) and, before `createWindow` runs, navigates any existing popup with the requested name. Nothing checks the opener, so a page in A's family could navigate B's named popup.
+- `TabHost` maps each non-empty popup `frameName` to the family root of the tab that opened it (from `reportChildOpened`), and frees the name in `reportClosed`.
+- `mayOpenNamed(parentId, frameName)` is `true` for an empty name, a free name, or a name owned by the parent's own family; `false` otherwise.
 
 ## Real view factory rules (`electron-views.ts`)
 
@@ -81,14 +95,14 @@ type Bounds = { x: number; y: number; width: number; height: number };
 - **User agent:** `setUserAgent(toChromeUserAgent(app.userAgentFallback))`.
 - **Initial size:** 1280×800 until first shown. Apply the spike's hidden-rendering method.
 - **`targetId`:** `debugger.attach("1.3")`, then `Target.getTargetInfo`, then `detach()`. This runs once, at creation.
-- **Popups:** `setWindowOpenHandler` returns `{ action: "allow", overrideBrowserWindowOptions: { webPreferences: <the shared tab prefs above> }, createWindow }`. Electron fixes a guest's preferences from `overrideBrowserWindowOptions` before `createWindow` runs, so this is the only place the preload and `backgroundThrottling: false` reach guest popups. Keep the prefs in one builder used by both. `createWindow` handles both of Electron's paths, as the spike recorded:
-  - **with a guest:** wrap it in `new WebContentsView({ webContents })` and return that same `webContents` (Electron throws on any other). `BrowserWindowConstructorOptions` doesn't declare `webContents`, and on the no-guest path the key is present with `undefined`. So the type guard checks the value too: `"webContents" in options`, then a non-null check on the narrowed read. No `as any`.
+- **Popups:** if `!tabHost.mayOpenNamed(parentTabId, details.frameName)`, `setWindowOpenHandler` returns `{ action: "deny" }`. Otherwise it returns `{ action: "allow", overrideBrowserWindowOptions: { webPreferences: <the shared tab prefs above> }, createWindow }`. Electron fixes a guest's preferences from `overrideBrowserWindowOptions` before `createWindow` runs, so this is the only place the preload and `backgroundThrottling: false` reach guest popups. Keep the prefs in one builder used by both. `createWindow` handles both of Electron's paths, as the spike recorded:
+  - **with a guest:** wrap it in `new WebContentsView({ webContents })` and return that same `webContents` (Electron throws on any other). `BrowserWindowConstructorOptions` doesn't declare `webContents`, and on the no-guest path the key is present with `undefined`. An `in` check plus a null check narrows only to `{}` (TS2740 on 33.4.11), so read it as `const guest = "webContents" in options ? options.webContents : undefined` and test it with a real predicate, `isWebContents(value: unknown): value is WebContents`: an object with a numeric `id` where `webContents.fromId(value.id) === value`. No `as any`.
   - **without a guest:** create a view with the shared prefs and `loadURL(details.url, { httpReferrer: details.referrer, postData: details.postBody?.data, extraHeaders })`. `extraHeaders` is `content-type: <contentType>` plus `; boundary=<boundary>` when `postBody` has one, built by a pure `postBodyHeaders(postBody)` in `post-body-headers.ts` (+ test).
 
-  Either way, call `tabHost.reportChildOpened(parentTabId, view)` and return the view's `webContents`.
+  Either way, call `tabHost.reportChildOpened(parentTabId, view, details.frameName)` and return the view's `webContents`.
 - **Navigation events:** `did-navigate`, `did-navigate-in-page` and `page-title-updated` call `reportNavigated` and emit `navState`.
 - **`show` emits `navState` too.** `TabHost.show` fires `events.navState(tabId, view.navState())` after showing, so a remounted toolbar (task switch, renderer reload) gets the current history state of an already loaded view.
-- **Closing:** `destroyed`, a `render-process-gone` that can't reload, and the page's own `window.close()` (`close` event) all call `reportClosed`.
+- **Closing:** `destroyed` and a `render-process-gone` that can't reload call `reportClosed`. The page's own `window.close()` is covered by `destroyed`: Electron's `CloseContents` emits `close` and then destroys the contents. Don't listen for `close`; 33.4.11's typings don't declare it (TS2769).
 - **Bounds:** the renderer sends CSS pixels relative to the window content. Multiply by `mainWindow.webContents.getZoomFactor()` before `setBounds`.
 - **`appTargetIds`:** the main window's own targetId, found by the same debugger method on `mainWindow.webContents`.
 
@@ -129,6 +143,14 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `detachAll hides every view without destroying any`
   - `navigate, back, forward and reload delegate to the view; an unknown tab is a no-op`
   - `loaded lists tabId, targetId, url, title and the parentId of children`
+  - `hide during a pending show: the view is created but never shown`
+  - `show during a pending freeze capture: the freeze returns its image and the view stays shown`
+  - `detachAll during a pending show: the view is not shown`
+  - `close during a pending creation destroys the new view, leaves it out of loaded, and rejects ensure`
+  - `freeze of a tab with no view returns an empty string`
+  - `mayOpenNamed allows an empty name, a free name, and a name owned by the same family`
+  - `mayOpenNamed refuses a name owned by another family`
+  - `reportClosed of the named child frees its name`
 - [ ] **Step 3:** `control-server.test.ts`, against a fake `TabHost`:
   - `POST /tabs/ensure returns {targetId}`
   - `POST /tabs/close returns {ok:true}`
@@ -141,8 +163,10 @@ type Bounds = { x: number; y: number; width: number; height: number };
   - `uses the current backend port on each tick`
   - `flush sends a heartbeat immediately`
   - `event POSTs to /api/browser/host/events`
-  - `fetch failures are swallowed`
+  - `a failed heartbeat is dropped, not retried`
   - `an event posted before a flush reaches fetch before that heartbeat`
+  - `an event that fails without a response is retried on the next tick, before that tick's heartbeat`
+  - `an event answered with HTTP 500 is not retried`
 - [ ] **Step 4:** Run `bun test electron/src/browser-host`. Expected: FAIL.
 - [ ] **Step 5:** Implement the pure modules.
 - [ ] **Step 6:** Run them. Expected: PASS.

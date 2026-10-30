@@ -72,7 +72,7 @@ Also record:
 - How to read the debug port (file path and format), confirmed.
 - How hidden views render: removed from the window, or a parked hidden window.
 - Whether `createWindow` with `options.webContents` keeps `window.opener` for `WebContentsView` popups, and whether `overrideBrowserWindowOptions` applied the preload and `backgroundThrottling` to guest popups.
-- Every CDP method each client sent at connect and during the criteria, with the allow/deny/intercept/rewrite decision each one needs, split into browser level and session level. Section 4 turns this list into its table. Browser-level methods that aren't on it are denied.
+- Every CDP method each client sent at connect and during the criteria, with the allow/deny/intercept/rewrite decision each one needs, split into browser level and session level. Section 4 turns this list into its table. Browser-level methods that aren't on it are denied; session-level methods outside Section 4's domain allowlist are denied unless this list records them and they pass its boundary (rule 6).
 - The `browserContextId` of the tabs and of the app window, and the handling of context-scoped commands.
 - Which `createWindow` path each popup kind takes.
 - How `Target.createTarget` behaves under Electron, and the chosen handling (intercept to `openChild` is the plan's default).
