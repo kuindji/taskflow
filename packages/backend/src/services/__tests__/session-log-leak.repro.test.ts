@@ -80,6 +80,7 @@ test("archiving a task with a live shell session deletes the session's log", asy
     } as unknown as PtyManager;
     const noop = () => undefined;
     const lifecycle = createSessionLifecycle({
+        apiToken: "test-token",
         ptyManager,
         taskStore: store,
         settingsStore: {} as SettingsStore,

@@ -209,7 +209,11 @@ async function fixture(
     const gateway = createCdpGateway({ service });
     const apiRouter = new ApiRouter();
     registerBrowserRoutes({ apiRouter, browserTabService: service, cdpGateway: gateway });
-    const backend = createServer(new Router(), 0, apiRouter, gateway);
+    const backend = createServer(new Router(), 0, apiRouter, gateway, {
+        token: "A".repeat(43),
+        allowedOrigins: new Set(["file://", "null"]),
+        enforce: false,
+    });
     const running = await backend.start();
     cleanups.push(() => running.stop());
     const origin = `http://127.0.0.1:${running.port}`;

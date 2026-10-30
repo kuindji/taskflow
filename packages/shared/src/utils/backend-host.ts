@@ -48,4 +48,4 @@ function backendHttpOrigin(port: number): string {
     return `http://${hostForUrl(resolveBackendHost())}:${String(port)}`;
 }
 
-export { resolveBackendHost, hostForUrl, backendHttpOrigin };
+export { resolveBackendHost, hostForUrl, backendHttpOrigin, isLoopback };

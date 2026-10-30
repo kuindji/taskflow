@@ -80,6 +80,7 @@ function isAutonomousAgent(
 }
 
 interface SessionLifecycleDeps {
+    apiToken: string;
     ptyManager: PtyManager;
     taskStore: TaskStore;
     settingsStore: SettingsStore;
@@ -184,6 +185,7 @@ function getDefaultSessionLabel(
 
 function createSessionLifecycle(deps: SessionLifecycleDeps) {
     const {
+        apiToken,
         ptyManager,
         taskStore,
         settingsStore,
@@ -542,6 +544,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             // Not `localhost`: the backend may be bound to `::1`, which `localhost`
             // does not reach on a host that resolves the name to IPv4 only.
             TASKFLOW_API_URL: backendHttpOrigin(getPort()),
+            TASKFLOW_API_TOKEN: apiToken,
             TASKFLOW_SESSION_ID: sessionId,
         };
         if (task) taskflowEnv.TASKFLOW_TASK_ID = task.id;

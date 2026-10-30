@@ -7,6 +7,7 @@ import type { MarkdownWidth } from "./types/settings";
  * changes.
  */
 export const PROTOCOL_VERSION = 1;
+export const WS_CLOSE_UNAUTHORIZED = 4401;
 
 /** LAN discovery. TTL 1 keeps announcements on the local subnet. */
 export const DISCOVERY_GROUP = "239.255.42.98";

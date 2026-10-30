@@ -151,6 +151,7 @@ describe("session handlers", () => {
         });
         settingsStore = new SettingsStore(join(tempDir, "settings.json"));
         sessionLifecycle = createSessionLifecycle({
+            apiToken: "test-token",
             ptyManager: ptyManager as never,
             taskStore: store,
             settingsStore,
@@ -184,6 +185,18 @@ describe("session handlers", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("every spawned session's env carries TASKFLOW_API_TOKEN next to TASKFLOW_API_URL", async () => {
+        const task = await store.createTask({ projectId, title: "Shell", description: "" });
+        await sessionLifecycle.createSession({
+            owner: { taskId: task.id },
+            type: "shell",
+            shell: testShell,
+        });
+        const spawn = ptyManager.spawns.at(-1)!;
+        expect(spawn.env?.TASKFLOW_API_TOKEN).toBe("test-token");
+        expect(spawn.env?.TASKFLOW_API_URL).toBeTruthy();
     });
 
     it("deletes output that was still being written when the session exited", async () => {
@@ -755,6 +768,7 @@ describe("session handlers", () => {
                 markReleased = resolve;
             });
             const lifecycle = createSessionLifecycle({
+                apiToken: "test-token",
                 ptyManager: ptyManager as never,
                 taskStore: store,
                 settingsStore,

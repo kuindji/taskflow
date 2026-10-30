@@ -1,9 +1,17 @@
 import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "crypto";
-import { MSG, resolveBackendHost } from "@taskflow/shared";
+import { MSG, resolveBackendHost, WS_CLOSE_UNAUTHORIZED } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
+import { errorResponse } from "../api/routes/response-helpers";
+import {
+    checkRequest,
+    createReportOnce,
+    isUpgradeRequest,
+    upgradeHeaders,
+    type ServerAuth,
+} from "./auth";
 import type { CdpGateway, CdpSocketData } from "../services/cdp/cdp-gateway";
 
 interface BroadcastOptions {
@@ -16,8 +24,9 @@ const BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB — skip terminal output for s
 export function createServer(
     router: Router,
     port: number = 0,
-    apiRouter?: ApiRouter,
-    cdpGateway?: CdpGateway,
+    apiRouter: ApiRouter | undefined,
+    cdpGateway: CdpGateway | undefined,
+    auth: ServerAuth,
 ): {
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
@@ -26,7 +35,8 @@ export function createServer(
     clientCount(): number;
 } {
     type AppSocketData = { kind: "app"; clientId: string };
-    type SocketData = AppSocketData | CdpSocketData;
+    type SocketData = AppSocketData | CdpSocketData | { kind: "unauthorized" };
+    const report = createReportOnce(auth.log ?? console.warn);
     let server: Server<SocketData>;
     const clients = new Set<ServerWebSocket<SocketData>>();
     let connectCallback: (() => void) | null = null;
@@ -72,7 +82,27 @@ export function createServer(
             port,
             hostname: resolveBackendHost(),
             async fetch(req, server) {
-                const path = new URL(req.url).pathname;
+                const url = new URL(req.url);
+                const verdict = checkRequest(req, url, auth);
+                let unauthorized = false;
+                if (!verdict.ok) {
+                    if (!auth.enforce) report(verdict.reason, req, url);
+                    else if (verdict.reason !== "credential")
+                        return errorResponse("Forbidden", 403);
+                    else if (!isUpgradeRequest(req)) return errorResponse("Unauthorized", 401);
+                    else unauthorized = true;
+                }
+                if (unauthorized) {
+                    if (
+                        server.upgrade(req, {
+                            data: { kind: "unauthorized" },
+                            headers: upgradeHeaders(req),
+                        })
+                    )
+                        return;
+                    return errorResponse("Unauthorized", 401);
+                }
+                const path = url.pathname;
                 if (path.startsWith("/cdp/")) {
                     const match = /^\/cdp\/([^/]+)\/devtools\/browser$/.exec(path);
                     if (
@@ -80,6 +110,7 @@ export function createServer(
                         cdpGateway &&
                         server.upgrade(req, {
                             data: { kind: "cdp", tabId: match[1], connId: randomUUID() },
+                            headers: upgradeHeaders(req),
                         })
                     )
                         return;
@@ -91,7 +122,13 @@ export function createServer(
                     }
                     return new Response("Not found", { status: 404 });
                 }
-                if (server.upgrade(req, { data: { kind: "app", clientId: randomUUID() } })) return;
+                if (
+                    server.upgrade(req, {
+                        data: { kind: "app", clientId: randomUUID() },
+                        headers: upgradeHeaders(req),
+                    })
+                )
+                    return;
                 if (apiRouter) {
                     const response = await apiRouter.handle(req);
                     if (response) return response;
@@ -101,6 +138,10 @@ export function createServer(
             websocket: {
                 backpressureLimit: 2 * 1024 * 1024, // 2 MB
                 open(ws) {
+                    if (ws.data.kind === "unauthorized") {
+                        ws.close(WS_CLOSE_UNAUTHORIZED, "unauthorized");
+                        return;
+                    }
                     if (ws.data.kind === "cdp") {
                         cdpGateway?.open(ws as ServerWebSocket<CdpSocketData>);
                         return;
@@ -110,6 +151,7 @@ export function createServer(
                     broadcastClientCount();
                 },
                 close(ws) {
+                    if (ws.data.kind === "unauthorized") return;
                     if (ws.data.kind === "cdp") {
                         cdpGateway?.close(ws as ServerWebSocket<CdpSocketData>);
                         return;
@@ -119,6 +161,7 @@ export function createServer(
                     broadcastClientCount();
                 },
                 async message(ws, message) {
+                    if (ws.data.kind === "unauthorized") return;
                     const raw =
                         typeof message === "string" ? message : new TextDecoder().decode(message);
                     if (ws.data.kind === "cdp") {

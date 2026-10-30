@@ -5,6 +5,7 @@ import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
+import { AUTH_ENFORCED, parseUiOrigins } from "./ws/auth";
 import { createCdpGateway } from "./services/cdp/cdp-gateway";
 import { TaskStore } from "./services/task-store";
 import { PtyManager } from "./services/pty-manager";
@@ -139,7 +140,11 @@ async function main() {
 
         const router = new Router();
         const apiRouter = new ApiRouter();
-        const server = createServer(router, config.port, apiRouter, cdpGateway);
+        const server = createServer(router, config.port, apiRouter, cdpGateway, {
+            token: apiToken,
+            allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS),
+            enforce: AUTH_ENFORCED,
+        });
         const changeTracker = new ChangeTracker(gitService, server.broadcast);
         const wikiIndex = new WikiIndexService({
             onChange: (data) => server.broadcast({ type: MSG.WIKI_INDEX_CHANGED, payload: data }),
@@ -151,6 +156,7 @@ async function main() {
         let serverPort = config.port;
 
         const sessionLifecycle = createSessionLifecycle({
+            apiToken,
             ptyManager,
             taskStore: store,
             settingsStore,
