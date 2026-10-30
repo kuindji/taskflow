@@ -186,6 +186,28 @@ describe("mergeProjectAgentAccounts", () => {
 });
 
 describe("headlessAgentEnv", () => {
+    it("codex: inherits project then global and pins the inherited home with default", () => {
+        const settings = settingsWith({ codexDefault: "x-work" });
+        const env = { CODEX_HOME: "/inherited/codex" };
+        expect(headlessAgentEnv("codex", undefined, settings, null, env).CODEX_HOME).toBe(
+            "/homes/codex-work",
+        );
+        expect(
+            headlessAgentEnv("codex", undefined, settings, projectWith({ codex: "default" }), env)
+                .CODEX_HOME,
+        ).toBe("/inherited/codex");
+        expect(
+            headlessAgentEnv(
+                "codex",
+                { type: "codex", account: "default" },
+                settings,
+                projectWith({ codex: "x-work" }),
+                env,
+            ).CODEX_HOME,
+        ).toBe("/inherited/codex");
+        expect(env).toEqual({ CODEX_HOME: "/inherited/codex" });
+    });
+
     it("claude: strips nested-session markers and applies the action's account first", () => {
         const env = headlessAgentEnv(
             "claude",

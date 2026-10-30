@@ -30,6 +30,7 @@ import { registerGitHandlers } from "./handlers/git";
 import { registerSettingsHandlers } from "./handlers/settings";
 import { registerScriptsHandlers } from "./handlers/scripts";
 import { registerAgentCommandsHandlers } from "./handlers/agent-commands";
+import { registerAgentDiscoveryHandlers } from "./handlers/agent-discovery";
 import { registerThemeHandlers } from "./handlers/theme";
 import { SettingsStore } from "./services/settings-store";
 import { ThemeService } from "./services/theme-service";
@@ -481,7 +482,12 @@ async function main() {
         }));
         router.register(MSG.RUNTIMES_LIST, async () => ({ runtimes }));
         router.register(MSG.AGENTS_LIST, async () => ({ agents }));
-        router.register(MSG.CODEX_MODELS, async () => ({ models: await fetchCodexModels() }));
+        registerAgentDiscoveryHandlers({
+            router,
+            taskStore: store,
+            settingsStore,
+            fetchCodexModels,
+        });
         router.register(MSG.OPENCODE_MODELS, async () => ({
             models: await fetchOpenCodeModels(),
         }));

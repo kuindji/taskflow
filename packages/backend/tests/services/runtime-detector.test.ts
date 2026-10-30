@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
+    fetchCodexModels,
     detectRuntimes,
     detectAgents,
     parseCodexAppServerOutput,
@@ -239,5 +240,287 @@ describe("parseKimiModelsOutput", () => {
             }),
         );
         expect(models).toEqual([{ id: "kimi-code/y", displayName: "Y", contextWindow: "" }]);
+    });
+});
+
+type ProbeDeps = NonNullable<Parameters<typeof fetchCodexModels>[1]>;
+type Message = { id?: number; method?: string; params?: Record<string, unknown> };
+
+function codexProbe(reply: (request: Message) => unknown) {
+    let stdout!: ReadableStreamDefaultController<Uint8Array>;
+    let stderr!: ReadableStreamDefaultController<Uint8Array>;
+    const requests: Message[] = [];
+    const spawns: Array<{ argv: string[]; env: Record<string, string | undefined>; cwd?: string }> =
+        [];
+    let deadline: (() => void) | undefined;
+    let deadlines = 0;
+    let cancelled = 0;
+    let killed = 0;
+    let ended = 0;
+    let streamsCancelled = 0;
+    const emit = (value: unknown) => {
+        const text = JSON.stringify(value) + "\n";
+        const bytes = new TextEncoder().encode(text);
+        stdout.enqueue(bytes.slice(0, 7));
+        stdout.enqueue(bytes.slice(7));
+    };
+    const deps: ProbeDeps = {
+        resolveCli: (name, path) => {
+            expect(name).toBe("codex");
+            expect(path).toBe("/probe/bin");
+            return "/probe/bin/codex";
+        },
+        spawn: (argv, options) => {
+            spawns.push({ argv, ...options });
+            return {
+                stdout: new ReadableStream({
+                    start(c) {
+                        stdout = c;
+                    },
+                    cancel() {
+                        streamsCancelled++;
+                    },
+                }),
+                stderr: new ReadableStream({
+                    start(c) {
+                        stderr = c;
+                    },
+                    cancel() {
+                        streamsCancelled++;
+                    },
+                }),
+                async write(line) {
+                    const request = JSON.parse(line) as Message;
+                    requests.push(request);
+                    const response = reply(request);
+                    if (response !== undefined) emit(response);
+                },
+                end() {
+                    ended++;
+                    return new Promise<void>(() => {});
+                },
+                exited: new Promise<number>(() => {}),
+                kill() {
+                    killed++;
+                },
+            };
+        },
+        schedule: (callback, ms) => {
+            expect(ms).toBe(60_000);
+            deadlines++;
+            deadline = callback;
+            return () => {
+                cancelled++;
+            };
+        },
+    };
+    return {
+        deps,
+        requests,
+        spawns,
+        emit,
+        timeout: () => deadline?.(),
+        stderr: (value: string) => stderr.enqueue(new TextEncoder().encode(value)),
+        closed: () => ({ deadlines, cancelled, killed, ended, streamsCancelled }),
+    };
+}
+
+function codexReplies(account: unknown = { type: "chatgpt", email: "person@example.com" }) {
+    return (request: Message): unknown => {
+        if (request.method === "initialize") return { id: request.id, result: {} };
+        if (request.method === "account/read") return { id: request.id, result: { account } };
+        if (request.method === "model/list")
+            return { id: request.id, result: { data: [{ id: "one" }] } };
+    };
+}
+
+async function discover(probe: ReturnType<typeof codexProbe>, env = { PATH: "/probe/bin" }) {
+    return fetchCodexModels(env, probe.deps);
+}
+
+describe("Codex RPC discovery", () => {
+    it("Codex discovery follows every nextCursor and filters hidden models", async () => {
+        const base = codexReplies();
+        const probe = codexProbe((request) =>
+            request.method !== "model/list"
+                ? base(request)
+                : {
+                      id: request.id,
+                      result:
+                          request.params?.cursor === "page-two"
+                              ? {
+                                    data: [{ id: "visible" }, { id: "hidden", hidden: true }],
+                                    nextCursor: "",
+                                }
+                              : { data: [{ id: "first" }], nextCursor: "page-two" },
+                  },
+        );
+        expect((await discover(probe)).models.map((model) => model.id)).toEqual([
+            "first",
+            "visible",
+        ]);
+        expect(
+            probe.requests.filter((r) => r.method === "model/list").map((r) => r.params),
+        ).toEqual([{}, { cursor: "page-two" }]);
+        expect(probe.spawns).toEqual([
+            {
+                argv: ["/probe/bin/codex", "app-server", "--listen", "stdio://"],
+                env: { PATH: "/probe/bin" },
+            },
+        ]);
+    });
+    it("Codex discovery preserves page order and deduplicates model ids", async () => {
+        const base = codexReplies();
+        const probe = codexProbe((request) =>
+            request.method !== "model/list"
+                ? base(request)
+                : {
+                      id: request.id,
+                      result: request.params?.cursor
+                          ? { data: [{ id: "a", displayName: "later" }, { id: "c" }] }
+                          : {
+                                data: [{ id: "b" }, { id: "a", displayName: "first" }],
+                                nextCursor: "next",
+                            },
+                  },
+        );
+        const result = await discover(probe);
+        expect(result.models.map((model) => model.id)).toEqual(["b", "a", "c"]);
+        expect(result.models[1].displayName).toBe("first");
+    });
+    it("Codex discovery matches response ids across chunks and notifications", async () => {
+        const base = codexReplies();
+        const probe = codexProbe((request) => {
+            if (request.id) {
+                probe.emit({ id: 999, result: { data: [{ id: "wrong" }] } });
+                probe.emit({ method: "account/updated", params: {} });
+                probe.stderr("unreturned diagnostic\n");
+            }
+            return base(request);
+        });
+        expect((await discover(probe)).models.map((model) => model.id)).toEqual(["one"]);
+        expect(probe.requests.map((r) => r.id).filter((id) => id !== undefined)).toEqual([1, 2, 3]);
+        expect(probe.requests[0]).toEqual({
+            method: "initialize",
+            id: 1,
+            params: { clientInfo: { name: "taskflow", title: "Taskflow", version: "1" } },
+        });
+    });
+    it("Codex discovery passes the supplied CODEX_HOME without changing process.env", async () => {
+        const before = { ...process.env };
+        const probe = codexProbe(codexReplies());
+        const env = { PATH: "/probe/bin", CODEX_HOME: "/saved/account" };
+        await discover(probe, env);
+        expect(probe.spawns[0].env).toEqual(env);
+        expect(process.env).toEqual(before);
+    });
+    it("Codex discovery reads account status without login or token refresh", async () => {
+        const probe = codexProbe(codexReplies());
+        const result = await discover(probe);
+        expect(result.account).toEqual({ state: "signed-in", label: "person@example.com" });
+        expect(probe.requests.map((r) => r.method)).toEqual([
+            "initialize",
+            "initialized",
+            "account/read",
+            "model/list",
+        ]);
+        expect(probe.requests[1]).toEqual({ method: "initialized", params: {} });
+        expect(probe.requests[2].params).toEqual({});
+    });
+    it("Codex account diagnostics distinguish ChatGPT, API key, Bedrock and signed out", async () => {
+        for (const [account, expected] of [
+            [
+                { type: "chatgpt", email: " " },
+                { state: "signed-in", label: "ChatGPT" },
+            ],
+            [
+                { type: "apiKey", token: "secret" },
+                { state: "signed-in", label: "API key" },
+            ],
+            [{ type: "amazonBedrock" }, { state: "signed-in", label: "Amazon Bedrock" }],
+            [null, { state: "signed-out" }],
+            [{ type: "future" }, { state: "unknown" }],
+        ] as const) {
+            expect((await discover(codexProbe(codexReplies(account)))).account).toEqual(expected);
+        }
+    });
+    it("Codex protocol failure is unknown rather than signed out", async () => {
+        for (const result of [{}, { account: false }, { account: [] }]) {
+            const base = codexReplies();
+            const probe = codexProbe((request) =>
+                request.method === "account/read" ? { id: request.id, result } : base(request),
+            );
+            expect((await discover(probe)).account).toEqual({ state: "unknown" });
+        }
+        const base = codexReplies();
+        const failedAccount = codexProbe((request) =>
+            request.method === "account/read"
+                ? { id: request.id, error: { message: "unavailable" } }
+                : base(request),
+        );
+        const failedAccountResult = await discover(failedAccount);
+        expect(failedAccountResult.account).toEqual({ state: "unknown" });
+        expect(failedAccountResult.models.map((model) => model.id)).toEqual(["one"]);
+        const probe = codexProbe((request) => ({ id: request.id, error: { message: "failed" } }));
+        expect(await discover(probe)).toEqual({ models: [], account: { state: "unknown" } });
+        expect(await fetchCodexModels({ PATH: "/missing" }, { resolveCli: () => null })).toEqual({
+            models: [],
+            account: { state: "unknown" },
+        });
+    });
+    it("a failed page or repeated cursor never returns a partial model inventory", async () => {
+        for (const later of [
+            { error: { message: "failed" } },
+            { result: {} },
+            { result: { data: [], nextCursor: "repeat" } },
+            { result: { data: [], nextCursor: 1 } },
+        ]) {
+            const base = codexReplies();
+            const probe = codexProbe((request) =>
+                request.method !== "model/list"
+                    ? base(request)
+                    : {
+                          id: request.id,
+                          ...(request.params?.cursor
+                              ? later
+                              : { result: { data: [{ id: "partial" }], nextCursor: "repeat" } }),
+                      },
+            );
+            expect((await discover(probe)).models).toEqual([]);
+        }
+    });
+    it("a failed model inventory retains an already read account diagnostic", async () => {
+        const base = codexReplies();
+        const probe = codexProbe((request) =>
+            request.method === "model/list" ? { id: request.id, error: {} } : base(request),
+        );
+        expect(await discover(probe)).toEqual({
+            models: [],
+            account: { state: "signed-in", label: "person@example.com" },
+        });
+    });
+    it("the whole Codex probe has one deadline and always releases its child", async () => {
+        for (const mode of ["success", "initialize", "model/list", "write-error"]) {
+            const base = codexReplies();
+            const probe = codexProbe((request) => {
+                if (mode === "write-error") throw new Error("write failed");
+                if (request.method === mode) {
+                    probe.timeout();
+                    return undefined;
+                }
+                return base(request);
+            });
+            const result = await discover(probe);
+            expect(probe.closed()).toEqual({
+                deadlines: 1,
+                cancelled: 1,
+                killed: 1,
+                ended: 1,
+                streamsCancelled: 2,
+            });
+            if (mode === "model/list") expect(result.account.state).toBe("signed-in");
+            if (mode === "initialize")
+                expect(result).toEqual({ models: [], account: { state: "unknown" } });
+        }
     });
 });

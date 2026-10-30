@@ -9,6 +9,7 @@ import type {
     AgentAvailability,
     AccountAgentType,
     CodexModelInfo,
+    CodexAccountStatus,
     OpenCodeModelInfo,
     PiModelInfo,
     KimiModelInfo,
@@ -299,8 +300,14 @@ export interface AgentListResponse {
     agents: AgentAvailability[];
 }
 
+export interface CodexModelsPayload {
+    account?: string;
+    projectId?: string;
+}
+
 export interface CodexModelsResponse {
     models: CodexModelInfo[];
+    account: CodexAccountStatus;
 }
 
 export interface OpenCodeModelsResponse {

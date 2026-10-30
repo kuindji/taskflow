@@ -90,6 +90,11 @@ interface CodexReasoningEffortInfo {
     description: string;
 }
 
+type CodexAccountStatus =
+    | { state: "signed-in"; label: string }
+    | { state: "signed-out" }
+    | { state: "unknown" };
+
 interface CodexModelInfo {
     id: string;
     model: string;
@@ -199,6 +204,7 @@ export type {
     CodexReasoningEffort,
     CodexReasoningEffortInfo,
     CodexModelInfo,
+    CodexAccountStatus,
     OpenCodeLaunchOptions,
     PiThinkingLevel,
     PiLaunchOptions,

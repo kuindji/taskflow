@@ -3,6 +3,8 @@ import type {
     AgentAvailability,
     AgentType,
     CodexModelInfo,
+    CodexAccountStatus,
+    CodexModelsResponse,
     CodexReasoningEffort,
     KimiModelInfo,
     OpenCodeModelInfo,
@@ -87,7 +89,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
 const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
@@ -96,10 +98,52 @@ function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
     );
 }
 
+function normalizeCodexModels(data: unknown[]): CodexModelInfo[] {
+    return data.flatMap((entry): CodexModelInfo[] => {
+        if (!isRecord(entry)) return [];
+        const id = typeof entry.id === "string" ? entry.id : "";
+        if (!id) return [];
+
+        const supportedReasoningEfforts = Array.isArray(entry.supportedReasoningEfforts)
+            ? entry.supportedReasoningEfforts.flatMap((effort) => {
+                  if (!isRecord(effort) || !isCodexReasoningEffort(effort.reasoningEffort)) {
+                      return [];
+                  }
+                  return [
+                      {
+                          reasoningEffort: effort.reasoningEffort,
+                          description:
+                              typeof effort.description === "string" ? effort.description : "",
+                      },
+                  ];
+              })
+            : [];
+        const defaultReasoningEffort = isCodexReasoningEffort(entry.defaultReasoningEffort)
+            ? entry.defaultReasoningEffort
+            : (supportedReasoningEfforts[0]?.reasoningEffort ?? "medium");
+
+        return [
+            {
+                id,
+                model: typeof entry.model === "string" ? entry.model : id,
+                displayName: typeof entry.displayName === "string" ? entry.displayName : id,
+                description: typeof entry.description === "string" ? entry.description : "",
+                hidden: entry.hidden === true,
+                supportedReasoningEfforts,
+                defaultReasoningEffort,
+                inputModalities: Array.isArray(entry.inputModalities)
+                    ? entry.inputModalities.filter(
+                          (modality): modality is string => typeof modality === "string",
+                      )
+                    : [],
+                isDefault: entry.isDefault === true,
+            },
+        ];
+    });
+}
+
 export function parseCodexAppServerOutput(output: string): CodexModelInfo[] {
     for (const line of output.split("\n")) {
-        if (!line.trim()) continue;
-
         let message: unknown;
         try {
             message = JSON.parse(line);
@@ -107,134 +151,227 @@ export function parseCodexAppServerOutput(output: string): CodexModelInfo[] {
             continue;
         }
         if (!isRecord(message) || message.id !== 2 || !isRecord(message.result)) continue;
-
-        const data = message.result.data;
-        if (!Array.isArray(data)) return [];
-
-        return data.flatMap((entry): CodexModelInfo[] => {
-            if (!isRecord(entry)) return [];
-            const id = typeof entry.id === "string" ? entry.id : "";
-            if (!id) return [];
-
-            const supportedReasoningEfforts = Array.isArray(entry.supportedReasoningEfforts)
-                ? entry.supportedReasoningEfforts.flatMap((effort) => {
-                      if (!isRecord(effort) || !isCodexReasoningEffort(effort.reasoningEffort)) {
-                          return [];
-                      }
-                      return [
-                          {
-                              reasoningEffort: effort.reasoningEffort,
-                              description:
-                                  typeof effort.description === "string" ? effort.description : "",
-                          },
-                      ];
-                  })
-                : [];
-            const defaultReasoningEffort = isCodexReasoningEffort(entry.defaultReasoningEffort)
-                ? entry.defaultReasoningEffort
-                : (supportedReasoningEfforts[0]?.reasoningEffort ?? "medium");
-
-            return [
-                {
-                    id,
-                    model: typeof entry.model === "string" ? entry.model : id,
-                    displayName: typeof entry.displayName === "string" ? entry.displayName : id,
-                    description: typeof entry.description === "string" ? entry.description : "",
-                    hidden: entry.hidden === true,
-                    supportedReasoningEfforts,
-                    defaultReasoningEffort,
-                    inputModalities: Array.isArray(entry.inputModalities)
-                        ? entry.inputModalities.filter(
-                              (modality): modality is string => typeof modality === "string",
-                          )
-                        : [],
-                    isDefault: entry.isDefault === true,
-                },
-            ];
-        });
+        return Array.isArray(message.result.data) ? normalizeCodexModels(message.result.data) : [];
     }
     return [];
 }
 
-export async function fetchCodexModels(): Promise<CodexModelInfo[]> {
-    const PATH = buildShellPath();
-    const codexPath = Bun.which("codex", { PATH });
-    if (!codexPath) return [];
+interface ProbeProcess {
+    stdout: ReadableStream<Uint8Array>;
+    stderr: ReadableStream<Uint8Array>;
+    write(line: string): Promise<void>;
+    end(): Promise<void>;
+    exited: Promise<number>;
+    kill(): void;
+}
 
-    try {
-        const proc = Bun.spawn([codexPath, "app-server", "--listen", "stdio://"], {
-            stdin: "pipe",
-            stdout: "pipe",
-            stderr: "pipe",
-            env: { ...process.env, PATH },
-        });
-        const reader = proc.stdout.getReader();
-        const decoder = new TextDecoder();
-        let buffered = "";
-        const readResponseLine = async (id: number): Promise<string | null> => {
-            while (true) {
-                const newlineIndex = buffered.indexOf("\n");
-                if (newlineIndex >= 0) {
-                    const line = buffered.slice(0, newlineIndex);
-                    buffered = buffered.slice(newlineIndex + 1);
+interface ProbeDeps {
+    now?: () => number;
+    resolveCli?: (name: string, path: string) => string | null;
+    spawn?: (
+        argv: string[],
+        options: {
+            env: Record<string, string | undefined>;
+            cwd?: string;
+        },
+    ) => ProbeProcess;
+    schedule?: (callback: () => void, delayMs: number) => () => void;
+}
+
+function spawnProbe(
+    argv: string[],
+    options: { env: Record<string, string | undefined>; cwd?: string },
+): ProbeProcess {
+    const child = Bun.spawn(argv, { ...options, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    return {
+        stdout: child.stdout,
+        stderr: child.stderr,
+        async write(line) {
+            await child.stdin.write(line);
+            await child.stdin.flush();
+        },
+        async end() {
+            await child.stdin.end();
+        },
+        exited: child.exited,
+        kill() {
+            child.kill();
+        },
+    };
+}
+
+function scheduleProbeDeadline(callback: () => void, delayMs: number): () => void {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+}
+
+/** One byte transport and deadline for the entire short-lived CLI exchange. */
+async function withProbeProcess<T>(
+    argv: string[],
+    options: { env: Record<string, string | undefined>; cwd?: string },
+    deps: ProbeDeps,
+    exchange: (transport: {
+        send(message: unknown): Promise<void>;
+        receive(
+            matches: (message: Record<string, unknown>) => boolean,
+        ): Promise<Record<string, unknown>>;
+    }) => Promise<T>,
+): Promise<T> {
+    const child = (deps.spawn ?? spawnProbe)(argv, options);
+    const reader = child.stdout.getReader();
+    const stderr = child.stderr.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    let stopped = false;
+    let cancelDeadline: (() => void) | undefined;
+    // Consume diagnostics without retaining or exposing credentials printed by the CLI.
+    void (async () => {
+        while (!(await stderr.read()).done) {
+            /* drain */
+        }
+    })().catch(() => {});
+    const transport = {
+        async send(message: unknown) {
+            if (stopped) throw new Error("Probe closed");
+            await child.write(`${JSON.stringify(message)}\n`);
+        },
+        async receive(matches: (message: Record<string, unknown>) => boolean) {
+            while (!stopped) {
+                const newline = buffered.indexOf("\n");
+                if (newline >= 0) {
+                    const line = buffered.slice(0, newline);
+                    buffered = buffered.slice(newline + 1);
+                    let message: unknown;
                     try {
-                        const message: unknown = JSON.parse(line);
-                        if (isRecord(message) && message.id === id) return line;
+                        message = JSON.parse(line);
                     } catch {
-                        // Ignore non-protocol output and keep reading.
+                        continue;
                     }
+                    if (isRecord(message) && matches(message)) return message;
                     continue;
                 }
-
                 const chunk = await reader.read();
-                if (chunk.done) return null;
+                if (chunk.done) throw new Error("Probe output closed");
                 buffered += decoder.decode(chunk.value, { stream: true });
             }
-        };
-        const exchange = async (): Promise<string> => {
-            await proc.stdin.write(
-                `${JSON.stringify({
-                    method: "initialize",
-                    id: 1,
-                    params: {
-                        clientInfo: {
-                            name: "taskflow",
-                            title: "Taskflow",
-                            version: "1",
-                        },
-                    },
-                })}\n`,
+            throw new Error("Probe closed");
+        },
+    };
+    try {
+        const deadline = new Promise<never>((_, reject) => {
+            cancelDeadline = (deps.schedule ?? scheduleProbeDeadline)(
+                () => reject(new Error("Probe timed out")),
+                MODEL_LIST_TIMEOUT_MS,
             );
-            if (!(await readResponseLine(1))) return "";
-
-            await proc.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
-            await proc.stdin.write(
-                `${JSON.stringify({ method: "model/list", id: 2, params: {} })}\n`,
-            );
-            return (await readResponseLine(2)) ?? "";
-        };
-        const stderrRead = new Response(proc.stderr).text();
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<null>((resolve) => {
-            timeoutId = setTimeout(resolve, MODEL_LIST_TIMEOUT_MS, null);
         });
-        let output: string | null;
+        return await Promise.race([exchange(transport), deadline]);
+    } finally {
+        stopped = true;
+        cancelDeadline?.();
+        // None of these operations may delay returning after the deadline. In
+        // particular a broken launcher may never resolve stdin.end or exited.
         try {
-            output = await Promise.race([exchange(), timeout]);
-        } finally {
-            if (timeoutId) clearTimeout(timeoutId);
+            void child.end().catch(() => {});
+        } catch {
+            /* already closed */
         }
-        if (output === null) {
-            proc.kill();
-            return [];
+        try {
+            child.kill();
+        } catch {
+            /* already exited */
         }
-        await proc.stdin.end();
-        proc.kill();
-        await proc.exited;
-        await stderrRead;
-        return parseCodexAppServerOutput(output).filter((model) => !model.hidden);
+        void reader
+            .cancel()
+            .catch(() => {})
+            .finally(() => reader.releaseLock());
+        void stderr
+            .cancel()
+            .catch(() => {})
+            .finally(() => stderr.releaseLock());
+        void child.exited.catch(() => {});
+    }
+}
+
+function codexAccountStatus(result: unknown): CodexAccountStatus {
+    if (!isRecord(result)) return { state: "unknown" };
+    if (result.account === null) return { state: "signed-out" };
+    if (!isRecord(result.account)) return { state: "unknown" };
+    switch (result.account.type) {
+        case "chatgpt":
+            return {
+                state: "signed-in",
+                label:
+                    typeof result.account.email === "string" && result.account.email.trim()
+                        ? result.account.email.trim()
+                        : "ChatGPT",
+            };
+        case "apiKey":
+            return { state: "signed-in", label: "API key" };
+        case "amazonBedrock":
+            return { state: "signed-in", label: "Amazon Bedrock" };
+        default:
+            return { state: "unknown" };
+    }
+}
+
+export async function fetchCodexModels(
+    env?: Record<string, string | undefined>,
+    deps: ProbeDeps = {},
+): Promise<CodexModelsResponse> {
+    let account: CodexAccountStatus = { state: "unknown" };
+    try {
+        const probeEnv = env ?? { ...process.env, PATH: buildShellPath() };
+        const codexPath = (deps.resolveCli ?? ((name, PATH) => Bun.which(name, { PATH })))(
+            "codex",
+            probeEnv.PATH ?? "",
+        );
+        if (!codexPath) return { models: [], account };
+        const models = await withProbeProcess(
+            [codexPath, "app-server", "--listen", "stdio://"],
+            { env: probeEnv },
+            deps,
+            async ({ send, receive }) => {
+                let nextId = 1;
+                const request = async (method: string, params: Record<string, unknown>) => {
+                    const id = nextId++;
+                    await send({ method, id, params });
+                    const response = await receive((message) => message.id === id);
+                    if ("error" in response || !("result" in response))
+                        throw new Error("Codex request failed");
+                    return response.result;
+                };
+                await request("initialize", {
+                    clientInfo: { name: "taskflow", title: "Taskflow", version: "1" },
+                });
+                await send({ method: "initialized", params: {} });
+                try {
+                    account = codexAccountStatus(await request("account/read", {}));
+                } catch {
+                    /* An unavailable diagnostic does not prevent model discovery. */
+                }
+                const models = new Map<string, CodexModelInfo>();
+                const cursors = new Set<string>();
+                let cursor: string | undefined;
+                do {
+                    const page = await request("model/list", cursor ? { cursor } : {});
+                    if (!isRecord(page) || !Array.isArray(page.data))
+                        throw new Error("Invalid Codex model page");
+                    for (const model of normalizeCodexModels(page.data)) {
+                        if (!models.has(model.id)) models.set(model.id, model);
+                    }
+                    if (page.nextCursor == null || page.nextCursor === "") break;
+                    if (typeof page.nextCursor !== "string" || cursors.has(page.nextCursor)) {
+                        throw new Error("Invalid Codex model cursor");
+                    }
+                    cursor = page.nextCursor;
+                    cursors.add(cursor);
+                } while (cursor);
+                return [...models.values()].filter((model) => !model.hidden);
+            },
+        );
+        return { models, account };
     } catch {
-        return [];
+        return { models: [], account };
     }
 }
 
