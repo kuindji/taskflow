@@ -24,14 +24,14 @@ describe("parseArgs", () => {
 
     test("parses host and port from --connect", () => {
         expect(parseArgs(["--connect", "127.0.0.1:7777"])).toEqual({
-            connect: { host: "127.0.0.1", port: 7777 },
+            connect: { host: "127.0.0.1", port: 7777, token: null },
             machine: null,
         });
     });
 
     test("accepts --connect=host:port", () => {
         expect(parseArgs(["--connect=desktop.local:9000"])).toEqual({
-            connect: { host: "desktop.local", port: 9000 },
+            connect: { host: "desktop.local", port: 9000, token: null },
             machine: null,
         });
     });
@@ -55,7 +55,7 @@ describe("parseArgs", () => {
 
     test("strips the brackets from an IPv6 target", () => {
         expect(parseArgs(["--connect", "[::1]:7777"])).toEqual({
-            connect: { host: "::1", port: 7777 },
+            connect: { host: "::1", port: 7777, token: null },
             machine: null,
         });
     });
@@ -160,7 +160,7 @@ describe("parseArgs", () => {
         // Pinned because validating against `new URL` rather than a character
         // class is what now decides it, and a URL takes it.
         expect(parseArgs(["--connect", "my_host:7777"])).toEqual({
-            connect: { host: "my_host", port: 7777 },
+            connect: { host: "my_host", port: 7777, token: null },
             machine: null,
         });
     });
@@ -216,4 +216,37 @@ describe("parseArgs", () => {
     test("rejects an unknown flag", () => {
         expect(() => parseArgs(["--nope"])).toThrow(/Unknown/);
     });
+});
+
+const TOKEN = "a".repeat(43);
+const USAGE =
+    "usage: taskflow-tui [machine] [--connect <host:port> [--token <token>]] (IPv6 must be bracketed: [::1]:7777)";
+test("--token and --token= set the connect token", () => {
+    for (const flag of [["--token", TOKEN], [`--token=${TOKEN}`]])
+        expect(parseArgs(["--connect", "host:7777", ...flag], {}).connect).toEqual({
+            host: "host",
+            port: 7777,
+            token: TOKEN,
+        });
+});
+test("TASKFLOW_TOKEN is the fallback", () => {
+    expect(parseArgs(["--connect", "host:7777"], { TASKFLOW_TOKEN: TOKEN }).connect?.token).toBe(
+        TOKEN,
+    );
+    expect(parseArgs([], { TASKFLOW_TOKEN: "bad" }).connect).toBeNull();
+});
+test("--token wins over TASKFLOW_TOKEN", () => {
+    expect(
+        parseArgs(["--connect", "host:7777", "--token", TOKEN], { TASKFLOW_TOKEN: "b".repeat(43) })
+            .connect?.token,
+    ).toBe(TOKEN);
+});
+test("--token without --connect is a usage error", () => {
+    expect(() => parseArgs(["--token", TOKEN], {})).toThrow(`--token needs --connect. ${USAGE}`);
+});
+test("a malformed token is a usage error with the exact message", () => {
+    for (const token of ["bad", "", "a".repeat(44)])
+        expect(() => parseArgs(["--connect", "host:7777", "--token", token], {})).toThrow(
+            `--token expects a Taskflow access token (43 characters). ${USAGE}`,
+        );
 });

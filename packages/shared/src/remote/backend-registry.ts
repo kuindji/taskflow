@@ -249,11 +249,10 @@ function createRegistry(deps: RegistryDeps) {
 
         /** Every record with a live tunnel, and the origin that reaches it. */
         attached(): { id: string; origin: string; token?: string }[] {
-            return [...origins].map(([id, origin]) => ({
-                id,
-                origin,
-                ...(findRecord(id)?.token ? { token: findRecord(id)!.token! } : {}),
-            }));
+            return [...origins].map(([id, origin]) => {
+                const token = findRecord(id)?.token;
+                return { id, origin, ...(token ? { token } : {}) };
+            });
         },
 
         addBackend(input: AddBackendInput): Promise<BackendRecord> {

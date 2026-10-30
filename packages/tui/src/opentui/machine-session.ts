@@ -1,5 +1,11 @@
 import type { CliRenderer, KeyEvent } from "@opentui/core";
-import { MSG } from "@taskflow/shared";
+import {
+    MSG,
+    BackendUnauthorizedError,
+    createTokenRefreshGate,
+    ACCESS_TOKEN_REJECTED,
+    LOCAL_ACCESS_TOKEN_REJECTED,
+} from "@taskflow/shared";
 import type { MenuEntry, SystemInfo, TunnelFailure } from "@taskflow/shared";
 import { createReconnectPolicy } from "@taskflow/shared/remote/reconnect-policy";
 import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
@@ -19,6 +25,7 @@ type SessionRegistry = Pick<
     BackendRegistry,
     | "addBackend"
     | "addDiscoveredBackend"
+    | "refreshToken"
     | "attachBackend"
     | "detachBackend"
     | "getHostFingerprint"
@@ -141,6 +148,8 @@ class MachineSession {
     private connecting = false;
     private shutdownPromise: Promise<void> | null = null;
     private reattach: Reattach | null = null;
+    private readonly gate = createTokenRefreshGate();
+    private refreshing: CurrentMachine | null = null;
     /** The machine `switchTo` is opening, and a tunnel exit that arrived meanwhile. */
     private opening: { machineId: string; exit: TunnelFailure | null } | null = null;
 
@@ -230,6 +239,7 @@ class MachineSession {
                 }),
             };
             this.reattach = reattach;
+            if (machine.net.isConnected()) this.authenticate(machine);
         }
         // The socket or the tunnel may have dropped while the workspace was opening.
         this.reconcile(opened, exit);
@@ -380,6 +390,22 @@ class MachineSession {
      */
     private reconcile(machine: CurrentMachine, exit: TunnelFailure | null = null): void {
         if (this.current !== machine) return;
+        if (machine.net.wasUnauthorized()) {
+            if (machine.local) {
+                this.setStatus(machine, { state: "offline", reason: LOCAL_ACCESS_TOKEN_REJECTED });
+                return;
+            }
+            if (this.refreshing === machine) return;
+            if (this.gate.unauthorized(machine.machineId) === "reject") {
+                this.cancelReattach();
+                this.setStatus(machine, { state: "offline", reason: ACCESS_TOKEN_REJECTED });
+                return;
+            }
+            this.setStatus(machine, { state: "offline", reason: CONNECTION_LOST });
+            this.refreshing = machine;
+            void this.refreshToken(machine);
+            return;
+        }
         if (exit !== null && !machine.local) {
             this.setStatus(machine, { state: "offline", reason: exit.message });
             this.reattach?.policy.setConnected(false);
@@ -388,12 +414,38 @@ class MachineSession {
         }
         this.reattach?.policy.setConnected(machine.net.isConnected());
         if (machine.net.isConnected()) {
-            if (machine.status.state !== "online") this.setStatus(machine, { state: "online" });
+            if (machine.status.state !== "online") {
+                this.setStatus(machine, { state: "online" });
+                if (!machine.local) this.authenticate(machine);
+            }
             return;
         }
         // An offline status set by a tunnel exit keeps its more precise reason.
         if (machine.status.state === "online") {
             this.setStatus(machine, { state: "offline", reason: CONNECTION_LOST });
+        }
+    }
+
+    private authenticate(machine: CurrentMachine): void {
+        void machine.net
+            .request(MSG.SYSTEM_INFO)
+            .then(() => {
+                if (this.current === machine && machine.net.isConnected()) {
+                    this.gate.authenticated(machine.machineId);
+                }
+            })
+            .catch(() => {});
+    }
+
+    private async refreshToken(machine: CurrentMachine): Promise<void> {
+        try {
+            await this.deps.machines.registry.refreshToken(machine.machineId);
+            if (this.current !== machine || this.shutdownPromise !== null) return;
+            this.reattach?.policy.setConnected(false);
+            this.reattach?.policy.start();
+            this.reattach?.policy.retryNow();
+        } finally {
+            if (this.refreshing === machine) this.refreshing = null;
         }
     }
 
@@ -433,7 +485,7 @@ class MachineSession {
             return false;
         }
         // The client's own retry loop dials the new port; its status goes online then.
-        machine.net.retarget(target.port, target.host);
+        machine.net.retarget(target.port, target.host, result.token ?? null);
         return true;
     }
 
@@ -545,6 +597,8 @@ class MachineSession {
             if (info.backendUid) this.deps.machines.registry.setLocalUid(info.backendUid);
         } catch (error) {
             net.close();
+            if (error instanceof BackendUnauthorizedError)
+                throw new Error(LOCAL_ACCESS_TOKEN_REJECTED, { cause: error });
             throw error;
         }
         return {

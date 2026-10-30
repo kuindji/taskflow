@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
+import { MSG, PROTOCOL_VERSION, BackendUnauthorizedError } from "@taskflow/shared";
 import type { SystemInfo, TunnelFailure } from "@taskflow/shared";
 import { connectMachine } from "./connect";
 import type { MachineClient, RegistryPort } from "./connect";
@@ -28,6 +28,7 @@ class FakeClient implements MachineClient {
     constructor(
         readonly port: number,
         readonly host: string,
+        readonly token: string | null = null,
     ) {}
 
     connect(): Promise<void> {
@@ -54,6 +55,9 @@ class FakeClient implements MachineClient {
         return true;
     }
 
+    wasUnauthorized(): boolean {
+        return this.requestError instanceof BackendUnauthorizedError;
+    }
     retarget(): void {}
 
     closeError: Error | null = null;
@@ -69,7 +73,7 @@ interface Harness {
     clients: FakeClient[];
     detached: string[];
     confirmed: { id: string; info: { backendUid: string; protocolVersion: number } }[];
-    createClient: (port: number, host: string) => FakeClient;
+    createClient: (port: number, host: string, token: string | null) => FakeClient;
 }
 
 function harness(
@@ -77,6 +81,7 @@ function harness(
         attach?: RegistryPort["attachBackend"];
         detach?: RegistryPort["detachBackend"];
         confirm?: RegistryPort["confirmBackend"];
+        refresh?: RegistryPort["refreshToken"];
         setup?: (client: FakeClient) => void;
     } = {},
 ): Harness {
@@ -84,6 +89,7 @@ function harness(
     const detached: string[] = [];
     const confirmed: Harness["confirmed"] = [];
     const registry: RegistryPort = {
+        refreshToken: options.refresh ?? (async () => ({ ok: true, token: "b".repeat(43) })),
         attachBackend:
             options.attach ??
             (() => Promise.resolve({ ok: true, origin: `http://127.0.0.1:${ORIGIN_PORT}` })),
@@ -98,8 +104,8 @@ function harness(
                 : Promise.resolve({ id: info.backendUid, merged: false });
         },
     };
-    const createClient = (port: number, host: string): FakeClient => {
-        const client = new FakeClient(port, host);
+    const createClient = (port: number, host: string, token: string | null): FakeClient => {
+        const client = new FakeClient(port, host, token);
         options.setup?.(client);
         clients.push(client);
         return client;
@@ -343,4 +349,69 @@ describe("connectMachine", () => {
         expect(h.confirmed).toEqual([]);
         expect(h.detached).toEqual([]);
     });
+});
+
+it("a first 4401 refreshes the token and the handshake succeeds on a client with the new token", async () => {
+    const refreshed: string[] = [];
+    const h = harness({
+        attach: async () => ({
+            ok: true,
+            origin: `http://127.0.0.1:${ORIGIN_PORT}`,
+            token: "a".repeat(43),
+        }),
+        refresh: async (id) => {
+            refreshed.push(id);
+            return { ok: true, token: "b".repeat(43) };
+        },
+        setup: (client) => {
+            if (client.token !== "b".repeat(43))
+                client.requestError = new BackendUnauthorizedError();
+        },
+    });
+    const result = await connectMachine({ registry: h.registry }, "remote", {
+        createClient: h.createClient,
+    });
+    expect(result.ok).toBe(true);
+    expect(h.clients.map((c) => c.token)).toEqual(["a".repeat(43), "b".repeat(43)]);
+    expect(h.clients[0].closeCount).toBe(1);
+    expect(refreshed).toEqual(["remote"]);
+    expect(h.detached).toEqual([]);
+});
+it("a second 4401 detaches and reports kind unauthorized with the exact message", async () => {
+    let refreshes = 0;
+    const h = harness({
+        setup: (c) => {
+            c.requestError = new BackendUnauthorizedError();
+        },
+        refresh: async () => {
+            refreshes++;
+            return { ok: false, failure: { kind: "unknown", message: "unreadable", stderr: "" } };
+        },
+    });
+    expect(
+        await connectMachine({ registry: h.registry }, "remote", { createClient: h.createClient }),
+    ).toEqual({
+        ok: false,
+        machineId: "remote",
+        failure: {
+            kind: "unauthorized",
+            message: "Remote backend rejected the access token",
+            stderr: "",
+        },
+    });
+    expect(refreshes).toBe(1);
+    expect(h.clients).toHaveLength(2);
+    expect(h.clients.map((c) => c.closeCount)).toEqual([1, 1]);
+    expect(h.detached).toEqual(["remote"]);
+});
+it("createClient receives the attach's token", async () => {
+    const h = harness({
+        attach: async () => ({
+            ok: true,
+            origin: `http://127.0.0.1:${ORIGIN_PORT}`,
+            token: "a".repeat(43),
+        }),
+    });
+    await connectMachine({ registry: h.registry }, "remote", { createClient: h.createClient });
+    expect(h.clients[0].token).toBe("a".repeat(43));
 });

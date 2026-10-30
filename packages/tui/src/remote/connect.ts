@@ -1,10 +1,18 @@
-import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
+import {
+    MSG,
+    PROTOCOL_VERSION,
+    BackendUnauthorizedError,
+    unauthorizedFailure,
+} from "@taskflow/shared";
 import type { SystemInfo, TunnelFailure } from "@taskflow/shared";
 import type { BackendRegistry } from "@taskflow/shared/remote";
 import { WsClient } from "../net/client";
 import type { NetLike } from "../net/client";
 
-type RegistryPort = Pick<BackendRegistry, "attachBackend" | "detachBackend" | "confirmBackend">;
+type RegistryPort = Pick<
+    BackendRegistry,
+    "attachBackend" | "detachBackend" | "confirmBackend" | "refreshToken"
+>;
 
 /**
  * What `connectMachine` needs from a client, and what a caller gets back on
@@ -15,7 +23,8 @@ interface MachineClient extends NetLike {
     connect(): Promise<void>;
     /** Whether the socket is open right now, for state that changed while nobody listened. */
     isConnected(): boolean;
-    retarget(port: number, host: string | null): void;
+    wasUnauthorized(): boolean;
+    retarget(port: number, host: string | null, token: string | null): void;
     close(): void;
 }
 
@@ -26,11 +35,11 @@ type ConnectOutcome =
     | { ok: false; machineId: string; alreadyAttached: true };
 
 interface ConnectDeps {
-    createClient?: (port: number, host: string) => MachineClient;
+    createClient?: (port: number, host: string, token: string | null) => MachineClient;
 }
 
-function defaultCreateClient(port: number, host: string): MachineClient {
-    return new WsClient(port, host);
+function defaultCreateClient(port: number, host: string, token: string | null): MachineClient {
+    return new WsClient(port, host, token);
 }
 
 /** The registry's origin is `http://127.0.0.1:<local tunnel port>`. */
@@ -98,9 +107,21 @@ async function connectMachine(
     let client: MachineClient | null = null;
     try {
         const target = parseOrigin(attached.origin);
-        client = createClient(target.port, target.host);
-        await client.connect();
-        const info = await client.request<SystemInfo>(MSG.SYSTEM_INFO);
+        let token = attached.token ?? null;
+        client = createClient(target.port, target.host, token);
+        let info: SystemInfo;
+        try {
+            await client.connect();
+            info = await client.request<SystemInfo>(MSG.SYSTEM_INFO);
+        } catch (error) {
+            if (!(error instanceof BackendUnauthorizedError)) throw error;
+            closeQuietly(client);
+            const refreshed = await registry.refreshToken(id);
+            if (refreshed.ok) token = refreshed.token;
+            client = createClient(target.port, target.host, token);
+            await client.connect();
+            info = await client.request<SystemInfo>(MSG.SYSTEM_INFO);
+        }
 
         // The registry has no socket, so the version check is only ever
         // enforced by whoever dials.
@@ -129,7 +150,9 @@ async function connectMachine(
     } catch (error) {
         closeQuietly(client);
         await detachQuietly();
-        return failed(error);
+        return error instanceof BackendUnauthorizedError
+            ? { ok: false, machineId: id, failure: unauthorizedFailure(false) }
+            : failed(error);
     }
 }
 

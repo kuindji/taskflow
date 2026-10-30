@@ -1,5 +1,10 @@
 import { randomUUID } from "crypto";
-import { hostForUrl, resolveBackendHost } from "@taskflow/shared";
+import {
+    hostForUrl,
+    resolveBackendHost,
+    BackendUnauthorizedError,
+    WS_CLOSE_UNAUTHORIZED,
+} from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
 
 // DOM typings omit Bun's supported custom-header constructor.
@@ -46,6 +51,7 @@ class WsClient implements NetLike {
     private reconnectAttempt = 0;
     /** Set by close(): an intentional shutdown must not be undone by the retry loop. */
     private closed = false;
+    private unauthorized = false;
 
     /**
      * `host` is for remote mode, where the backend is on another machine and
@@ -63,9 +69,15 @@ class WsClient implements NetLike {
      * target; an armed retry picks it up on its own. A closed client stays
      * closed: only `connect()` revives it.
      */
-    retarget(port: number, host: string | null): void {
+    retarget(port: number, host: string | null, token: string | null): void {
         this.port = port;
         this.host = host;
+        this.token = token;
+        if (!this.closed && this.unauthorized) {
+            this.unauthorized = false;
+            this.scheduleReconnect();
+            return;
+        }
         if (this.closed || this.ws === null) return;
         this.disconnect(new Error("Connection retargeted"));
         this.scheduleReconnect();
@@ -106,6 +118,7 @@ class WsClient implements NetLike {
                 if (this.ws !== ws) return;
                 // The backoff is per outage, not per process: a connection that
                 // came back starts the next one at the shortest delay again.
+                this.unauthorized = false;
                 this.reconnectAttempt = 0;
                 this.setStatus(true);
                 settle();
@@ -114,10 +127,17 @@ class WsClient implements NetLike {
                 if (this.ws !== ws) return;
                 settle(new Error("WebSocket connection error"));
             };
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 if (this.ws !== ws) return;
                 // Drop the reference: request() must not try to send on it.
                 this.ws = null;
+                if (event.code === WS_CLOSE_UNAUTHORIZED) {
+                    this.unauthorized = true;
+                    settle(new BackendUnauthorizedError());
+                    this.failPending(new BackendUnauthorizedError());
+                    this.setStatus(false);
+                    return;
+                }
                 settle(new Error("Connection closed before it opened"));
                 this.failPending(new Error("Connection lost"));
                 // Only an unexpected close reaches here. disconnect() detaches
@@ -139,6 +159,10 @@ class WsClient implements NetLike {
         });
     }
 
+    wasUnauthorized(): boolean {
+        return this.unauthorized;
+    }
+
     /** The status last reported to `onStatusChange` listeners. */
     isConnected(): boolean {
         return this.connected;
@@ -158,7 +182,7 @@ class WsClient implements NetLike {
      * restores its screen from the backend's snapshot.
      */
     private scheduleReconnect(): void {
-        if (this.closed || this.reconnectTimer !== null) return;
+        if (this.closed || this.unauthorized || this.reconnectTimer !== null) return;
         const delay = Math.min(
             RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt,
             MAX_RECONNECT_DELAY_MS,
@@ -247,8 +271,9 @@ class WsClient implements NetLike {
     }
 
     request<T>(type: string, payload: unknown = {}): Promise<T> {
+        if (this.unauthorized) return Promise.reject(new BackendUnauthorizedError());
         const ws = this.ws;
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (!ws || (!this.connected && ws.readyState !== WebSocket.OPEN)) {
             return Promise.reject(new Error("Not connected"));
         }
         const correlationId = randomUUID();
@@ -263,7 +288,8 @@ class WsClient implements NetLike {
                 reject,
                 timer,
             });
-            ws.send(JSON.stringify(message));
+            // readyState may change before Bun delivers the close reason.
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
         });
     }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { MSG } from "@taskflow/shared";
+import { MSG, BackendUnauthorizedError } from "@taskflow/shared";
 import type { MenuEntry, TunnelFailure } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
 import { MachineOfflineError } from "../net/offline-guard";
@@ -53,11 +53,25 @@ class FakeClient implements MachineClient {
         private readonly name: string,
         private readonly log: string[],
     ) {}
+    unauthorized = false;
+    handshakeError: Error | null = null;
+    readonly retargetTokens: (string | null)[] = [];
+    readonly requests: string[] = [];
     connect(): Promise<void> {
         return Promise.resolve();
     }
-    request<T>(): Promise<T> {
+    request<T>(type: string): Promise<T> {
+        this.requests.push(type);
+        if (type === MSG.SYSTEM_INFO && this.handshakeError)
+            return Promise.reject(this.handshakeError);
         return Promise.resolve({ backendUid: "local-uid" } as T);
+    }
+    wasUnauthorized(): boolean {
+        return this.unauthorized;
+    }
+    emitUnauthorized(): void {
+        this.unauthorized = true;
+        this.emitStatus(false);
     }
     on(): () => void {
         return () => undefined;
@@ -66,7 +80,9 @@ class FakeClient implements MachineClient {
         this.statusListeners.add(listener);
         return () => this.statusListeners.delete(listener);
     }
-    retarget(port: number, host: string | null): void {
+    retarget(port: number, host: string | null, token: string | null): void {
+        this.retargetTokens.push(token);
+        this.unauthorized = false;
         this.log.push(`retarget(${this.name}:${String(host)}:${String(port)})`);
     }
     close(): void {
@@ -79,6 +95,7 @@ class FakeClient implements MachineClient {
         this.connected = connected;
     }
     emitStatus(connected: boolean): void {
+        if (connected) this.unauthorized = false;
         this.connected = connected;
         for (const listener of this.statusListeners) listener({ connected });
     }
@@ -182,6 +199,10 @@ describe("MachineSession", () => {
         };
 
         const registry: Registry = {
+            refreshToken: async (id) => {
+                log.push(`refreshToken(${id})`);
+                return { ok: true, token: "c".repeat(43) };
+            },
             addBackend: () => Promise.reject(new Error("unused")),
             addDiscoveredBackend: () => Promise.resolve(null),
             attachBackend: (id) => {
@@ -342,6 +363,12 @@ describe("MachineSession", () => {
         expect(h.localTokens).toEqual([TOKEN]);
     });
 
+    function requiredClient(h: Harness, id: string): FakeClient {
+        const client = h.clients.get(id);
+        if (!client) throw new Error(`No client for ${id}`);
+        return client;
+    }
+
     const statesOf = (h: Harness): string[] =>
         h.statuses.map(({ id, status }) =>
             status.state === "online" ? `${id}:online` : `${id}:${status.state}:${status.reason}`,
@@ -351,6 +378,124 @@ describe("MachineSession", () => {
         h.timers
             .filter((timer) => !timer.cancelled && timer.delay !== 60000)
             .map((timer) => timer.delay);
+
+    it("a newly opened remote workspace authenticates with SYSTEM_INFO", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        expect(h.clients.get("alpha")?.requests).toEqual([MSG.SYSTEM_INFO]);
+    });
+    it("a successful new remote workspace re-arms a previously rejected machine", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        const old = h.clients.get("alpha");
+        if (!old) throw new Error("no client");
+        old.emitUnauthorized();
+        await Bun.sleep(5);
+        old.emitUnauthorized();
+        await Bun.sleep(5);
+        await h.session.switchTo(LOCAL_ROW);
+        await h.session.switchTo(machineRow("alpha"));
+        h.clients.get("alpha")?.emitUnauthorized();
+        await Bun.sleep(5);
+        expect(h.log.filter((l) => l === "refreshToken(alpha)")).toHaveLength(2);
+    });
+
+    it("a live 4401 on a remote refreshes once and reattaches with the token the attach returns", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        const net = requiredClient(h, "alpha");
+        h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123", token: "b".repeat(43) });
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        await fireTimers(h);
+        expect(h.log.filter((l) => l === "refreshToken(alpha)")).toHaveLength(1);
+        expect(net.retargetTokens).toEqual(["b".repeat(43)]);
+    });
+    it("a second live 4401 shows Remote backend rejected the access token and stops reattaching", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        const net = requiredClient(h, "alpha");
+        h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123", token: TOKEN });
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        await fireTimers(h);
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        expect(statesOf(h).at(-1)).toBe("alpha:offline:Remote backend rejected the access token");
+        expect(armed(h)).toEqual([]);
+        expect(h.log.filter((l) => l === "refreshToken(alpha)")).toHaveLength(1);
+    });
+    it("a refreshed token that is still wrong is refused after exactly one refresh", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        const net = requiredClient(h, "alpha");
+        h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123", token: TOKEN });
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        await fireTimers(h);
+        net.handshakeError = new BackendUnauthorizedError();
+        net.emitStatus(true);
+        await Bun.sleep(1);
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        expect(h.log.filter((l) => l === "refreshToken(alpha)")).toHaveLength(1);
+        expect(statesOf(h).at(-1)).toBe("alpha:offline:Remote backend rejected the access token");
+        expect(armed(h)).toEqual([]);
+    });
+    it("the gate re-arms only after SYSTEM_INFO succeeds", async () => {
+        for (const succeeds of [false, true]) {
+            const h = await harness();
+            await h.session.switchTo(machineRow("alpha"));
+            const net = requiredClient(h, "alpha");
+            h.attaches.push({ ok: true, origin: "http://127.0.0.1:5123", token: TOKEN });
+            net.emitUnauthorized();
+            await Bun.sleep(5);
+            await fireTimers(h);
+            net.handshakeError = succeeds ? null : new BackendUnauthorizedError();
+            net.emitStatus(true);
+            await Bun.sleep(5);
+            expect(net.requests).toContain(MSG.SYSTEM_INFO);
+            net.emitUnauthorized();
+            await Bun.sleep(5);
+            expect(h.log.filter((l) => l === "refreshToken(alpha)")).toHaveLength(succeeds ? 2 : 1);
+        }
+    });
+    it("a rejected token stops the reconnect policy", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        const net = requiredClient(h, "alpha");
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        await fireTimers(h);
+        net.emitUnauthorized();
+        await Bun.sleep(5);
+        const before = h.log.filter((l) => l === "attach(alpha)").length;
+        h.exitTunnel("alpha", failure("unknown", "ssh exited again"));
+        await fireTimers(h);
+        expect(h.log.filter((l) => l === "attach(alpha)")).toHaveLength(before);
+        expect(armed(h)).toEqual([]);
+    });
+    it("a stopped remote backend (no-backend) keeps retrying after Section 4", async () => {
+        const h = await harness();
+        await h.session.switchTo(machineRow("alpha"));
+        h.exitTunnel("alpha", failure("unknown", "ssh exited"));
+        h.attaches.push({ ok: false, failure: failure("no-backend", "stopped") });
+        await fireTimers(h);
+        expect(armed(h)).toEqual([2000]);
+        await fireTimers(h);
+        expect(h.log.filter((l) => l === "attach(alpha)")).toHaveLength(2);
+    });
+    it("a local 4401 shows The local backend rejected the access token", async () => {
+        const h = await harness();
+        await h.session.switchTo(LOCAL_ROW);
+        requiredClient(h, "local").emitUnauthorized();
+        await Bun.sleep(5);
+        expect(statesOf(h).at(-1)).toBe(
+            "local:offline:The local backend rejected the access token",
+        );
+        expect(h.log.some((l) => l.startsWith("refreshToken"))).toBe(false);
+    });
 
     it("marks a remote machine offline when its tunnel exits and refuses requests", async () => {
         const h = await harness();

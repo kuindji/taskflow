@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import type { Server, ServerWebSocket } from "bun";
+import { BackendUnauthorizedError } from "@taskflow/shared";
 import { WsClient } from "./client";
 
 const servers: Server<unknown>[] = [];
@@ -197,7 +198,7 @@ describe("WsClient", () => {
         });
         // The malformed server answers every request with `{ ok: true }`, which
         // the echo server never does, so the reply proves which port was dialled.
-        client.retarget(startMalformedServer(), null);
+        client.retarget(startMalformedServer(), null, null);
         expect(seen).toEqual([false]);
         await Promise.race([reconnected, Bun.sleep(2_000)]);
         expect(seen).toEqual([false, true]);
@@ -248,4 +249,77 @@ test("a reconnect after a drop sends the token again", async () => {
     await Promise.race([reconnected, Bun.sleep(2000)]);
     expect(client.isConnected()).toBe(true);
     expect(authorizations).toEqual([`Bearer ${"T".repeat(43)}`, `Bearer ${"T".repeat(43)}`]);
+});
+
+function startAuthServer(
+    acceptedToken: string | null,
+    authorizations: (string | null)[] = [],
+): number {
+    const server = Bun.serve<{ accepted: boolean }>({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch(req, server) {
+            const authorization = req.headers.get("authorization");
+            authorizations.push(authorization);
+            return server.upgrade(req, {
+                data: {
+                    accepted: acceptedToken !== null && authorization === `Bearer ${acceptedToken}`,
+                },
+            })
+                ? undefined
+                : new Response("no");
+        },
+        websocket: {
+            open(ws) {
+                if (!ws.data.accepted) ws.close(4401, "unauthorized");
+            },
+            message(ws, raw) {
+                if (ws.data.accepted) {
+                    const req = JSON.parse(String(raw)) as { correlationId: string };
+                    ws.send(
+                        JSON.stringify({ correlationId: req.correlationId, payload: { ok: true } }),
+                    );
+                }
+            },
+        },
+    });
+    servers.push(server as Server<unknown>);
+    return server.port ?? 0;
+}
+test("a 4401 close after open rejects the pending request with BackendUnauthorizedError and does not redial", async () => {
+    const authorizations: (string | null)[] = [];
+    const client = makeClient(startAuthServer(null, authorizations));
+    let pending: Promise<unknown> = Promise.resolve("no request");
+    client.onStatusChange((s) => {
+        if (s.connected) pending = client.request("never").catch((error: unknown) => error);
+    });
+    await client.connect();
+    expect(await pending).toBeInstanceOf(BackendUnauthorizedError);
+    expect(await client.request("later").catch((error: unknown) => error)).toBeInstanceOf(
+        BackendUnauthorizedError,
+    );
+    await Bun.sleep(600);
+    expect(authorizations).toHaveLength(1);
+});
+test("wasUnauthorized is set by a 4401 and cleared by the next successful open", async () => {
+    const client = makeClient(startAuthServer(null));
+    await client.connect();
+    await Bun.sleep(20);
+    expect(client.wasUnauthorized()).toBe(true);
+    client.retarget(startAuthServer("a".repeat(43)), "127.0.0.1", "a".repeat(43));
+    await Bun.sleep(350);
+    expect(client.isConnected()).toBe(true);
+    expect(client.wasUnauthorized()).toBe(false);
+});
+test("retarget with a new token redials an unauthorized client and sends the new token", async () => {
+    const token = "b".repeat(43);
+    const headers: (string | null)[] = [];
+    const port = startAuthServer(token, headers);
+    const client = makeClient(port, "a".repeat(43));
+    await client.connect();
+    await Bun.sleep(20);
+    client.retarget(port, "127.0.0.1", token);
+    await Bun.sleep(350);
+    expect(await client.request<{ ok: boolean }>("ping")).toEqual({ ok: true });
+    expect(headers).toEqual([`Bearer ${"a".repeat(43)}`, `Bearer ${token}`]);
 });

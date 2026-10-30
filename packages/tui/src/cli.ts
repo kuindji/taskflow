@@ -1,3 +1,4 @@
+import { isApiToken } from "@taskflow/shared";
 import { backendUrl } from "./net/client";
 
 /**
@@ -6,13 +7,13 @@ import { backendUrl } from "./net/client";
  */
 interface CliOptions {
     /** Null in local mode, where the TUI spawns a backend of its own. */
-    connect: { host: string; port: number } | null;
+    connect: { host: string; port: number; token: string | null } | null;
     /** A saved machine's display name or id, which skips the machine picker. */
     machine: string | null;
 }
 
 const USAGE =
-    "usage: taskflow-tui [machine] [--connect <host:port>] (IPv6 must be bracketed: [::1]:7777)";
+    "usage: taskflow-tui [machine] [--connect <host:port> [--token <token>]] (IPv6 must be bracketed: [::1]:7777)";
 
 /**
  * Whether the target carries whitespace or a C0/DEL control. Checked before the
@@ -98,12 +99,29 @@ function parseTarget(value: string): { host: string; port: number } {
     return { host, port };
 }
 
-function parseArgs(argv: string[]): CliOptions {
-    let connect: CliOptions["connect"] = null;
+function parseArgs(
+    argv: string[],
+    env: { TASKFLOW_TOKEN?: string } = { TASKFLOW_TOKEN: process.env.TASKFLOW_TOKEN },
+): CliOptions {
+    let connect: ReturnType<typeof parseTarget> | null = null;
+    let token: string | undefined;
     let machine: string | null = null;
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i] ?? "";
+        if (arg.startsWith("--token=")) {
+            token = arg.slice("--token=".length);
+            continue;
+        }
+        if (arg === "--token") {
+            const value = argv[++i];
+            if (value === undefined)
+                throw new Error(
+                    `--token expects a Taskflow access token (43 characters). ${USAGE}`,
+                );
+            token = value;
+            continue;
+        }
         if (arg.startsWith("--connect=")) {
             connect = parseTarget(arg.slice("--connect=".length));
             continue;
@@ -126,7 +144,12 @@ function parseArgs(argv: string[]): CliOptions {
     if (connect !== null && machine !== null) {
         throw new Error(`A machine name and --connect can't be used together. ${USAGE}`);
     }
-    return { connect, machine };
+    if (token !== undefined && connect === null)
+        throw new Error(`--token needs --connect. ${USAGE}`);
+    const accessToken = connect === null ? null : (token ?? env.TASKFLOW_TOKEN ?? null);
+    if (accessToken !== null && !isApiToken(accessToken))
+        throw new Error(`--token expects a Taskflow access token (43 characters). ${USAGE}`);
+    return { connect: connect === null ? null : { ...connect, token: accessToken }, machine };
 }
 
 export { parseArgs };

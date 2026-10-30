@@ -210,7 +210,8 @@ describe("readRemoteToken", () => {
         expect(await createTunnelManager().readRemoteToken(record)).toEqual({
             token: "a".repeat(43),
         });
-        const args = readLog()[0].args!;
+        const args = readLog()[0].args;
+        if (!args) throw new Error("no ssh read arguments");
         expect(args.at(-1)).toBe("cat ~/.config/taskflow/'api-token-main'");
         expect(args).toContain("ControlMaster=no");
         expect(args).toContain("ControlPath=none");
@@ -220,14 +221,13 @@ describe("readRemoteToken", () => {
         useLog("token-fail.log");
         process.env.FAKE_SSH_CAT_OUTPUT = "";
         process.env.FAKE_SSH_CAT_CODE = "1";
-        expect(await createTunnelManager().readRemoteToken(record)).toMatchObject({
-            failure: {
-                kind: "no-backend",
-                message:
-                    "Could not read Taskflow's access token on 192.168.1.20. Enter it in the connect dialog.",
-                stderr: expect.stringContaining("Command failed: ssh"),
-            },
-        });
+        const result = await createTunnelManager().readRemoteToken(record);
+        if (!("failure" in result)) throw new Error("expected a token read failure");
+        expect(result.failure.kind).toBe("no-backend");
+        expect(result.failure.message).toBe(
+            "Could not read Taskflow's access token on 192.168.1.20. Enter it in the connect dialog.",
+        );
+        expect(result.failure.stderr).toContain("Command failed: ssh");
     });
     test("readRemoteToken refuses content that is not a token", async () => {
         useLog("token-invalid.log");

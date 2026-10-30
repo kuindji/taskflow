@@ -18,6 +18,7 @@ interface AddMachineInput {
     user?: string;
     sshPort?: number;
     port?: number;
+    token?: string;
 }
 
 interface MachinePickerDeps {
@@ -33,13 +34,14 @@ interface MachinePickerDeps {
     onCancel(): void;
 }
 
-type AddField = "host" | "user" | "sshPort" | "port";
+type AddField = "host" | "user" | "sshPort" | "port" | "token";
 
 const ADD_FIELDS: ReadonlyArray<{ field: AddField; label: string }> = [
     { field: "host", label: "Host" },
     { field: "user", label: "SSH user" },
     { field: "sshPort", label: "SSH port" },
     { field: "port", label: "Backend port" },
+    { field: "token", label: "Access token" },
 ];
 
 type PickerForm =
@@ -209,7 +211,7 @@ class MachinePicker {
         this.form = {
             kind: "add",
             fieldIndex: 0,
-            values: { host: "", user: "", sshPort: "", port: "" },
+            values: { host: "", user: "", sshPort: "", port: "", token: "" },
         };
         this.formError = null;
         this.rebuild();
@@ -296,6 +298,8 @@ class MachinePicker {
         if (user) input.user = user;
         if (sshPort !== undefined) input.sshPort = sshPort;
         if (port !== undefined) input.port = port;
+        const token = form.values.token.trim();
+        if (token) input.token = token;
         this.closeForm();
         this.deps.onAdd(input);
     }

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { TextRenderable, type CliRenderer } from "@opentui/core";
+import { MSG, BackendUnauthorizedError, ACCESS_TOKEN_REJECTED } from "@taskflow/shared";
 import type { MenuEntry } from "@taskflow/shared";
 import { resolveBackendBinary } from "../backend/binary";
 import { startBackend } from "../backend/manager";
@@ -60,9 +61,20 @@ async function main(): Promise<void> {
         if (options.connect !== null) {
             // A tunnel the user opened by hand: no picker, no registry.
             const target = `${options.connect.host}:${String(options.connect.port)}`;
-            const net = new WsClient(options.connect.port, options.connect.host);
+            const net = new WsClient(
+                options.connect.port,
+                options.connect.host,
+                options.connect.token,
+            );
             owner.ownSocket(net);
-            await net.connect();
+            try {
+                await net.connect();
+                await net.request(MSG.SYSTEM_INFO);
+            } catch (error) {
+                if (error instanceof BackendUnauthorizedError)
+                    throw new Error(ACCESS_TOKEN_REJECTED, { cause: error });
+                throw error;
+            }
             const renderer = await owner.create();
             const workspace = await openWorkspace(net, {
                 renderer,

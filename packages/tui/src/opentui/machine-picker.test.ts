@@ -50,7 +50,13 @@ describe("MachinePicker", () => {
     ) {
         const test = await createTestRenderer({ width: 100, height: 30 });
         const picked: PickerRow[] = [];
-        const added: Array<{ host: string; user?: string; sshPort?: number; port?: number }> = [];
+        const added: Array<{
+            host: string;
+            user?: string;
+            sshPort?: number;
+            port?: number;
+            token?: string;
+        }> = [];
         const renamed: Array<[string, string]> = [];
         const forgotten: string[] = [];
         let cancelled = 0;
@@ -145,6 +151,19 @@ describe("MachinePicker", () => {
         typeText(picker, "7777");
         picker.handleKey(key("return", "\r"));
         expect(added).toEqual([{ host: "vpn-box", sshPort: 2222, port: 7777 }]);
+    });
+
+    it("the add form passes the access token, and leaves it out when empty", async () => {
+        for (const token of ["a".repeat(43), ""]) {
+            const { picker, added, frame } = await setup();
+            picker.handleKey(key("a", "a"));
+            typeText(picker, "remote");
+            for (let i = 0; i < 4; i++) picker.handleKey(key("down"));
+            expect(await frame()).toContain("Access token");
+            typeText(picker, token);
+            picker.handleKey(key("return", "\r"));
+            expect(added).toEqual([token ? { host: "remote", token } : { host: "remote" }]);
+        }
     });
 
     it("the add form rejects a port that is not a number", async () => {
