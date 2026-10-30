@@ -6,14 +6,15 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Plan review round 1.
+Plan review round 2.
 
 ## Status
 
 | # | Section | Status | Commits |
 |---|---|---|---|
 | — | Plan written | done | 44400fd7 |
-| — | Plan review round 1 | not started | |
+| — | Plan review round 1 | done: 5 majors and 11 minors confirmed (12 Codex + 4 own) and folded in | 069344e1 |
+| — | Plan review round 2 | not started | |
 | 1 | Auth core | not started | |
 | 2 | Auth, local clients | not started | |
 | 3 | Remote connectivity | not started | |
@@ -34,7 +35,8 @@ Plan review round 1.
 - Implementation waits for the agent-browser chain (`../2026-10-30-agent-browser/handoff.md`, Next step "None: complete"). Plan reviews don't.
 - **Push order:** the agent-browser feature's `/cdp/` upgrade (`ws/server.ts`) and `/api/browser/*` routes are as unauthenticated as the rest of the API until Section 5 here enforces auth. Tell the user not to push the browser work separately before Section 5, unless they accept that.
 - The agent-browser plan already took the browser-specific t3code lessons (commit `38523814`, its spec Amendment 12). Don't redo them here.
-- t3code source: fetch commit `32ecd717` into your scratchpad with the command in `design.md`.
+- t3code source: fetch commit `32ecd71726fee16f335484c1f95cbce126d461f6` into your scratchpad with the command in `design.md` (the short SHA can't be fetched).
+- Round 2 brief: check that round 1's fixes hold (`reviews/round-1-triage.md` lists them; S1, S3, S4, S5, S6, S9, S11, S13 and design.md changed), and look for new problems. Section 4's desktop and TUI `4401` paths were rewritten the most.
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage. Judge UI tests file by file.
 - Tests asserting rejections use `expectRejects` from `packages/backend/tests/expect-rejects.ts`.
 - Shell is zsh: `$F` file lists don't word-split. Pass files to eslint and prettier explicitly.
