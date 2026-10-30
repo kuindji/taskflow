@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Section 8.
+None: complete, ready for the user's review and push. Open for the user: real hand typing (item 4), Windows/Linux close behaviour (item 3), remote-machine workspaces (item 12), and whether Playwright's `newCDPSession` should work (it needs `Target.attachToBrowserTarget`, refused by design).
 
 ## Status
 
@@ -23,7 +23,32 @@ Section 8.
 | 5 | Electron host | done: smoke test passed; review had 1 finding (client dropped the control url's secret prefix), plus 3 own; all confirmed and fixed | e46c0d85, 2f853a0f |
 | 6 | UI | done: Sol stopped at Step 7 (bootstrap placement); 4 own fixes before commit; review had 1 finding (connection overlay not registered), confirmed and fixed | 30f1c8da, c3c85776 (+ the user-agent move landed in 29122909, see Facts) |
 | 7 | CLI, doc, prompt | done: smoke check passed; review clean; 1 own finding (empty url saved while the first load is pending), confirmed and fixed | 9cdd8d03, 2286b550 |
-| 8 | Manual verification, final review | not started | |
+| 8 | Manual verification, final review | done: checklist passed after 2 fixes (keep-awake, native UA); final review had 4 majors, all confirmed and fixed (the id fix widened after the security review); two reviews of the fixes found 2 majors and 1 minor, all fixed | 5d4b4e3d, a1295f7d, c7043064, 27e347a6, db29fb74, 89bcdbe3, 28c66b6f, c7176fee, 54e5505a, bd456089 (c992c4ba reverted in a391bbe2) |
+
+## Section 8 checklist
+
+Sandboxed dev app (`TASKFLOW_DEV=1 TASKFLOW_CONFIG_DIR=<scratch>`), macOS, Playwright Node 1.64, Playwright Python, Puppeteer 25.16, local test pages on two ports.
+
+| # | Result |
+|---|---|
+| 1 | pass |
+| 2 | pass: A sees only its page; B's target, `Tracing.start`, `ServiceWorker.stopAllWorkers`, `Browser.close`/`crash` refused; named popups isolated and reused; `browser.close()` leaves app and tabs alive. Playwright's `newCDPSession` needs `Target.attachToBrowserTarget`, which stays refused (spec Amendment 13); raw flattened page sessions work |
+| 3 | pass: counter, rAF and ~31 KB screenshots on task B, on A's other tab, and with the window closed to the tray; reopened window shows A live; reconnect while hidden works; the dock icon hides. Windows/Linux not available |
+| 4 | pass with a stand-in: OS keystrokes are blocked for this agent, so "typing by hand" was native key events through the app's own debug port. Real hand typing not run |
+| 5, 6 | pass |
+| 7 | pass |
+| 8 | pass: exact error within 10 s, A's socket closed at 13 s, host back right after `CONT` |
+| 9 | pass; backend restart while the app runs: unit tests only |
+| 10 | pass: dialog, popover and tooltip over the pane freeze it; in Electron most dropdowns and all context menus are native menus, drawn above the view without a freeze; overlays clear of the pane don't freeze |
+| 10b | pass (Reload and Force Reload) |
+| 11 | pass |
+| 12 | pass: web UI opens the iframe tab, registry tabs show "This browser runs on another machine"; no-host `open` gives the exact error. Remote machines not run |
+| 13 | pass after 5d4b4e3d: Puppeteer on a parked tab took ~900 ms per rAF and ~3 s per screenshot until then |
+| 13b | pass: notes field and terminal unchanged; cross-origin iframe typing; `page.reload()` and toolbar Reload. Hidden-tab toolbar Reload has no UI, so not run |
+| 13c | pass: 105 concurrent screenshots during 10 freezes, navigations and a tab close; no crash |
+| 13d | pass: geolocation, notifications, camera, clipboard read denied at once; clipboard write works; `mailto:`/`vscode://` refused and logged. Playwright's click on such a link waits until its timeout (spec Amendment 13) |
+| 14 | pass: exact nudge in a sandbox Claude's `--append-system-prompt`; usage text matches |
+| 15 | native UA passes Cloudflare's managed challenge and Google sign-in, the stripped UA fails both → a1295f7d |
 
 ## Facts for the next section
 
@@ -66,3 +91,4 @@ Section 8.
 ## Deviations from the spec
 
 - Amendment 11 (spike): context-scoped commands aren't pinned to the tabs' context (impossible under Electron); download behaviour is a no-op, cookies go through the page, permissions are refused. Downloads aren't reported to agents.
+- Amendment 13 (Section 8): hosted tabs keep Electron's native UA; the gateway holds focus emulation per agent connection; the filter rewrites request ids; Playwright's `newCDPSession` doesn't work through the endpoint; Playwright's click on a `mailto:`/custom-scheme link waits until its timeout.
