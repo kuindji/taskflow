@@ -66,7 +66,8 @@ function parseRemote(remote: string | null): { host: string; project: string; ur
         let project: string;
         if (/^(https?|ssh):\/\//i.test(remote)) {
             const parsed = new URL(remote);
-            host = parsed.hostname.toLowerCase();
+            // An HTTP(S) port is the instance's; an SSH port is only transport.
+            host = (parsed.protocol === "ssh:" ? parsed.hostname : parsed.host).toLowerCase();
             project = parsed.pathname.slice(1);
         } else {
             const match = remote.match(/^(?:[^/@:\s]+@)?([^/:\s]+):(.+)$/);

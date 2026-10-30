@@ -438,7 +438,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                             <span className="text-xs">{commitLabel}</span>
                         </Button>
                     )}
-                    {requestStatus?.status === "unavailable" && (
+                    {requestStatus?.status === "unavailable" && (showCreatePr || currentPr) && (
                         <>
                             <span
                                 className="text-muted-foreground text-xs"

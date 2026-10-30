@@ -351,9 +351,12 @@ export function TaskCard({
                                 </Badge>
                             </TooltipTrigger>
                             <TooltipContent side="right">
-                                {requestStatus?.status === "unavailable"
-                                    ? requestStatus.message
-                                    : (task.worktree.branch ?? "pending")}
+                                {task.worktree.branch ?? "pending"}
+                                {requestStatus?.status === "unavailable" && (
+                                    <div className="text-muted-foreground">
+                                        {requestStatus.message}
+                                    </div>
+                                )}
                             </TooltipContent>
                         </Tooltip>
                     )}

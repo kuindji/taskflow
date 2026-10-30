@@ -193,6 +193,14 @@ for (const [provider, cli] of [
         ]);
     });
 }
+it("an HTTPS remote keeps its port in the host", async () => {
+    const f = prFake("https://Code.Example:8443/group/repo.git");
+    f.authenticated = ["glab"];
+    f.output = "[]";
+    await checkBranchPr(repo, "topic", f.deps);
+    expect(f.calls[0].args).toEqual(["auth", "status", "--hostname", "code.example:8443"]);
+    expect(f.calls.at(-1)?.args).toContain("https://code.example:8443/group/repo");
+});
 it("a dual-authenticated self-hosted host is ambiguous", async () => {
     const f = prFake("https://code.example/group/repo");
     expect(await checkBranchPr(repo, "topic", f.deps)).toMatchObject({
