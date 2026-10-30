@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 1. **Chain stopped:** the agent-browser chain isn't finished (its handoff says "Implement Section 6"), and chain.md forbids starting implementation before it is. Restart this chain once that handoff says "None: complete".
+Implement Section 1. The agent-browser chain is finished ("None: complete", 841437f4); the user restarted this chain on 2026-10-30.
 
 ## Status
 
@@ -38,7 +38,8 @@ Implement Section 1. **Chain stopped:** the agent-browser chain isn't finished (
 - The agent-browser plan already took the browser-specific t3code lessons (commit `38523814`, its spec Amendment 12). Don't redo them here.
 - t3code source: fetch commit `32ecd71726fee16f335484c1f95cbce126d461f6` into your scratchpad with the command in `design.md` (the short SHA can't be fetched).
 - Plan reviews are done (3 rounds). Round 3 added: S4 moves `ConnectionOverlay` out of `App.tsx` and exports `switchRefusal` from `MachinesMenu.tsx`; S6 Task 6.3 touches `WebSocketProvider.tsx` (dev renderer readiness) and adds its first test file.
-- The agent-browser chain has uncommitted edits in `packages/ui/src/stores/backend-store.ts` and other UI files. Line anchors there may shift; sections say to find code by landmarks.
+- **User decision 2026-10-30:** don't stop the chain for the agent-browser feature's open manual checks (hand typing, Windows/Linux close, remote workspaces, `newCDPSession`). The user tests the browser work and this plan together after Section 13. Stop only for the reasons in `chain.md`.
+- The agent-browser work is fully committed (tree clean at 841437f4). Line anchors in UI files may still differ from the plan; sections say to find code by landmarks.
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage. Judge UI tests file by file.
 - Tests asserting rejections use `expectRejects` from `packages/backend/tests/expect-rejects.ts`.
 - Shell is zsh: `$F` file lists don't word-split. Pass files to eslint and prettier explicitly.
