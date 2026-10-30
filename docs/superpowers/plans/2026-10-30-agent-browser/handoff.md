@@ -6,13 +6,14 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Plan review round 2. The Codex round-2 output is already saved in `reviews/round-2.md` (it reviewed commit 3b82b51e). Start at chain step 2: verify and triage it into `reviews/round-2-triage.md`.
+Plan review round 3. The Codex round-3 output is already saved in `reviews/round-3.md` (it reviewed commit 0286d1f4: 2 blockers, 2 majors, 1 minor claimed). Start at chain step 2: verify and triage it into `reviews/round-3-triage.md`. Round 4 is the last allowed (chain round cap).
 
 ## Status
 
 | # | Section | Status | Commits |
 |---|---|---|---|
 | — | Plan review round 1 | done: 1 blocker and 14 majors confirmed and folded in; round 2 output saved | 3b82b51e |
+| — | Plan review round 2 | done: 1 blocker, 7 majors, 1 minor + 1 own major confirmed and folded in; round 3 output saved | 0286d1f4 |
 | 1 | Spike (gate) | not started | |
 | 2 | Shared types, store, host client, service | not started | |
 | 3 | HTTP/WS API, wiring, cleanup hooks | not started | |
@@ -29,6 +30,8 @@ Plan review round 2. The Codex round-2 output is already saved in `reviews/round
 - `bun test packages/ui` run as one command has pre-existing failures from `mock.module` leakage. Judge UI tests file by file.
 - Tests asserting rejections use `expectRejects` from `packages/backend/tests/expect-rejects.ts`.
 - Shell is zsh: `$F` file lists don't word-split. Pass files to eslint and prettier explicitly.
+- Section order is now 2, 3, 4, 5, 6, 7 (round 2 changed it; `chain.md` updated).
+- Electron v33.4.11 and Chromium 130 sources can be fetched from raw.githubusercontent.com (`electron/electron/v33.4.11/...`, `chromium/chromium/130.0.6723.191/...`) to check review claims.
 - `electron/package.json` may carry an uncommitted version bump by the user. Don't commit it.
 
 ## Deviations from the spec
