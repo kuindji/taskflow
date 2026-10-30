@@ -113,6 +113,7 @@ interface Session {
      * and is what a snapshot of the terminal's state actually covers.
      */
     parsedSequence: number;
+    parsedListeners: Set<() => void>;
     /**
      * True while a restored session's log is still being parsed. Nothing of it
      * is on the grid yet, so a snapshot taken now would serialize a blank screen
@@ -138,6 +139,19 @@ interface ScrollbackSnapshot {
 export class PtyManager {
     private sessions = new Map<string, Session>();
 
+    constructor(
+        private readonly deps: {
+            write?: (terminal: HeadlessTerminal, data: string, done: () => void) => void;
+            timeout?: (callback: () => void, ms: number) => () => void;
+            log?: (message: string, sessionId: string) => void;
+        } = {},
+    ) {}
+
+    private parse(terminal: HeadlessTerminal, data: string, done: () => void): void {
+        if (this.deps.write) this.deps.write(terminal, data, done);
+        else terminal.write(data, done);
+    }
+
     spawn(options: SpawnOptions & { id?: string }): string {
         const id = options.id ?? randomUUID();
         const { CLAUDECODE: _a, CLAUDE_CODE_ENTRYPOINT: _b, ...cleanEnv } = process.env;
@@ -152,9 +166,11 @@ export class PtyManager {
         let restorePending = false;
         let sessionEntry: Session | null = null;
 
+        const parsedListeners = new Set<() => void>();
         const markParsed = (sequence: number) => {
             parsedSequence = sequence;
             if (sessionEntry) sessionEntry.parsedSequence = sequence;
+            for (const listener of parsedListeners) listener();
         };
 
         const headless = new HeadlessTerminal({
@@ -219,7 +235,7 @@ export class PtyManager {
             // snapshot worth serving.
             parsedSequence = 0;
             restorePending = true;
-            headless.write(retained, () => {
+            this.parse(headless, retained, () => {
                 restorePending = false;
                 if (sessionEntry) sessionEntry.restorePending = false;
                 markParsed(startSequence);
@@ -268,7 +284,7 @@ export class PtyManager {
                 if (removed) scrollbackLen -= removed.length;
             }
             const sequence = lastSequence;
-            headless.write(batchedData, () => {
+            this.parse(headless, batchedData, () => {
                 markParsed(sequence);
             });
             options.onData(batchedData, sequence);
@@ -351,6 +367,7 @@ export class PtyManager {
             scrollback,
             lastSequence,
             parsedSequence,
+            parsedListeners,
             restorePending,
             headless,
             serializer,
@@ -402,19 +419,42 @@ export class PtyManager {
         }
     }
 
-    getSnapshot(id: string): SessionSnapshotResponse {
+    async getSnapshot(id: string): Promise<SessionSnapshotResponse> {
         const session = this.sessions.get(id);
-        // A restored session whose log has not been parsed yet would serialize a
-        // blank screen. Reporting no snapshot sends the client to SESSION_HISTORY,
-        // which serves the scrollback the grid is still catching up on.
-        if (!session || session.restorePending) {
-            return {
-                snapshot: null,
-                lastSequence: 0,
-                cursorHidden: false,
-                kittyStack: [],
-                mouseEncoding: "x10",
-            };
+        const unavailable: SessionSnapshotResponse = {
+            snapshot: null,
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+            mouseEncoding: "x10",
+        };
+        if (!session || session.restorePending) return unavailable;
+        const target = session.lastSequence;
+        if (session.parsedSequence < target) {
+            const caughtUp = await new Promise<boolean>((resolve) => {
+                let cancel = () => {};
+                const finish = (ready: boolean) => {
+                    session.parsedListeners.delete(check);
+                    cancel();
+                    resolve(ready);
+                };
+                const check = () => {
+                    if (session.parsedSequence >= target) finish(true);
+                };
+                session.parsedListeners.add(check);
+                const timeout =
+                    this.deps.timeout ??
+                    ((callback: () => void, ms: number) => {
+                        const timer = setTimeout(callback, ms);
+                        return () => clearTimeout(timer);
+                    });
+                cancel = timeout(() => finish(false), 2000);
+            });
+            if (!caughtUp) {
+                (this.deps.log ?? console.warn)("snapshot returned before parser caught up", id);
+                return unavailable;
+            }
+            if (this.sessions.get(id) !== session) return unavailable;
         }
         // Access internal API: SerializeAddon v0.13.0 doesn't serialize DECTCEM
         // (cursor visibility), so we read it from the headless terminal's core.

@@ -214,6 +214,10 @@ export interface TerminalOutputEvent {
     sequence: number;
 }
 
+export interface TerminalResyncEvent {
+    sessionIds: string[];
+}
+
 export interface TerminalResizePayload {
     sessionId: string;
     cols: number;

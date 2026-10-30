@@ -97,6 +97,7 @@ export const MSG = {
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",
+    TERMINAL_RESYNC: "terminal:resync",
     TERMINAL_RESIZE: "terminal:resize",
     SESSION_HISTORY: "session:history",
     SESSION_SNAPSHOT: "session:snapshot",

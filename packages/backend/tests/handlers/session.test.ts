@@ -94,7 +94,7 @@ class FakePtyManager {
         session?.onExit(0);
     }
 
-    getSnapshot(id: string): { snapshot: string | null; lastSequence: number } {
+    async getSnapshot(id: string): Promise<{ snapshot: string | null; lastSequence: number }> {
         const session = this.sessions.get(id);
         if (!session) return { snapshot: null, lastSequence: 0 };
         return {

@@ -14,12 +14,7 @@ import {
 } from "./auth";
 import type { CdpGateway, CdpSocketData } from "../services/cdp/cdp-gateway";
 
-interface BroadcastOptions {
-    /** Skip clients whose outbound buffer exceeds the backpressure threshold. */
-    dropOnBackpressure?: boolean;
-}
-
-const BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB — skip terminal output for slow clients
+import { createTerminalBroadcaster, type BroadcastOptions } from "./terminal-broadcaster";
 
 export function createServer(
     router: Router,
@@ -39,6 +34,7 @@ export function createServer(
     const report = createReportOnce(auth.log ?? console.warn);
     let server: Server<SocketData>;
     const clients = new Set<ServerWebSocket<SocketData>>();
+    const broadcaster = createTerminalBroadcaster(clients);
     let connectCallback: (() => void) | null = null;
     let disconnectCallback: ((clientId: string) => void) | null = null;
 
@@ -51,15 +47,7 @@ export function createServer(
         disconnectCallback = callback;
     }
 
-    function broadcast(event: WsEvent, opts?: BroadcastOptions): void {
-        const data = JSON.stringify(event);
-        for (const ws of clients) {
-            if (opts?.dropOnBackpressure && ws.getBufferedAmount() > BACKPRESSURE_THRESHOLD) {
-                continue; // Client will resync via snapshot on next terminal mount
-            }
-            ws.send(data);
-        }
-    }
+    const broadcast = broadcaster.broadcast;
 
     /**
      * How many clients are attached right now. The count is otherwise only
@@ -156,9 +144,13 @@ export function createServer(
                         cdpGateway?.close(ws as ServerWebSocket<CdpSocketData>);
                         return;
                     }
+                    broadcaster.forget(ws);
                     clients.delete(ws);
                     disconnectCallback?.(ws.data.clientId);
                     broadcastClientCount();
+                },
+                drain(ws) {
+                    if (ws.data.kind === "app") broadcaster.drain(ws);
                 },
                 async message(ws, message) {
                     if (ws.data.kind === "unauthorized") return;
@@ -209,6 +201,7 @@ export function createServer(
         return {
             port: server.port ?? 0,
             stop() {
+                broadcaster.clear();
                 void server.stop();
             },
         };

@@ -1,5 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
-import { MSG, type AppSettings, type SessionOwnerRef, type WsEvent } from "@taskflow/shared";
+import {
+    MSG,
+    type AppSettings,
+    type SessionOwnerRef,
+    type WsEvent,
+    type SessionSnapshotResponse,
+} from "@taskflow/shared";
 import type { BrowserTabService } from "../../src/services/browser-tab-service";
 import { ApiRouter } from "../../src/api/router";
 import { registerApiRoutes } from "../../src/api/routes";
@@ -14,6 +20,18 @@ class FakePtyManager {
 
     has(sessionId: string): boolean {
         return this.activeSessionIds.has(sessionId);
+    }
+
+    snapshot: SessionSnapshotResponse = {
+        snapshot: "screen",
+        lastSequence: 4,
+        cursorHidden: false,
+        kittyStack: [],
+        mouseEncoding: "x10",
+    };
+
+    async getSnapshot(): Promise<SessionSnapshotResponse> {
+        return this.snapshot;
     }
 
     close(): void {}
@@ -86,6 +104,7 @@ describe("api routes", () => {
     let events: WsEvent[];
     let tempDir: string;
     let trayStateTracker: FakeTrayStateTracker;
+    let ptyManager: FakePtyManager;
 
     beforeEach(async () => {
         moveCalls.length = 0;
@@ -93,10 +112,11 @@ describe("api routes", () => {
         apiRouter = new ApiRouter();
         events = [];
         trayStateTracker = new FakeTrayStateTracker();
+        ptyManager = new FakePtyManager(new Set(["session-1"]));
         registerApiRoutes({
             apiRouter,
             taskStore: {} as never,
-            ptyManager: new FakePtyManager(new Set(["session-1"])) as never,
+            ptyManager: ptyManager as never,
             broadcast: (event) => {
                 events.push(event);
             },
@@ -113,6 +133,29 @@ describe("api routes", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("the snapshot route returns the awaited snapshot", async () => {
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/session-1/snapshot"),
+        );
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toEqual(ptyManager.snapshot);
+    });
+
+    it("the snapshot route returns snapshot null when the parser times out", async () => {
+        ptyManager.snapshot = {
+            snapshot: null,
+            lastSequence: 0,
+            cursorHidden: false,
+            kittyStack: [],
+            mouseEncoding: "x10",
+        };
+        const response = await apiRouter.handle(
+            new Request("http://localhost/api/sessions/session-1/snapshot"),
+        );
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toEqual(ptyManager.snapshot);
     });
 
     it("moves a session to the requested owner", async () => {

@@ -134,7 +134,7 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
     router.register(MSG.SESSION_SNAPSHOT, async (payload) => {
         const { sessionId } = payload as SessionSnapshotPayload;
-        return ptyManager.getSnapshot(sessionId);
+        return await ptyManager.getSnapshot(sessionId);
     });
 
     router.register(MSG.MASTER_SESSIONS_LIST, async () => {

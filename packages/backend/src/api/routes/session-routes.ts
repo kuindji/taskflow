@@ -303,7 +303,7 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
         if (!ptyManager.has(params.sessionId)) {
             return errorResponse(`Session not found: ${params.sessionId}`, 404);
         }
-        return jsonResponse(ptyManager.getSnapshot(params.sessionId));
+        return jsonResponse(await ptyManager.getSnapshot(params.sessionId));
     });
 
     // ── Session tail ──────────────────────────────────────────────
