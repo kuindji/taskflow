@@ -22,6 +22,11 @@ const actionEntryId = process.env.TASKFLOW_ACTION_ENTRY_ID ?? "";
 
 // --- Helpers ---
 
+function authHeaders(): Record<string, string> {
+    const token = process.env.TASKFLOW_API_TOKEN;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function api(
     method: string,
     path: string,
@@ -29,7 +34,7 @@ async function api(
     extraHeaders?: Record<string, string>,
 ): Promise<string> {
     const url = `${API_URL}${path}`;
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = authHeaders();
     if (body !== undefined) {
         headers["Content-Type"] = "application/json";
     }
@@ -127,7 +132,9 @@ function findById(items: ParsedItem[], id: string, label: string): ParsedItem {
 async function adoptSessionOwner(): Promise<void> {
     if (ownerFlagGiven || !sessionId) return;
     try {
-        const resp = await fetch(`${API_URL}/api/sessions/${sessionId}/owner`);
+        const resp = await fetch(`${API_URL}/api/sessions/${sessionId}/owner`, {
+            headers: authHeaders(),
+        });
         if (!resp.ok) return;
         const owner = (await resp.json()) as SessionOwnerRef;
         if (!owner.taskId && !owner.projectId && owner.master !== true) return;

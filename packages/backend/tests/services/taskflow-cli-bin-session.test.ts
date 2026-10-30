@@ -7,6 +7,7 @@ interface Recorded {
     method: string;
     path: string;
     body: string;
+    authorization: string | null;
 }
 
 let server: ReturnType<typeof Bun.serve> | null = null;
@@ -22,7 +23,12 @@ function startServer(owner: unknown, moveStatus = 200) {
         port: 0,
         async fetch(req) {
             const url = new URL(req.url);
-            requests.push({ method: req.method, path: url.pathname, body: await req.text() });
+            requests.push({
+                method: req.method,
+                path: url.pathname,
+                authorization: req.headers.get("authorization"),
+                body: await req.text(),
+            });
             if (url.pathname.endsWith("/owner")) {
                 return owner ? Response.json(owner) : new Response("{}", { status: 404 });
             }
@@ -44,6 +50,7 @@ interface RecordedDevServerRequest {
     method: string;
     path: string; // pathname + search
     body: string;
+    authorization: string | null;
     project: string | null;
     task: string | null;
     session: string | null;
@@ -62,6 +69,7 @@ function startDevServerApi(status = 200, payload: unknown = { id: "d1" }) {
             requests.push({
                 method: req.method,
                 path: url.pathname + url.search,
+                authorization: req.headers.get("authorization"),
                 body: await req.text(),
                 project: req.headers.get("x-taskflow-project-id"),
                 task: req.headers.get("x-taskflow-task-id"),
@@ -83,6 +91,7 @@ async function runBin(args: string[], env: Record<string, string>) {
             TASKFLOW_TASK_ID: "",
             TASKFLOW_PROJECT_ID: "",
             TASKFLOW_SESSION_ID: "",
+            TASKFLOW_API_TOKEN: "",
             TASKFLOW_API_URL: `http://127.0.0.1:${server?.port}`,
             ...env,
         },
@@ -150,6 +159,7 @@ describe("taskflow-cli binary: session owner", () => {
             method: "POST",
             path: "/api/sessions/s1/move",
             body: '{"master":true}',
+            authorization: null,
         });
     });
 
@@ -238,6 +248,7 @@ describe("taskflow-cli binary: devserver", () => {
                 project: "p1",
                 task: "t1",
                 session: "s1",
+                authorization: null,
             },
         ]);
     });
@@ -376,6 +387,7 @@ describe("taskflow-cli binary: browser", () => {
                 task: "task-1",
                 project: "project-1",
                 session: "session-1",
+                authorization: null,
             },
         ]);
     });
@@ -444,6 +456,7 @@ describe("taskflow-cli binary: browser", () => {
                     task: "task-1",
                     project: "project-1",
                     session: "session-1",
+                    authorization: null,
                 },
             ]);
         });
@@ -478,5 +491,36 @@ describe("taskflow-cli binary: browser", () => {
         expect(result.stderr).toContain(
             `Error: POST /api/browser/tabs returned 503: ${JSON.stringify({ error: message })}`,
         );
+    });
+});
+
+describe("taskflow-cli binary: authentication", () => {
+    const token = "T".repeat(43);
+
+    it("api() sends Authorization: Bearer <TASKFLOW_API_TOKEN>", async () => {
+        const requests = startDevServerApi(200, { devServers: [] });
+        const result = await runBin(["devserver", "list", "--all"], { TASKFLOW_API_TOKEN: token });
+        expect(result.status).toBe(0);
+        expect(requests.map((request) => request.authorization)).toEqual([`Bearer ${token}`]);
+    });
+
+    it("the session owner lookup sends the token", async () => {
+        const requests = startServer({ taskId: "new-task", projectId: "p1" });
+        const result = await runBin(["task"], {
+            TASKFLOW_API_TOKEN: token,
+            TASKFLOW_SESSION_ID: "s1",
+        });
+        expect(result.status).toBe(0);
+        expect(requests.map((request) => [request.path, request.authorization])).toEqual([
+            ["/api/sessions/s1/owner", `Bearer ${token}`],
+            ["/api/tasks/new-task", `Bearer ${token}`],
+        ]);
+    });
+
+    it("no TASKFLOW_API_TOKEN sends no Authorization header", async () => {
+        const requests = startServer({ taskId: "new-task", projectId: "p1" });
+        const result = await runBin(["task"], { TASKFLOW_SESSION_ID: "s1" });
+        expect(result.status).toBe(0);
+        expect(requests.map((request) => request.authorization)).toEqual([null, null]);
     });
 });

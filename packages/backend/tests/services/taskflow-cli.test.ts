@@ -45,8 +45,18 @@ url=""
 data=""
 write_status=""
 headers=""
+printf 'ARGV=%s\\n' "$*" >> "$CAPTURE_FILE"
 while [ $# -gt 0 ]; do
   case "$1" in
+    -K)
+      if [ "$2" = "-" ]; then
+        while IFS= read -r config_line; do
+          header=$(printf '%s' "$config_line" | sed -n 's/^header = "\\(.*\\)"$/\\1/p')
+          if [ -n "$header" ]; then headers="$headers$header|"; fi
+        done
+      fi
+      shift 2
+      ;;
     -X)
       method="$2"
       shift 2
@@ -85,7 +95,7 @@ esac
   printf 'URL=%s\\n' "$url"
   printf 'DATA=%s\\n' "$data"
   printf 'HEADERS=%s\\n' "$headers"
-} > "$CAPTURE_FILE"
+} >> "$CAPTURE_FILE"
 printf '%s' "$CURL_RESPONSE"
 if [ -n "$write_status" ]; then printf '\\n%s' "\${CURL_STATUS:-200}"; fi
 `,
@@ -105,6 +115,7 @@ if [ -n "$write_status" ]; then printf '\\n%s' "\${CURL_STATUS:-200}"; fi
             OWNER_RESPONSE: "",
             CURL_STATUS: "200",
             TASKFLOW_API_URL: "http://localhost:1234",
+            TASKFLOW_API_TOKEN: "",
             CURL_RESPONSE: "{}",
             TASKFLOW_TASK_ID: "",
             TASKFLOW_PROJECT_ID: "",
@@ -147,8 +158,8 @@ async function readCapturedHeaders(captureFile: string): Promise<string[]> {
 }
 
 async function captured(captureFile: string): Promise<boolean> {
-    return stat(captureFile).then(
-        () => true,
+    return readFile(captureFile, "utf8").then(
+        (raw) => /^METHOD=/m.test(raw),
         () => false,
     );
 }
@@ -1042,5 +1053,68 @@ describe("taskflow-cli", () => {
                 "Usage: taskflow-cli devserver <add|list|remove>",
             );
         });
+    });
+});
+
+describe("taskflow-cli authentication", () => {
+    const token = "T".repeat(43);
+
+    it("every curl call in the script goes through tf_curl", async () => {
+        const script = await readFile(
+            join(import.meta.dir, "../../src/services/taskflow-cli.sh"),
+            "utf8",
+        );
+        const lines = script.split("\n").filter((line) => !/^\s*#/.test(line));
+        const curlLines = lines.filter((line) => /(^|[^_a-zA-Z])curl /.test(line));
+        expect(curlLines).toHaveLength(2);
+        const wrapper = script.match(/tf_curl\(\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+        for (const line of curlLines) expect(wrapper).toContain(line);
+    });
+
+    it("with TASKFLOW_API_TOKEN set, a plain command sends Authorization: Bearer <token>", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        expect(
+            runCli(cliPath, ["system", "info"], { ...env, TASKFLOW_API_TOKEN: token }).status,
+        ).toBe(0);
+        expect(await readCapturedHeaders(captureFile)).toContain(`Authorization: Bearer ${token}`);
+    });
+
+    it("the token is read from stdin and never appears in curl's argv", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        expect(
+            runCli(cliPath, ["system", "info"], { ...env, TASKFLOW_API_TOKEN: token }).status,
+        ).toBe(0);
+        const raw = await readFile(captureFile, "utf8");
+        const argv = raw.split("\n").filter((line) => line.startsWith("ARGV="));
+        expect(argv).toHaveLength(1);
+        expect(argv[0]).toContain("-K -");
+        expect(argv[0]).not.toContain(token);
+        expect(await readCapturedHeaders(captureFile)).toContain(`Authorization: Bearer ${token}`);
+    });
+
+    it("api_request calls carry the token too", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        expect(
+            runCli(cliPath, ["devserver", "list", "--all"], { ...env, TASKFLOW_API_TOKEN: token })
+                .status,
+        ).toBe(0);
+        expect(await readCapturedHeaders(captureFile)).toContain(`Authorization: Bearer ${token}`);
+    });
+
+    it("--help carries the token", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        expect(runCli(cliPath, ["--help"], { ...env, TASKFLOW_API_TOKEN: token }).status).toBe(0);
+        expect(await readCapturedHeaders(captureFile)).toContain(`Authorization: Bearer ${token}`);
+    });
+
+    it("without TASKFLOW_API_TOKEN no Authorization header is sent and curl gets no -K", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        expect(runCli(cliPath, ["system", "info"], env).status).toBe(0);
+        expect(await readCapturedHeaders(captureFile)).toEqual([]);
+        const argv = (await readFile(captureFile, "utf8"))
+            .split("\n")
+            .filter((line) => line.startsWith("ARGV="));
+        expect(argv).toHaveLength(1);
+        expect(argv[0]).not.toContain("-K");
     });
 });

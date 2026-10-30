@@ -11,6 +11,16 @@ if [ -z "$TASKFLOW_API_URL" ]; then
   exit 1
 fi
 
+# Every request goes through here. The token reaches curl as a config file on
+# stdin (`-K -`), never in argv, where `ps` shows it to every local user.
+tf_curl() {
+  if [ -n "$TASKFLOW_API_TOKEN" ]; then
+    printf 'header = "Authorization: Bearer %s"\n' "$TASKFLOW_API_TOKEN" | curl -K - "$@"
+  else
+    curl "$@"
+  fi
+}
+
 json_string() {
   printf '%s' "$1" | awk '
     BEGIN { printf "\"" }
@@ -50,14 +60,14 @@ api_request() {
   req_url="$2"
   req_body="${3:-}"
   if [ -n "$req_body" ]; then
-    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
+    req_out=$(tf_curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
       ${TASKFLOW_PROJECT_ID:+-H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID"} \
       ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
       ${TASKFLOW_SESSION_ID:+-H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID"} \
       -H "Content-Type: application/json" -d "$req_body") \
       || { echo "Error: unable to reach $TASKFLOW_API_URL" >&2; exit 1; }
   else
-    req_out=$(curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
+    req_out=$(tf_curl -s -w '\n%{http_code}' -X "$req_method" "$req_url" \
       ${TASKFLOW_PROJECT_ID:+-H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID"} \
       ${TASKFLOW_TASK_ID:+-H "X-Taskflow-Task-Id: $TASKFLOW_TASK_ID"} \
       ${TASKFLOW_SESSION_ID:+-H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID"}) \
@@ -84,7 +94,7 @@ done
 for arg in "$@"; do
   case "$arg" in
     --help|-h)
-      curl -sf "$TASKFLOW_API_URL/api/cli-help"
+      tf_curl -sf "$TASKFLOW_API_URL/api/cli-help"
       exit 0
       ;;
   esac
@@ -95,7 +105,7 @@ done
 # failure (headless sessions are unknown to it) or a reply that names no
 # owner keeps the env values.
 if [ -z "$owner_flag_given" ] && [ -n "$TASKFLOW_SESSION_ID" ]; then
-  if owner_json=$(curl -sf "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/owner" 2>/dev/null) \
+  if owner_json=$(tf_curl -sf "$TASKFLOW_API_URL/api/sessions/$TASKFLOW_SESSION_ID/owner" 2>/dev/null) \
     && printf '%s' "$owner_json" | grep -Eq '"(taskId|projectId)":"|"master":true'; then
     TASKFLOW_TASK_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"taskId":"\([^"]*\)".*/\1/p')
     TASKFLOW_PROJECT_ID=$(printf '%s' "$owner_json" | sed -n 's/.*"projectId":"\([^"]*\)".*/\1/p')
@@ -122,7 +132,7 @@ case "$cmd" in
         esac
       done
       if [ "$disable" = true ]; then
-        curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/worktree" \
+        tf_curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/worktree" \
           -H "Content-Type: application/json" \
           -d "{\"enabled\":false}"
       else
@@ -134,9 +144,9 @@ case "$cmd" in
         echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
         exit 1
       fi
-      curl -sf "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks"
+      tf_curl -sf "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks"
     elif [ "$subcmd" = "list-archived" ]; then
-      curl -sf "$TASKFLOW_API_URL/api/tasks/archived"
+      tf_curl -sf "$TASKFLOW_API_URL/api/tasks/archived"
     elif [ "$subcmd" = "create" ]; then
       shift
       if [ -z "$TASKFLOW_PROJECT_ID" ]; then
@@ -173,7 +183,7 @@ case "$cmd" in
         json_body="$(printf '%s,"initCommand":%s' "$json_body" "$(json_string "$init_command")")"
       fi
 
-      curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
+      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
         -H "Content-Type: application/json" \
         -d "{$json_body}"
     elif [ "$subcmd" = "update" ]; then
@@ -199,7 +209,7 @@ case "$cmd" in
       fi
       # Remove trailing comma
       payload=$(printf '%s' "$payload" | sed 's/,$//')
-      curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID" \
+      tf_curl -sf -X PATCH "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID" \
         -H "Content-Type: application/json" \
         -d "{$payload}"
     elif [ "$subcmd" = "archive" ]; then
@@ -207,13 +217,13 @@ case "$cmd" in
         echo "Error: TASKFLOW_TASK_ID is not set" >&2
         exit 1
       fi
-      curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/archive"
+      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/archive"
     elif [ "$subcmd" = "unarchive" ]; then
       if [ -z "$TASKFLOW_TASK_ID" ]; then
         echo "Error: TASKFLOW_TASK_ID is not set" >&2
         exit 1
       fi
-      curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/unarchive"
+      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/unarchive"
     elif [ "$subcmd" = "delete" ]; then
       if [ -z "$TASKFLOW_TASK_ID" ]; then
         echo "Error: TASKFLOW_TASK_ID is not set" >&2
@@ -228,18 +238,18 @@ case "$cmd" in
         esac
       done
       if [ "$delete_worktree" = true ]; then
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID" \
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID" \
           -H "Content-Type: application/json" \
           -d '{"deleteWorktree":true}'
       else
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
       fi
     else
       if [ -z "$TASKFLOW_TASK_ID" ]; then
         echo "Error: TASKFLOW_TASK_ID is not set" >&2
         exit 1
       fi
-      curl -sf "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
+      tf_curl -sf "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID"
     fi
     ;;
 
@@ -270,7 +280,7 @@ case "$cmd" in
         "$(json_string "$log_message")" \
         "$(json_string "$TASKFLOW_SESSION_ID")" \
         "$(json_string "$hash")")
-      curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \
+      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \
         -H "Content-Type: application/json" \
         -d "$payload"
     else
@@ -278,7 +288,7 @@ case "$cmd" in
         "$(json_string "$log_type")" \
         "$(json_string "$log_message")" \
         "$(json_string "$TASKFLOW_SESSION_ID")")
-      curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \
+      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/tasks/$TASKFLOW_TASK_ID/log" \
         -H "Content-Type: application/json" \
         -d "$payload"
     fi
@@ -358,12 +368,12 @@ case "$cmd" in
           "$owner_field" \
           "$(json_string "$TASKFLOW_FLOW_ID")" \
           "$(json_string "$TASKFLOW_SESSION_ID")")
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow/action-complete" \
           -H "Content-Type: application/json" \
           -d "$payload"
         ;;
       list)
-        curl -sf "$TASKFLOW_API_URL/api/flow-actions"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions"
         ;;
       get)
         action_id="${1:-}"
@@ -372,7 +382,7 @@ case "$cmd" in
           exit 1
         fi
         # Fetch all actions and filter by id
-        all_actions=$(curl -sf "$TASKFLOW_API_URL/api/flow-actions")
+        all_actions=$(tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions")
         # Use awk to extract the matching action object from the JSON array
         printf '%s' "$all_actions" | awk -v id="$action_id" '
           BEGIN { RS="{"; FS="}" }
@@ -418,7 +428,7 @@ case "$cmd" in
         if [ -n "$TASKFLOW_PROJECT_ID" ]; then
           payload=$(printf '%s' "$payload" | sed "s/}$/,\"projectId\":$(json_string "$TASKFLOW_PROJECT_ID")}/")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
           -H "Content-Type: application/json" \
           -d "$payload"
         ;;
@@ -430,7 +440,7 @@ case "$cmd" in
         fi
         shift
         # Fetch current action
-        current=$(curl -sf "$TASKFLOW_API_URL/api/flow-actions")
+        current=$(tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions")
         # Extract the action JSON (simple grep-based approach)
         action_json=$(printf '%s' "$current" | awk -v id="$action_id" '
           BEGIN { RS="{"; FS="}" }
@@ -464,7 +474,7 @@ case "$cmd" in
         overlay=$(printf '%s' "$overlay" | sed 's/,$//')
         # Merge: start with existing action JSON, replace closing brace with overlay fields
         merged=$(printf '%s' "$action_json" | sed "s/}$/,$overlay}/")
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
           -H "Content-Type: application/json" \
           -d "$merged"
         ;;
@@ -474,7 +484,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli action delete <id>" >&2
           exit 1
         fi
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/flow-actions/$action_id"
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/flow-actions/$action_id"
         ;;
       run)
         action_id="${1:-}"
@@ -507,7 +517,7 @@ case "$cmd" in
         if [ -n "$run_label" ]; then
           payload=$(printf '%s,"label":%s' "$payload" "$(json_string "$run_label")")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions/$action_id/run" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions/$action_id/run" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -566,7 +576,7 @@ case "$cmd" in
             "$(json_string "$TASKFLOW_SESSION_ID")" \
             "$(json_string "$artifact_type")" \
             "$(json_string "$artifact_path")")
-          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
+          tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
             -H "Content-Type: application/json" \
             -d "$payload"
         else
@@ -577,13 +587,13 @@ case "$cmd" in
             "$(json_string "$TASKFLOW_SESSION_ID")" \
             "$(json_string "$artifact_type")" \
             "$(json_string "$artifact_text")")
-          curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
+          tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow/artifact" \
             -H "Content-Type: application/json" \
             -d "$payload"
         fi
         ;;
       list)
-        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID"
         ;;
       get)
         artifact_type="${1:-}"
@@ -591,7 +601,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli artifact get <type>" >&2
           exit 1
         fi
-        curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$artifact_type"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$artifact_type"
         ;;
       *)
         echo "Usage: taskflow-cli artifact <save|list|get>" >&2
@@ -625,7 +635,7 @@ case "$cmd" in
           "$owner_field" \
           "$(json_string "$TASKFLOW_FLOW_ID")" \
           "$(json_string "$TASKFLOW_SESSION_ID")")
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flow/complete" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow/complete" \
           -H "Content-Type: application/json" \
           -d "$payload"
         ;;
@@ -637,16 +647,16 @@ case "$cmd" in
         flow_owner_id=$(resolve_owner_id) || exit 1 || exit 1
         input_id="${1:-}"
         if [ -z "$input_id" ]; then
-          curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID"
         else
-          curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID/$input_id"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID/$input_id"
         fi
         ;;
       list)
-        curl -sf "$TASKFLOW_API_URL/api/flows"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flows"
         ;;
       actions)
-        curl -sf "$TASKFLOW_API_URL/api/flow-actions"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions"
         ;;
       start)
         flow_id="${1:-}"
@@ -684,7 +694,7 @@ case "$cmd" in
           payload=$(printf '%s,"inputValues":{%s}' "$payload" "$input_fields")
         fi
 
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/start" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/start" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -695,7 +705,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow stop <flowId>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/stop"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/stop"
         ;;
       pause)
         owner_id=$(resolve_owner_id) || exit 1
@@ -704,7 +714,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow pause <flowId>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/pause"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/pause"
         ;;
       resume)
         owner_id=$(resolve_owner_id) || exit 1
@@ -713,7 +723,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow resume <flowId>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/resume"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/resume"
         ;;
       skip)
         owner_id=$(resolve_owner_id) || exit 1
@@ -722,7 +732,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow skip <flowId>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/skip"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/skip"
         ;;
       jump)
         owner_id=$(resolve_owner_id) || exit 1
@@ -735,7 +745,7 @@ case "$cmd" in
         case "$action_index" in
           *[!0-9]*) echo "Error: actionIndex must be a non-negative integer" >&2; exit 1 ;;
         esac
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/jump" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/jump" \
           -H "Content-Type: application/json" \
           -d "{\"actionIndex\":$action_index}"
         ;;
@@ -743,9 +753,9 @@ case "$cmd" in
         owner_id=$(resolve_owner_id) || exit 1
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
-          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
         else
-          curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
         fi
         ;;
       get)
@@ -754,7 +764,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow get <id>" >&2
           exit 1
         fi
-        all_flows=$(curl -sf "$TASKFLOW_API_URL/api/flows")
+        all_flows=$(tf_curl -sf "$TASKFLOW_API_URL/api/flows")
         printf '%s' "$all_flows" | awk -v id="$flow_id" '
           BEGIN { RS="{"; FS="}" }
           NR > 1 {
@@ -828,7 +838,7 @@ case "$cmd" in
         if [ -n "$flow_loop" ]; then
           payload=$(printf '%s' "$payload" | sed "s/}$/,\"loop\":$flow_loop}/")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
           -H "Content-Type: application/json" \
           -d "$payload"
         ;;
@@ -840,7 +850,7 @@ case "$cmd" in
         fi
         shift
         # Fetch current flow
-        current=$(curl -sf "$TASKFLOW_API_URL/api/flows")
+        current=$(tf_curl -sf "$TASKFLOW_API_URL/api/flows")
         flow_json=$(printf '%s' "$current" | awk -v id="$flow_id" '
           BEGIN { RS="{"; FS="}" }
           NR > 1 {
@@ -868,7 +878,7 @@ case "$cmd" in
         overlay=$(printf '%s"updatedAt":%s,' "$overlay" "$(json_string "$now")")
         overlay=$(printf '%s' "$overlay" | sed 's/,$//')
         merged=$(printf '%s' "$flow_json" | sed "s/}$/,$overlay}/")
-        curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
           -H "Content-Type: application/json" \
           -d "$merged"
         ;;
@@ -878,7 +888,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow delete <id>" >&2
           exit 1
         fi
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/flows/$flow_id"
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/flows/$flow_id"
         ;;
       *)
         echo "Usage: taskflow-cli flow <list|get|actions|create|update|delete|start|stop|pause|resume|skip|jump|run|runs|input|complete>" >&2
@@ -902,7 +912,7 @@ case "$cmd" in
       exit 1
     fi
     payload=$(printf '{"message":%s}' "$(json_string "$message")")
-    curl -sf -X POST "$TASKFLOW_API_URL/api/notifications" \
+    tf_curl -sf -X POST "$TASKFLOW_API_URL/api/notifications" \
       -H "Content-Type: application/json" \
       -H "X-Taskflow-Project-Id: $TASKFLOW_PROJECT_ID" \
       -H "X-Taskflow-Session-Id: $TASKFLOW_SESSION_ID" \
@@ -1017,7 +1027,7 @@ case "$cmd" in
     shift 2>/dev/null || true
     case "$subcmd" in
       list)
-        curl -sf "$TASKFLOW_API_URL/api/projects"
+        tf_curl -sf "$TASKFLOW_API_URL/api/projects"
         ;;
       add)
         proj_path="${1:-}"
@@ -1037,7 +1047,7 @@ case "$cmd" in
         if [ -n "$proj_name" ]; then
           payload=$(printf '%s,"name":%s' "$payload" "$(json_string "$proj_name")")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/projects" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/projects" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -1047,7 +1057,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli project remove <id>" >&2
           exit 1
         fi
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/projects/$proj_id"
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/projects/$proj_id"
         ;;
       update)
         proj_id="${1:-}"
@@ -1089,7 +1099,7 @@ case "$cmd" in
           exit 1
         fi
         payload=$(printf '%s' "$payload" | sed 's/,$//')
-        curl -sf -X PATCH "$TASKFLOW_API_URL/api/projects/$proj_id" \
+        tf_curl -sf -X PATCH "$TASKFLOW_API_URL/api/projects/$proj_id" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -1112,7 +1122,7 @@ case "$cmd" in
         if [ -n "$folder" ]; then
           payload=$(printf '%s,"folderName":%s' "$payload" "$(json_string "$folder")")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$proj_id/fork" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$proj_id/fork" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -1133,15 +1143,15 @@ case "$cmd" in
           exit 1
         fi
         payload=$(printf '{"sessionId":%s}' "$(json_string "$TASKFLOW_SESSION_ID")")
-        curl -sf -X POST "$TASKFLOW_API_URL/api/schedules/complete" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/schedules/complete" \
           -H "Content-Type: application/json" \
           -d "$payload"
         ;;
       list)
         if [ -n "$TASKFLOW_PROJECT_ID" ]; then
-          curl -sf "$TASKFLOW_API_URL/api/schedules?projectId=$TASKFLOW_PROJECT_ID"
+          tf_curl -sf "$TASKFLOW_API_URL/api/schedules?projectId=$TASKFLOW_PROJECT_ID"
         else
-          curl -sf "$TASKFLOW_API_URL/api/schedules"
+          tf_curl -sf "$TASKFLOW_API_URL/api/schedules"
         fi
         ;;
       create)
@@ -1189,7 +1199,7 @@ case "$cmd" in
         if [ -n "$sched_agent_type" ]; then
           payload=$(printf '%s,"agentType":%s' "$payload" "$(json_string "$sched_agent_type")")
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/schedules" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/schedules" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -1222,7 +1232,7 @@ case "$cmd" in
           exit 1
         fi
         payload=$(printf '%s' "$payload" | sed 's/,$//')
-        curl -sf -X PATCH "$TASKFLOW_API_URL/api/schedules/$sched_id" \
+        tf_curl -sf -X PATCH "$TASKFLOW_API_URL/api/schedules/$sched_id" \
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
@@ -1232,7 +1242,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli schedule delete <id>" >&2
           exit 1
         fi
-        curl -sf -X DELETE "$TASKFLOW_API_URL/api/schedules/$sched_id"
+        tf_curl -sf -X DELETE "$TASKFLOW_API_URL/api/schedules/$sched_id"
         ;;
       trigger)
         sched_id="${1:-}"
@@ -1240,7 +1250,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli schedule trigger <id>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/schedules/$sched_id/trigger"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/schedules/$sched_id/trigger"
         ;;
       *)
         echo "Usage: taskflow-cli schedule <complete|list|create|update|delete|trigger>" >&2
@@ -1254,7 +1264,7 @@ case "$cmd" in
     shift 2>/dev/null || true
     case "$subcmd" in
       list)
-        curl -sf "$TASKFLOW_API_URL/api/agents"
+        tf_curl -sf "$TASKFLOW_API_URL/api/agents"
         ;;
       run)
         # First positional arg is agent type (optional — if it starts with --, it's a flag)
@@ -1413,7 +1423,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli session rename <sessionId> <label>" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/rename" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/rename" \
           -H "Content-Type: application/json" \
           -d "$(printf '{"label":%s}' "$(json_string "$sess_label")")"
         ;;
@@ -1423,7 +1433,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli session snapshot <sessionId>" >&2
           exit 1
         fi
-        curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/snapshot"
+        tf_curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/snapshot"
         ;;
       close)
         sess_id="${1:-$TASKFLOW_SESSION_ID}"
@@ -1432,7 +1442,7 @@ case "$cmd" in
           echo "  If no sessionId is provided, closes the current session (using TASKFLOW_SESSION_ID)." >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/done"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/done"
         ;;
       status)
         sess_id="${1:-}"
@@ -1440,7 +1450,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli session status <sessionId>" >&2
           exit 1
         fi
-        curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/status"
+        tf_curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/status"
         ;;
       input)
         sess_id="${1:-}"
@@ -1459,7 +1469,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli session input <sessionId> <message> [--raw]" >&2
           exit 1
         fi
-        curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/input" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/sessions/$sess_id/input" \
           -H "Content-Type: application/json" \
           -d "$(printf '{"data":%s,"raw":%s}' "$(json_string "$sess_msg")" "$raw_flag")"
         ;;
@@ -1484,7 +1494,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli session tail <sessionId> [--lines N]" >&2
           exit 1
         fi
-        curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/tail?lines=$tail_lines"
+        tf_curl -sf "$TASKFLOW_API_URL/api/sessions/$sess_id/tail?lines=$tail_lines"
         ;;
       move)
         move_body=""
@@ -1522,9 +1532,9 @@ case "$cmd" in
   system)
     subcmd="${1:-}"
     case "$subcmd" in
-      info) curl -sf "$TASKFLOW_API_URL/api/system/info" ;;
-      shells) curl -sf "$TASKFLOW_API_URL/api/shells" ;;
-      runtimes) curl -sf "$TASKFLOW_API_URL/api/runtimes" ;;
+      info) tf_curl -sf "$TASKFLOW_API_URL/api/system/info" ;;
+      shells) tf_curl -sf "$TASKFLOW_API_URL/api/shells" ;;
+      runtimes) tf_curl -sf "$TASKFLOW_API_URL/api/runtimes" ;;
       *)
         echo "Usage: taskflow-cli system <info|shells|runtimes>" >&2
         exit 1
@@ -1537,7 +1547,7 @@ case "$cmd" in
     shift 2>/dev/null || true
     case "$subcmd" in
       get)
-        curl -sf "$TASKFLOW_API_URL/api/settings"
+        tf_curl -sf "$TASKFLOW_API_URL/api/settings"
         ;;
       *)
         echo "Usage: taskflow-cli settings <get>" >&2
@@ -1680,15 +1690,15 @@ case "$cmd" in
     ;;
 
   app-name)
-    curl -sf "$TASKFLOW_API_URL/api/app-name"
+    tf_curl -sf "$TASKFLOW_API_URL/api/app-name"
     ;;
 
   help|--help|-h)
-    curl -sf "$TASKFLOW_API_URL/api/cli-help"
+    tf_curl -sf "$TASKFLOW_API_URL/api/cli-help"
     ;;
 
   *)
-    curl -sf "$TASKFLOW_API_URL/api/cli-help" >&2
+    tf_curl -sf "$TASKFLOW_API_URL/api/cli-help" >&2
     exit 1
     ;;
 esac
