@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { Schedule } from "@taskflow/shared";
@@ -82,4 +82,14 @@ it("execution-state update can still advance nextRunAt", async () => {
     const future = "2026-11-01T00:00:00.000Z";
     await store.update("s1", (s) => ({ ...s, nextRunAt: future }));
     expect((await store.getById("s1"))?.nextRunAt).toBe(future);
+});
+
+it("a save replaces the file by rename, so an unlocked reader never sees it truncated", async () => {
+    const before = (await stat(file)).ino;
+    const original = await store.getById("s1");
+    if (!original) throw new Error("seed schedule missing");
+    await store.save({ ...original, name: "Renamed" });
+    expect((await stat(file)).ino).not.toBe(before);
+    expect((await readdir(dir)).sort()).toEqual(["schedules.json"]);
+    expect((await store.getById("s1"))?.name).toBe("Renamed");
 });

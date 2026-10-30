@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import type { Schedule } from "@taskflow/shared";
+import { writeJsonAtomic } from "./write-file-atomic";
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
     return error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -33,7 +34,7 @@ class ScheduleStore {
             } else {
                 schedules.push(schedule);
             }
-            await writeFile(this.schedulesFile, JSON.stringify(schedules, null, 2));
+            await writeJsonAtomic(this.schedulesFile, schedules);
         });
     }
 
@@ -41,7 +42,7 @@ class ScheduleStore {
         await this.withMutation("schedules", async () => {
             const schedules = await this.getAll();
             const filtered = schedules.filter((s) => s.id !== id);
-            await writeFile(this.schedulesFile, JSON.stringify(filtered, null, 2));
+            await writeJsonAtomic(this.schedulesFile, filtered);
         });
     }
 
@@ -51,7 +52,7 @@ class ScheduleStore {
             const index = schedules.findIndex((s) => s.id === id);
             if (index < 0) throw new Error(`Schedule not found: ${id}`);
             schedules[index] = updater(schedules[index]);
-            await writeFile(this.schedulesFile, JSON.stringify(schedules, null, 2));
+            await writeJsonAtomic(this.schedulesFile, schedules);
             return schedules[index];
         });
     }
