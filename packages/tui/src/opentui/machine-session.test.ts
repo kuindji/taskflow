@@ -40,6 +40,8 @@ function machineRow(id: string): PickerRow {
     return { kind: "machine", entry: entry(id) };
 }
 
+const TOKEN = "a".repeat(43);
+
 const LOCAL_ROW: PickerRow = { kind: "local" };
 
 class FakeClient implements MachineClient {
@@ -103,6 +105,7 @@ interface Harness {
     registry: Registry;
     editorOpen: { value: boolean };
     localPorts: number[];
+    localTokens: string[];
     clients: Map<string, FakeClient>;
     nets: NetLike[];
     statuses: Array<{ id: string; status: MachineStatus }>;
@@ -158,6 +161,7 @@ describe("MachineSession", () => {
         const outcomes = new Map<string, ConnectOutcome[]>();
         const editorOpen = { value: false };
         const localPorts: number[] = [];
+        const localTokens: string[] = [];
         const clients = new Map<string, FakeClient>();
         const nets: NetLike[] = [];
         const statuses: Harness["statuses"] = [];
@@ -247,11 +251,12 @@ describe("MachineSession", () => {
                 log.push("startBackend");
                 return Promise.resolve({
                     port: 4100,
-                    token: "a".repeat(43),
+                    token: TOKEN,
                     stop: () => log.push("stopBackend"),
                 });
             },
-            createLocalClient: (port) => {
+            createLocalClient: (port, token) => {
+                localTokens.push(token);
                 localPorts.push(port);
                 return client("local");
             },
@@ -313,6 +318,7 @@ describe("MachineSession", () => {
             registry,
             editorOpen,
             localPorts,
+            localTokens,
             clients,
             nets,
             statuses,
@@ -323,6 +329,12 @@ describe("MachineSession", () => {
             openGate,
         };
     }
+
+    it("the local client is created with the spawned backend's token", async () => {
+        const h = await harness();
+        await h.session.switchTo(LOCAL_ROW);
+        expect(h.localTokens).toEqual([TOKEN]);
+    });
 
     const statesOf = (h: Harness): string[] =>
         h.statuses.map(({ id, status }) =>

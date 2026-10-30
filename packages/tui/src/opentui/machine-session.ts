@@ -60,7 +60,7 @@ interface MachineSessionDeps {
     connect(id: string): Promise<ConnectOutcome>;
     /** `onSpawn` hands over `stop` before the port is known, so a quit mid-start still stops it. */
     startBackend(onSpawn: (stop: () => void) => void): Promise<BackendHandle>;
-    createLocalClient(port: number): MachineClient;
+    createLocalClient(port: number, token: string): MachineClient;
     openWorkspace(net: NetLike, context: WorkspaceContext): Promise<SessionWorkspace>;
     /** Builds the picker and puts it on screen. Keys are routed by the session. */
     createPicker(deps: MachinePickerDeps): PickerView;
@@ -547,7 +547,7 @@ class MachineSession {
                 this.stopSpawnedBackend = stop;
             });
         }
-        const net = this.deps.createLocalClient(this.localBackend.port);
+        const net = this.deps.createLocalClient(this.localBackend.port, this.localBackend.token);
         try {
             await net.connect();
             const info = await net.request<SystemInfo>(MSG.SYSTEM_INFO);

@@ -18,8 +18,8 @@ afterEach(async () => {
     else process.env.TASKFLOW_HOST = originalHost;
 });
 
-function makeClient(port: number): WsClient {
-    const client = new WsClient(port);
+function makeClient(port: number, token: string | null = null): WsClient {
+    const client = new WsClient(port, null, token);
     clients.push(client);
     return client;
 }
@@ -49,10 +49,11 @@ function startMalformedServer(): number {
     return server.port ?? 0;
 }
 
-function startEchoServer(): number {
+function startEchoServer(authorizations: (string | null)[] = []): number {
     const server: Server<unknown> = Bun.serve({
         port: 0,
         fetch(req, s) {
+            authorizations.push(req.headers.get("authorization"));
             if (s.upgrade(req, { data: {} })) return undefined;
             return new Response("no");
         },
@@ -218,4 +219,33 @@ describe("WsClient", () => {
         await Bun.sleep(30);
         expect(seen).toEqual([]);
     });
+});
+
+test("a client given a token sends Authorization: Bearer <token> on the upgrade", async () => {
+    const authorizations: (string | null)[] = [];
+    const client = makeClient(startEchoServer(authorizations), "T".repeat(43));
+    await client.connect();
+    expect(authorizations).toEqual([`Bearer ${"T".repeat(43)}`]);
+});
+
+test("a client without a token sends no Authorization header", async () => {
+    const authorizations: (string | null)[] = [];
+    const client = makeClient(startEchoServer(authorizations));
+    await client.connect();
+    expect(authorizations).toEqual([null]);
+});
+
+test("a reconnect after a drop sends the token again", async () => {
+    const authorizations: (string | null)[] = [];
+    const client = makeClient(startEchoServer(authorizations), "T".repeat(43));
+    await client.connect();
+    const reconnected = new Promise<void>((resolve) => {
+        client.onStatusChange(({ connected }) => {
+            if (connected) resolve();
+        });
+    });
+    accepted[0].close();
+    await Promise.race([reconnected, Bun.sleep(2000)]);
+    expect(client.isConnected()).toBe(true);
+    expect(authorizations).toEqual([`Bearer ${"T".repeat(43)}`, `Bearer ${"T".repeat(43)}`]);
 });

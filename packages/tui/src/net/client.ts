@@ -2,6 +2,11 @@ import { randomUUID } from "crypto";
 import { hostForUrl, resolveBackendHost } from "@taskflow/shared";
 import type { WsRequest, WsResponse, WsEvent } from "@taskflow/shared";
 
+// DOM typings omit Bun's supported custom-header constructor.
+const BunWebSocket = WebSocket as typeof WebSocket & {
+    new (url: string, options?: string | string[] | Bun.WebSocketOptions): WebSocket;
+};
+
 interface NetLike {
     request<T>(type: string, payload?: unknown): Promise<T>;
     on(type: string, handler: (payload: unknown) => void): () => void;
@@ -49,6 +54,7 @@ class WsClient implements NetLike {
     constructor(
         private port: number,
         private host: string | null = null,
+        private token: string | null = null,
     ) {}
 
     /**
@@ -89,7 +95,12 @@ class WsClient implements NetLike {
             // TASKFLOW_HOST (packages/backend/src/ws/server.ts) and inherits this
             // process's environment through startBackend — so the same read keeps
             // the client pointed at the socket that backend actually bound.
-            const ws = new WebSocket(backendUrl(this.host ?? resolveBackendHost(), this.port));
+            const ws = new BunWebSocket(
+                backendUrl(this.host ?? resolveBackendHost(), this.port),
+                this.token === null
+                    ? undefined
+                    : { headers: { Authorization: `Bearer ${this.token}` } },
+            );
             this.ws = ws;
             ws.onopen = () => {
                 if (this.ws !== ws) return;

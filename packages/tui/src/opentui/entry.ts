@@ -111,7 +111,7 @@ async function main(): Promise<void> {
                     devBranch: process.env.TASKFLOW_DEV_BRANCH ?? null,
                     onSpawn,
                 }),
-            createLocalClient: (port) => new WsClient(port),
+            createLocalClient: (port, token) => new WsClient(port, null, token),
             openWorkspace,
             createPicker: (pickerDeps) => {
                 const picker = new MachinePicker(pickerDeps);
