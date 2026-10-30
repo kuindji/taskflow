@@ -308,3 +308,8 @@ the viewer are the same app.
    - Page sessions are a domain allowlist, not default-forward. Chromium's page sessions also carry `Tracing` (which traces the browser and GPU processes) and `ServiceWorker` (which acts on every worker in the partition). The boundary: effects inside the shared `persist:browser` partition are accepted, as with logins; effects on the browser or GPU process, the app's session, or other tasks' live tabs are not. Puppeteer's `page.tracing` therefore doesn't work through the endpoint.
    - Electron reuses a named popup (`window.open(url, name)`) across the whole process, before any ownership check. A popup name belongs to the family that opened it; another family's `window.open` with that name is refused.
    - Host events are retried until the backend answers, because a lost `closed` event can't be inferred from the heartbeat (unloaded tabs are absent too).
+10. **Tab targets, popup-name races and renderer reload (plan review round 4).**
+   - Chromium puts each page behind a `tab` target with its own id, and Puppeteer attaches to pages only through those. The filter decides a tab target by the page inside it, which the gateway looks up on a separate upstream connection.
+   - A popup name is reserved for a family when its `window.open` is allowed, not when the popup exists, because Electron creates the popup in a later task.
+   - Reloading the Taskflow UI detaches every browser view but keeps it loaded; the reloaded UI shows the panes it displays.
+   - A `closed` event the backend failed to store is retried (5xx, up to 3 attempts), and closing an already-forgotten tab still removes its saved record.

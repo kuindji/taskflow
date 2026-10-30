@@ -238,7 +238,7 @@ interface TaskflowBrowserBridge {
    - App quit: the backend quits with it (`electron/src/main.ts:281`), so CDP connections close and the CLI can't reach the backend.
    - Host gone, backend alive (the host stops heartbeating): `hostAvailable` flips false within 15 s, CDP connections close, and `browser open` returns the exact unavailable error.
    - Backend restart while the app runs (no supervisor restarts it today, so unit tests only): the next heartbeat restores `loaded`, re-adopts live children, and endpoints work again.
-   - Renderer reload: tabs aren't touched at all.
+   - Renderer reload: tabs stay loaded; main detaches every view on the UI's reload, so none covers the rebuilt UI.
 
    Pinned in Section 2 (staleness and heartbeat reconcile tests), Section 4 (gateway closes on host loss), Section 5 (the link uses the current backend port on every tick), and Section 8.
 4. **Close from one side while the other is using the tab.**
@@ -286,3 +286,9 @@ interface TaskflowBrowserBridge {
   - `TabHost` visibility generations, so a stale `show` or `freeze` can't override a newer hide or show; a creation that finishes after `close` is destroyed.
   - The host link retries an event that got no HTTP response, so a lost `closed` can't leave a dead tab behind.
   - `isWebContents` predicate for the guest guard; closure via `destroyed` only.
+- Round 4 (gpt-6.1-sol, the cap): 1 blocker, 2 majors, 1 minor confirmed (`reviews/round-4-triage.md`). Changes:
+  - CDP filter: Puppeteer's `tab` targets are decided by their page, resolved through a separate upstream connection (`CdpFilterDeps.pageOfTabTarget`); the spike confirms the mapping (spec Amendment 10).
+  - Popups: `claimPopupName` reserves a name when the open handler grants it, closing the handler-to-`createWindow` race.
+  - Main detaches every view when the UI reloads or its renderer dies.
+  - `close` survives a failed store write and `closed` is idempotent; the host link retries a 5xx up to 3 attempts.
+  - The chain stopped here for the user's decision (round cap reached with a blocker confirmed).

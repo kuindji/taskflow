@@ -40,9 +40,10 @@ Run against the real desktop app built from `main` (dev build is fine), on macOS
 10. **Overlays.** With A visible:
     - opening a dialog, a dropdown over the pane, a context menu and a tooltip near the pane shows the overlay above a frozen page, and the page goes live when it closes;
     - a dropdown that doesn't reach the pane doesn't freeze it.
+10b. **Renderer reload.** With A visible, View → Reload, then View → Force Reload. Each time the rebuilt UI is not covered by the page (whatever tab it opens on), A is still loaded (`browser list`), an open client keeps working, and selecting A shows it live.
 11. **Split view.** A browser tab in the right pane and another in the left both render and follow resizes.
 12. **Fallback.** In the web UI (browser dev renderer), New Tab → Browser opens today's iframe tab, and the CLI's `open` against a backend with no host returns the exact error. Remote-machine workspaces: not runnable without a second machine; note it as not run.
-13. **Clients.** Repeat item 1 with Playwright Python and Puppeteer.
+13. **Clients.** Repeat item 1 with Playwright Python and Puppeteer. Puppeteer reaches the page through its tab target (`puppeteer.connect({ browserURL: endpoint })`, then `browser.pages()` lists exactly A); `browser.newPage()` opens a child tab in A.
 14. **Agent prompt.** A fresh Claude session's `--append-system-prompt` contains the exact nudge, and `taskflow-cli browser --help`/usage matches the plan.
 
 ## Steps

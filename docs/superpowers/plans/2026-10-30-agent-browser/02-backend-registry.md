@@ -79,11 +79,12 @@ Behavior, beyond the index signatures:
 - `hostEvent`:
   - `child-opened` adds an unsaved, loaded record under the parent's scope. If the tab is already known (adopted by a heartbeat), it only updates the url and mapping. If the parent is unknown, it calls `hostClient.close(tabId)` instead.
   - `navigated` updates `url` and `title`, re-saves saved tabs, and broadcasts.
-  - `closed` behaves like `close(tabId)` without calling the host.
+  - `closed` behaves like `close(tabId)` without calling the host. For an id the registry doesn't hold, it still calls `store.remove(tabId)` and resolves, so the host's retry after a failed write is idempotent.
 - `close(id)`:
   - returns `false` for an unknown id;
   - otherwise closes the whole `familyOf(id)`, deepest first;
-  - for each tab: if loaded and the host is available, `hostClient.close` (errors ignored); then `store.remove`, drop the mapping, fire `subscribeTabGone`;
+  - for each tab: if loaded and the host is available, `hostClient.close` (errors ignored); then `store.remove`, drop the record and mapping, fire `subscribeTabGone`;
+  - a failing `store.remove` doesn't stop the loop: every tab still leaves the runtime registry and fires tab-gone. After the loop and the broadcast, the first store error is rethrown (the route answers 500, and the host retries a `closed` event);
   - broadcasts once.
 - `closeForOwner`: `close` for every root tab whose scope matches. Child tabs go along with their parent.
 
@@ -119,6 +120,8 @@ Behavior, beyond the index signatures:
   - `child-opened adds an unsaved child with the parent's scope`
   - `child-opened with an unknown parent asks the host to close it`
   - `close closes descendants first and fires tab-gone for each`
+  - `close with a failing store write still drops every tab and fires tab-gone, then rejects`
+  - `closed for an id the registry no longer holds removes it from the store and resolves`
   - `closeForOwner closes only that task's tabs and their children`
   - `ensureLoaded on an unloaded saved tab ensures it with its last url`
   - `ensureLoaded on an unloaded child closes it and throws not found`

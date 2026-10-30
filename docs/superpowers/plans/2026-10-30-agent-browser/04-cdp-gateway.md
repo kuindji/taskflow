@@ -30,6 +30,7 @@ interface CdpFilterDeps {
     rootTabId: string;
     isAllowedTab(tabId: string): boolean;                         // familyOf(rootTabId).has(tabId), live
     resolveTarget(targetId: string): Promise<{ tabId: string } | null>;
+    pageOfTabTarget(tabTargetId: string): Promise<string | null>; // the page targetId inside a `tab` target; null if none (see "Tab targets")
     openChild(url: string): Promise<{ targetId: string }>;        // service.openChild(rootTabId, url)
     closeTarget(targetId: string): Promise<boolean>;
     browserContextId: string | null; // the tabs' context from the spike's facts, read from the root target; null if unknown
@@ -58,7 +59,13 @@ function createCdpGateway(deps: {
 
 ## Filter rules
 
-**State.** The filter keeps `allowedSessions: Map<sessionId, targetId>`.
+**State.** The filter keeps `allowedSessions: Map<sessionId, targetId>`, and `targetTypes: Map<targetId, type>` learned from every upstream `targetInfo` it sees (`targetCreated`, `targetInfoChanged`, `attachedToTarget`, `getTargets` results).
+
+**Tab targets.** Chromium 130 puts each WebContents behind a `tab` target whose id differs from its page's. Puppeteer auto-attaches at browser level with `{ type: "page", exclude: true }` and reaches pages only through each tab session's own `setAutoAttach`. Playwright uses the default filter, which excludes tabs.
+- A target whose recorded type is `tab` is decided by its page: `deps.pageOfTabTarget(id)`, then `resolveTarget` on that page id. A `null` page is denied. The decision is cached per tab id for this connection.
+- This applies wherever a rule below decides a target: events, `getTargets` results, and commands naming a `targetId`. An id with no recorded type takes the page path.
+- `Target.closeTarget` on an allowed tab target calls `deps.closeTarget` with its page id.
+- A page attached under an allowed tab session arrives with that outer `sessionId`, so the nested-attach rule below admits it.
 
 **Upstream messages are processed strictly in order** (one promise chain). An `attachedToTarget` that waits on `resolveTarget` delays the messages behind it, never reorders them.
 
@@ -107,6 +114,8 @@ function createCdpGateway(deps: {
 - Ensures the tab is loaded (same errors, as HTTP 404 or 503 in the route).
 - Returns the real JSON with `webSocketDebuggerUrl` = `ws://<host>/cdp/<tabId>/devtools/browser`.
 
+**`pageOfTabTarget`** runs on a **separate** short-lived upstream connection to the same `webSocketDebuggerUrl`, never on the client's: the client's upstream is processed strictly in order, and the `attachedToTarget` waiting on the answer would block the messages that carry it. On that connection: `Target.attachToTarget { targetId, flatten: true }`; on the new session `Target.setAutoAttach { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }`; the first nested `attachedToTarget` of type `page` gives the answer; then close the connection. Timeout 2000 ms, then `null`. Use the method the spike recorded if it differs.
+
 **`listJson`**
 - The real `/json/list`, filtered to the family's targets.
 - `webSocketDebuggerUrl` and `devtoolsFrontendUrl` are removed (page-level sockets aren't proxied).
@@ -146,6 +155,11 @@ function createCdpGateway(deps: {
   - `createTarget and closeTarget sent on an allowed child session reply with that sessionId`
   - `a refused command on an allowed session replies with that sessionId`
   - `upstream messages keep order while an attach waits on resolveTarget`
+  - `a tab target whose page is in the family: its attachedToTarget is forwarded and its session allowed` (Puppeteer's hierarchy: browser-level auto-attach excludes pages)
+  - `a page attached under that allowed tab session is forwarded`
+  - `a tab target whose page is T-other or T-app is resumed and detached, never forwarded`
+  - `targetCreated and getTargets list a family tab target and drop another task's tab target`
+  - `attachToTarget and closeTarget naming a family tab target are allowed; closeTarget closes its page's tab`
   - `responses to internal resume/detach commands are swallowed`
   - one test per extra method from the spike's list that the table denies
 - [ ] **Step 2:** Run it. Expected: FAIL.
@@ -161,6 +175,7 @@ function createCdpGateway(deps: {
     - `agentConnections goes +1 on open and -1 once on close`
     - `tab-gone for the root closes the client with 1001`
     - `upstream close closes the client`
+    - `pageOfTabTarget answers from a separate upstream connection and closes it` (the fake upstream scripts the tab → page auto-attach)
     - `json/version rewrites webSocketDebuggerUrl to the gateway path using Host`
     - `json/version/ with trailing slash works`
     - `json/list lists only family page targets without debugger urls`

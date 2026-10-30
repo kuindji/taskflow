@@ -59,6 +59,7 @@ For each of the three clients (Playwright Node via `bunx`, Playwright Python via
 Also record:
 - Electron's `/json/version` body.
 - Whether attaching `webContents.debugger` while a remote client is connected breaks either side.
+- **Tab targets.** Puppeteer auto-attaches to `tab` targets and reaches pages through them (Section 4, "Tab targets"). Record the `tab` targets Electron exposes for A, B and the app window, and confirm a way to map a tab target to its page targetId from a separate browser-level connection. The plan's method: `attachToTarget { flatten: true }` on the tab, then `setAutoAttach { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }` on its session, and read the nested `page` attach. Check it also works on a new tab paused by Puppeteer's `waitForDebuggerOnStart`. The spike proxy decides tab targets this way, so Puppeteer passes criterion 1 through it.
 - **Context-scoped commands.** For each of `Browser.setDownloadBehavior`, `Browser.grantPermissions` and `Storage.getCookies`/`setCookies`, record:
   - whether the clients send a `browserContextId` and which one;
   - which session the command acts on when it's omitted (expected: Electron's default session, the app's own, not `persist:browser`).
@@ -75,6 +76,7 @@ Also record:
 - Every CDP method each client sent at connect and during the criteria, with the allow/deny/intercept/rewrite decision each one needs, split into browser level and session level. Section 4 turns this list into its table. Browser-level methods that aren't on it are denied; session-level methods outside Section 4's domain allowlist are denied unless this list records them and they pass its boundary (rule 6).
 - The `browserContextId` of the tabs and of the app window, and the handling of context-scoped commands.
 - Which `createWindow` path each popup kind takes.
+- The tab-target → page mapping method that worked, and its timing.
 - How `Target.createTarget` behaves under Electron, and the chosen handling (intercept to `openChild` is the plan's default).
 - Anything that contradicts the plan's cross-section interfaces.
 
