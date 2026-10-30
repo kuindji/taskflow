@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MSG } from "@taskflow/shared";
+import { MSG, TASK_DELETE_TIMEOUT_MS } from "@taskflow/shared";
 import type { Task } from "@taskflow/shared";
 import { FakeNet, task } from "../opentui/test-helpers";
 import { ArchiveStore } from "./store";
@@ -52,15 +52,23 @@ describe("ArchiveStore", () => {
         const store = new ArchiveStore(net);
         await store.load();
 
-        expect(await store.delete("a1", true)).toBe("deleted");
+        expect(await store.delete("a1", true)).toEqual({ outcome: "deleted" });
         net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a2")] });
-        expect(await store.delete("a2", false)).toBe("deleted");
+        expect(await store.delete("a2", false)).toEqual({ outcome: "deleted" });
 
         expect(net.requests.slice(1)).toEqual([
             { type: MSG.TASK_LIST_ARCHIVED, payload: undefined },
-            { type: MSG.TASK_DELETE, payload: { id: "a1", deleteWorktree: true } },
+            {
+                type: MSG.TASK_DELETE,
+                payload: { id: "a1", deleteWorktree: true },
+                timeoutMs: TASK_DELETE_TIMEOUT_MS,
+            },
             { type: MSG.TASK_LIST_ARCHIVED, payload: undefined },
-            { type: MSG.TASK_DELETE, payload: { id: "a2", deleteWorktree: false } },
+            {
+                type: MSG.TASK_DELETE,
+                payload: { id: "a2", deleteWorktree: false },
+                timeoutMs: TASK_DELETE_TIMEOUT_MS,
+            },
         ]);
         expect(store.tasks()).toEqual([]);
     });
@@ -74,7 +82,7 @@ describe("ArchiveStore", () => {
         // Another client restored a2: it is active on the backend now.
         net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a1")] });
 
-        expect(await store.delete("a2", true)).toBe("not-archived");
+        expect(await store.delete("a2", true)).toEqual({ outcome: "not-archived" });
 
         expect(net.requests.filter((request) => request.type === MSG.TASK_DELETE)).toEqual([]);
         expect(store.tasks().map((candidate) => candidate.id)).toEqual(["a1"]);
@@ -101,4 +109,14 @@ describe("ArchiveStore", () => {
 
         expect(store.tasks().map((candidate) => candidate.id)).toEqual(["a1"]);
     });
+});
+
+test("a cleanup warning is returned with the deleted outcome", async () => {
+    const net = new FakeNet();
+    net.responses.set(MSG.TASK_LIST_ARCHIVED, { tasks: [archived("a1"), archived("s1", "a1")] });
+    const cleanupError = "Task deleted, but worktree cleanup failed: remove worktree: denied";
+    net.responses.set(MSG.TASK_DELETE, { success: true, cleanupError });
+    const store = new ArchiveStore(net);
+    expect(await store.delete("a1", true)).toEqual({ outcome: "deleted", cleanupError });
+    expect(store.tasks()).toEqual([]);
 });

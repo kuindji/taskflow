@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Implement Section 8.
+Review Section 8.
 
 ## Status
 
@@ -23,7 +23,7 @@ Implement Section 8.
 | 5 | Auth, browser endpoints, enforcement | done: Codex review clean; Task 5.1 smoke, 5.2 gate check and live items 1–6 pass, items 7–8 (remote) moved to Section 13; backend 1213/0, shared 220/0, TUI 489/0, electron 78/0, 12 S2/S4/S6 UI files, typecheck pass | 55032e31, f32f107a |
 | 6 | Terminal | done: Codex review 1 P2 confirmed and fixed (queued resync lost on a failed replacement); backend 1160/0, shared 224/0, TUI 464/0, every UI file, typecheck pass | 24d21dc8, 3259c05b, 2660ddc5, 0532144b, 6a3e31bd |
 | 7 | Scheduler | done: Codex review 1 P2 confirmed and fixed (due checks awaited pending spawns, holding `init`); 1 own minor fixed (`Failed to schedule` error restored, written once); section tests 40/0, backend 1050/0, shared 258/0, typecheck pass | 284e665b, c6333fc6, 63f23f58 |
-| 8 | Git safety | not started | |
+| 8 | Git safety | implemented; focused checks, shared, UI files, TUI, typecheck pass; 19 known sandbox backend failures; manual/Windows acceptance pending | `fix(git): use literal paths and bound previews and worktree cleanup` |
 | 9 | Agent discovery | not started | |
 | 10 | Desktop updater | not started | |
 | 11 | Editor discovery | not started | |
@@ -32,6 +32,10 @@ Implement Section 8.
 
 ## Facts for the next step
 
+- Section 8 outputs: literal pathspec opt-in and bounded `createGitRunner`; shared safe task worktree cleanup awaited by HTTP/WS. `TASK_DELETE_TIMEOUT_MS = 300_000` is passed by UI/TUI deletion. Archive deletion returns `{ outcome, cleanupError? }` and displays warnings. `PROTOCOL_VERSION = 2`; `FileReadResponse`, `GitDiffFileResult`, `GitFileContentPair` carry explicit limit/binary states. `file-preview.ts` shares bounded disk/blob/patch readers and pair mapping; bulk diffs use four workers. UI `FilePreviewError`, `DiffPreview`, editor access guard and markdown clearing prevent incomplete writes; TUI maps the patch limit to text.
+- Section 8 validation: Step 3 command 48/0; Step 6 command 42/0, 1 Windows-only skip; Step 8 command 92/0; Step 10 command 28/0. Timeout/archive/offline tests 24/0. TDD red runs observed before the new timeout, preview and UI implementations; the additional invalid-byte patch cap test also failed before its fix. `TMPDIR=/private/tmp bun run typecheck` passes; `bun test packages/shared` 258/0; each of 85 UI test files passes separately; `bun test packages/tui` 491/0. Changed-file ESLint, Prettier and whitespace checks pass.
+- Section 8 backend aggregate: `bun test packages/backend` completed, 1288 pass / 3 skip / 19 fail. Failures are the expected sandbox boundaries: process-stopper 6 (`ps` EPERM), FileWatcher 3, FileWatcher ownership 1, WikiIndexService 5 and watchRecursive 4 (no filesystem events). No PTY hang. The later invalid-byte regression and fix pass in the 92-test focused suite.
+- Section 8 acceptance boundaries: `git --version` is `git version 2.54.0 (Apple Git-157)`; `git --literal-pathspecs -C /Users/kuindji/Projects/taskflow rev-parse --is-inside-work-tree` returns `true`. Windows ordering is injected/tested, but actual Windows junction execution is skipped on macOS, not Windows acceptance. Manual text → oversized/binary → text and blocked Save/keyboard check remains for Section 13: isolated Vite/socket fixture was prepared after checking listeners, but Chrome launch aborted under the sandbox, no browser surface is connected, and Computer Use rejected Chrome access with `Computer Use was not approved to use Google Chrome`. The fixture was stopped; existing apps were not reused.
 - Section 7 outputs: `ScheduleStore.updateDefinition(id, updater)` returns `{ schedule, timingChanged }` (tuple `expressionType`/`expression`/`enabled`, compared inside the mutation lock; a change stores `nextRunAt: null`). `SchedulerService.onScheduleUpdated(id, timingChanged)`; `SchedulerDeps.now`/`schedule` (cancellable timer) injectable; private `admit`, `checkDue` (init, due timers, 30 s tick), `execute(id, source)`. Due runs are dispatched in the background; `triggerNow` still awaits its spawn. HTTP/WS update return the stored record after the notification. index and CLI wiring unchanged.
 - Base commit before implementation (final-review base): `bf807eaea354b57763e3f994a4a77ddef519152f`.
 - Section 1 outputs: `config.apiToken` (lazy, file `api-token-<instanceId>`, `0600`). Spawn handshake `<port>\n<token>\n` via `writePortHandshake`; Electron `startBackend` resolves `{ port, token }` (main.ts keeps only `port` for now); TUI `BackendHandle.token`. Stable `<instanceId>.port` files still hold only the port. `createServer(router, port, apiRouter, cdpGateway, auth: ServerAuth)`; `AUTH_ENFORCED = false` in `ws/auth.ts`. PTY sessions get `TASKFLOW_API_TOKEN`.
@@ -66,6 +70,8 @@ Implement Section 8.
 
 ## Deviations from the design
 
+- Section 8, authorized by the gate session: shared 300 s deletion timeout, optional per-request timeout forwarded by UI/TUI connections and offline guard, UI deletion timeout, and TUI archive outcome/cleanup warning. The shared fake records explicit timeouts; its archive-dialog expectation was updated.
+- Section 8 implementation details: `GitRunOptions.onStdout` observes raw blob bytes before UTF-8 decoding so the 8 KiB binary boundary remains exact; decoded patch bytes are also checked after the streaming cap. Monaco is loaded lazily in `DiffPreview` so limited pairs do not import it. Existing git handlers and TUI `git-changes.ts` already pass through/render these results and needed no source edits. Connection tests had no fake-timer helper, so the existing real socket setup uses a controlled request timer without `mock.module`. Plan mode cannot be selected in this session, and the plan's two named superpowers skills are absent; followed the written TDD steps directly. Manual/Windows boundaries are recorded above.
 - Section 7: none to the design. Extra tests: store-read and persistence failures, capped due timers, deletion during registration, non-blocking due dispatch, scheduling failure recorded once.
 - Section 5: none to the design. The CDP broadcast test fixture's app socket now offers the auth subprotocol.
 - Section 4: none to the design. `runSsh` now reports exit code `0` on success (was `null`), which the token read needs; `MenuEntry` carries the saved token for the edit dialog; both socket clients keep a request sent in Bun's gap between `readyState` closing and the close event pending, so it gets the `4401` reason; TUI refresh uses Section 3's policy (`start`/`retryNow`), not `scheduleReattach`.

@@ -145,10 +145,11 @@ export function sendRequest<T = unknown>(
     backendId: string,
     type: string,
     payload: unknown = {},
+    timeoutMs?: number,
 ): Promise<T> {
     const connection = connections.get(backendId);
     if (!connection) return Promise.reject(new BackendDetachedError(backendId));
-    return connection.sendRequest<T>(type, payload);
+    return connection.sendRequest<T>(type, payload, timeoutMs);
 }
 
 export function sendFireAndForget(backendId: string, type: string, payload: unknown = {}): void {

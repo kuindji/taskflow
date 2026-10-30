@@ -183,7 +183,7 @@ export class Connection {
         }, delay);
     }
 
-    sendRequest<T>(type: string, payload: unknown): Promise<T> {
+    sendRequest<T>(type: string, payload: unknown, timeoutMs = REQUEST_TIMEOUT): Promise<T> {
         return new Promise<T>((resolve, reject) => {
             if (this.unauthorized) {
                 reject(new BackendUnauthorizedError());
@@ -202,7 +202,7 @@ export class Connection {
                 if (this.pending.delete(correlationId)) {
                     reject(new Error(`Request timeout: ${type}`));
                 }
-            }, REQUEST_TIMEOUT);
+            }, timeoutMs);
             this.pending.set(correlationId, {
                 resolve: resolve as (value: unknown) => void,
                 reject,

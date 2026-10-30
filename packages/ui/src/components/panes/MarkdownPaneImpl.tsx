@@ -254,6 +254,8 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         } catch (err: unknown) {
             if (loadId !== loadIdRef.current) return;
             const message = err instanceof Error ? err.message : "Failed to read file";
+            setContent("");
+            setLoadedPath(null);
             setError(message);
         } finally {
             if (loadId === loadIdRef.current) {

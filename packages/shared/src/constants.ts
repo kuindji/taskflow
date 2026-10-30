@@ -6,7 +6,9 @@ import type { MarkdownWidth } from "./types/settings";
  * cross-machine attachment until both sides update. Do not bump for additive
  * changes.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+// Task deletion waits for worktree cleanup.
+export const TASK_DELETE_TIMEOUT_MS = 300_000;
 export const WS_CLOSE_UNAUTHORIZED = 4401;
 
 /** LAN discovery. TTL 1 keeps announcements on the local subnet. */

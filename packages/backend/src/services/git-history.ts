@@ -5,7 +5,8 @@ import type {
     GitLogEntry,
     GitLogResult,
 } from "@taskflow/shared";
-import { git } from "./git-helpers";
+import { git, GitQueryLimitError } from "./git-helpers";
+import { readGitPreview, readGitPatch, previewPair } from "./file-preview";
 
 // %H hash, %h short hash, %an author, %aI ISO date, %D decorations, %s subject.
 // NUL-separated fields (subjects cannot contain NUL); git joins records with
@@ -38,19 +39,21 @@ async function log(repoPath: string, limit: number, skip: number): Promise<GitLo
                 `--pretty=format:${LOG_FORMAT}`,
             ],
             repoPath,
+            { readOnly: true },
         );
     } catch (error) {
+        if (error instanceof GitQueryLimitError) throw error;
         // An unborn HEAD (repo with no commits yet) is normal empty history:
         // the path is a git repo but HEAD doesn't resolve. Anything else —
         // not a git repo, corrupt object store — must surface.
         try {
-            await git(["rev-parse", "--git-dir"], repoPath);
+            await git(["rev-parse", "--git-dir"], repoPath, { readOnly: true });
         } catch {
             throw error; // not a git repository
         }
         let headResolves = true;
         try {
-            await git(["rev-parse", "--verify", "HEAD"], repoPath);
+            await git(["rev-parse", "--verify", "HEAD"], repoPath, { readOnly: true });
         } catch {
             headResolves = false;
         }
@@ -77,7 +80,13 @@ async function log(repoPath: string, limit: number, skip: number): Promise<GitLo
     return { entries: hasMore ? entries.slice(0, limit) : entries, hasMore };
 }
 
-const COMMIT_DIFF_ARGS = ["--format=", "--diff-merges=first-parent", "-z"];
+const COMMIT_DIFF_ARGS = [
+    "--no-ext-diff",
+    "--no-textconv",
+    "--format=",
+    "--diff-merges=first-parent",
+    "-z",
+];
 
 function parseCommitStatus(char: string): GitCommitFile["status"] {
     switch (char) {
@@ -96,8 +105,8 @@ async function commitFiles(repoPath: string, hash: string): Promise<GitCommitFil
     // Two invocations: --name-status for status letters + rename pairs,
     // --numstat for per-file line counts. Both NUL-delimited, merged by path.
     const [nameStatusOut, numstatOut] = await Promise.all([
-        git(["show", ...COMMIT_DIFF_ARGS, "--name-status", hash], repoPath),
-        git(["show", ...COMMIT_DIFF_ARGS, "--numstat", hash], repoPath),
+        git(["show", ...COMMIT_DIFF_ARGS, "--name-status", hash], repoPath, { readOnly: true }),
+        git(["show", ...COMMIT_DIFF_ARGS, "--numstat", hash], repoPath, { readOnly: true }),
     ]);
 
     const files: GitCommitFile[] = [];
@@ -159,15 +168,6 @@ async function commitFiles(repoPath: string, hash: string): Promise<GitCommitFil
     return { files };
 }
 
-async function showBlob(repoPath: string, refSpec: string): Promise<string> {
-    try {
-        return await git(["show", refSpec], repoPath);
-    } catch {
-        // Path absent at that ref (added/deleted file, or root commit parent)
-        return "";
-    }
-}
-
 async function commitDiffFile(
     repoPath: string,
     hash: string,
@@ -177,12 +177,34 @@ async function commitDiffFile(
     // A blob missing at a ref is expected (added/deleted file, root commit
     // parent) and maps to an empty side — but a missing COMMIT (history
     // rewritten) must surface as an error, so verify the commit first.
-    await git(["rev-parse", "--verify", `${hash}^{commit}`], repoPath);
+    await git(["rev-parse", "--verify", `${hash}^{commit}`], repoPath, { readOnly: true });
+    const ancestry = await git(["rev-list", "--parents", "-n", "1", hash], repoPath, {
+        readOnly: true,
+    });
+    const parent = ancestry.trim().split(" ")[1];
+    const paths = previousPath ? [previousPath, path] : [path];
+    const patch = await readGitPatch(
+        repoPath,
+        parent
+            ? ["diff", "--no-ext-diff", "--no-textconv", parent, hash, "--", ...paths]
+            : [
+                  "show",
+                  "--no-ext-diff",
+                  "--no-textconv",
+                  "--format=",
+                  "--root",
+                  hash,
+                  "--",
+                  ...paths,
+              ],
+        { literalPathspecs: true },
+    );
+    if (typeof patch !== "string") return { state: "tooLarge", limit: "diff" };
     const [original, modified] = await Promise.all([
-        showBlob(repoPath, `${hash}^:${previousPath ?? path}`),
-        showBlob(repoPath, `${hash}:${path}`),
+        parent ? readGitPreview(repoPath, `${parent}:${previousPath ?? path}`) : null,
+        readGitPreview(repoPath, `${hash}:${path}`),
     ]);
-    return { original, modified };
+    return previewPair(original, modified);
 }
 
 export { log, commitFiles, commitDiffFile };

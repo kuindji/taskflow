@@ -158,4 +158,13 @@ describe("file handlers", () => {
             expect(result).toEqual({ success: true });
         });
     });
+    it("FILE_READ returns explicit limited and binary states and complete empty text", async () => {
+        const path = join(projectDir, "preview");
+        await writeFile(path, Buffer.alloc(5 * 1024 * 1024 + 1));
+        expect(await router.handle(MSG.FILE_READ, { path })).toEqual({ state: "tooLarge" });
+        await writeFile(path, Buffer.from([1, 0, 2]));
+        expect(await router.handle(MSG.FILE_READ, { path })).toEqual({ state: "binary" });
+        await writeFile(path, "");
+        expect(await router.handle(MSG.FILE_READ, { path })).toEqual({ content: "" });
+    });
 });

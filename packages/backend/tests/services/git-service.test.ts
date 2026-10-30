@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { GitService } from "../../src/services/git-service";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -262,6 +262,108 @@ describe("GitService", () => {
         expect(status.unstagedFiles[0].path).toBe("b.txt");
     });
 
+    it("stage treats brackets and wildcard characters as literal filenames", async () => {
+        const selected = ["route[ab].txt", "wild*.txt", "question?.txt"];
+        const siblings = ["routea.txt", "wild-other.txt", "questionx.txt"];
+        for (const path of [...selected, ...siblings]) {
+            await writeFile(join(repoDir, path), `original ${path}`);
+        }
+        await run(["git", "add", "-A"], repoDir);
+        await run(["git", "commit", "-m", "literal fixtures"], repoDir);
+        for (const path of [...selected, ...siblings]) {
+            await writeFile(join(repoDir, path), `changed ${path}`);
+        }
+
+        for (const path of selected) await git.stage(repoDir, path);
+
+        const status = await git.status(repoDir);
+        expect(status.stagedFiles.map((file) => file.path).sort()).toEqual(selected.sort());
+        expect(status.unstagedFiles.map((file) => file.path).sort()).toEqual(siblings.sort());
+        for (const path of selected) {
+            expect(await git.getFileContent(repoDir, path, "index")).toEqual({
+                content: `changed ${path}`,
+            });
+        }
+        for (const path of siblings) {
+            expect(await git.getFileContent(repoDir, path, "index")).toEqual({
+                content: `original ${path}`,
+            });
+        }
+    });
+
+    it("unstage changes only the selected literal path", async () => {
+        const paths = ["route[ab].txt", "routea.txt"];
+        for (const path of paths) await writeFile(join(repoDir, path), `original ${path}`);
+        await run(["git", "add", "-A"], repoDir);
+        await run(["git", "commit", "-m", "literal fixtures"], repoDir);
+        for (const path of paths) await writeFile(join(repoDir, path), `changed ${path}`);
+        await run(["git", "add", "-A"], repoDir);
+
+        await git.unstage(repoDir, paths[0]);
+
+        expect(await git.getFileContent(repoDir, paths[0], "index")).toEqual({
+            content: `original ${paths[0]}`,
+        });
+        expect(await git.getFileContent(repoDir, paths[1], "index")).toEqual({
+            content: `changed ${paths[1]}`,
+        });
+        expect((await git.status(repoDir)).stagedFiles.map((file) => file.path)).toEqual([
+            paths[1],
+        ]);
+    });
+
+    it("revert leaves wildcard-matching siblings unchanged", async () => {
+        const paths = ["route[ab].txt", "routea.txt", "wild*.txt", "wild-other.txt"];
+        for (const path of paths) await writeFile(join(repoDir, path), `original ${path}`);
+        await run(["git", "add", "-A"], repoDir);
+        await run(["git", "commit", "-m", "literal fixtures"], repoDir);
+        for (const path of paths) await writeFile(join(repoDir, path), `changed ${path}`);
+        await run(["git", "add", "-A"], repoDir);
+
+        for (const path of [paths[0], paths[2]]) {
+            await git.revertFile(repoDir, { path, status: "modified" });
+            expect(await readFile(join(repoDir, path), "utf8")).toBe(`original ${path}`);
+            expect(await git.getFileContent(repoDir, path, "index")).toEqual({
+                content: `original ${path}`,
+            });
+        }
+        for (const path of [paths[1], paths[3]]) {
+            expect(await readFile(join(repoDir, path), "utf8")).toBe(`changed ${path}`);
+            expect(await git.getFileContent(repoDir, path, "index")).toEqual({
+                content: `changed ${path}`,
+            });
+        }
+    });
+
+    it("renamed file diffs include both literal paths", async () => {
+        const previousPath = "old[ab].txt";
+        const path = "new[ab].txt";
+        await writeFile(join(repoDir, previousPath), "unique rename content\n");
+        await writeFile(join(repoDir, "olda.txt"), "old sibling\n");
+        await writeFile(join(repoDir, "newa.txt"), "new sibling\n");
+        await run(["git", "add", "-A"], repoDir);
+        await run(["git", "commit", "-m", "rename fixtures"], repoDir);
+        await run(["git", "mv", "--", previousPath, path], repoDir);
+        await writeFile(join(repoDir, "olda.txt"), "changed old sibling\n");
+        await writeFile(join(repoDir, "newa.txt"), "changed new sibling\n");
+        await run(["git", "add", "-A"], repoDir);
+
+        const result = await git.diffFile(repoDir, path);
+
+        expect(result.staged).toContain(`rename from ${previousPath}`);
+        expect(result.staged).toContain(`rename to ${path}`);
+        expect(result.staged).not.toContain("sibling");
+    });
+
+    it("untracked no-index diff still accepts exit code one", async () => {
+        await writeFile(join(repoDir, "untracked[ab]*.txt"), "untracked literal content\n");
+
+        const result = await git.diffFile(repoDir, "untracked[ab]*.txt");
+
+        expect(result.staged).toBeUndefined();
+        expect(result.unstaged).toContain("+untracked literal content");
+    });
+
     it("stages all files", async () => {
         await writeFile(join(repoDir, "a.txt"), "aaa");
         await writeFile(join(repoDir, "b.txt"), "bbb");
@@ -355,5 +457,116 @@ describe("GitService", () => {
         expect(status.branch).toBe("test-branch");
         // Cleanup
         await run(["git", "worktree", "remove", wtPath], repoDir);
+    });
+    it("a patch exactly 1 MiB is returned and one byte more returns tooLarge", async () => {
+        const path = "boundary.txt";
+        await writeFile(join(repoDir, path), "x\n");
+        const baseline = await git.diffFile(repoDir, path);
+        const overhead = Buffer.byteLength(baseline.unstaged!) - 2;
+        await writeFile(join(repoDir, path), "x".repeat(1048576 - overhead - 1) + "\n");
+        expect(Buffer.byteLength((await git.diffFile(repoDir, path)).unstaged!)).toBe(1048576);
+        await writeFile(join(repoDir, path), "x".repeat(1048576 - overhead) + "\n");
+        expect(await git.diffFile(repoDir, path)).toEqual({ state: "tooLarge" });
+        const bulk = await git.diff(repoDir);
+        expect(bulk.files).toEqual([
+            { path, state: "tooLarge", diff: "", additions: 0, deletions: 0, staged: false },
+        ]);
+        expect((await git.getFileContentsForDiff(repoDir, path)).unstaged).toEqual({
+            state: "tooLarge",
+            limit: "diff",
+        });
+    });
+
+    it("combined staged and unstaged patch bytes share the file cap", async () => {
+        await writeFile(join(repoDir, "initial.txt"), "s".repeat(400000) + "\n");
+        await git.stage(repoDir, "initial.txt");
+        await writeFile(join(repoDir, "initial.txt"), "u".repeat(400000) + "\n");
+        expect(await git.diffFile(repoDir, "initial.txt")).toEqual({ state: "tooLarge" });
+        const content = await git.getFileContentsForDiff(repoDir, "initial.txt");
+        expect(content.staged).toEqual({ state: "tooLarge", limit: "diff" });
+        expect(content.unstaged).toEqual({ state: "tooLarge", limit: "diff" });
+        expect((await git.diff(repoDir)).files.map((file) => file.state)).toEqual([
+            "tooLarge",
+            "tooLarge",
+        ]);
+    });
+
+    it("blob limits do not become an empty side", async () => {
+        const big = "x".repeat(5 * 1024 * 1024 + 1) + "\n";
+        await writeFile(join(repoDir, "big.txt"), big);
+        await git.stage(repoDir, "big.txt");
+        await run(["git", "commit", "-m", "big base"], repoDir);
+        await writeFile(join(repoDir, "big.txt"), big + "new line\n");
+        // Small context patch, but both full contents exceed the preview limit.
+        await writeFile(join(repoDir, "big.txt"), "new line\n" + big);
+        expect(await git.getFileContent(repoDir, "big.txt", "HEAD")).toEqual({ state: "tooLarge" });
+        expect((await git.getFileContentsForDiff(repoDir, "big.txt")).unstaged).toEqual({
+            state: "tooLarge",
+            limit: "diff",
+        });
+        await writeFile(join(repoDir, "binary.dat"), Buffer.from([120, 0, 121]));
+        expect((await git.getFileContentsForDiff(repoDir, "binary.dat")).unstaged).toEqual({
+            state: "binary",
+        });
+        expect(await git.getFileContent(repoDir, "missing", "HEAD")).toBeNull();
+    });
+
+    it("bulk diffs never exceed four simultaneous file jobs", async () => {
+        let active = 0;
+        let peak = 0;
+        const release: (() => void)[] = [];
+        const files = Array.from({ length: 10 }, (_, i) => ({
+            path: String(i),
+            status: "modified" as const,
+            staged: i < 5,
+        }));
+        spyOn(git, "status").mockResolvedValue({
+            branch: "main",
+            stagedFiles: files.slice(0, 5),
+            unstagedFiles: files.slice(5),
+            ahead: 0,
+            behind: 0,
+        });
+        spyOn(git, "diffFile").mockImplementation(async (_repo, path) => {
+            active++;
+            peak = Math.max(peak, active);
+            await new Promise<void>((resolve) => release.push(resolve));
+            active--;
+            return { staged: path, unstaged: path };
+        });
+        const pending = git.diff(repoDir);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(active).toBe(4);
+        while (release.length) {
+            release.shift()!();
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+        }
+        const result = await pending;
+        expect(peak).toBe(4);
+        expect(result.files.map((file) => file.path)).toEqual(files.map((file) => file.path));
+    });
+
+    it("blob binary detection counts raw bytes at the 8 KiB boundary", async () => {
+        const bytes = Buffer.alloc(8193, 255);
+        bytes[8192] = 0;
+        await writeFile(join(repoDir, "bytes"), bytes);
+        await git.stage(repoDir, "bytes");
+        expect(await git.getFileContent(repoDir, "bytes", "index")).toEqual({
+            content: bytes.toString(),
+        });
+        bytes[8191] = 0;
+        await writeFile(join(repoDir, "bytes"), bytes);
+        await git.stage(repoDir, "bytes");
+        expect(await git.getFileContent(repoDir, "bytes", "index")).toEqual({ state: "binary" });
+    });
+    it("a patch cannot exceed its UTF-8 cap after decoding invalid source bytes", async () => {
+        await writeFile(
+            join(repoDir, "legacy.txt"),
+            Buffer.concat([Buffer.alloc(400000, 255), Buffer.from("\n")]),
+        );
+        expect(await git.diffFile(repoDir, "legacy.txt")).toEqual({ state: "tooLarge" });
     });
 });

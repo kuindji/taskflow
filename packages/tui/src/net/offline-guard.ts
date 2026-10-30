@@ -19,9 +19,9 @@ class OfflineGuardNet implements NetLike {
 
     constructor(private readonly inner: NetLike) {}
 
-    request<T>(type: string, payload?: unknown): Promise<T> {
+    request<T>(type: string, payload?: unknown, timeoutMs?: number): Promise<T> {
         if (this.offline) return Promise.reject(new MachineOfflineError());
-        return this.inner.request<T>(type, payload);
+        return this.inner.request<T>(type, payload, timeoutMs);
     }
 
     on(type: string, handler: (payload: unknown) => void): () => void {

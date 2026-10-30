@@ -24,12 +24,17 @@ export interface GitDiffFile {
     deletions: number;
     diff: string;
     staged: boolean;
+    state?: "tooLarge";
 }
 
-export interface GitFileContentPair {
-    original: string;
-    modified: string;
-}
+export type GitDiffFileResult =
+    | { staged?: string; unstaged?: string; state?: never }
+    | { state: "tooLarge"; staged?: never; unstaged?: never };
+
+export type GitFileContentPair =
+    | { original: string; modified: string; state?: never }
+    | { state: "tooLarge"; limit: "diff" | "preview"; original?: never; modified?: never }
+    | { state: "binary"; original?: never; modified?: never };
 
 export interface GitDiffFileContentResult {
     staged: GitFileContentPair | null;

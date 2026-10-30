@@ -1,6 +1,6 @@
 import { BackendUnauthorizedError } from "@taskflow/shared";
 import { Connection } from "./connection";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
     BackendDetachedError,
     closeConnection,
@@ -235,5 +235,48 @@ test("a 4401 close does not reconnect", async () => {
         expect(statuses).not.toContain(true);
     } finally {
         off();
+    }
+});
+
+test("a longer request timeout stays pending after 30 seconds and rejects at its own deadline", async () => {
+    const server = startTestServer();
+    await openConnection("a", server.origin);
+    const realSetTimeout = globalThis.setTimeout;
+    const timers: { delay: number; fire(): void }[] = [];
+    const controlledSetTimeout = Object.assign(
+        (callback: () => void, delay?: number) => {
+            const timer = realSetTimeout(callback, 1_000_000);
+            timers.push({
+                delay: delay ?? 0,
+                fire: () => {
+                    clearTimeout(timer);
+                    callback();
+                },
+            });
+            return timer;
+        },
+        { __promisify__: realSetTimeout.__promisify__ },
+    );
+    const clock = spyOn(globalThis, "setTimeout").mockImplementation(
+        controlledSetTimeout as typeof setTimeout,
+    );
+    try {
+        let settled = false;
+        const pending = sendRequest("a", "never", {}, 300_000).catch((error: unknown) => {
+            settled = true;
+            return error;
+        });
+        for (const timer of timers.filter((timer) => timer.delay <= 30_000)) timer.fire();
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        expect(timers.map((timer) => timer.delay)).toEqual([300_000]);
+        for (const timer of timers.filter(
+            (timer) => timer.delay > 30_000 && timer.delay <= 300_000,
+        ))
+            timer.fire();
+        expect(await pending).toEqual(new Error("Request timeout: never"));
+    } finally {
+        closeConnection("a", "detach");
+        clock.mockRestore();
     }
 });

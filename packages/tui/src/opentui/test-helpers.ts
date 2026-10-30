@@ -6,11 +6,11 @@ class FakeNet implements NetLike {
     private readonly handlers = new Map<string, Set<(payload: unknown) => void>>();
     private readonly statuses = new Set<(status: { connected: boolean }) => void>();
     clients = 1;
-    readonly requests: Array<{ type: string; payload: unknown }> = [];
+    readonly requests: Array<{ type: string; payload: unknown; timeoutMs?: number }> = [];
     readonly responses = new Map<string, unknown>();
 
-    async request<T>(type: string, payload?: unknown): Promise<T> {
-        this.requests.push({ type, payload });
+    async request<T>(type: string, payload?: unknown, timeoutMs?: number): Promise<T> {
+        this.requests.push({ type, payload, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
         if (type === MSG.SYSTEM_CLIENTS) return { count: this.clients } as T;
         if (this.responses.has(type)) return this.responses.get(type) as T;
         throw new Error(`Unexpected request: ${type}`);

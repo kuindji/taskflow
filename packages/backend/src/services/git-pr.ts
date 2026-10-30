@@ -11,7 +11,7 @@ async function commit(
         await git(["add", "-A"], repoPath);
     }
     await git(["commit", "-m", message], repoPath);
-    const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath);
+    const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath, { readOnly: true });
     if (push) {
         await git(["push"], repoPath);
     }
@@ -77,6 +77,9 @@ async function generateCommitMessage(
 ): Promise<string> {
     const diffResult = await gitService.diff(repoPath);
     const files = includeUnstaged ? diffResult.files : diffResult.files.filter((f) => f.staged);
+    if (files.some((file) => file.state === "tooLarge")) {
+        throw new Error("Cannot generate commit message: a file diff exceeds 1 MiB");
+    }
     const diffText = files.map((f) => f.diff).join("\n");
     if (!diffText.trim()) {
         throw new Error("No changes to commit");

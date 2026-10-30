@@ -4,13 +4,15 @@ import type {
     TaskLogEntry,
     TaskLogAddedEvent,
     TaskListResponse,
+    TaskDeleteResponse,
     TaskLogListResponse,
 } from "@taskflow/shared";
-import { MSG, sortTasksByCreatedAtDesc } from "@taskflow/shared";
+import { MSG, TASK_DELETE_TIMEOUT_MS, sortTasksByCreatedAtDesc } from "@taskflow/shared";
 import { createSlices, type Scoped } from "@/lib/backend-scope";
 import { onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 import { useUIStore } from "./ui-store";
+import { alert } from "./dialog-store";
 
 interface TaskCreatePayload {
     projectId: string;
@@ -158,10 +160,15 @@ export const useTaskStore = create<TaskStore>((set) => ({
             .catch(() => {});
     },
     async deleteTask(task, options) {
-        await sendRequest(task.backendId, MSG.TASK_DELETE, {
-            id: task.id,
-            deleteWorktree: options?.deleteWorktree,
-        });
+        const response = await sendRequest<TaskDeleteResponse>(
+            task.backendId,
+            MSG.TASK_DELETE,
+            {
+                id: task.id,
+                deleteWorktree: options?.deleteWorktree,
+            },
+            TASK_DELETE_TIMEOUT_MS,
+        );
         const activeTaskId = activeTaskAfterRemoving(task.id);
         live.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
         archived.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
@@ -170,6 +177,9 @@ export const useTaskStore = create<TaskStore>((set) => ({
             archivedTasks: archived.read(),
             activeTaskId,
         });
+        if (response.cleanupError) {
+            void alert({ title: "Worktree cleanup failed", description: response.cleanupError });
+        }
     },
     setActiveTask(id) {
         set({ activeTaskId: id });

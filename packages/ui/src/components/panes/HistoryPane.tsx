@@ -14,7 +14,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { cn } from "@/lib/utils";
 import { getLanguage } from "@/lib/editor-language";
-import { MonacoDiffViewer } from "./MonacoDiffViewer";
+import { DiffPreview } from "./DiffPreview";
 
 const PAGE_SIZE = 100;
 
@@ -376,9 +376,8 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
                     <div className="text-muted-foreground p-3 text-sm">Binary file</div>
                 ) : diffPair ? (
                     <div className="min-h-0 flex-1">
-                        <MonacoDiffViewer
-                            original={diffPair.original}
-                            modified={diffPair.modified}
+                        <DiffPreview
+                            pair={diffPair}
                             language={selectedFile ? getLanguage(selectedFile.path) : "plaintext"}
                         />
                     </div>

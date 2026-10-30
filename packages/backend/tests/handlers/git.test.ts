@@ -6,10 +6,23 @@ import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
+import type {
+    GitDiffFileResult,
+    GitDiffFileContentResult,
+    GitFileContentPair,
+} from "@taskflow/shared";
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
     statusCalls: string[] = [];
+    patch: GitDiffFileResult = { state: "tooLarge" };
+    pair: GitFileContentPair = { original: "", modified: "" };
+    async diffFile(): Promise<GitDiffFileResult> {
+        return this.patch;
+    }
+    async getFileContentsForDiff(): Promise<GitDiffFileContentResult> {
+        return { staged: null, unstaged: this.pair };
+    }
     createdWorktrees: Array<{ repoPath: string; branch: string; worktreePath: string }> = [];
     logCalls: Array<{ repoPath: string; limit: number; skip: number }> = [];
     commitFilesCalls: Array<{ repoPath: string; hash: string }> = [];
@@ -42,7 +55,7 @@ class FakeGitService {
 
     async commitDiffFile(repoPath: string, hash: string, path: string, previousPath?: string) {
         this.commitDiffFileCalls.push({ repoPath, hash, path, previousPath });
-        return { original: "", modified: "" };
+        return this.pair;
     }
 
     async generateCommitMessage(
@@ -258,5 +271,29 @@ describe("git handlers", () => {
                 context: { cwd: worktreePath, project: await store.getProject(projectId) },
             },
         ]);
+    });
+    it("preview and patch states reach the client without fabricated text", async () => {
+        expect(
+            await router.handle(MSG.GIT_DIFF_FILE, { repoPath: projectPath, filePath: "file" }),
+        ).toEqual({ state: "tooLarge" });
+        for (const pair of [
+            { state: "tooLarge", limit: "preview" },
+            { state: "binary" },
+        ] as const) {
+            git.pair = pair;
+            expect(
+                await router.handle(MSG.GIT_DIFF_FILE_CONTENT, {
+                    repoPath: projectPath,
+                    filePath: "file",
+                }),
+            ).toEqual({ staged: null, unstaged: pair });
+            expect(
+                await router.handle(MSG.GIT_COMMIT_DIFF_FILE, {
+                    repoPath: projectPath,
+                    hash: validHash,
+                    path: "file",
+                }),
+            ).toEqual(pair);
+        }
     });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
@@ -36,6 +36,7 @@ import {
     saveViewState,
     consumePendingLine,
 } from "./editor-dirty-state";
+import { createEditorPreviewAccess } from "./editor-preview-access";
 import { modelUriFor } from "./editor-uri";
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
@@ -88,7 +89,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const loadRequestIdRef = useRef(0);
-    const editorReadyRef = useRef(false);
+    const previewAccess = useRef(createEditorPreviewAccess());
     const editorFontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
     );
@@ -104,9 +105,24 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const { readFile, writeFile } = useFileStore();
     const backendId = useWorkspaceBackend();
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [dirty, setDirty] = useState(
         () => backendId !== null && isEditorDirty(backendId, filePath),
     );
+
+    const save = useCallback(async () => {
+        const editor = editorRef.current;
+        if (!editor || backendId === null) return;
+        try {
+            await previewAccess.current.save(async () => {
+                await writeFile(backendId, filePath, editor.getValue());
+                setEditorDirty(backendId, filePath, false);
+                setDirty(false);
+            });
+        } catch (err: unknown) {
+            console.error("Failed to save file:", err);
+        }
+    }, [backendId, filePath, writeFile]);
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -117,6 +133,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     useEffect(() => {
         // The model's identity includes its machine, so there is no model to
         // show until the workspace names one.
+        const access = previewAccess.current;
+        access.reset();
+        setError(null);
         if (!containerRef.current) return;
         if (backendId === null) {
             setLoading(true);
@@ -126,7 +145,6 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         const loadRequestId = ++loadRequestIdRef.current;
         // A read still in flight at cleanup belongs to the editor it disposes.
         let cancelled = false;
-        editorReadyRef.current = false;
 
         const uri = modelUriFor(backendId, filePath);
         const existingModel = monaco.editor.getModel(uri);
@@ -145,7 +163,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             wordWrap: editorWordWrapRef.current ? "on" : "off",
             scrollBeyondLastLine: false,
             automaticLayout: true,
-            readOnly: false,
+            readOnly: !isDirty,
         });
 
         editorRef.current = editor;
@@ -174,7 +192,8 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         if (isDirty) {
             // Model has unsaved edits from a previous mount — skip disk reload
-            editorReadyRef.current = true;
+            access.allow();
+            editor.updateOptions({ readOnly: false });
             restoreViewState();
             navigateToPendingLine();
             setDirty(true);
@@ -184,7 +203,8 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 .then((content) => {
                     if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     editor.setValue(content);
-                    editorReadyRef.current = true;
+                    access.allow();
+                    editor.updateOptions({ readOnly: false });
                     restoreViewState();
                     navigateToPendingLine();
                     setDirty(false);
@@ -193,32 +213,26 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 .catch((err: unknown) => {
                     if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     console.error("Failed to read file:", err);
-                    editorReadyRef.current = true;
+                    access.reset();
+                    editor.updateOptions({ readOnly: true });
+                    setError(err instanceof Error ? err.message : "Failed to read file");
                     setLoading(false);
                 });
         }
 
         const changeDisposable = editor.onDidChangeModelContent(() => {
-            if (!editorReadyRef.current) return;
+            if (!access.canEdit()) return;
             setEditorDirty(backendId, filePath, true);
             setDirty(true);
         });
 
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-            if (!editorReadyRef.current) return;
-            void writeFile(backendId, filePath, editor.getValue())
-                .then(() => {
-                    setEditorDirty(backendId, filePath, false);
-                    setDirty(false);
-                })
-                .catch((err: unknown) => {
-                    console.error("Failed to save file:", err);
-                });
+            void save();
         });
 
         return () => {
             cancelled = true;
-            editorReadyRef.current = false;
+            access.reset();
             const state = editor.saveViewState();
             if (state) {
                 saveViewState(backendId, filePath, state);
@@ -234,7 +248,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 clearEditorDirty(backendId, filePath);
             }
         };
-    }, [backendId, filePath, readFile, writeFile]);
+    }, [backendId, filePath, readFile, save]);
 
     // Listen for line-navigation requests from search results or other sources
     useEffect(() => {
@@ -243,7 +257,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 e as CustomEvent<{ filePath: string; line: number }>
             ).detail;
             const editor = editorRef.current;
-            if (targetPath === filePath && editor && editorReadyRef.current) {
+            if (targetPath === filePath && editor && previewAccess.current.canEdit()) {
                 editor.revealLineInCenter(line);
                 editor.setPosition({ lineNumber: line, column: 1 });
                 editor.focus();
@@ -272,24 +286,16 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 <Button
                     size="sm"
                     className="absolute top-2 right-2 z-10"
-                    disabled={loading}
-                    onClick={async () => {
-                        if (!editorRef.current || !editorReadyRef.current || backendId === null)
-                            return;
-                        try {
-                            await writeFile(backendId, filePath, editorRef.current.getValue());
-                            setEditorDirty(backendId, filePath, false);
-                            setDirty(false);
-                        } catch (err: unknown) {
-                            console.error("Failed to save file:", err);
-                        }
+                    disabled={loading || error !== null}
+                    onClick={() => {
+                        void save();
                     }}>
                     Save
                 </Button>
             )}
-            {loading && (
+            {(loading || error) && (
                 <div className="text-muted-foreground absolute inset-0 z-[1] flex items-center justify-center">
-                    Loading...
+                    {error ?? "Loading..."}
                 </div>
             )}
             <div ref={containerRef} className="h-full w-full" />

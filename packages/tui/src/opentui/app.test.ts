@@ -8,7 +8,7 @@ import type {
     SessionRef,
     Task,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { MSG, TASK_DELETE_TIMEOUT_MS } from "@taskflow/shared";
 import { ArchiveStore } from "../archive/store";
 import { FlowStore } from "../flows/store";
 import { ScheduleStore } from "../schedules/store";
@@ -1528,7 +1528,11 @@ describe("OpenTuiApp", () => {
             test.mockInput.pressEnter();
             await settle();
             expect(sent(MSG.TASK_DELETE)).toEqual([
-                { type: MSG.TASK_DELETE, payload: { id: "a1", deleteWorktree: false } },
+                {
+                    type: MSG.TASK_DELETE,
+                    payload: { id: "a1", deleteWorktree: false },
+                    timeoutMs: TASK_DELETE_TIMEOUT_MS,
+                },
             ]);
             expect(frame()).not.toContain("Old parent");
             expect(frame()).not.toContain("Needle sub");

@@ -8,6 +8,7 @@ import type {
     FileReadResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import { FilePreviewError } from "@/lib/file-preview-error";
 import { onEvent, sendRequest } from "@/lib/connection-registry";
 import { useDiffStore } from "./diff-store";
 import { registerBackendReset } from "./store-reset";
@@ -384,10 +385,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({ expandedDirs });
     },
     async readFile(backendId, path) {
-        const { content } = await sendRequest<FileReadResponse>(backendId, MSG.FILE_READ, {
+        const response = await sendRequest<FileReadResponse>(backendId, MSG.FILE_READ, {
             path,
         });
-        return content;
+        if (response.state) throw new FilePreviewError(response.state);
+        return response.content;
     },
     async writeFile(backendId, path, content) {
         await sendRequest(backendId, MSG.FILE_WRITE, { path, content });

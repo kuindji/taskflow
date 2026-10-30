@@ -2,6 +2,7 @@ import { MSG } from "@taskflow/shared";
 import type {
     ChangeStatsEvent,
     GitCommitResult,
+    GitDiffFileResult,
     GitStatusResponse,
     GitStatusResult,
 } from "@taskflow/shared";
@@ -95,16 +96,19 @@ class GitStore {
         if (!path) return;
         const token = ++this.diffToken;
         const key = change.key;
-        const response = await this.net.request<{ staged?: string; unstaged?: string }>(
-            MSG.GIT_DIFF_FILE,
-            { repoPath: path, filePath: change.path },
-        );
+        const response = await this.net.request<GitDiffFileResult>(MSG.GIT_DIFF_FILE, {
+            repoPath: path,
+            filePath: change.path,
+        });
         if (this.disposed || token !== this.diffToken || path !== this.repoPath) return;
         this.diffSnapshot = {
             key,
             path: change.path,
             staged: change.staged,
-            text: (change.staged ? response.staged : response.unstaged) ?? null,
+            text:
+                response.state === "tooLarge"
+                    ? "Diff exceeds 1 MiB"
+                    : ((change.staged ? response.staged : response.unstaged) ?? null),
         };
         this.notify();
     }
@@ -134,7 +138,8 @@ class GitStore {
         const target = this.requireTarget();
         const trimmed = message.trim();
         if (!trimmed) throw new Error("Commit message is required");
-        if (!this.statusSnapshot?.stagedFiles.length) throw new Error("Stage a file before committing");
+        if (!this.statusSnapshot?.stagedFiles.length)
+            throw new Error("Stage a file before committing");
         const result = await this.net.request<GitCommitResult>(MSG.GIT_COMMIT, {
             path,
             message: trimmed,
@@ -147,7 +152,8 @@ class GitStore {
 
     async generateMessage(): Promise<string> {
         const path = this.requirePath();
-        if (!this.statusSnapshot?.stagedFiles.length) throw new Error("Stage a file before generating");
+        if (!this.statusSnapshot?.stagedFiles.length)
+            throw new Error("Stage a file before generating");
         const response = await this.net.request<{ message: string }>(MSG.GIT_GENERATE_COMMIT_MSG, {
             path,
             includeUnstaged: false,

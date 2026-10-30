@@ -1715,9 +1715,11 @@ class OpenTuiApp {
                         this.closeProjectDialog(view);
                         if (this.destroyed) return;
                         this.refreshRows(true);
-                        if (outcome === "not-archived") {
+                        if (outcome.outcome === "not-archived") {
                             this.showCommandNotice(" This task is no longer archived.");
                         }
+                        if (outcome.cleanupError)
+                            this.showCommandNotice(` ${outcome.cleanupError}`);
                     },
                     (error: unknown) => {
                         if (this.projectDialog !== view) return;

@@ -3,7 +3,7 @@ import type { GitService } from "../../src/services/git-service";
 import { generateCommitMessage } from "../../src/services/git-pr";
 import { expectRejects } from "../expect-rejects";
 
-function fakeGit(files: { diff: string; staged: boolean }[]) {
+function fakeGit(files: { diff: string; staged: boolean; state?: "tooLarge" }[]) {
     return { diff: async () => ({ files }) } as unknown as GitService;
 }
 
@@ -43,5 +43,24 @@ it("maps generator failures to the existing error", async () => {
             throw new Error("codex exited with code 1");
         }),
         "Failed to generate commit message",
+    );
+});
+
+it("oversized diffs prevent commit-message generation", async () => {
+    let ran = false;
+    const files = [
+        { diff: "OK", staged: true },
+        { diff: "", staged: false, state: "tooLarge" as const },
+    ];
+    await expectRejects(
+        generateCommitMessage(fakeGit(files), "/repo", true, async () => {
+            ran = true;
+            return "partial";
+        }),
+        "Cannot generate commit message: a file diff exceeds 1 MiB",
+    );
+    expect(ran).toBe(false);
+    expect(await generateCommitMessage(fakeGit(files), "/repo", false, async (text) => text)).toBe(
+        "OK",
     );
 });

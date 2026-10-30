@@ -1,7 +1,7 @@
 // packages/ui/src/stores/file-store.test.ts
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { MSG } from "@taskflow/shared";
-import type { FileNode } from "@taskflow/shared";
+import type { FileNode, FileReadResponse } from "@taskflow/shared";
 import { useFileStore } from "./file-store";
 import { closeConnection, openConnection } from "@/lib/connection-registry";
 import { startTestServer } from "@/lib/test-ws-server";
@@ -39,7 +39,9 @@ const EMPTY_LISTING = { entries: [], gitignorePatterns: [] };
 // Two machines, each holding the same repository at the same path.
 /** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
 let desktopNextUnwatchHold: Promise<void> | null = null;
+let readResponse: FileReadResponse = { content: "" };
 const desktop = startTestServer("desktop", (type) => {
+    if (type === MSG.FILE_READ) return readResponse;
     if (type === MSG.FILE_LIST_DIR) return EMPTY_LISTING;
     if (type !== MSG.FILE_UNWATCH || !desktopNextUnwatchHold) return { from: "desktop" };
     const hold = desktopNextUnwatchHold;
@@ -258,4 +260,24 @@ describe("file-store across machines", () => {
         resetBackend("desktop");
         expect(useFileStore.getState().watched).toBeNull();
     });
+});
+
+for (const [state, message] of [
+    ["tooLarge", "File preview exceeds 5 MiB"],
+    ["binary", "Binary file preview is unavailable"],
+] as const) {
+    test(`${state} rejects with ${message}`, async () => {
+        readResponse = { state };
+        const error = await useFileStore
+            .getState()
+            .readFile("desktop", "/repo/file")
+            .catch((error: unknown) => error);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(message);
+        expect((error as Error & { state: string }).state).toBe(state);
+    });
+}
+test("an empty complete file still returns an empty string", async () => {
+    readResponse = { content: "" };
+    expect(await useFileStore.getState().readFile("desktop", "/repo/file")).toBe("");
 });

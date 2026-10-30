@@ -13,7 +13,7 @@ const BunWebSocket = WebSocket as typeof WebSocket & {
 };
 
 interface NetLike {
-    request<T>(type: string, payload?: unknown): Promise<T>;
+    request<T>(type: string, payload?: unknown, timeoutMs?: number): Promise<T>;
     on(type: string, handler: (payload: unknown) => void): () => void;
     onStatusChange(listener: (status: { connected: boolean }) => void): () => void;
 }
@@ -270,7 +270,7 @@ class WsClient implements NetLike {
         for (const handler of handlers) handler(event.payload);
     }
 
-    request<T>(type: string, payload: unknown = {}): Promise<T> {
+    request<T>(type: string, payload: unknown = {}, timeoutMs?: number): Promise<T> {
         if (this.unauthorized) return Promise.reject(new BackendUnauthorizedError());
         const ws = this.ws;
         if (!ws || (!this.connected && ws.readyState !== WebSocket.OPEN)) {
@@ -282,7 +282,7 @@ class WsClient implements NetLike {
             const timer = setTimeout(() => {
                 this.pending.delete(correlationId);
                 reject(new Error(`Request timed out: ${type}`));
-            }, REQUEST_TIMEOUT_MS);
+            }, timeoutMs ?? REQUEST_TIMEOUT_MS);
             this.pending.set(correlationId, {
                 resolve: resolve as (value: unknown) => void,
                 reject,

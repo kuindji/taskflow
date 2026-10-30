@@ -241,4 +241,41 @@ describe("git history", () => {
             expect(rejected).toBe(true);
         });
     });
+    it("historical and working comparisons enforce the same limits", async () => {
+        await commitFile(repoDir, "f.txt", "base\n", "base");
+        await writeFile(join(repoDir, "f.txt"), "x".repeat(1048576) + "\n");
+        expect((await git.getFileContentsForDiff(repoDir, "f.txt")).unstaged).toEqual({
+            state: "tooLarge",
+            limit: "diff",
+        });
+        await run(["git", "add", "."], repoDir);
+        await run(["git", "commit", "-m", "big"], repoDir);
+        let hash = (await git.log(repoDir, 1, 0)).entries[0].hash;
+        expect(await git.commitDiffFile(repoDir, hash, "f.txt")).toEqual({
+            state: "tooLarge",
+            limit: "diff",
+        });
+        // A giant file with many short lines has a small patch when only its last line changes.
+        await commitFile(repoDir, "large.txt", "line\n".repeat(1100000), "large base");
+        await writeFile(join(repoDir, "large.txt"), "line\n".repeat(1100000) + "tail\n");
+        expect((await git.getFileContentsForDiff(repoDir, "large.txt")).unstaged).toEqual({
+            state: "tooLarge",
+            limit: "preview",
+        });
+        await run(["git", "add", "."], repoDir);
+        await run(["git", "commit", "-m", "small patch"], repoDir);
+        hash = (await git.log(repoDir, 1, 0)).entries[0].hash;
+        expect(await git.commitDiffFile(repoDir, hash, "large.txt")).toEqual({
+            state: "tooLarge",
+            limit: "preview",
+        });
+    });
+
+    it("binary history and root patches cannot become writable empty text", async () => {
+        await writeFile(join(repoDir, "binary"), Buffer.from([1, 0, 2]));
+        await run(["git", "add", "."], repoDir);
+        await run(["git", "commit", "-m", "binary root"], repoDir);
+        const hash = (await git.log(repoDir, 1, 0)).entries[0].hash;
+        expect(await git.commitDiffFile(repoDir, hash, "binary")).toEqual({ state: "binary" });
+    });
 });

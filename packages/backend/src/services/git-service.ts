@@ -1,5 +1,7 @@
 import type {
     GitStatusResult,
+    GitDiffFileResult,
+    FileReadResponse,
     GitFileStatus,
     GitDiffResult,
     GitDiffFile,
@@ -8,10 +10,10 @@ import type {
     GitLogResult,
     GitCommitFilesResult,
 } from "@taskflow/shared";
-import { readFile } from "fs/promises";
 import { rm } from "fs/promises";
 import { dirname, join } from "path";
 import { git, gitCapture } from "./git-helpers";
+import { readFilePreview, readGitPreview, readGitPatch, previewPair } from "./file-preview";
 import { getNullDevice } from "./platform";
 import type { NumstatEntry } from "./git-helpers";
 import {
@@ -35,7 +37,7 @@ import {
 export class GitService {
     async getBranch(repoPath: string): Promise<string | null> {
         try {
-            const output = await git(["branch", "--show-current"], repoPath);
+            const output = await git(["branch", "--show-current"], repoPath, { readOnly: true });
             const branch = output.trim();
             return branch || null;
         } catch {
@@ -44,8 +46,14 @@ export class GitService {
     }
 
     async numstat(repoPath: string, cached = false): Promise<NumstatEntry[]> {
-        const args = cached ? ["diff", "--cached", "--numstat"] : ["diff", "--numstat"];
-        const output = await git(args, repoPath);
+        const args = [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            ...(cached ? ["--cached"] : []),
+            "--numstat",
+        ];
+        const output = await git(args, repoPath, { readOnly: true });
         if (!output.trim()) return [];
 
         return output
@@ -65,7 +73,11 @@ export class GitService {
         // Porcelain v2 with --branch returns branch name, ahead/behind counts, and file
         // statuses in a single git invocation. NUL delimiters keep paths machine-safe
         // even when rename targets contain spaces or other escaped characters.
-        const output = await git(["status", "--porcelain=v2", "--branch", "-z", "-uall"], repoPath);
+        const output = await git(
+            ["status", "--porcelain=v2", "--branch", "-z", "-uall"],
+            repoPath,
+            { readOnly: true },
+        );
 
         const stagedFiles: GitFileStatus[] = [];
         const unstagedFiles: GitFileStatus[] = [];
@@ -209,14 +221,23 @@ export class GitService {
         repoPath: string,
         file: Pick<GitFileStatus, "path" | "status" | "previousPath">,
         staged: boolean,
-    ): Promise<string[]> {
+        maxOutputBytes = 1024 * 1024,
+    ): Promise<string | { state: "tooLarge" }> {
         if (file.status === "untracked") {
-            const diff = await git(
-                ["diff", "--no-index", "--", getNullDevice(), join(repoPath, file.path)],
+            const diff = await readGitPatch(
                 repoPath,
-                { allowExitCodes: [1] },
+                [
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--no-index",
+                    "--",
+                    getNullDevice(),
+                    join(repoPath, file.path),
+                ],
+                { allowExitCodes: [1], maxOutputBytes },
             );
-            return diff ? [diff] : [];
+            return diff;
         }
 
         const paths =
@@ -225,45 +246,40 @@ export class GitService {
                 : [file.path];
 
         if (staged) {
-            const cachedDiff = await git(["diff", "--cached", "--", ...paths], repoPath);
-            return cachedDiff.length > 0 ? [cachedDiff] : [];
+            return readGitPatch(
+                repoPath,
+                ["diff", "--no-ext-diff", "--no-textconv", "--cached", "--", ...paths],
+                { literalPathspecs: true, maxOutputBytes },
+            );
         }
 
-        const worktreeDiff = await git(["diff", "--", ...paths], repoPath);
-        return worktreeDiff.length > 0 ? [worktreeDiff] : [];
+        return readGitPatch(repoPath, ["diff", "--no-ext-diff", "--no-textconv", "--", ...paths], {
+            literalPathspecs: true,
+            maxOutputBytes,
+        });
     }
 
     async diff(repoPath: string): Promise<GitDiffResult> {
         const status = await this.status(repoPath);
-        const results: GitDiffFile[] = [];
-
-        const processList = async (files: GitFileStatus[], staged: boolean) => {
-            const diffs = await Promise.all(
-                files.map(async (file) => {
-                    const diffResult = await this.diffFile(
-                        repoPath,
-                        file.path,
-                        file.status,
-                        file.previousPath,
-                        staged,
-                    );
-                    const diffText = staged ? diffResult.staged : diffResult.unstaged;
-                    return {
-                        path: file.path,
-                        ...this.countPatchLines(diffText ?? ""),
-                        diff: diffText ?? "",
-                        staged,
-                    };
-                }),
-            );
-            results.push(...diffs);
+        const files = [...status.stagedFiles, ...status.unstagedFiles];
+        const results: GitDiffFile[] = new Array<GitDiffFile>(files.length);
+        let next = 0;
+        const worker = async () => {
+            while (next < files.length) {
+                const index = next++;
+                const file = files[index];
+                const result = await this.diffFile(repoPath, file.path);
+                const diff = (file.staged ? result.staged : result.unstaged) ?? "";
+                results[index] = {
+                    path: file.path,
+                    ...this.countPatchLines(diff),
+                    diff,
+                    staged: file.staged,
+                    ...(result.state ? { state: result.state } : {}),
+                };
+            }
         };
-
-        await Promise.all([
-            processList(status.stagedFiles, true),
-            processList(status.unstagedFiles, false),
-        ]);
-
+        await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
         return { files: results };
     }
 
@@ -273,37 +289,36 @@ export class GitService {
         status?: GitFileStatus["status"],
         previousPath?: string,
         isStaged?: boolean,
-    ): Promise<{ staged?: string; unstaged?: string }> {
-        // If explicit status/staged is provided (from diff()), use that directly
+    ): Promise<GitDiffFileResult> {
         if (status !== undefined && isStaged !== undefined) {
-            const file = { path: filePath, status, previousPath };
-            const segments = await this.diffSegments(repoPath, file, isStaged);
-            const diffText = segments.join("\n") || undefined;
-            return isStaged ? { staged: diffText } : { unstaged: diffText };
+            const patch = await this.diffSegments(
+                repoPath,
+                { path: filePath, status, previousPath },
+                isStaged,
+            );
+            if (typeof patch !== "string") return patch;
+            return isStaged ? { staged: patch || undefined } : { unstaged: patch || undefined };
         }
-
-        // Otherwise, resolve from status and return both staged and unstaged
         const resolved = await this.resolveFileStatus(repoPath, filePath);
         const result: { staged?: string; unstaged?: string } = {};
-
-        if (resolved.staged) {
-            const segments = await this.diffSegments(repoPath, resolved.staged, true);
-            const diffText = segments.join("\n");
-            if (diffText) result.staged = diffText;
+        let remaining = 1024 * 1024;
+        for (const side of ["staged", "unstaged"] as const) {
+            const file = resolved[side];
+            if (!file) continue;
+            const patch = await this.diffSegments(repoPath, file, side === "staged", remaining);
+            if (typeof patch !== "string") return patch;
+            remaining -= Buffer.byteLength(patch);
+            if (patch) result[side] = patch;
         }
-
-        if (resolved.unstaged) {
-            const segments = await this.diffSegments(repoPath, resolved.unstaged, false);
-            const diffText = segments.join("\n");
-            if (diffText) result.unstaged = diffText;
+        if (!resolved.staged && !resolved.unstaged) {
+            const patch = await readGitPatch(
+                repoPath,
+                ["diff", "--no-ext-diff", "--no-textconv", "--", filePath],
+                { literalPathspecs: true },
+            );
+            if (typeof patch !== "string") return patch;
+            if (patch) result.unstaged = patch;
         }
-
-        // Fallback if nothing found
-        if (!result.staged && !result.unstaged) {
-            const fallback = await git(["diff", "--", filePath], repoPath);
-            if (fallback) result.unstaged = fallback;
-        }
-
         return result;
     }
 
@@ -311,21 +326,16 @@ export class GitService {
         repoPath: string,
         filePath: string,
         ref: "HEAD" | "index" | "working",
-    ): Promise<string | null> {
+    ): Promise<FileReadResponse | null> {
         if (ref === "working") {
             try {
-                return await readFile(join(repoPath, filePath), "utf-8");
-            } catch {
-                return null;
+                return await readFilePreview(join(repoPath, filePath));
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+                throw error;
             }
         }
-
-        const refSpec = ref === "HEAD" ? `HEAD:${filePath}` : `:${filePath}`;
-        try {
-            return await git(["show", refSpec], repoPath, { allowExitCodes: [128] });
-        } catch {
-            return null;
-        }
+        return readGitPreview(repoPath, ref === "HEAD" ? `HEAD:${filePath}` : `:${filePath}`);
     }
 
     async getFileContentsForDiff(
@@ -333,46 +343,36 @@ export class GitService {
         filePath: string,
     ): Promise<GitDiffFileContentResult> {
         const resolved = await this.resolveFileStatus(repoPath, filePath);
-        let staged: GitFileContentPair | null = null;
-        let unstaged: GitFileContentPair | null = null;
-
-        if (resolved.staged) {
+        const patch = await this.diffFile(repoPath, filePath);
+        if (patch.state)
+            return {
+                staged: resolved.staged ? { state: "tooLarge", limit: "diff" } : null,
+                unstaged: resolved.unstaged ? { state: "tooLarge", limit: "diff" } : null,
+            };
+        const pair = async (
+            file: NonNullable<typeof resolved.staged>,
+            staged: boolean,
+        ): Promise<GitFileContentPair> => {
             const origPath =
-                resolved.staged.status === "renamed" && resolved.staged.previousPath
-                    ? resolved.staged.previousPath
-                    : filePath;
+                file.status === "renamed" && file.previousPath ? file.previousPath : filePath;
             const original =
-                resolved.staged.status === "new"
-                    ? ""
-                    : ((await this.getFileContent(repoPath, origPath, "HEAD")) ?? "");
+                file.status === "new" || file.status === "untracked"
+                    ? null
+                    : await this.getFileContent(
+                          repoPath,
+                          origPath,
+                          staged || !resolved.staged ? "HEAD" : "index",
+                      );
             const modified =
-                resolved.staged.status === "deleted"
-                    ? ""
-                    : ((await this.getFileContent(repoPath, filePath, "index")) ?? "");
-            staged = { original, modified };
-        }
-
-        if (resolved.unstaged) {
-            if (resolved.unstaged.status === "untracked") {
-                const modified = (await this.getFileContent(repoPath, filePath, "working")) ?? "";
-                unstaged = { original: "", modified };
-            } else {
-                const origPath =
-                    resolved.unstaged.status === "renamed" && resolved.unstaged.previousPath
-                        ? resolved.unstaged.previousPath
-                        : filePath;
-                // If there are staged changes, the base for unstaged is the index version
-                const baseRef = resolved.staged ? "index" : "HEAD";
-                const original = (await this.getFileContent(repoPath, origPath, baseRef)) ?? "";
-                const modified =
-                    resolved.unstaged.status === "deleted"
-                        ? ""
-                        : ((await this.getFileContent(repoPath, filePath, "working")) ?? "");
-                unstaged = { original, modified };
-            }
-        }
-
-        return { staged, unstaged };
+                file.status === "deleted"
+                    ? null
+                    : await this.getFileContent(repoPath, filePath, staged ? "index" : "working");
+            return previewPair(original, modified);
+        };
+        return {
+            staged: resolved.staged ? await pair(resolved.staged, true) : null,
+            unstaged: resolved.unstaged ? await pair(resolved.unstaged, false) : null,
+        };
     }
 
     async log(repoPath: string, limit: number, skip: number): Promise<GitLogResult> {
@@ -401,7 +401,7 @@ export class GitService {
             return;
         }
         if (file.status === "new") {
-            await git(["rm", "-f", "--", file.path], repoPath);
+            await git(["rm", "-f", "--", file.path], repoPath, { literalPathspecs: true });
             return;
         }
 
@@ -410,12 +410,16 @@ export class GitService {
                 ? [file.previousPath, file.path]
                 : [file.path];
 
-        await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths], repoPath);
+        await git(
+            ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths],
+            repoPath,
+            { literalPathspecs: true },
+        );
     }
 
     async stage(repoPath: string, filePath?: string): Promise<void> {
         if (filePath) {
-            await git(["add", "--", filePath], repoPath);
+            await git(["add", "--", filePath], repoPath, { literalPathspecs: true });
         } else {
             await git(["add", "-A"], repoPath);
         }
@@ -423,7 +427,9 @@ export class GitService {
 
     async unstage(repoPath: string, filePath?: string): Promise<void> {
         if (filePath) {
-            await git(["restore", "--staged", "--", filePath], repoPath);
+            await git(["restore", "--staged", "--", filePath], repoPath, {
+                literalPathspecs: true,
+            });
         } else {
             await git(["restore", "--staged", "."], repoPath);
         }
@@ -500,7 +506,7 @@ export class GitService {
 
     async getRemoteUrl(repoPath: string): Promise<string | null> {
         try {
-            const output = await git(["remote", "get-url", "origin"], repoPath);
+            const output = await git(["remote", "get-url", "origin"], repoPath, { readOnly: true });
             return output.trim() || null;
         } catch {
             return null;

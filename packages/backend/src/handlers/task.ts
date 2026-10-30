@@ -7,6 +7,7 @@ import type {
     TaskArchivePayload,
     TaskUnarchivePayload,
     TaskDeletePayload,
+    TaskDeleteResponse,
     TaskLogListPayload,
     Task,
     TaskWorktree,
@@ -19,6 +20,7 @@ import type { FlowRunner } from "../services/flow-runner";
 import type { ChangeTracker } from "../services/change-tracker";
 import { filterTaskSessions } from "../services/instance-filter";
 import { config } from "../config";
+import { cleanupTaskWorktree } from "../services/task-worktree-cleanup";
 
 interface TaskHandlerDeps {
     browserTabService: Pick<BrowserTabService, "closeForOwner">;
@@ -221,28 +223,14 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             changeTracker?.untrack(id);
             await browserTabService.closeForOwner({ taskId: id });
 
-            // Clean up worktree in the background — don't block the response
-            if (
-                !task.parentId &&
-                deleteWorktree &&
-                task.worktree.enabled &&
-                task.worktree.path &&
-                task.worktree.branch
-            ) {
-                const worktreePath = task.worktree.path;
-                const branch = task.worktree.branch;
-                void store.getProject(task.projectId).then((project) => {
-                    if (!project) return;
-                    gitService
-                        .removeWorktree(project.path, worktreePath)
-                        .then(() => gitService.deleteBranch(project.path, branch))
-                        .catch((error: unknown) =>
-                            console.error(`Failed to clean up worktree for task ${id}:`, error),
-                        );
-                });
-            }
-
-            return { success: true };
+            const cleanupError = await cleanupTaskWorktree(task, deleteWorktree === true, {
+                store,
+                git: gitService,
+            });
+            const response: TaskDeleteResponse = cleanupError
+                ? { success: true, cleanupError }
+                : { success: true };
+            return response;
         });
     });
 

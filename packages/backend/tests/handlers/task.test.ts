@@ -22,15 +22,21 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
 }
 
 class FakeGitService {
+    removeHold: Promise<void> | undefined;
+    removeError: Error | undefined;
+    branchError: Error | undefined;
     removedWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
     deletedBranches: Array<{ repoPath: string; branch: string }> = [];
 
     async removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
         this.removedWorktrees.push({ repoPath, worktreePath });
+        await this.removeHold;
+        if (this.removeError) throw this.removeError;
     }
 
     async deleteBranch(repoPath: string, branch: string): Promise<void> {
         this.deletedBranches.push({ repoPath, branch });
+        if (this.branchError) throw this.branchError;
     }
 }
 
@@ -300,5 +306,77 @@ describe("task handlers", () => {
 
         expect(gitService.removedWorktrees).toEqual([]);
         expect(gitService.deletedBranches).toEqual([]);
+    });
+    async function worktreeTask(parentId?: string): Promise<Task> {
+        return store.createTask({
+            projectId,
+            title: "Cleanup",
+            description: "",
+            parentId,
+            worktree: {
+                enabled: true,
+                path: join(projectPath, ".worktrees", "cleanup"),
+                branch: "task/cleanup",
+                pr: null,
+            },
+        });
+    }
+    it("delete waits for worktree cleanup before replying", async () => {
+        const task = await worktreeTask();
+        let release = () => {};
+        gitService.removeHold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let replied = false;
+        const pending = router
+            .handle(MSG.TASK_DELETE, { id: task.id, deleteWorktree: true })
+            .then((result) => {
+                replied = true;
+                return result;
+            });
+        await waitFor(() => gitService.removedWorktrees.length > 0);
+        try {
+            expect(await store.getTask(task.id)).toBeNull();
+            expect(closedOwners).toContainEqual({ taskId: task.id });
+            expect(replied).toBe(false);
+        } finally {
+            release();
+            await pending;
+        }
+    });
+    it("branch deletion still runs after removal fails", async () => {
+        const task = await worktreeTask();
+        gitService.removeError = new Error("removal denied");
+        const result = await router.handle(MSG.TASK_DELETE, { id: task.id, deleteWorktree: true });
+        expect(gitService.deletedBranches).toEqual([
+            { repoPath: projectPath, branch: "task/cleanup" },
+        ]);
+        expect(result).toEqual({
+            success: true,
+            cleanupError:
+                "Task deleted, but worktree cleanup failed: remove worktree: removal denied",
+        });
+    });
+    it("both cleanup failures reach the response without undoing task deletion", async () => {
+        const task = await worktreeTask();
+        gitService.removeError = new Error("removal denied");
+        gitService.branchError = new Error("branch denied");
+        const result = await router.handle(MSG.TASK_DELETE, { id: task.id, deleteWorktree: true });
+        expect(result).toEqual({
+            success: true,
+            cleanupError:
+                "Task deleted, but worktree cleanup failed: remove worktree: removal denied; delete branch: branch denied",
+        });
+        expect(await store.getTask(task.id)).toBeNull();
+    });
+    it("subtask deletion never removes the shared worktree", async () => {
+        const parent = await worktreeTask();
+        const child = await worktreeTask(parent.id);
+        expect(
+            await router.handle(MSG.TASK_DELETE, { id: child.id, deleteWorktree: true }),
+        ).toEqual({ success: true });
+        expect(gitService.removedWorktrees).toEqual([]);
+        expect(gitService.deletedBranches).toEqual([]);
+        expect(await store.getTask(parent.id)).not.toBeNull();
     });
 });

@@ -122,6 +122,11 @@ export interface TaskDeletePayload {
     deleteWorktree?: boolean;
 }
 
+export interface TaskDeleteResponse {
+    success: true;
+    cleanupError?: string;
+}
+
 // Task log messages
 export interface TaskLogListPayload {
     taskId: string;
@@ -333,9 +338,9 @@ export interface FileReadPayload {
     path: string;
 }
 
-export interface FileReadResponse {
-    content: string;
-}
+export type FileReadResponse =
+    | { content: string; state?: never }
+    | { state: "tooLarge" | "binary"; content?: never };
 
 export interface FileWatchPayload {
     path: string;

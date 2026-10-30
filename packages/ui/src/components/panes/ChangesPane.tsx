@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getLanguage } from "@/lib/editor-language";
-import { MonacoDiffViewer } from "./MonacoDiffViewer";
+import { DiffPreview } from "./DiffPreview";
 
 type BadgeColorScheme = "claude" | "codex" | "active" | "archived";
 
@@ -414,11 +414,14 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
                             </div>
                         )}
                         <div className="min-h-0 flex-1">
-                            <MonacoDiffViewer
-                                original={activeDiffPair?.original ?? ""}
-                                modified={activeDiffPair?.modified ?? ""}
-                                language={selectedFile ? getLanguage(selectedFile) : "plaintext"}
-                            />
+                            {activeDiffPair && (
+                                <DiffPreview
+                                    pair={activeDiffPair}
+                                    language={
+                                        selectedFile ? getLanguage(selectedFile) : "plaintext"
+                                    }
+                                />
+                            )}
                         </div>
                     </>
                 ) : selectedFile ? (

@@ -16,8 +16,9 @@ import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
-import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
+import { writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
 import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
+import { readFilePreview } from "../services/file-preview";
 import { buildShellPath } from "../services/shell-path";
 
 interface FileHandlerDeps {
@@ -48,8 +49,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     router.register(MSG.FILE_READ, async (payload) => {
         const { path } = payload as FileReadPayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
-        const content = await readFile(workspacePath, "utf-8");
-        return { content };
+        return readFilePreview(workspacePath);
     });
 
     router.register(MSG.FILE_WRITE, async (payload) => {

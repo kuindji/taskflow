@@ -123,7 +123,12 @@ describe("GitStore", () => {
             status: { ...emptyStatus, unstagedFiles: [{ ...stagedChange, staged: false }] },
         });
         await load;
-        const staging = store.stage({ ...stagedChange, staged: false, group: "unstaged", key: "unstaged:file.ts" });
+        const staging = store.stage({
+            ...stagedChange,
+            staged: false,
+            group: "unstaged",
+            key: "unstaged:file.ts",
+        });
         net.resolve(MSG.GIT_STAGE, 0, { success: true });
         await Promise.resolve();
         net.resolve(MSG.GIT_STATUS, 1, {
@@ -170,4 +175,17 @@ describe("GitStore", () => {
         expect(net.requests.filter((request) => request.type === MSG.GIT_STATUS)).toHaveLength(2);
         store.dispose();
     });
+});
+
+test("tooLarge displays an explicit diff placeholder", async () => {
+    const net = fakeNet();
+    const store = new GitStore(net);
+    const load = store.loadStatus("/repo", "task");
+    net.resolve(MSG.GIT_STATUS, 0, { status: emptyStatus });
+    await load;
+    const diff = store.loadDiff(stagedChange);
+    net.resolve(MSG.GIT_DIFF_FILE, 0, { state: "tooLarge" });
+    await diff;
+    expect(store.diff?.text).toBe("Diff exceeds 1 MiB");
+    store.dispose();
 });
