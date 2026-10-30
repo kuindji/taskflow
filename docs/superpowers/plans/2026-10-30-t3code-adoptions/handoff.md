@@ -12,7 +12,7 @@ Plan review round 1.
 
 | # | Section | Status | Commits |
 |---|---|---|---|
-| — | Plan written | done | |
+| — | Plan written | done | 44400fd7 |
 | — | Plan review round 1 | not started | |
 | 1 | Auth core | not started | |
 | 2 | Auth, local clients | not started | |
