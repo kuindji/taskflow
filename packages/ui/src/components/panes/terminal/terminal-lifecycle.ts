@@ -12,8 +12,6 @@ import {
     DEFAULT_TERMINAL_FONT_SIZE,
     MSG,
     TERMINAL_SCROLLBACK,
-    assertCompatibleSnapshot,
-    supplementalSnapshotSequence,
 } from "@taskflow/shared";
 import type {
     TerminalOutputEvent,
@@ -25,7 +23,8 @@ import type {
 import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
 import { isTerminalViewportAtBottom } from "@/lib/terminal-viewport";
-import { createWebLinkHandler } from "./terminal-links";
+import { createTerminalAttachment } from "./terminal-attachment";
+import { createWebLinkHandler, sessionWorkspace } from "./terminal-links";
 import { createFilePathLinkProvider } from "./terminal-link-provider";
 import { refreshTerminal } from "./terminal-utils";
 
@@ -39,12 +38,8 @@ interface CachedTerminal {
     unsubOutput: () => void;
     unsubExit: () => void;
     ensureHistoryLoaded: () => Promise<void>;
+    attachment: ReturnType<typeof createTerminalAttachment>;
     disposeRuntime: () => void;
-}
-
-interface BufferedTerminalChunk {
-    data: string;
-    sequence: number;
 }
 
 // ─── Module-level state ──────────────────────────────────────────────────────
@@ -126,17 +121,6 @@ function loadBestEffortRendererAddons(term: Terminal): () => void {
         cleanupWebgl = null;
         canvas.dispose();
     };
-}
-
-function flushPendingChunks(
-    pendingData: BufferedTerminalChunk[],
-    lastSequence: number,
-    writer: { write: (data: string) => void },
-): void {
-    for (const chunk of pendingData) {
-        if (chunk.sequence > lastSequence) writer.write(chunk.data);
-    }
-    pendingData.length = 0;
 }
 
 // ─── Core lifecycle ──────────────────────────────────────────────────────────
@@ -232,27 +216,25 @@ function getOrCreateTerminal(
         useSessionStore.getState().updateAutoTitle(found.workspaceKey, found.tab.id, truncated);
     });
 
-    // Buffer live output until history is loaded, then write directly
-    const pendingData: BufferedTerminalChunk[] = [];
-    let historyLoaded = false;
-    let historyLoadPromise: Promise<void> | null = null;
-
-    const unsubOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
-        const event = payload as TerminalOutputEvent;
-        if (event.sessionId === sessionId) {
-            if (historyLoaded) {
-                writer.write(event.data);
-            } else {
-                pendingData.push({ data: event.data, sequence: event.sequence });
-            }
-        }
+    const attachment = createTerminalAttachment({
+        sessionId,
+        requestSnapshot: () =>
+            requestFromSessionMachine<SessionSnapshotResponse>(MSG.SESSION_SNAPSHOT, { sessionId }),
+        requestHistory: () =>
+            requestFromSessionMachine<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
+                ...sessionWorkspace(sessionId, taskId, projectId, master).owner,
+                sessionId,
+            }),
+        writer,
+        reset: () => term.reset(),
+        scrollToBottom: () => term.scrollToBottom(),
     });
-
+    const unsubOutput = onEvent(MSG.TERMINAL_OUTPUT, (payload) => {
+        attachment.receiveOutput(payload as TerminalOutputEvent);
+    });
     const unsubExit = onEvent(MSG.SESSION_EXITED, (payload) => {
         const event = payload as SessionExitedEvent;
-        if (event.sessionId === sessionId) {
-            writer.write(`\r\n\x1b[90m[Process exited with code ${event.exitCode}]\x1b[0m\r\n`);
-        }
+        if (event.sessionId === sessionId) attachment.receiveExit(event.exitCode);
     });
 
     /** Session ids are unique across machines; its history lives where it runs. */
@@ -262,55 +244,6 @@ function getOrCreateTerminal(
         return sendRequest<T>(backendId, type, payload);
     }
 
-    function ensureHistoryLoaded(): Promise<void> {
-        if (historyLoadPromise) return historyLoadPromise;
-        historyLoadPromise = requestFromSessionMachine<SessionSnapshotResponse>(
-            MSG.SESSION_SNAPSHOT,
-            { sessionId },
-        )
-            .then(async (response) => {
-                assertCompatibleSnapshot(response);
-                if (response.snapshot !== null) {
-                    writer.write(response.snapshot);
-                    // The serialized screen omits mouse encoding and cursor
-                    // visibility; without SGR, wheel reports go out as X10
-                    // binary events that never reach the PTY.
-                    writer.write(supplementalSnapshotSequence(response));
-                    await writer.flush();
-                    term.scrollToBottom();
-                    historyLoaded = true;
-                    flushPendingChunks(pendingData, response.lastSequence, writer);
-                    return;
-                }
-                return replayFromHistory();
-            })
-            .catch(() => replayFromHistory());
-        return historyLoadPromise;
-    }
-
-    async function replayFromHistory() {
-        return requestFromSessionMachine<SessionHistoryResponse>(MSG.SESSION_HISTORY, {
-            taskId,
-            projectId,
-            master,
-            sessionId,
-        })
-            .then(async ({ data, lastSequence }) => {
-                if (data) writer.write(data);
-                await writer.flush();
-                term.scrollToBottom();
-                historyLoaded = true;
-                flushPendingChunks(pendingData, lastSequence, writer);
-            })
-            .catch(async () => {
-                for (const chunk of pendingData) writer.write(chunk.data);
-                await writer.flush();
-                term.scrollToBottom();
-                historyLoaded = true;
-                pendingData.length = 0;
-            });
-    }
-
     const cached: CachedTerminal = {
         term,
         fit,
@@ -318,7 +251,8 @@ function getOrCreateTerminal(
         element,
         unsubOutput,
         unsubExit,
-        ensureHistoryLoaded,
+        attachment,
+        ensureHistoryLoaded: () => attachment.ensureLoaded(),
         disposeRuntime: () => {
             titleDisposable.dispose();
             filePathLinkDisposable.dispose();
@@ -345,6 +279,7 @@ function destroyTerminal(sessionId: string): void {
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
+    cached.attachment.dispose();
     cached.unsubOutput();
     cached.unsubExit();
     cached.disposeRuntime();

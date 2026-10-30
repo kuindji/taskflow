@@ -25,6 +25,69 @@ describe("TimeBudgetedWriter", () => {
         globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
     });
 
+    function setup() {
+        globalThis.requestAnimationFrame = (callback) => {
+            scheduledFrame = callback;
+            return ++nextAnimationFrameId;
+        };
+        globalThis.cancelAnimationFrame = () => {};
+        const term = new FakeTerminal();
+        return {
+            term,
+            writer: new TimeBudgetedWriter(term as never),
+            frame: () => scheduledFrame?.(0),
+        };
+    }
+
+    it("flush waits for xterm when the JavaScript buffer is already empty", async () => {
+        const { term, writer, frame } = setup();
+        writer.write("hello");
+        frame();
+        let settled = false;
+        const pending = writer.flush().then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        term.writes[1].callback?.();
+        await pending;
+        expect(settled).toBe(true);
+    });
+
+    it("an earlier sentinel cannot resolve flush while a later frame is unparsed", async () => {
+        const { term, writer, frame } = setup();
+        writer.write("first");
+        frame();
+        writer.write("second");
+        let settled = false;
+        const pending = writer.flush().then(() => {
+            settled = true;
+        });
+        frame();
+        term.writes[1].callback?.();
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        term.writes[3].callback?.();
+        await pending;
+        expect(settled).toBe(true);
+    });
+
+    it("an empty animation frame cannot resolve flush before pending sentinels", async () => {
+        const { term, writer, frame } = setup();
+        writer.write("hello");
+        frame();
+        let settled = false;
+        const pending = writer.flush().then(() => {
+            settled = true;
+        });
+        frame();
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        term.writes[1].callback?.();
+        await pending;
+        expect(settled).toBe(true);
+    });
+
     it("invokes write hooks around a frame and resolves flush after xterm processes the sentinel", async () => {
         globalThis.requestAnimationFrame = (callback: FrameRequestCallback): number => {
             scheduledFrame = callback;

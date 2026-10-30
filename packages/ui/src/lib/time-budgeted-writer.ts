@@ -23,6 +23,7 @@ class TimeBudgetedWriter {
     private term: Terminal;
     private _visible = true;
     private disposed = false;
+    private pendingSentinels = 0;
     private flushResolvers: Array<() => void> = [];
 
     /** Called after each frame's writes are flushed to xterm (via sentinel callback). */
@@ -57,7 +58,8 @@ class TimeBudgetedWriter {
      * is fully rendered.
      */
     flush(): Promise<void> {
-        if (this.buffer.length === 0) return Promise.resolve();
+        if (this.disposed || (this.buffer.length === 0 && this.pendingSentinels === 0))
+            return Promise.resolve();
         return new Promise<void>((resolve) => {
             this.flushResolvers.push(resolve);
             this.scheduleFlush();
@@ -125,12 +127,12 @@ class TimeBudgetedWriter {
         // written above.
         const bufferDrained = this.buffer.length === 0;
 
+        this.pendingSentinels += 1;
         this.term.write("", () => {
+            this.pendingSentinels -= 1;
             if (this.disposed) return;
             this.onDidWrite?.(bufferDrained);
-            if (bufferDrained) {
-                this.resolveFlushWaiters();
-            }
+            this.resolveFlushWaiters();
         });
 
         if (!bufferDrained) {
@@ -139,6 +141,7 @@ class TimeBudgetedWriter {
     }
 
     private resolveFlushWaiters(): void {
+        if (!this.disposed && (this.buffer.length > 0 || this.pendingSentinels > 0)) return;
         if (this.flushResolvers.length > 0) {
             const resolvers = this.flushResolvers;
             this.flushResolvers = [];

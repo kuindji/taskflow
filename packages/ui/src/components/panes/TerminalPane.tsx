@@ -177,7 +177,7 @@ function TerminalPane({
 
         // Start restoring snapshot/history as soon as the terminal is attached.
         // Viewport preservation during subsequent fits handles reflow safely.
-        void cached.ensureHistoryLoaded();
+        void cached.ensureHistoryLoaded().catch(() => undefined);
 
         if (visible) {
             // Preserve viewport on tab restore; initial history restore owns
@@ -191,7 +191,9 @@ function TerminalPane({
             if (event.shiftKey && event.key === "Enter") {
                 if (event.type === "keydown") {
                     if (!interruptedRef.current) {
-                        sendInputRef.current(sessionId, "\x1b\r");
+                        cached.attachment.forwardInput("\x1b\r", (data) =>
+                            sendInputRef.current(sessionId, data),
+                        );
                     }
                 }
                 return false; // prevent xterm default handling for all event phases
@@ -224,7 +226,7 @@ function TerminalPane({
         // User input: only active while mounted
         const dataDisposable = term.onData((data) => {
             if (interruptedRef.current) return;
-            sendInputRef.current(sessionId, data);
+            cached.attachment.forwardInput(data, (value) => sendInputRef.current(sessionId, value));
         });
 
         // Debounce resize observer churn so PTY size only updates after layout settles.
@@ -439,6 +441,12 @@ function TerminalPane({
             return absolutePath;
         }
 
+        function forwardInput(data: string) {
+            terminalCache
+                .get(sessionId)
+                ?.attachment.forwardInput(data, (value) => sendInputRef.current(sessionId, value));
+        }
+
         function onDrop(e: DragEvent) {
             e.preventDefault();
             e.stopPropagation();
@@ -456,7 +464,7 @@ function TerminalPane({
             if (taskflowPath) {
                 const relative = toRelative(taskflowPath);
                 console.debug("[drop] taskflow path:", taskflowPath, "->", relative);
-                sendInputRef.current(sessionId, shellQuote(relative));
+                forwardInput(shellQuote(relative));
                 return;
             }
 
@@ -472,7 +480,7 @@ function TerminalPane({
                 }
                 if (paths.length > 0) {
                     console.debug("[drop] sending paths:", paths);
-                    sendInputRef.current(sessionId, paths.join(" "));
+                    forwardInput(paths.join(" "));
                 }
                 return;
             }
@@ -486,10 +494,7 @@ function TerminalPane({
                     .map((uri) => decodeURIComponent(new URL(uri).pathname));
                 if (filePaths.length > 0) {
                     console.debug("[drop] uri-list paths:", filePaths);
-                    sendInputRef.current(
-                        sessionId,
-                        filePaths.map((p) => shellQuote(toRelative(p))).join(" "),
-                    );
+                    forwardInput(filePaths.map((p) => shellQuote(toRelative(p))).join(" "));
                     return;
                 }
             }
@@ -498,7 +503,7 @@ function TerminalPane({
             const plainText = e.dataTransfer.getData("text/plain");
             if (plainText) {
                 console.debug("[drop] plain text:", plainText);
-                sendInputRef.current(sessionId, shellQuote(plainText));
+                forwardInput(shellQuote(plainText));
             }
         }
 
