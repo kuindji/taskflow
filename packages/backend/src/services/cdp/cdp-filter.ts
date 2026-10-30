@@ -139,6 +139,14 @@ class CdpTargetFilter {
     }
 
     private async allowed(targetId: string): Promise<boolean> {
+        // Only pages and tabs can belong to a tab family. Other types (workers,
+        // the browser) are never in the registry, so resolving them would stall
+        // the ordered upstream stream for the full resolveTarget wait.
+        const type = this.targetTypes.get(targetId);
+        if (type !== undefined && type !== "page" && type !== "tab") {
+            this.decisions.set(targetId, false);
+            return false;
+        }
         const page = await this.pageId(targetId);
         const resolved = page ? await this.deps.resolveTarget(page) : null;
         const allowed = resolved !== null && this.deps.isAllowedTab(resolved.tabId);

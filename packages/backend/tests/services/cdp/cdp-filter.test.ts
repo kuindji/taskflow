@@ -475,3 +475,29 @@ it("targetDestroyed uses its last decision and detached sessions stop forwarding
         "Target.detachedFromTarget",
     ]);
 });
+
+it("browser-level worker targets are denied without waiting on resolveTarget", async () => {
+    const resolveTarget = mock(async (id: string) => ({ tabId: id.slice(2) }));
+    const f = fixture({ resolveTarget });
+    for (const type of ["service_worker", "shared_worker", "browser"]) {
+        await f.filter.fromUpstream({
+            method: "Target.targetCreated",
+            params: { targetInfo: { targetId: `W-${type}`, type } },
+        });
+    }
+    await f.attach("W-service_worker", "S-sw", undefined, "service_worker");
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(f.client).toEqual([]);
+    expect(f.upstream.map((m) => m.method)).toEqual([
+        "Runtime.runIfWaitingForDebugger",
+        "Target.detachFromTarget",
+    ]);
+});
+
+it("a worker attached under an allowed session is still forwarded", async () => {
+    const f = fixture();
+    await f.attach();
+    f.client.length = 0;
+    await f.attach("W-1", "S-worker", "S-root", "worker");
+    expect(f.client.map((m) => m.params?.sessionId)).toEqual(["S-worker"]);
+});
