@@ -82,6 +82,8 @@ export function createServer(
                     else if (!isUpgradeRequest(req)) return errorResponse("Unauthorized", 401);
                     else unauthorized = true;
                 }
+                if (verdict.ok && verdict.anonymous)
+                    return new Response("Taskflow backend", { status: 200 });
                 if (isUpgradeRequest(req) && offersUnansweredToken(req))
                     return errorResponse("Unauthorized", 401);
                 if (unauthorized) {

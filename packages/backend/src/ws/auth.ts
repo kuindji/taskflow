@@ -7,7 +7,8 @@ export interface AuthContext {
 }
 
 type AuthReason = "host" | "origin" | "credential";
-type AuthVerdict = { ok: true } | { ok: false; reason: AuthReason };
+// `anonymous` marks the identity probe, which must never be upgraded.
+type AuthVerdict = { ok: true; anonymous?: true } | { ok: false; reason: AuthReason };
 
 export function parseUiOrigins(raw: string | undefined): Set<string> {
     const origins = new Set(["file://", "null"]);
@@ -32,8 +33,14 @@ export function cdpKey(token: string, tabId: string): string {
     return createHmac("sha256", token).update(`cdp:${tabId}`).digest("base64url");
 }
 
+// Bun upgrades when any comma-separated Upgrade token is websocket.
 export function isUpgradeRequest(req: Request): boolean {
-    return req.headers.get("upgrade")?.toLowerCase() === "websocket";
+    return (
+        req.headers
+            .get("upgrade")
+            ?.split(",")
+            .some((part) => part.trim().toLowerCase() === "websocket") ?? false
+    );
 }
 
 function offeredProtocols(req: Request): string[] {
@@ -73,7 +80,8 @@ export function checkRequest(req: Request, url: URL, ctx: AuthContext): AuthVerd
 
     const origin = req.headers.get("origin");
     if (origin !== null && !ctx.allowedOrigins.has(origin)) return { ok: false, reason: "origin" };
-    if (req.method === "GET" && url.pathname === "/" && !isUpgradeRequest(req)) return { ok: true };
+    if (req.method === "GET" && url.pathname === "/" && !req.headers.has("upgrade"))
+        return { ok: true, anonymous: true };
 
     const candidates: string[] = [];
     const bearer = /^Bearer (.+)$/i.exec(req.headers.get("authorization") ?? "");

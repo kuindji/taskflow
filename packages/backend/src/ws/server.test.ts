@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
+import { connect as connectTcp } from "net";
 import { MSG } from "@taskflow/shared";
 import { Router } from "./router";
 import { createServer } from "./server";
@@ -265,6 +266,58 @@ describe("request authentication", () => {
         expect(res.status).toBe(401);
         expect(res.headers.get("sec-websocket-protocol")).toBeNull();
         expect(clientCount()).toBe(0);
+    });
+    test("GET / with Upgrade: websocket, h2c and no credential never opens an app socket", async () => {
+        const router = new Router();
+        const calls: unknown[] = [];
+        router.register("ping", async (payload) => {
+            calls.push(payload);
+            return {};
+        });
+        const server = createServer(router, 0, undefined, undefined, testAuth());
+        const started = await server.start();
+        stop = started.stop;
+        const received = await new Promise<Buffer>((resolve) => {
+            let bytes = Buffer.alloc(0);
+            const socket = connectTcp(started.port, "127.0.0.1", () => {
+                socket.write(
+                    [
+                        "GET / HTTP/1.1",
+                        `Host: 127.0.0.1:${started.port}`,
+                        "Connection: Upgrade",
+                        "Upgrade: websocket, h2c",
+                        "Sec-WebSocket-Version: 13",
+                        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                        "",
+                        "",
+                    ].join("\r\n"),
+                );
+                const frame = Buffer.from(JSON.stringify({ type: "ping", correlationId: "1" }));
+                const mask = Buffer.from([1, 2, 3, 4]);
+                socket.write(
+                    Buffer.concat([
+                        Buffer.from([0x81, 0x80 | frame.length]),
+                        mask,
+                        frame.map((byte, i) => byte ^ mask[i % 4]),
+                    ]),
+                );
+            });
+            socket.on("data", (chunk) => {
+                bytes = Buffer.concat([bytes, chunk]);
+            });
+            setTimeout(() => {
+                socket.destroy();
+                resolve(bytes);
+            }, 300);
+        });
+        const head = received.toString("latin1");
+        if (head.startsWith("HTTP/1.1 101")) {
+            const body = received.subarray(received.indexOf("\r\n\r\n") + 4);
+            expect(body[0]).toBe(0x88);
+            expect(body.readUInt16BE(2)).toBe(4401);
+        } else expect(head).toStartWith("HTTP/1.1 401");
+        expect(server.clientCount()).toBe(0);
+        expect(calls).toEqual([]);
     });
     test("a message sent on a rejected socket reaches no router handler", async () => {
         const router = new Router();

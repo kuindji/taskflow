@@ -96,13 +96,24 @@ describe("checkRequest", () => {
         ).toEqual(new Set(["file://", "null", "http://localhost:5173", "https://example.com"]));
         expect(parseUiOrigins(undefined)).toEqual(new Set(["file://", "null"]));
     });
-    test("GET / without upgrade headers passes with no credential", () => {
-        expect(check(request("/"))).toEqual({ ok: true });
+    test("GET / without upgrade headers passes anonymously with no credential", () => {
+        expect(check(request("/"))).toEqual({ ok: true, anonymous: true });
     });
     test("an upgrade to / without a credential fails with reason credential", () => {
         expect(check(request("/", upgrade))).toEqual({ ok: false, reason: "credential" });
         expect(isUpgradeRequest(request("/", { Upgrade: "WebSocket" }))).toBe(true);
         expect(isUpgradeRequest(request("/"))).toBe(false);
+    });
+    test("GET / with any Upgrade header needs a credential, and a websocket token in a list is an upgrade", () => {
+        for (const value of ["websocket, h2c", "h2c, WebSocket", "h2c"]) {
+            expect(check(request("/", { Upgrade: value }))).toEqual({
+                ok: false,
+                reason: "credential",
+            });
+        }
+        expect(isUpgradeRequest(request("/", { Upgrade: "websocket, h2c" }))).toBe(true);
+        expect(isUpgradeRequest(request("/", { Upgrade: "h2c, WebSocket" }))).toBe(true);
+        expect(isUpgradeRequest(request("/", { Upgrade: "h2c" }))).toBe(false);
     });
     test("a Bearer header with the token passes on HTTP and on an upgrade", () => {
         for (const headers of [
