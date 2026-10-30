@@ -7,14 +7,14 @@ Run against the real desktop app built from `main`, on macOS. Run the auth items
 ### Auth (Sections 1, 2, 4, 5)
 
 1. **Web pages are refused.**
-   - Serve a page from `http://localhost:8765` (`python3 -m http.server`). From it, run `new WebSocket("ws://127.0.0.1:<port>")` and `fetch("http://127.0.0.1:<port>/api/sessions", { method: "POST", mode: "no-cors", headers: { "content-type": "text/plain" }, body: "{}" })`. Expected: the socket never opens, no session is created, and the backend log shows 403 for both.
+   - Serve a page from `http://localhost:8765` (`python3 -m http.server`). From it, run `new WebSocket("ws://127.0.0.1:<port>")` and `fetch("http://127.0.0.1:<port>/api/sessions", { method: "POST", mode: "no-cors", headers: { "content-type": "text/plain" }, body: "{}" })`. Expected: the socket never opens (the page console shows the error and close), the fetch fails, and no session is created (an authenticated `GET /api/sessions` lists the same sessions before and after). The enforced backend doesn't log rejections, so don't look for them there.
    - Open the same page in a hosted browser tab: same result.
 2. **No credential, wrong Host.**
    - `curl` without a token to `/api/settings` gives `401 {"error":"Unauthorized"}`.
    - A Bun `WebSocket` without a token is closed with `4401`.
    - `curl -H "Host: evil.example:<port>" .../` gives 403.
    - `GET /` without a token still answers `Taskflow backend`.
-3. **Every client still works.** Each of these runs, and the backend log shows no auth rejection:
+3. **Every client still works.** Each of these runs with no `401`, `403` or `4401` in its own output (DevTools network panel for the renderers):
    - packaged app: terminals, a markdown image (raw URL token), an artifact download, tray state, notifications;
    - dev app;
    - plain-browser dev UI;
@@ -28,7 +28,7 @@ Run against the real desktop app built from `main`, on macOS. Run the auth items
    - Adding the machine reads the token over ssh, and the connection works.
    - Rotate the remote token (delete its file, restart its backend): the client gets `4401`, re-reads the token once and reconnects.
    - Enter a wrong token by hand on a remote whose token ssh can read: the client gets `4401`, re-reads the token once and connects.
-   - Enter a wrong token by hand on a remote whose token can't be read (`TASKFLOW_CONFIG_DIR` set there): the client shows `Remote backend rejected the access token` and stops retrying.
+   - Enter a wrong token by hand on a remote whose token can't be read (`TASKFLOW_CONFIG_DIR` set there): the client shows `Remote backend rejected the access token` and stops retrying. Do it once while working as that remote: the connection overlay shows the message and `Return to local`, which brings back the local backend.
 6. **Settings → General** (under "Discoverable on this network") shows the local token, and Copy puts it on the clipboard. Editing the saved token of a machine rejected as unauthorized reattaches it.
 7. **CDP.**
    - Playwright `connectOverCDP` with the `endpoint` from `taskflow-cli browser open` works.

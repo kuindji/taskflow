@@ -23,7 +23,7 @@ Task 5.1, CDP key and the backend link:
 - Modify `packages/backend/src/api/routes.ts`: `ApiRouteDeps` gains `cdpKeyFor: (tabId: string) => string`. Update every test fixture that builds the full deps.
 - Modify `packages/backend/src/services/cdp/cdp-gateway.ts`: `versionJson(tabId: string, host: string, key: string)` (interface `:16`, implementation `:271-277`); the rewritten URL is `ws://${host}/cdp/${tabId}/${key}/devtools/browser`. `listJson` is unchanged: it strips the debugger URLs.
 - Modify `packages/backend/src/index.ts`: `registerApiRoutes({ ..., cdpKeyFor: (tabId) => cdpKey(apiToken, tabId) })`.
-- Modify `packages/backend/src/services/taskflow-cli-browser-commands.md`: the output shape line becomes `{"tab":{"id":…},"endpoint":"http://127.0.0.1:<port>/cdp/<id>/<key>"}`. Add one rule line: `The endpoint is a credential for that tab: don't print it into files or logs others read.`
+- Modify `packages/backend/src/services/taskflow-cli-browser-commands.md`: the output shape line becomes `{"tab":{"id":…},"endpoint":"http://127.0.0.1:<port>/cdp/<id>/<key>"}`. Add one rule line: `The endpoint grants control of this tab; don't share it outside this machine.` (the Planner decision's exact string)
 - Modify the tests that build CDP URLs:
   - `tests/api/browser-routes.test.ts` (`endpoint`, the `/json` routes);
   - `tests/services/cdp/cdp-gateway.test.ts` (every `/cdp/<id>/...` URL gets `cdpKey(TOKEN, id)`, and `createServer`'s 5th argument carries `TOKEN`).
