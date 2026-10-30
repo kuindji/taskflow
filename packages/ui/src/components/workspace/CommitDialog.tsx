@@ -1,5 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
+    AgentType,
+    GitCheckPrResult,
     BuiltinActionDefinition,
     BuiltinActionsListResponse,
     GitStatusResponse,
@@ -7,6 +9,8 @@ import type {
     GitCommitResult,
 } from "@taskflow/shared";
 import { BUILTIN_ACTION_DEFAULTS, MSG, renderPromptTemplate } from "@taskflow/shared";
+import { openPullRequestUrl, pullRequestLabels } from "@/lib/pull-request-labels";
+import { usePullRequestStore } from "@/stores/pull-request-store";
 import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -66,6 +70,44 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const defaultAgent = useSettingsStore(
         (s) => (backendId ? s.byBackend[backendId] : s.settings)?.general.defaultAgent ?? "claude",
     );
+    const createSession = useSessionStore((s) => s.createSession);
+    const checkPr = useCallback(
+        (branch: string) => usePullRequestStore.getState().check(backendId ?? "", repoPath, branch),
+        [backendId, repoPath],
+    );
+    return (
+        <CommitDialogBody
+            key={JSON.stringify([backendId, repoPath])}
+            open={open}
+            onOpenChange={onOpenChange}
+            repoPath={repoPath}
+            sessionOwner={sessionOwner}
+            backendId={backendId}
+            defaultAgent={defaultAgent}
+            request={request}
+            checkPr={checkPr}
+            createSession={createSession}
+        />
+    );
+}
+
+export function CommitDialogBody({
+    open,
+    onOpenChange,
+    repoPath,
+    sessionOwner,
+    backendId,
+    defaultAgent,
+    request,
+    checkPr,
+    createSession,
+}: CommitDialogProps & {
+    backendId: string | null;
+    defaultAgent: AgentType;
+    request<T>(type: string, payload?: unknown): Promise<T>;
+    checkPr(branch: string): Promise<GitCheckPrResult>;
+    createSession: ReturnType<typeof useSessionStore.getState>["createSession"];
+}) {
     const [message, setMessage] = useState("");
     const [useAgent, setUseAgent] = useState(false);
     const [push, setPush] = useState(false);
@@ -78,7 +120,12 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const [ahead, setAhead] = useState<number | null>(null);
     const [behind, setBehind] = useState(0);
 
-    const createSession = useSessionStore((s) => s.createSession);
+    const [branch, setBranch] = useState<string | null>(null);
+    const [lookup, setLookup] = useState<GitCheckPrResult | null>(null);
+    const [retry, setRetry] = useState(0);
+    const generation = useRef(0);
+    const labels = pullRequestLabels(lookup?.provider ?? null);
+    const canCreate = lookup?.status === "none";
 
     const resetForm = useCallback(() => {
         setMessage("");
@@ -102,25 +149,64 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
         [onOpenChange, resetForm],
     );
 
-    // Fetch git status when dialog opens to determine mode
+    // Status and lookup belong to this open dialog and machine only.
     useEffect(() => {
+        const attempt = ++generation.current;
+        setLookup(null);
+        setBranch(null);
+        setCreatePr(false);
+        setHasChanges(null);
+        setAhead(null);
         if (!open) return;
-        request<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
-            (res) => {
+        let active = true;
+        void request<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
+            async (res) => {
+                if (!active || generation.current !== attempt) return;
                 const changed =
                     res.status.stagedFiles.length > 0 || res.status.unstagedFiles.length > 0;
                 setHasChanges(changed);
                 setHasStagedChanges(res.status.stagedFiles.length > 0);
                 setAhead(res.status.ahead);
                 setBehind(res.status.behind);
-                // In push-only mode, push is always on
-                if (!changed) setPush(true);
-                // In PR-only mode, enable create PR by default
-                if (!changed && res.status.ahead === 0) setCreatePr(true);
+                setPush(!changed);
+                setBranch(res.status.branch);
+                const result: GitCheckPrResult = res.status.branch
+                    ? await checkPr(res.status.branch).catch(() => ({
+                          status: "unavailable" as const,
+                          provider: null,
+                          pr: null,
+                          reason: "failed" as const,
+                          message: "Pull request status is unavailable",
+                      }))
+                    : {
+                          status: "unavailable",
+                          provider: null,
+                          pr: null,
+                          reason: "failed",
+                          message: "Cannot create a request from a detached HEAD",
+                      };
+                if (!active || generation.current !== attempt) return;
+                setLookup(result);
+                if (!changed && res.status.ahead === 0 && result.status === "none")
+                    setCreatePr(true);
             },
-            () => setHasChanges(true), // Assume changes on error
+            () => {
+                if (!active || generation.current !== attempt) return;
+                setHasChanges(true);
+                setAhead(0);
+                setLookup({
+                    status: "unavailable",
+                    provider: null,
+                    pr: null,
+                    reason: "failed",
+                    message: "Pull request status is unavailable",
+                });
+            },
         );
-    }, [open, repoPath, request]);
+        return () => {
+            active = false;
+        };
+    }, [open, repoPath, backendId, request, checkPr, retry]);
 
     const handlePushChange = useCallback((checked: boolean) => {
         setPush(checked);
@@ -130,9 +216,17 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
     const pushOnly = hasChanges === false && (ahead ?? 0) > 0;
     const prOnly = hasChanges === false && ahead === 0;
-    const commitButtonDisabled = !pushOnly && !prOnly && !includeUnstaged && !hasStagedChanges;
+    const commitButtonDisabled =
+        (prOnly && !canCreate) || (!pushOnly && !prOnly && !includeUnstaged && !hasStagedChanges);
 
     const handleSubmit = useCallback(async () => {
+        if (
+            commitButtonDisabled ||
+            hasChanges === null ||
+            ahead === null ||
+            ((createPr || prOnly) && !canCreate)
+        )
+            return;
         setError(null);
         setLoading(true);
 
@@ -140,10 +234,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             if (prOnly) {
                 // PR-only mode — everything is committed and pushed
                 const prTitle = message.trim() || null;
-                const status = await request<GitStatusResponse>(MSG.GIT_STATUS, {
-                    path: repoPath,
-                });
-                const title = prTitle ?? status.status.branch ?? "update";
+                const title = prTitle ?? branch ?? "update";
                 await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title,
@@ -158,10 +249,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                 await request(MSG.GIT_PUSH, { path: repoPath });
                 if (createPr) {
                     // Use current branch name or a generic title
-                    const status = await request<GitStatusResponse>(MSG.GIT_STATUS, {
-                        path: repoPath,
-                    });
-                    const branchName = status.status.branch ?? "update";
+                    const branchName = branch ?? "update";
                     await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                         path: repoPath,
                         title: branchName,
@@ -186,7 +274,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                     parts.push("Push to remote after committing.");
                 }
                 if (createPr) {
-                    parts.push("Create a pull request after pushing.");
+                    parts.push(labels.agentInstruction);
                 }
                 const commitAction = await loadCommitAction(request);
                 const prompt = renderPromptTemplate(commitAction.prompt, {
@@ -238,6 +326,12 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
             setLoading(false);
         }
     }, [
+        commitButtonDisabled,
+        hasChanges,
+        ahead,
+        canCreate,
+        branch,
+        labels.agentInstruction,
         message,
         useAgent,
         defaultAgent,
@@ -265,13 +359,13 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
     );
 
     const submitLabel = prOnly
-        ? "Create PR"
+        ? labels.create
         : pushOnly
           ? "Push"
           : push
             ? "Commit & Push"
             : "Commit";
-    const dialogTitle = prOnly ? "Create Pull Request" : pushOnly ? "Push" : "Commit & Push";
+    const dialogTitle = prOnly ? labels.title : pushOnly ? "Push" : "Commit & Push";
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -284,7 +378,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                     {prOnly && (
                         <div className="flex flex-col gap-1.5">
                             <Label htmlFor="pr-title">
-                                Title{" "}
+                                {labels.titleField}{" "}
                                 <span className="text-muted-foreground/60 text-xs tracking-normal normal-case">
                                     (optional — defaults to branch name)
                                 </span>
@@ -295,7 +389,7 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
                                 className="max-h-40 min-h-20"
-                                dialogTitle="PR Title"
+                                dialogTitle={labels.titleField}
                             />
                         </div>
                     )}
@@ -374,16 +468,36 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                                 id="commit-create-pr"
                                 checked={createPr}
                                 onCheckedChange={setCreatePr}
-                                disabled={!push}
+                                disabled={!push || !canCreate}
                             />
                             <Label
                                 htmlFor="commit-create-pr"
                                 className={`cursor-pointer tracking-normal normal-case ${!push ? "text-muted-foreground" : ""}`}>
-                                Create PR
+                                {labels.create}
                             </Label>
                         </div>
                     )}
 
+                    {lookup?.status === "found" && (
+                        <a
+                            href={lookup.pr.url}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                openPullRequestUrl(lookup.pr.url);
+                            }}
+                            className="text-accent text-sm">
+                            {labels.short} {labels.short === "MR" ? "!" : "#"}
+                            {lookup.pr.number} {lookup.pr.state}
+                        </a>
+                    )}
+                    {lookup?.status === "unavailable" && (
+                        <div className="text-muted-foreground text-sm">
+                            <p>{lookup.message}</p>
+                            <Button variant="ghost" onClick={() => setRetry((value) => value + 1)}>
+                                Retry
+                            </Button>
+                        </div>
+                    )}
                     {behind > 0 && (
                         <p className="text-info text-sm">
                             There {behind === 1 ? "is" : "are"} {behind} remote{" "}
@@ -402,7 +516,11 @@ export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: Com
                         onClick={() => void handleSubmit()}
                         loading={loading || hasChanges === null || ahead === null}
                         disabled={commitButtonDisabled}
-                        tooltip={commitButtonDisabled ? "No staged changes to commit" : undefined}
+                        tooltip={
+                            commitButtonDisabled && !prOnly
+                                ? "No staged changes to commit"
+                                : undefined
+                        }
                         className="bg-accent text-accent-foreground hover:bg-accent/90">
                         {submitLabel}
                     </Button>

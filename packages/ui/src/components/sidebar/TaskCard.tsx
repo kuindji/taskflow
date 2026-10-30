@@ -3,6 +3,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { Archive, ArchiveRestore, GitBranch, Pin, Play, Plus, Trash2 } from "lucide-react";
 import type { Task, SessionRef } from "@taskflow/shared";
 import { useShallow } from "zustand/react/shallow";
+import { pullRequestLabels } from "@/lib/pull-request-labels";
+import { pullRequestKey, usePullRequestStore } from "@/stores/pull-request-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -100,6 +102,17 @@ export function TaskCard({
     isSubtask,
     isExpanded,
 }: TaskCardProps) {
+    const requestKey =
+        task.worktree.path && task.worktree.branch
+            ? pullRequestKey(task.backendId, task.worktree.path, task.worktree.branch)
+            : null;
+    const requestStatus = usePullRequestStore((state) =>
+        requestKey ? state.byKey[requestKey] : undefined,
+    );
+    const currentPr = requestStatus?.status === "found" ? requestStatus.pr : task.worktree.pr;
+    const labels = pullRequestLabels(
+        requestStatus?.provider ?? (currentPr ? (currentPr.provider ?? "github") : null),
+    );
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteWorktree, setDeleteWorktree] = useState(false);
     const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
@@ -318,9 +331,10 @@ export function TaskCard({
                                     variant="outline"
                                     className="border-border/60 bg-muted/50 min-h-4.5 gap-0.5 px-1 py-0 text-[10px] font-medium">
                                     <GitBranch className="text-muted-foreground" />
-                                    {task.worktree.pr && (
+                                    {currentPr && (
                                         <span className="text-accent">
-                                            #{task.worktree.pr.number}
+                                            {labels.short} {labels.short === "MR" ? "!" : "#"}
+                                            {currentPr.number} {currentPr.state ?? "open"}
                                         </span>
                                     )}
                                     {behind > 0 && <span className="text-info">↓{behind}</span>}
@@ -337,7 +351,9 @@ export function TaskCard({
                                 </Badge>
                             </TooltipTrigger>
                             <TooltipContent side="right">
-                                {task.worktree.branch ?? "pending"}
+                                {requestStatus?.status === "unavailable"
+                                    ? requestStatus.message
+                                    : (task.worktree.branch ?? "pending")}
                             </TooltipContent>
                         </Tooltip>
                     )}

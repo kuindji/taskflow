@@ -1,3 +1,27 @@
+import type { TaskWorktreePr } from "./task";
+
+export type GitPrProvider = "github" | "gitlab";
+export type GitPrState = "open" | "closed" | "merged";
+export type GitPrUnavailableReason =
+    | "cli-missing"
+    | "not-authenticated"
+    | "failed"
+    | "unsupported-host";
+export type GitCheckPrResult =
+    | {
+          status: "found";
+          provider: GitPrProvider;
+          pr: TaskWorktreePr & { provider: GitPrProvider; state: GitPrState };
+      }
+    | { status: "none"; provider: GitPrProvider; pr: null }
+    | {
+          status: "unavailable";
+          provider: GitPrProvider | null;
+          pr: null;
+          reason: GitPrUnavailableReason;
+          message: string;
+      };
+
 export interface GitFileStatus {
     path: string;
     absolutePath?: string;

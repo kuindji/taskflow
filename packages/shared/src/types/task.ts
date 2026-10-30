@@ -1,3 +1,4 @@
+import type { GitPrProvider, GitPrState } from "./git";
 import type { Attribute } from "./attribute";
 import type { AgentLaunchOptions } from "./agent";
 
@@ -31,6 +32,8 @@ export interface SessionRef {
 }
 
 export interface TaskWorktreePr {
+    provider?: GitPrProvider;
+    state?: GitPrState;
     number: number;
     url: string;
 }

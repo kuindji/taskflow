@@ -1,8 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Task, Project, TaskWorktreePr } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
 import type { Scoped } from "@/lib/backend-scope";
+import { openPullRequestUrl, pullRequestLabels } from "@/lib/pull-request-labels";
+import { pullRequestKey, usePullRequestStore } from "@/stores/pull-request-store";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/ui-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -62,25 +64,19 @@ interface TaskHeaderProps {
     onHistory?: () => void;
 }
 
-function openUrl(url: string) {
-    if (window.taskflow) {
-        void window.taskflow.openExternalUrl(url);
-    } else {
-        window.open(url, "_blank");
-    }
-}
-
 function PrLink({ pr }: { pr: TaskWorktreePr }) {
+    const labels = pullRequestLabels(pr.provider ?? "github");
     return (
         <span
             role="link"
             tabIndex={0}
             className="text-accent cursor-pointer text-xs font-medium hover:underline"
-            onClick={() => openUrl(pr.url)}
+            onClick={() => openPullRequestUrl(pr.url)}
             onKeyDown={(e) => {
-                if (e.key === "Enter") openUrl(pr.url);
+                if (e.key === "Enter") openPullRequestUrl(pr.url);
             }}>
-            #{pr.number}
+            {labels.short} {labels.short === "MR" ? "!" : "#"}
+            {pr.number} {pr.state ?? "open"}
         </span>
     );
 }
@@ -136,6 +132,22 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
         project ? (s.branchByProject[project.id] ?? null) : null,
     );
 
+    const backendId = (task ?? project)?.backendId ?? null;
+    const branch = task?.worktree.branch ?? projectBranch;
+    const requestKey = backendId && branch ? pullRequestKey(backendId, gitRepoPath, branch) : null;
+    const requestStatus = usePullRequestStore((state) =>
+        requestKey ? state.byKey[requestKey] : undefined,
+    );
+    const checkPr = usePullRequestStore((state) => state.check);
+    useEffect(() => {
+        if (backendId && gitRepoPath && branch) void checkPr(backendId, gitRepoPath, branch);
+    }, [backendId, gitRepoPath, branch, checkPr]);
+    const savedPr = task?.worktree.pr;
+    const currentPr = requestStatus?.status === "found" ? requestStatus.pr : savedPr;
+    const labels = pullRequestLabels(
+        requestStatus?.provider ?? (savedPr ? (savedPr.provider ?? "github") : null),
+    );
+
     const [pulling, setPulling] = useState(false);
     const infoLabel = task ? "task" : "project";
     const isArchivedTask = task?.status === "archived";
@@ -158,9 +170,8 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
     }, [pulling, gitRepoPath, task, project]);
 
     const showPush = !hasChanges && !commitDisabled;
-    const showCreatePr =
-        commitDisabled && isWorktreeTask && !!task?.worktree.branch && !task?.worktree.pr;
-    const commitLabel = showCreatePr ? "Create PR" : showPush ? "Push" : "Commit";
+    const showCreatePr = commitDisabled && isWorktreeTask && !!task?.worktree.branch && !currentPr;
+    const commitLabel = showCreatePr ? labels.create : showPush ? "Push" : "Commit";
     const CommitIcon = showCreatePr
         ? GitPullRequestCreateArrow
         : showPush
@@ -360,7 +371,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                                     tooltipContent={task.worktree.branch}>
                                     {task.worktree.branch}
                                 </TruncatedText>
-                                {task.worktree.pr && <PrLink pr={task.worktree.pr} />}
+                                {currentPr && <PrLink pr={currentPr} />}
                                 <CopyButton
                                     value={task.worktree.branch}
                                     tooltip="Copy branch name"
@@ -417,12 +428,33 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
                             variant="ghost"
                             size="xs"
                             onClick={() => setCommitOpen(true)}
-                            disabled={commitDisabled && !showCreatePr}
+                            disabled={
+                                (commitDisabled && !showCreatePr) ||
+                                (showCreatePr && requestStatus?.status !== "none")
+                            }
                             aria-label={commitLabel}
                             className="[-webkit-app-region:no-drag]">
                             <CommitIcon className="h-3 w-3" />
                             <span className="text-xs">{commitLabel}</span>
                         </Button>
+                    )}
+                    {requestStatus?.status === "unavailable" && (
+                        <>
+                            <span
+                                className="text-muted-foreground text-xs"
+                                title={requestStatus.message}>
+                                {requestStatus.message}
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => {
+                                    if (backendId && branch)
+                                        void checkPr(backendId, gitRepoPath, branch);
+                                }}>
+                                Retry
+                            </Button>
+                        </>
                     )}
                     {showDiffButton && (
                         <Button

@@ -1,8 +1,15 @@
 import type { Notification } from "./notification";
 import type { LinkedProject, Project } from "./project";
-import type { SessionRef, SessionStatus, Task, TaskLogEntry, TaskWorktree } from "./task";
+import type {
+    SessionRef,
+    SessionStatus,
+    Task,
+    TaskLogEntry,
+    TaskWorktree,
+    TaskWorktreePr,
+} from "./task";
 import type { FileNode } from "./file";
-import type { GitStatusResult, GitFileStatus, ChangeStats } from "./git";
+import type { GitStatusResult, GitFileStatus, ChangeStats, GitPrProvider, GitPrState } from "./git";
 import type { SystemInfo } from "./system";
 import type {
     AgentLaunchOptions,
@@ -546,9 +553,9 @@ export interface ChangeStatsEvent {
     stats: ChangeStats | null;
 }
 
-export interface GitCreatePrResult {
-    url: string;
-    number: number;
+export interface GitCreatePrResult extends TaskWorktreePr {
+    provider: GitPrProvider;
+    state: GitPrState;
 }
 
 // Scripts messages

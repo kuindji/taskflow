@@ -1,4 +1,6 @@
 import type {
+    GitCreatePrResult,
+    GitCheckPrResult,
     GitStatusResult,
     GitDiffFileResult,
     FileReadResponse,
@@ -23,6 +25,7 @@ import {
     deleteBranch as deleteBranchImpl,
 } from "./git-worktree";
 import {
+    type GitPrDeps,
     commit as commitImpl,
     createPr as createPrImpl,
     checkBranchPr as checkBranchPrImpl,
@@ -42,6 +45,8 @@ interface FileStatusPair {
 }
 
 export class GitService {
+    constructor(private readonly deps?: { pr?: GitPrDeps }) {}
+
     async getBranch(repoPath: string): Promise<string | null> {
         try {
             const output = await git(["branch", "--show-current"], repoPath, { readOnly: true });
@@ -482,19 +487,12 @@ export class GitService {
         return commitImpl(repoPath, message, push, includeUnstaged);
     }
 
-    async createPr(
-        repoPath: string,
-        title: string,
-        body?: string,
-    ): Promise<{ url: string; number: number }> {
-        return createPrImpl(repoPath, title, body);
+    async createPr(repoPath: string, title: string, body?: string): Promise<GitCreatePrResult> {
+        return createPrImpl(repoPath, title, body, this.deps?.pr);
     }
 
-    async checkBranchPr(
-        repoPath: string,
-        branch: string,
-    ): Promise<{ url: string; number: number } | null> {
-        return checkBranchPrImpl(repoPath, branch);
+    async checkBranchPr(repoPath: string, branch: string): Promise<GitCheckPrResult> {
+        return checkBranchPrImpl(repoPath, branch, this.deps?.pr);
     }
 
     async generateCommitMessage(

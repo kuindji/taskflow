@@ -7,6 +7,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import type {
+    GitCheckPrResult,
+    GitCreatePrResult,
     GitDiffFileResult,
     GitDiffFileContentResult,
     GitFileContentPair,
@@ -14,6 +16,19 @@ import type {
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
+    lookup: GitCheckPrResult = { status: "none", provider: "gitlab", pr: null };
+    created: GitCreatePrResult = {
+        number: 7,
+        url: "https://gitlab.com/g/r/-/merge_requests/7",
+        provider: "gitlab",
+        state: "open",
+    };
+    async checkBranchPr() {
+        return this.lookup;
+    }
+    async createPr() {
+        return this.created;
+    }
     statusCalls: string[] = [];
     patch: GitDiffFileResult = { state: "tooLarge" };
     pair: GitFileContentPair = { original: "", modified: "" };
@@ -87,6 +102,7 @@ describe("git handlers", () => {
     let git: FakeGitService;
     let runnerCalls: unknown[];
     let projectId: string;
+    let broadcasts: unknown[];
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-git-test-"));
@@ -118,6 +134,7 @@ describe("git handlers", () => {
             },
         });
 
+        broadcasts = [];
         router = new TestRouter();
         git = new FakeGitService();
         runnerCalls = [];
@@ -125,7 +142,9 @@ describe("git handlers", () => {
             router,
             git: git as unknown as GitService,
             taskStore: store,
-            broadcast: () => {},
+            broadcast: (event) => {
+                broadcasts.push(event);
+            },
             builtinActionRunner: {
                 runHeadless: async (id, vars, context) => {
                     runnerCalls.push({ id, vars, context });
@@ -137,6 +156,49 @@ describe("git handlers", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("GIT_CHECK_PR preserves found none and unavailable states", async () => {
+        for (const result of [
+            { status: "found", provider: "gitlab", pr: git.created },
+            { status: "none", provider: "gitlab", pr: null },
+            {
+                status: "unavailable",
+                provider: "gitlab",
+                pr: null,
+                reason: "failed",
+                message: "Merge request status is unavailable",
+            },
+        ] satisfies GitCheckPrResult[]) {
+            git.lookup = result;
+            expect(
+                await router.handle(MSG.GIT_CHECK_PR, { path: worktreePath, branch: "topic" }),
+            ).toEqual(result);
+        }
+    });
+    it("GitLab creation persists provider and state and broadcasts the task", async () => {
+        const task = (await store.listTasks())[0];
+        expect(
+            await router.handle(MSG.GIT_CREATE_PR, {
+                path: worktreePath,
+                title: "MR",
+                taskId: task.id,
+            }),
+        ).toEqual(git.created);
+        expect((await store.getTask(task.id))?.worktree.pr).toEqual(git.created);
+        expect(broadcasts).toEqual([
+            { type: MSG.TASK_UPDATED, payload: await store.getTask(task.id) },
+        ]);
+    });
+    it("successful remote creation survives task metadata persistence failure", async () => {
+        expect(
+            await router.handle(MSG.GIT_CREATE_PR, {
+                path: worktreePath,
+                title: "MR",
+                taskId: "missing-task",
+            }),
+        ).toEqual(git.created);
+        expect(broadcasts).toHaveLength(0);
     });
 
     it("accepts task worktree paths as workspace repos", async () => {

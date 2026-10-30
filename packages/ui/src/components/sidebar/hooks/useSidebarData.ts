@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { Task, TaskWorktreePr, MasterSessionsListResponse } from "@taskflow/shared";
+import type { Task, MasterSessionsListResponse } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { prefetchHomedir } from "@/hooks/useActiveWorkspace";
 import type { Scoped } from "@/lib/backend-scope";
 import { getPrimary, sendRequest as sendRequestTo } from "@/lib/connection-registry";
 import { useBackendStore } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
+import { usePullRequestStore } from "@/stores/pull-request-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -106,10 +107,7 @@ function useSidebarData(connected: boolean) {
 
     // Poll for PRs on worktree tasks
     const prCheckTasks = useMemo(
-        () =>
-            tasks.filter(
-                (t) => t.worktree.enabled && t.worktree.branch && !t.worktree.pr && !t.parentId,
-            ),
+        () => tasks.filter((t) => t.worktree.enabled && t.worktree.branch && !t.parentId),
         [tasks],
     );
     const prCheckTasksRef = useRef<Scoped<Task>[]>(prCheckTasks);
@@ -120,34 +118,61 @@ function useSidebarData(connected: boolean) {
     useEffect(() => {
         if (!connected) return;
 
+        let active = true;
+        let checking = false;
         async function checkPrs() {
-            const tasksToCheck = prCheckTasksRef.current;
-            if (tasksToCheck.length === 0) return;
+            if (checking) return;
+            checking = true;
+            try {
+                const tasksToCheck = prCheckTasksRef.current;
+                if (tasksToCheck.length === 0) return;
 
-            for (const task of tasksToCheck) {
-                if (!task.worktree.path || !task.worktree.branch) continue;
-                try {
-                    // The worktree path is the task's machine's: asked anywhere
-                    // else, a checkout at the same path could answer for it.
-                    const result = await sendRequestTo<{ pr: TaskWorktreePr | null }>(
-                        task.backendId,
-                        MSG.GIT_CHECK_PR,
-                        { path: task.worktree.path, branch: task.worktree.branch },
-                    );
-                    if (result.pr) {
-                        await updateTask(task, {
-                            worktree: { ...task.worktree, pr: result.pr },
-                        });
+                for (const task of tasksToCheck) {
+                    if (!task.worktree.path || !task.worktree.branch) continue;
+                    try {
+                        // The worktree path is the task's machine's: asked anywhere
+                        // else, a checkout at the same path could answer for it.
+                        const result = await usePullRequestStore
+                            .getState()
+                            .check(task.backendId, task.worktree.path, task.worktree.branch);
+                        const current = useTaskStore
+                            .getState()
+                            .tasks.find(
+                                (row) => row.id === task.id && row.backendId === task.backendId,
+                            );
+                        if (
+                            !active ||
+                            !current ||
+                            current.worktree.path !== task.worktree.path ||
+                            current.worktree.branch !== task.worktree.branch
+                        )
+                            continue;
+                        if (
+                            result.status === "found" &&
+                            (current.worktree.pr?.number !== result.pr.number ||
+                                current.worktree.pr?.url !== result.pr.url ||
+                                current.worktree.pr?.provider !== result.pr.provider ||
+                                current.worktree.pr?.state !== result.pr.state)
+                        ) {
+                            await updateTask(current, {
+                                worktree: { ...current.worktree, pr: result.pr },
+                            });
+                        }
+                    } catch {
+                        // Silently skip — will retry next cycle
                     }
-                } catch {
-                    // Silently skip — will retry next cycle
                 }
+            } finally {
+                checking = false;
             }
         }
 
         void checkPrs();
         const interval = setInterval(() => void checkPrs(), 30_000);
-        return () => clearInterval(interval);
+        return () => {
+            active = false;
+            clearInterval(interval);
+        };
     }, [connected, updateTask]);
 
     const displayTasks = showArchive ? archivedTasks : tasks;

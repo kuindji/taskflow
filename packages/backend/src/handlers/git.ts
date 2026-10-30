@@ -208,7 +208,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
                 const updated = await taskStore.updateTask(taskId, (task) => ({
                     worktree: {
                         ...task.worktree,
-                        pr: { number: result.number, url: result.url },
+                        pr: result,
                     },
                 }));
                 broadcast({
@@ -226,7 +226,6 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
     router.register(MSG.GIT_CHECK_PR, async (payload) => {
         const { path, branch } = payload as GitCheckPrPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
-        const pr = await git.checkBranchPr(repoPath, branch);
-        return { pr };
+        return git.checkBranchPr(repoPath, branch);
     });
 }
