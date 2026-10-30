@@ -285,3 +285,38 @@ test("errors outside an operation retain readiness", async () => {
     expect(f.controller.getState()).toEqual(before);
     expect(f.published).toHaveLength(publications);
 });
+
+test("a download that settles before its completion event stays active", async () => {
+    const f = fixture();
+    const checking = f.controller.check();
+    f.available();
+    f.checks[0].resolve();
+    f.downloads[0].resolve();
+    await checking;
+    await Promise.resolve();
+    expect(f.controller.getState().status).toBe("downloading");
+    await f.controller.check(true);
+    expect(f.checks).toHaveLength(1);
+    f.controller.receive({ type: "download-completed", version: "1.1.0" });
+    expect(f.controller.getState().status).toBe("ready");
+    void f.controller.check();
+    expect(f.checks).toHaveLength(2);
+});
+
+test("a staging error after the download settles fails the download", async () => {
+    const f = fixture();
+    const checking = f.controller.check();
+    f.available();
+    f.checks[0].resolve();
+    f.downloads[0].resolve();
+    await checking;
+    await Promise.resolve();
+    f.controller.receiveError("Could not get code signature for running application");
+    const state = f.controller.getState();
+    expect(state.status).toBe("available");
+    expect(state.downloadedVersion).toBeNull();
+    expect(state.errorContext).toBe("download");
+    expect(state.canRetry).toBe(true);
+    f.controller.install();
+    expect(f.installs).toBe(0);
+});

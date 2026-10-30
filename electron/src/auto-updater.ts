@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from "electron";
+import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog } from "electron";
 import { autoUpdater } from "electron-updater";
 import { rm } from "fs/promises";
 import { join } from "path";
@@ -75,10 +75,22 @@ function setupAutoUpdater(): void {
     autoUpdater.on("download-progress", (progress) => {
         controller.receive({ type: "download-progress", percent: progress.percent });
     });
+    // On macOS electron-updater reports the download before Squirrel.Mac has
+    // staged it, and quitAndInstall only works once Squirrel's own event fires.
+    // A staging error arrives later through the "error" listener below.
+    let stagingVersion: string | null = null;
     autoUpdater.on("update-downloaded", (info) => {
         console.log(`[updater] Update downloaded: v${info.version}`);
-        controller.receive({ type: "download-completed", version: info.version });
+        if (process.platform === "darwin") stagingVersion = info.version;
+        else controller.receive({ type: "download-completed", version: info.version });
     });
+    if (process.platform === "darwin") {
+        nativeUpdater.on("update-downloaded", () => {
+            if (stagingVersion === null) return;
+            console.log(`[updater] Update staged: v${stagingVersion}`);
+            controller.receive({ type: "download-completed", version: stagingVersion });
+        });
+    }
     autoUpdater.on("error", (err) => {
         console.error("[updater] Error:", err.message, err.stack);
         controller.receiveError(err.message);

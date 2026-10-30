@@ -25,6 +25,7 @@ interface Operation {
     phase: "check" | "download" | "install";
     failed: boolean;
     outcomeReceived: boolean;
+    settled: boolean;
     manual: boolean;
 }
 
@@ -38,7 +39,13 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
     }
 
     function begin(phase: Operation["phase"], manual = false): Operation {
-        const operation: Operation = { phase, failed: false, outcomeReceived: false, manual };
+        const operation: Operation = {
+            phase,
+            failed: false,
+            outcomeReceived: false,
+            settled: false,
+            manual,
+        };
         active = operation;
         return operation;
     }
@@ -63,15 +70,26 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
         }
     }
 
+    // An available-update event can already have started a download, so only
+    // the active operation is released. Failed operations are kept until
+    // settlement to deduplicate error + rejection. A download also waits for
+    // its outcome: on macOS the promise settles before Squirrel has staged the
+    // update, and a staging error must still fail the download.
+    function release(operation: Operation): void {
+        if (active !== operation || !operation.settled) return;
+        if (operation.phase === "download" && !operation.failed && !operation.outcomeReceived)
+            return;
+        active = null;
+    }
+
     async function run(operation: Operation, action: () => Promise<unknown>): Promise<void> {
         try {
             await action();
         } catch (error) {
             fail(operation, error instanceof Error ? error.message : String(error));
         } finally {
-            // An available-update event can already have started a download.
-            // Retain failed operations until settlement to deduplicate error + rejection.
-            if (active === operation) active = null;
+            operation.settled = true;
+            release(operation);
         }
     }
 
@@ -136,6 +154,7 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
                 if (operation.phase !== "download") return;
                 if (event.type === "download-completed") operation.outcomeReceived = true;
                 dispatch(event);
+                release(operation);
                 break;
         }
     }
