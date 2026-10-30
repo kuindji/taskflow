@@ -511,6 +511,28 @@ describe("GitService", () => {
         expect(await git.getFileContent(repoDir, "missing", "HEAD")).toBeNull();
     });
 
+    it("bulk diffs read status once and diff a path in both lists once", async () => {
+        await writeFile(join(repoDir, "initial.txt"), "staged change");
+        await run(["git", "add", "initial.txt"], repoDir);
+        await writeFile(join(repoDir, "initial.txt"), "unstaged change");
+        await writeFile(join(repoDir, "other.txt"), "untracked");
+        const status = spyOn(git, "status");
+        const diffFile = spyOn(git, "diffFile");
+        const result = await git.diff(repoDir);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(diffFile.mock.calls.map((call) => call[1]).sort()).toEqual([
+            "initial.txt",
+            "other.txt",
+        ]);
+        expect(result.files.map((file) => [file.path, file.staged])).toEqual([
+            ["initial.txt", true],
+            ["initial.txt", false],
+            ["other.txt", false],
+        ]);
+        expect(result.files[0].diff).toContain("+staged change");
+        expect(result.files[1].diff).toContain("+unstaged change");
+    });
+
     it("bulk diffs never exceed four simultaneous file jobs", async () => {
         let active = 0;
         let peak = 0;

@@ -34,6 +34,13 @@ import {
     commitDiffFile as commitDiffFileImpl,
 } from "./git-history";
 
+type FileStatusEntry = Pick<GitFileStatus, "path" | "status" | "previousPath">;
+
+interface FileStatusPair {
+    staged: FileStatusEntry | null;
+    unstaged: FileStatusEntry | null;
+}
+
 export class GitService {
     async getBranch(repoPath: string): Promise<string | null> {
         try {
@@ -204,13 +211,7 @@ export class GitService {
         return { additions, deletions };
     }
 
-    private async resolveFileStatus(
-        repoPath: string,
-        filePath: string,
-    ): Promise<{
-        staged: Pick<GitFileStatus, "path" | "status" | "previousPath"> | null;
-        unstaged: Pick<GitFileStatus, "path" | "status" | "previousPath"> | null;
-    }> {
+    private async resolveFileStatus(repoPath: string, filePath: string): Promise<FileStatusPair> {
         const status = await this.status(repoPath);
         const staged = status.stagedFiles.find((file) => file.path === filePath) ?? null;
         const unstaged = status.unstagedFiles.find((file) => file.path === filePath) ?? null;
@@ -219,7 +220,7 @@ export class GitService {
 
     private async diffSegments(
         repoPath: string,
-        file: Pick<GitFileStatus, "path" | "status" | "previousPath">,
+        file: FileStatusEntry,
         staged: boolean,
         maxOutputBytes = 1024 * 1024,
     ): Promise<string | { state: "tooLarge" }> {
@@ -262,13 +263,27 @@ export class GitService {
     async diff(repoPath: string): Promise<GitDiffResult> {
         const status = await this.status(repoPath);
         const files = [...status.stagedFiles, ...status.unstagedFiles];
+        // One status for the whole list, and one combined patch per path even
+        // when the path is both staged and unstaged.
+        const resolved = new Map<string, FileStatusPair>();
+        for (const file of files) {
+            const pair = resolved.get(file.path) ?? { staged: null, unstaged: null };
+            pair[file.staged ? "staged" : "unstaged"] = file;
+            resolved.set(file.path, pair);
+        }
+        const patches = new Map<string, Promise<GitDiffFileResult>>();
         const results: GitDiffFile[] = new Array<GitDiffFile>(files.length);
         let next = 0;
         const worker = async () => {
             while (next < files.length) {
                 const index = next++;
                 const file = files[index];
-                const result = await this.diffFile(repoPath, file.path);
+                let patch = patches.get(file.path);
+                if (!patch) {
+                    patch = this.diffFile(repoPath, file.path, resolved.get(file.path));
+                    patches.set(file.path, patch);
+                }
+                const result = await patch;
                 const diff = (file.staged ? result.staged : result.unstaged) ?? "";
                 results[index] = {
                     path: file.path,
@@ -286,20 +301,9 @@ export class GitService {
     async diffFile(
         repoPath: string,
         filePath: string,
-        status?: GitFileStatus["status"],
-        previousPath?: string,
-        isStaged?: boolean,
+        known?: FileStatusPair,
     ): Promise<GitDiffFileResult> {
-        if (status !== undefined && isStaged !== undefined) {
-            const patch = await this.diffSegments(
-                repoPath,
-                { path: filePath, status, previousPath },
-                isStaged,
-            );
-            if (typeof patch !== "string") return patch;
-            return isStaged ? { staged: patch || undefined } : { unstaged: patch || undefined };
-        }
-        const resolved = await this.resolveFileStatus(repoPath, filePath);
+        const resolved = known ?? (await this.resolveFileStatus(repoPath, filePath));
         const result: { staged?: string; unstaged?: string } = {};
         let remaining = 1024 * 1024;
         for (const side of ["staged", "unstaged"] as const) {
@@ -343,14 +347,14 @@ export class GitService {
         filePath: string,
     ): Promise<GitDiffFileContentResult> {
         const resolved = await this.resolveFileStatus(repoPath, filePath);
-        const patch = await this.diffFile(repoPath, filePath);
+        const patch = await this.diffFile(repoPath, filePath, resolved);
         if (patch.state)
             return {
                 staged: resolved.staged ? { state: "tooLarge", limit: "diff" } : null,
                 unstaged: resolved.unstaged ? { state: "tooLarge", limit: "diff" } : null,
             };
         const pair = async (
-            file: NonNullable<typeof resolved.staged>,
+            file: FileStatusEntry,
             staged: boolean,
         ): Promise<GitFileContentPair> => {
             const origPath =
@@ -392,10 +396,7 @@ export class GitService {
         return commitDiffFileImpl(repoPath, hash, path, previousPath);
     }
 
-    async revertFile(
-        repoPath: string,
-        file: Pick<GitFileStatus, "path" | "status" | "previousPath">,
-    ): Promise<void> {
+    async revertFile(repoPath: string, file: FileStatusEntry): Promise<void> {
         if (file.status === "untracked") {
             await rm(join(repoPath, file.path), { recursive: true, force: true });
             return;
