@@ -1,0 +1,1 @@
+No material regressions found in the changed API routes, WebSocket handlers, startup wiring, or archive/delete cleanup hooks. The backend typecheck and all 16 focused browser route and handler tests passed.
