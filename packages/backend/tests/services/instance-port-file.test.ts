@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import { existsSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -7,6 +7,7 @@ import {
     releaseInstancePort,
     removeInstancePortFile,
     writeInstancePortFile,
+    writePortHandshake,
 } from "../../src/services/instance-port-file";
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -81,3 +82,18 @@ describe("releaseInstancePort", () => {
         });
     });
 });
+
+test.skipIf(process.platform === "win32")(
+    "the handshake replaces a pre-existing 0644 file with a 0600 one",
+    async () => {
+        await withDir(async (dir) => {
+            const file = join(dir, "hs");
+            await writeFile(file, "4321", { mode: 0o644 });
+            expect((await stat(file)).mode & 0o777).toBe(0o644);
+            const token = "a".repeat(43);
+            await writePortHandshake(file, 4321, token);
+            expect(await readFile(file, "utf-8")).toBe(`4321\n${token}\n`);
+            expect((await stat(file)).mode & 0o777).toBe(0o600);
+        });
+    },
+);

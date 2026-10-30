@@ -1,3 +1,4 @@
+import { parsePortHandshake, type PortHandshake } from "@taskflow/shared";
 import { spawn, type ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import { rmSync } from "fs";
@@ -29,6 +30,7 @@ interface StartBackendOptions {
 
 interface BackendHandle {
     port: number;
+    token: string;
     stop(): void;
 }
 
@@ -85,15 +87,10 @@ function removePortFile(portFile: string): void {
     }
 }
 
-// The backend writes the port with a single small `writeFile`, so a reader either
-// sees nothing or sees the whole number. Anything that is not a bare port number is
-// treated as "not written yet" rather than parsed leniently.
-async function readPort(portFile: string): Promise<number | null> {
+// Even a partial handshake reads as "not written yet"; startup needs both lines.
+async function readHandshake(portFile: string): Promise<PortHandshake | null> {
     try {
-        const raw = (await readFile(portFile, "utf-8")).trim();
-        if (!/^\d+$/.test(raw)) return null;
-        const port = Number.parseInt(raw, 10);
-        return port > 0 && port <= 65535 ? port : null;
+        return parsePortHandshake(await readFile(portFile, "utf-8"));
     } catch {
         return null;
     }
@@ -224,7 +221,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
             removePortFile(portFile);
             throw failedEarly;
         }
-        const port = await readPort(portFile);
+        const handshake = await readHandshake(portFile);
         // The read is an await, so the child can fail during it. That failure is the
         // real reason startup did not happen, and it is checked before both the port
         // and the deadline so it is never reported as a timeout.
@@ -233,7 +230,7 @@ async function startBackend(opts: StartBackendOptions): Promise<BackendHandle> {
             removePortFile(portFile);
             throw failedDuringRead;
         }
-        if (port !== null) return { port, stop };
+        if (handshake !== null) return { ...handshake, stop };
         // The wait is clamped to what is left of the budget, so the last poll lands on
         // the deadline instead of up to one whole interval past it.
         const remaining = deadline - Date.now();

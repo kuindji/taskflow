@@ -1,3 +1,5 @@
+import { parsePortHandshake } from "@taskflow/shared/remote";
+import type { PortHandshake } from "@taskflow/shared";
 import { app } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import { accessSync, constants } from "fs";
@@ -72,20 +74,19 @@ function getBackendPath(): { binary: string; args: string[] } {
     return { binary: "bun", args: ["run", entry] };
 }
 
-async function waitForBackendPort(portFile: string, timeoutMs: number = 10000): Promise<number> {
+async function waitForBackendHandshake(
+    portFile: string,
+    timeoutMs: number = 10000,
+): Promise<PortHandshake> {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
         try {
             await access(portFile, constants.F_OK);
-            const portStr = await readFile(portFile, "utf-8");
-            const port = Number.parseInt(portStr.trim(), 10);
-
-            if (Number.isInteger(port) && port > 0) {
-                return port;
-            }
+            const handshake = parsePortHandshake(await readFile(portFile, "utf-8"));
+            if (handshake) return handshake;
         } catch {
-            // Keep polling until the backend writes a valid port number.
+            // Keep polling until the backend writes a complete handshake.
         }
 
         if (backendProcess && backendProcess.exitCode !== null) {
@@ -105,7 +106,7 @@ async function cleanupBackendArtifacts(): Promise<void> {
     backendPortFile = null;
 }
 
-async function startBackend(devBranch: string | null): Promise<number> {
+async function startBackend(devBranch: string | null): Promise<PortHandshake> {
     backendPortFile = join(tmpdir(), `taskflow-port-${process.pid}-${Date.now()}`);
 
     const { binary, args } = getBackendPath();
@@ -134,7 +135,7 @@ async function startBackend(devBranch: string | null): Promise<number> {
     });
 
     return Promise.race([
-        waitForBackendPort(backendPortFile),
+        waitForBackendHandshake(backendPortFile),
         new Promise<never>((_, reject) => {
             backendProcess?.once("error", reject);
         }),

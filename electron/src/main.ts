@@ -203,7 +203,7 @@ registerIpcHandlers({
 
 void app.whenReady().then(async () => {
     try {
-        const port = await startBackend(devBranch);
+        const { port } = await startBackend(devBranch);
         setBackendPort(port);
         await browserHost.initBrowserHost({ getBackendPort, getMainWindow });
         console.log(`Backend started on port ${port}`);

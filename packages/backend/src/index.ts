@@ -67,8 +67,11 @@ import { registerSearchHandlers } from "./handlers/search";
 import { WikiIndexService } from "./services/wiki-index";
 import { registerWikiHandlers } from "./handlers/wiki";
 import { registerSystemHandlers } from "./handlers/system";
-import { writeFile } from "fs/promises";
-import { releaseInstancePort, writeInstancePortFile } from "./services/instance-port-file";
+import {
+    releaseInstancePort,
+    writeInstancePortFile,
+    writePortHandshake,
+} from "./services/instance-port-file";
 import { homedir, hostname } from "os";
 
 /** Informational only; compatibility is decided by PROTOCOL_VERSION. Read from
@@ -80,6 +83,7 @@ const APP_VERSION: string = appPackage.version;
 async function main() {
     await ensureDirectories();
     await ensureCliScript(config.binDir);
+    const apiToken = config.apiToken;
     let stop: (() => void) | undefined;
     // Set once the stable port file names this backend, so a startup failure
     // after that point does not leave it pointing at a dead port.
@@ -519,7 +523,7 @@ async function main() {
         serverPort = startedServer.port;
         stop = startedServer.stop;
 
-        await writeFile(config.portFile, String(startedServer.port));
+        await writePortHandshake(config.portFile, startedServer.port, apiToken);
         await writeInstancePortFile(config.instancePortFile, startedServer.port);
         advertisedPort = startedServer.port;
         console.log(`Taskflow backend running on port ${startedServer.port}`);

@@ -1,6 +1,7 @@
+import { parsePortHandshake } from "@taskflow/shared";
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "fs";
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -105,9 +106,19 @@ describe("resolveConfigBaseDir", () => {
         });
         try {
             const deadline = Date.now() + 10_000;
-            while (!existsSync(portFile) && Date.now() < deadline) await Bun.sleep(25);
-            expect(existsSync(portFile)).toBe(true);
-            expect(Number(await readFile(portFile, "utf-8"))).toBeGreaterThan(0);
+            let handshake = null;
+            while (Date.now() < deadline) {
+                if (existsSync(portFile))
+                    handshake = parsePortHandshake(await readFile(portFile, "utf-8"));
+                if (handshake) break;
+                await Bun.sleep(25);
+            }
+            expect(handshake).not.toBeNull();
+            expect(handshake?.port ?? 0).toBeGreaterThan(0);
+            const tokenFile = join(isolated, "api-token-dev-config-isolation-test");
+            expect(handshake?.token).toBe((await readFile(tokenFile, "utf-8")).trim());
+            if (process.platform !== "win32")
+                expect((await stat(tokenFile)).mode & 0o777).toBe(0o600);
             proc.kill("SIGTERM");
             expect(await proc.exited).toBe(0);
             expect(existsSync(join(isolated, "tasks"))).toBe(true);

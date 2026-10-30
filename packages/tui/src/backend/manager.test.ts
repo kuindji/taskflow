@@ -5,6 +5,11 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { startBackend, type BackendHandle } from "./manager";
 
+const TOKEN = "a".repeat(43);
+function handshake(port: number): string {
+    return `printf '%s\\n%s\\n' ${port} ${TOKEN} > "$TASKFLOW_PORT_FILE"`;
+}
+
 const handles: BackendHandle[] = [];
 
 afterEach(() => {
@@ -28,17 +33,27 @@ async function start(...args: Parameters<typeof startBackend>): Promise<BackendH
 }
 
 describe("startBackend", () => {
-    test("resolves with the port the backend writes to its port file", async () => {
-        const binary = await writeFakeBackend('echo 4321 > "$TASKFLOW_PORT_FILE"; exec sleep 30');
+    test("resolves with the port and token the backend writes to its handshake file", async () => {
+        const binary = await writeFakeBackend(`${handshake(4321)}; exec sleep 30`);
         const handle = await start({ binary, args: [], devBranch: null });
         expect(handle.port).toBe(4321);
+        expect(handle.token).toBe(TOKEN);
+    });
+
+    test("a port without its token line is not taken as started", async () => {
+        const binary = await writeFakeBackend(
+            `echo 4335 > "$TASKFLOW_PORT_FILE"; sleep 1; ${handshake(4335)}; exec sleep 30`,
+        );
+        const handle = await start({ binary, args: [], devBranch: null });
+        expect(handle.port).toBe(4335);
+        expect(handle.token).toBe(TOKEN);
     });
 
     test("passes TASKFLOW_DEV_BRANCH through to the child", async () => {
         // The fake backend encodes the branch it received into the port digits,
         // so a backend that never received it cannot make this assertion pass.
         const binary = await writeFakeBackend(
-            'if [ "$TASKFLOW_DEV_BRANCH" = "my-branch" ]; then echo 4322 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            `if [ "$TASKFLOW_DEV_BRANCH" = "my-branch" ]; then ${handshake(4322)}; else ${handshake(9999)}; fi; exec sleep 30`,
         );
         const handle = await start({ binary, args: [], devBranch: "my-branch" });
         expect(handle.port).toBe(4322);
@@ -49,7 +64,7 @@ describe("startBackend", () => {
         process.env.TASKFLOW_CONFIG_DIR = "/tmp/taskflow-tui-isolated";
         try {
             const binary = await writeFakeBackend(
-                'if [ "$TASKFLOW_CONFIG_DIR" = "/tmp/taskflow-tui-isolated" ]; then echo 4334 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+                `if [ "$TASKFLOW_CONFIG_DIR" = "/tmp/taskflow-tui-isolated" ]; then ${handshake(4334)}; else ${handshake(9999)}; fi; exec sleep 30`,
             );
             const handle = await start({ binary, args: [], devBranch: "test" });
             expect(handle.port).toBe(4334);
@@ -64,7 +79,7 @@ describe("startBackend", () => {
 
     test("does not set TASKFLOW_DEV_BRANCH when devBranch is null", async () => {
         const binary = await writeFakeBackend(
-            'if [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4323 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            `if [ -z "$TASKFLOW_DEV_BRANCH" ]; then ${handshake(4323)}; else ${handshake(9999)}; fi; exec sleep 30`,
         );
         const handle = await start({ binary, args: [], devBranch: null });
         expect(handle.port).toBe(4323);
@@ -77,7 +92,7 @@ describe("startBackend", () => {
         process.env.TASKFLOW_DEV_BRANCH = "stale";
         try {
             const binary = await writeFakeBackend(
-                'if [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4332 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+                `if [ -z "$TASKFLOW_DEV_BRANCH" ]; then ${handshake(4332)}; else ${handshake(9999)}; fi; exec sleep 30`,
             );
             const handle = await start({ binary, args: [], devBranch: null });
             expect(handle.port).toBe(4332);
@@ -98,7 +113,7 @@ describe("startBackend", () => {
         process.env.TASKFLOW_DEV = "1";
         try {
             const binary = await writeFakeBackend(
-                'if [ -z "$TASKFLOW_DEV" ] && [ -z "$TASKFLOW_DEV_BRANCH" ]; then echo 4333 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+                `if [ -z "$TASKFLOW_DEV" ] && [ -z "$TASKFLOW_DEV_BRANCH" ]; then ${handshake(4333)}; else ${handshake(9999)}; fi; exec sleep 30`,
             );
             const handle = await start({ binary, args: [], devBranch: null });
             expect(handle.port).toBe(4333);
@@ -120,7 +135,7 @@ describe("startBackend", () => {
         process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
         try {
             const binary = await writeFakeBackend(
-                'if [ -z "$CLAUDECODE" ] && [ -z "$CLAUDE_CODE_ENTRYPOINT" ]; then echo 4324 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+                `if [ -z "$CLAUDECODE" ] && [ -z "$CLAUDE_CODE_ENTRYPOINT" ]; then ${handshake(4324)}; else ${handshake(9999)}; fi; exec sleep 30`,
             );
             const handle = await start({ binary, args: [], devBranch: null });
             expect(handle.port).toBe(4324);
@@ -140,7 +155,7 @@ describe("startBackend", () => {
 
     test("passes extra args through to the child", async () => {
         const binary = await writeFakeBackend(
-            'if [ "$1" = "--flag" ]; then echo 4325 > "$TASKFLOW_PORT_FILE"; else echo 9999 > "$TASKFLOW_PORT_FILE"; fi; exec sleep 30',
+            `if [ "$1" = "--flag" ]; then ${handshake(4325)}; else ${handshake(9999)}; fi; exec sleep 30`,
         );
         const handle = await start({ binary, args: ["--flag"], devBranch: null });
         expect(handle.port).toBe(4325);
@@ -190,7 +205,7 @@ describe("startBackend", () => {
         // 4MB of stderr before the port is written. Undrained, the pipe fills and
         // the child blocks forever on write(), so the port never appears.
         const binary = await writeFakeBackend(
-            'yes xxxxxxxxxxxxxxxx | head -c 4000000 >&2; echo 4326 > "$TASKFLOW_PORT_FILE"; exec sleep 30',
+            `yes xxxxxxxxxxxxxxxx | head -c 4000000 >&2; ${handshake(4326)}; exec sleep 30`,
         );
         const handle = await start({ binary, args: [], devBranch: null, timeoutMs: 4000 });
         expect(handle.port).toBe(4326);
@@ -209,7 +224,7 @@ describe("startBackend", () => {
         expect(message).toMatch(/bind: address already in use/);
     });
     test("rejects when the backend writes a port and then dies", async () => {
-        const binary = await writeFakeBackend('echo 4321 > "$TASKFLOW_PORT_FILE"; exit 7');
+        const binary = await writeFakeBackend(`${handshake(4321)}; exit 7`);
         let message = "";
         let port = 0;
         try {
@@ -230,17 +245,15 @@ describe("startBackend", () => {
 
     test("ignores port-file contents that are not a bare port number", async () => {
         const binary = await writeFakeBackend(
-            'printf "43x\\n" > "$TASKFLOW_PORT_FILE"; sleep 1; echo 4327 > "$TASKFLOW_PORT_FILE"; exec sleep 30',
+            `printf "43x\\n" > "$TASKFLOW_PORT_FILE"; sleep 1; ${handshake(4327)}; exec sleep 30`,
         );
         const handle = await start({ binary, args: [], devBranch: null, timeoutMs: 4000 });
         expect(handle.port).toBe(4327);
     }, 10_000);
 
     test("gives concurrent starts their own port file", async () => {
-        const slow = await writeFakeBackend(
-            'sleep 1; echo 4329 > "$TASKFLOW_PORT_FILE"; exec sleep 30',
-        );
-        const fast = await writeFakeBackend('echo 4328 > "$TASKFLOW_PORT_FILE"; exec sleep 30');
+        const slow = await writeFakeBackend(`sleep 1; ${handshake(4329)}; exec sleep 30`);
+        const fast = await writeFakeBackend(`${handshake(4328)}; exec sleep 30`);
         const [a, b] = await Promise.all([
             start({ binary: fast, args: [], devBranch: null, timeoutMs: 4000 }),
             start({ binary: slow, args: [], devBranch: null, timeoutMs: 4000 }),
@@ -255,7 +268,7 @@ describe("startBackend", () => {
         const dir = await mkdtemp(join(tmpdir(), "tui-backend-portfile-"));
         const echoed = join(dir, "which-port-file");
         const binary = await writeFakeBackend(
-            `printf '%s' "$TASKFLOW_PORT_FILE" > ${echoed}; echo 4331 > "$TASKFLOW_PORT_FILE"; exec sleep 30`,
+            `printf '%s' "$TASKFLOW_PORT_FILE" > ${echoed}; ${handshake(4331)}; exec sleep 30`,
         );
         const handle = await start({ binary, args: [], devBranch: null });
         const portFile = (await readFile(echoed, "utf-8")).trim();
@@ -280,7 +293,7 @@ describe("startBackend", () => {
             while (!existsSync(echoed)) await Bun.sleep(10);
             const portFile = (await readFile(echoed, "utf-8")).trim();
             await Bun.sleep(started + timeoutMs + 25 - Date.now());
-            await writeFile(portFile, "4330");
+            await writeFile(portFile, `4330\n${TOKEN}\n`);
         })();
 
         let message = "";
@@ -413,10 +426,7 @@ describe("startBackend", () => {
         // Both the script path and the `tail -f` target live in this one temp
         // directory, so `pgrep -f dir` identifies the child continuously — before
         // the `exec` replaces the shell's command line and after.
-        await writeFile(
-            binary,
-            `#!/bin/sh\necho 4331 > "$TASKFLOW_PORT_FILE"\nexec tail -f "${keepalive}"\n`,
-        );
+        await writeFile(binary, `#!/bin/sh\n${handshake(4331)}\nexec tail -f "${keepalive}"\n`);
         await chmod(binary, 0o755);
         const stillRunning = async (): Promise<boolean> => {
             const proc = Bun.spawn(["pgrep", "-f", dir], { stdout: "pipe", stderr: "ignore" });
@@ -463,7 +473,7 @@ describe("startBackend", () => {
         const pidFile = join(dir, "pid");
         // SIG_IGN survives exec, so the `sleep` inherits the ignored disposition.
         const binary = await writeFakeBackend(
-            `trap '' TERM\nprintf '%s' "$$" > ${pidFile}\necho 4334 > "$TASKFLOW_PORT_FILE"\nexec sleep 60`,
+            `trap '' TERM\nprintf '%s' "$$" > ${pidFile}\n${handshake(4334)}\nexec sleep 60`,
         );
         const handle = await startBackend({
             binary,

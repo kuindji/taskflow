@@ -22,6 +22,17 @@ export async function writeInstancePortFile(file: string, port: number): Promise
     }
 }
 
+/** Publishes the spawn handshake as a complete, private file, replacing any old mode. */
+export async function writePortHandshake(file: string, port: number, token: string): Promise<void> {
+    const temp = uniqueSibling(file, "tmp");
+    try {
+        await writeFile(temp, `${port}\n${token}\n`, { mode: 0o600, flag: "wx" });
+        await rename(temp, file);
+    } finally {
+        await rm(temp, { force: true });
+    }
+}
+
 /**
  * Removes the stable instance port file, but only while it still names `port`.
  * The file is per instance, not per process: when two backends of one instance

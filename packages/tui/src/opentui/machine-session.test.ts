@@ -245,7 +245,11 @@ describe("MachineSession", () => {
             },
             startBackend: () => {
                 log.push("startBackend");
-                return Promise.resolve({ port: 4100, stop: () => log.push("stopBackend") });
+                return Promise.resolve({
+                    port: 4100,
+                    token: "a".repeat(43),
+                    stop: () => log.push("stopBackend"),
+                });
             },
             createLocalClient: (port) => {
                 localPorts.push(port);
