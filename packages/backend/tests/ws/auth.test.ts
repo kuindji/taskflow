@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { createHmac } from "crypto";
 import {
+    cdpKey,
     checkRequest,
     createReportOnce,
     isUpgradeRequest,
@@ -26,7 +28,35 @@ function check(req: Request) {
 const credential = { Authorization: `Bearer ${T}` };
 const upgrade = { Upgrade: "websocket" };
 
+test('cdpKey is the base64url HMAC-SHA256 of "cdp:<tabId>" keyed by the token', () => {
+    const expected = createHmac("sha256", T).update("cdp:tab-1").digest("base64url");
+    expect(cdpKey(T, "tab-1")).toBe(expected);
+    expect(cdpKey(T, "tab-1")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+});
+
 describe("checkRequest", () => {
+    test("a /cdp/<id>/<key>/json/version request with the right key passes", () => {
+        expect(check(request(`/cdp/tab-1/${cdpKey(T, "tab-1")}/json/version`))).toEqual({
+            ok: true,
+        });
+    });
+    test("a key for another tab id fails", () => {
+        expect(check(request(`/cdp/tab-1/${cdpKey(T, "tab-2")}/json/version`))).toEqual({
+            ok: false,
+            reason: "credential",
+        });
+    });
+    test("a /cdp/<id>/json/version request without a key segment fails", () => {
+        for (const path of ["/cdp/tab-1", "/cdp/tab-1/json/version"]) {
+            expect(check(request(path))).toEqual({ ok: false, reason: "credential" });
+        }
+    });
+    test("a /cdp/ upgrade with the right key passes", () => {
+        expect(
+            check(request(`/cdp/tab-1/${cdpKey(T, "tab-1")}/devtools/browser`, upgrade)),
+        ).toEqual({ ok: true });
+    });
+
     test("Host 127.0.0.1, localhost and [::1] on any port pass the host check", () => {
         for (const Host of ["127.0.0.1", "localhost:1", "127.0.0.1:65535", "[::1]:4321"]) {
             expect(check(request("/api/settings", { Host, ...credential }))).toEqual({ ok: true });

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { isLoopback } from "@taskflow/shared";
 
 export const AUTH_ENFORCED = false;
@@ -33,6 +33,10 @@ function tokensEqual(candidate: string, token: string): boolean {
     const a = Buffer.from(candidate, "utf-8");
     const b = Buffer.from(token, "utf-8");
     return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function cdpKey(token: string, tabId: string): string {
+    return createHmac("sha256", token).update(`cdp:${tabId}`).digest("base64url");
 }
 
 export function isUpgradeRequest(req: Request): boolean {
@@ -88,7 +92,9 @@ export function checkRequest(req: Request, url: URL, ctx: AuthContext): AuthVerd
         const token = url.searchParams.get("token");
         if (token !== null) candidates.push(token);
     }
-    return candidates.some((candidate) => tokensEqual(candidate, ctx.token))
+    const cdpPath = /^\/cdp\/([^/]+)\/([^/]+)(?:\/|$)/.exec(url.pathname);
+    return candidates.some((candidate) => tokensEqual(candidate, ctx.token)) ||
+        (cdpPath !== null && tokensEqual(cdpPath[2], cdpKey(ctx.token, cdpPath[1])))
         ? { ok: true }
         : { ok: false, reason: "credential" };
 }

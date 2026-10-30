@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { BrowserHostEvent, BrowserHostHeartbeat } from "@taskflow/shared";
+import type { BackendFetch } from "../backend-fetch";
 import { backendOrigin } from "../backend-url";
 import { createBackendLink } from "./backend-link";
 
@@ -9,30 +10,32 @@ afterEach(() => {
 });
 
 function setup() {
-    const calls: { url: string; method: string | undefined; body: unknown }[] = [];
+    const calls: { origin: string; path: string; method: string | undefined; body: unknown }[] = [];
     const scheduled: number[] = [];
     const logs: unknown[] = [];
     let tick: () => Promise<void> = () => Promise.resolve();
     let port: number | null = 7123;
-    let respond: () => Promise<{ status: number }> = () => Promise.resolve({ status: 200 });
+    let respond: () => Promise<Response> = () => Promise.resolve(new Response());
     const heartbeat: BrowserHostHeartbeat = {
         controlUrl: "http://127.0.0.1:1234/secret",
         debugPort: 4321,
         loaded: [{ tabId: "a", targetId: "target-a", url: "about:blank", parentId: "root" }],
         appTargetIds: ["app", "park"],
     };
+    const backendFetch: BackendFetch = (origin, path, init) => {
+        if (typeof init?.body !== "string") throw new Error("Expected a JSON string body");
+        calls.push({
+            origin,
+            path,
+            method: init.method,
+            body: JSON.parse(init.body) as unknown,
+        });
+        return respond();
+    };
     const link = createBackendLink({
         getBackendPort: () => port,
         heartbeat: () => Promise.resolve(heartbeat),
-        fetch: (url, init) => {
-            if (typeof init.body !== "string") throw new Error("Expected a JSON string body");
-            calls.push({
-                url,
-                method: init.method,
-                body: JSON.parse(init.body) as unknown,
-            });
-            return respond();
-        },
+        backendFetch,
         schedule: (fn, ms) => {
             tick = fn;
             scheduled.push(ms);
@@ -63,14 +66,15 @@ function setup() {
 
 const event: BrowserHostEvent = { type: "closed", tabId: "a" };
 
-test("heartbeat PUTs controlUrl, debugPort, loaded and appTargetIds every 5000 ms", async () => {
+test("heartbeat goes through backendFetch with the local origin and /api/browser/host every 5000 ms", async () => {
     const { calls, scheduled, heartbeat, tick } = setup();
     expect(scheduled).toEqual([5000]);
     await tick();
     await tick();
     expect(calls).toEqual(
         [1, 2].map(() => ({
-            url: `${backendOrigin(7123)}/api/browser/host`,
+            origin: backendOrigin(7123),
+            path: "/api/browser/host",
             method: "PUT",
             body: heartbeat,
         })),
@@ -82,10 +86,7 @@ test("uses the current backend port on each tick", async () => {
     await tick();
     setPort(8123);
     await tick();
-    expect(calls.map((call) => call.url)).toEqual([
-        `${backendOrigin(7123)}/api/browser/host`,
-        `${backendOrigin(8123)}/api/browser/host`,
-    ]);
+    expect(calls.map((call) => call.origin)).toEqual([backendOrigin(7123), backendOrigin(8123)]);
 });
 
 test("flush sends a heartbeat immediately", async () => {
@@ -94,11 +95,16 @@ test("flush sends a heartbeat immediately", async () => {
     expect(calls.map((call) => call.body)).toEqual([heartbeat]);
 });
 
-test("event POSTs to /api/browser/host/events", async () => {
+test("events go through backendFetch to /api/browser/host/events", async () => {
     const { link, calls } = setup();
     await link.event(event);
     expect(calls).toEqual([
-        { url: `${backendOrigin(7123)}/api/browser/host/events`, method: "POST", body: event },
+        {
+            origin: backendOrigin(7123),
+            path: "/api/browser/host/events",
+            method: "POST",
+            body: event,
+        },
     ]);
 });
 
@@ -107,15 +113,15 @@ test("a failed heartbeat is dropped, not retried", async () => {
     setResponse(() => Promise.reject(new Error("offline")));
     await link.flush();
     heartbeat.loaded = [];
-    setResponse(() => Promise.resolve({ status: 200 }));
+    setResponse(() => Promise.resolve(new Response()));
     await tick();
     expect(calls).toHaveLength(2);
     expect(calls[1].body).toEqual(heartbeat);
 });
 
-test("an event posted before a flush reaches fetch before that heartbeat", async () => {
+test("an event posted before a flush reaches backendFetch before that heartbeat", async () => {
     const { link, calls, heartbeat, setResponse } = setup();
-    let finish!: (value: { status: number }) => void;
+    let finish!: (value: Response) => void;
     setResponse(
         () =>
             new Promise((resolve) => {
@@ -126,8 +132,8 @@ test("an event posted before a flush reaches fetch before that heartbeat", async
     const flushing = link.flush();
     await Promise.resolve();
     expect(calls.map((call) => call.body)).toEqual([event]);
-    setResponse(() => Promise.resolve({ status: 200 }));
-    finish({ status: 200 });
+    setResponse(() => Promise.resolve(new Response()));
+    finish(new Response());
     await Promise.all([posting, flushing]);
     expect(calls.map((call) => call.body)).toEqual([event, heartbeat]);
 });
@@ -139,15 +145,16 @@ test("an event that fails without a response is retried on the next tick, before
     await link.flush();
     expect(calls).toHaveLength(1);
     setPort(8123);
-    setResponse(() => Promise.resolve({ status: 200 }));
+    setResponse(() => Promise.resolve(new Response()));
     await tick();
     expect(calls.slice(0, 3).map((call) => call.body)).toEqual([event, event, heartbeat]);
-    expect(calls[1].url).toBe(`${backendOrigin(8123)}/api/browser/host/events`);
+    expect(calls[1].origin).toBe(backendOrigin(8123));
+    expect(calls[1].path).toBe("/api/browser/host/events");
 });
 
 test("an event answered with HTTP 500 is retried on the next ticks and dropped after 3 attempts", async () => {
     const { link, calls, setResponse, tick, logs } = setup();
-    setResponse(() => Promise.resolve({ status: 500 }));
+    setResponse(() => Promise.resolve(new Response(null, { status: 500 })));
     await link.event(event);
     await tick();
     await tick();
@@ -159,7 +166,7 @@ test("an event answered with HTTP 500 is retried on the next ticks and dropped a
 
 test("an event answered with HTTP 400 is not retried", async () => {
     const { link, calls, setResponse, tick } = setup();
-    setResponse(() => Promise.resolve({ status: 400 }));
+    setResponse(() => Promise.resolve(new Response(null, { status: 400 })));
     await link.event(event);
     await tick();
     expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
@@ -173,14 +180,14 @@ test("heartbeats queued behind a stuck event collapse into one", async () => {
     await link.flush();
     await tick();
     await tick();
-    setResponse(() => Promise.resolve({ status: 200 }));
+    setResponse(() => Promise.resolve(new Response()));
     await tick();
     expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
 });
 
 test("a flush while a heartbeat is in flight sends another one after it", async () => {
     const { link, calls, setResponse } = setup();
-    let finish!: (value: { status: number }) => void;
+    let finish!: (value: Response) => void;
     setResponse(
         () =>
             new Promise((resolve) => {
@@ -192,8 +199,8 @@ test("a flush while a heartbeat is in flight sends another one after it", async 
     await Promise.resolve();
     expect(calls).toHaveLength(1);
     const second = link.flush();
-    setResponse(() => Promise.resolve({ status: 200 }));
-    finish({ status: 200 });
+    setResponse(() => Promise.resolve(new Response()));
+    finish(new Response());
     await Promise.all([first, second]);
     expect(calls.filter((call) => call.method === "PUT")).toHaveLength(2);
 });

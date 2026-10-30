@@ -25,10 +25,12 @@ const fake = {
     hostHeartbeat: mock((_hb: BrowserHostHeartbeat) => {}),
     hostEvent: mock<BrowserTabService["hostEvent"]>(async () => {}),
 };
+const versionJson = mock(async (_tabId: string, _host: string, _key: string) => ({}));
 let router: ApiRouter;
 
 beforeEach(() => {
     for (const fn of Object.values(fake)) fn.mockClear();
+    versionJson.mockClear();
     fake.open.mockImplementation(async (input) => {
         if (!input.url.trim())
             throw new BrowserTabInputError(
@@ -43,9 +45,10 @@ beforeEach(() => {
             open: () => {},
             message: () => {},
             close: () => {},
-            versionJson: async () => ({}),
+            versionJson,
             listJson: async () => [],
         },
+        cdpKeyFor: (id) => `key-${id}`,
         apiRouter: router,
         browserTabService: fake as unknown as BrowserTabService,
     });
@@ -68,7 +71,7 @@ async function call(
     return response;
 }
 
-it("POST with a task header opens a task tab and returns 201 with endpoint built from Host", async () => {
+it("POST returns an endpoint ending in /cdp/<id>/<key> built from Host", async () => {
     const response = await call(
         "POST",
         undefined,
@@ -79,7 +82,7 @@ it("POST with a task header opens a task tab and returns 201 with endpoint built
     expect(fake.open).toHaveBeenCalledWith({ url: tab.url, label: "Research", scope: tab.scope });
     expect(await response.json()).toEqual({
         tab: { ...tab, label: "Research" },
-        endpoint: "http://127.0.0.1:7123/cdp/tab-1",
+        endpoint: "http://127.0.0.1:7123/cdp/tab-1/key-tab-1",
     });
 });
 
@@ -135,7 +138,7 @@ it("POST with an empty url returns 400 with the exact message", async () => {
     });
 });
 
-it("GET lists tabs of the resolved scope with an endpoint each and hostAvailable", async () => {
+it("GET lists each tab's keyed endpoint and hostAvailable for the resolved scope", async () => {
     const cases: Array<{
         query: string;
         headers: Record<string, string>;
@@ -163,7 +166,7 @@ it("GET lists tabs of the resolved scope with an endpoint each and hostAvailable
         expect(response.status).toBe(200);
         expect(fake.list).toHaveBeenLastCalledWith({ scope });
         expect(await response.json()).toEqual({
-            tabs: [{ ...tab, endpoint: "http://127.0.0.1:7123/cdp/tab-1" }],
+            tabs: [{ ...tab, endpoint: "http://127.0.0.1:7123/cdp/tab-1/key-tab-1" }],
             hostAvailable: true,
         });
     }
@@ -212,3 +215,11 @@ it("POST /api/browser/host/events passes the event to the service", async () => 
     expect(await response.json()).toEqual({ ok: true });
     expect(fake.hostEvent).toHaveBeenCalledWith(event);
 });
+
+for (const suffix of ["/json/version", "/json/version/"]) {
+    it(`${suffix} passes the path key to the gateway`, async () => {
+        const response = await call("GET", `/cdp/tab-1/path-key${suffix}`);
+        expect(response.status).toBe(200);
+        expect(versionJson).toHaveBeenCalledWith("tab-1", "127.0.0.1:7123", "path-key");
+    });
+}

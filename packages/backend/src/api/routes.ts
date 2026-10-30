@@ -54,6 +54,7 @@ interface ApiRouteDeps {
     devServerService: DevServerService;
     browserTabService: BrowserTabService;
     cdpGateway: CdpGateway;
+    cdpKeyFor: (tabId: string) => string;
     scheduleStore: ScheduleStore;
     shells: ShellInfo[];
     systemShellPath: string | null;

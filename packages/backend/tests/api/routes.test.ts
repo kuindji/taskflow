@@ -56,6 +56,7 @@ const moveCalls: Array<{ sessionId: string; target: SessionOwnerRef }> = [];
 const closeForOwner = mock(async (_owner: { taskId: string } | { projectId: string }) => {});
 
 const sharedTestDeps = {
+    cdpKeyFor: (id: string) => `key-${id}`,
     cdpGateway: {
         open: () => {},
         message: () => {},

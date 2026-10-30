@@ -226,7 +226,7 @@ void app.whenReady().then(async () => {
         const { port, token } = await startBackend(devBranch);
         setBackendPort(port);
         setBackendToken(token);
-        await browserHost.initBrowserHost({ getBackendPort, getMainWindow });
+        await browserHost.initBrowserHost({ getBackendPort, getMainWindow, backendFetch });
         console.log(`Backend started on port ${port}`);
         // Main does not redial persisted records: the renderer does, through
         // `attachedRecordIds()`, because only it can finish the handshake.

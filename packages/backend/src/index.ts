@@ -5,7 +5,7 @@ import appPackage from "../../../electron/package.json";
 import { ensureDirectories, config } from "./config";
 import { Router } from "./ws/router";
 import { createServer } from "./ws/server";
-import { AUTH_ENFORCED, parseUiOrigins } from "./ws/auth";
+import { AUTH_ENFORCED, cdpKey, parseUiOrigins } from "./ws/auth";
 import { createCdpGateway } from "./services/cdp/cdp-gateway";
 import { TaskStore } from "./services/task-store";
 import { PtyManager } from "./services/pty-manager";
@@ -428,6 +428,7 @@ async function main() {
 
         registerApiRoutes({
             cdpGateway,
+            cdpKeyFor: (tabId) => cdpKey(apiToken, tabId),
             apiRouter,
             taskStore: store,
             ptyManager,

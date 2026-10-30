@@ -10,7 +10,7 @@ Without a scope flag, commands use the current task, then the project, then mast
 Opening a tab prints JSON:
 
 ```json
-{"tab":{"id":"<id>"},"endpoint":"http://127.0.0.1:<port>/cdp/<id>"}
+{"tab":{"id":"<id>"},"endpoint":"http://127.0.0.1:<port>/cdp/<id>/<key>"}
 ```
 
 Connect with Playwright using the printed endpoint:
@@ -22,6 +22,7 @@ const page = browser.contexts()[0].pages()[0];
 
 For Puppeteer, use `puppeteer.connect({ browserURL: endpoint })`.
 
+- The endpoint grants control of this tab; don't share it outside this machine.
 - The endpoint shows only this tab and pages it opens.
 - `context.newPage()` opens another tab in the same task.
 - Prefer just exiting when finished. Call `browser.close()` only on Playwright's connected browser, where it disconnects. Taskflow refuses to quit.

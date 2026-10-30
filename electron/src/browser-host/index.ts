@@ -1,6 +1,7 @@
 import { app, ipcMain, type BrowserWindow } from "electron";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { BackendFetch } from "../backend-fetch";
 import { createBackendLink } from "./backend-link";
 import { startControlServer } from "./control-server";
 import { parseDevToolsActivePort } from "./debug-port";
@@ -18,6 +19,7 @@ export function isParkWindow(window: BrowserWindow): boolean {
 }
 
 export async function initBrowserHost(deps: {
+    backendFetch: BackendFetch;
     getBackendPort(): number | null;
     getMainWindow(): BrowserWindow | null;
 }): Promise<void> {
@@ -107,7 +109,7 @@ export async function initBrowserHost(deps: {
             loaded: tabHost.loaded(),
             appTargetIds: await viewFactory.appTargetIds(),
         }),
-        fetch,
+        backendFetch: deps.backendFetch,
         schedule: (tick, ms) => {
             const timer = setInterval(() => {
                 void tick();

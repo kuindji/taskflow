@@ -1,10 +1,11 @@
 import type { BrowserHostEvent, BrowserHostHeartbeat } from "@taskflow/shared";
+import type { BackendFetch } from "../backend-fetch";
 import { backendOrigin } from "../backend-url";
 
 interface BackendLinkDeps {
     getBackendPort(): number | null;
     heartbeat(): Promise<BrowserHostHeartbeat>;
-    fetch(url: string, init: RequestInit): Promise<Pick<Response, "status">>;
+    backendFetch: BackendFetch;
     schedule(fn: () => Promise<void>, ms: number): () => void;
     log(message: string): void;
 }
@@ -28,8 +29,9 @@ export function createBackendLink(deps: BackendLinkDeps) {
             try {
                 const isEvent = "event" in post;
                 const body = isEvent ? post.event : await deps.heartbeat();
-                const response = await deps.fetch(
-                    `${backendOrigin(port)}/api/browser/host${isEvent ? "/events" : ""}`,
+                const response = await deps.backendFetch(
+                    backendOrigin(port),
+                    `/api/browser/host${isEvent ? "/events" : ""}`,
                     {
                         method: isEvent ? "POST" : "PUT",
                         headers: { "content-type": "application/json" },

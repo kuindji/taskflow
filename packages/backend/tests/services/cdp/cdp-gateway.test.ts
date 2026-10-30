@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import { ApiRouter } from "../../../src/api/router";
 import { registerBrowserRoutes } from "../../../src/api/routes/browser-routes";
 import { Router } from "../../../src/ws/router";
+import { cdpKey } from "../../../src/ws/auth";
 import { createServer } from "../../../src/ws/server";
 import { createCdpGateway } from "../../../src/services/cdp/cdp-gateway";
 import type { CdpMessage } from "../../../src/services/cdp/cdp-filter";
@@ -12,6 +13,8 @@ import {
     BrowserHostUnavailableError,
     BrowserTabNotFoundError,
 } from "../../../src/services/browser-tab-errors";
+
+const TOKEN = "A".repeat(43);
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -208,16 +211,21 @@ async function fixture(
     };
     const gateway = createCdpGateway({ service });
     const apiRouter = new ApiRouter();
-    registerBrowserRoutes({ apiRouter, browserTabService: service, cdpGateway: gateway });
+    registerBrowserRoutes({
+        apiRouter,
+        browserTabService: service,
+        cdpGateway: gateway,
+        cdpKeyFor: (id) => cdpKey(TOKEN, id),
+    });
     const backend = createServer(new Router(), 0, apiRouter, gateway, {
-        token: "A".repeat(43),
+        token: TOKEN,
         allowedOrigins: new Set(["file://", "null"]),
         enforce: false,
     });
     const running = await backend.start();
     cleanups.push(() => running.stop());
     const origin = `http://127.0.0.1:${running.port}`;
-    function connect(path = "/cdp/root/devtools/browser") {
+    function connect(path = `/cdp/root/${cdpKey(TOKEN, "root")}/devtools/browser`) {
         const ws = new WebSocket(`${origin.replace("http:", "ws:")}${path}`);
         const messages: CdpMessage[] = [];
         ws.addEventListener("message", (event) => {
@@ -251,7 +259,7 @@ async function fixture(
 
 it("connect to an unknown tab closes 4404", async () => {
     const f = await fixture();
-    const c = f.connect("/cdp/missing/devtools/browser");
+    const c = f.connect(`/cdp/missing/${cdpKey(TOKEN, "missing")}/devtools/browser`);
     const event = await c.closed;
     expect(event.code).toBe(4404);
     expect(event.reason).toBe("Browser tab not found");
@@ -430,16 +438,16 @@ it("runOnRootPage attaches to the root page on a separate connection, returns th
 });
 
 for (const suffix of ["/json/version", "/json/version/"]) {
-    it(`${suffix} rewrites webSocketDebuggerUrl to the gateway path using Host`, async () => {
+    it(`${suffix} rewrites webSocketDebuggerUrl to the keyed gateway path using Host`, async () => {
         const f = await fixture();
-        const response = await fetch(`${f.origin}/cdp/root${suffix}`, {
+        const response = await fetch(`${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}${suffix}`, {
             headers: { Host: "127.0.0.1:7123" },
         });
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({
             Browser: "Chrome/130",
             "Protocol-Version": "1.3",
-            webSocketDebuggerUrl: "ws://127.0.0.1:7123/cdp/root/devtools/browser",
+            webSocketDebuggerUrl: `ws://127.0.0.1:7123/cdp/root/${cdpKey(TOKEN, "root")}/devtools/browser`,
         });
     });
 }
@@ -447,7 +455,7 @@ for (const suffix of ["/json/version", "/json/version/"]) {
 for (const suffix of ["/json/list", "/json"]) {
     it(`${suffix} lists only family page targets without debugger urls`, async () => {
         const f = await fixture();
-        const response = await fetch(`${f.origin}/cdp/root${suffix}`);
+        const response = await fetch(`${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}${suffix}`);
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual([
             { id: "T-root", type: "page", title: "root" },
@@ -459,8 +467,10 @@ for (const suffix of ["/json/list", "/json"]) {
 it("json routes map missing tabs to 404 and unavailable hosts to 503", async () => {
     const f = await fixture({ unavailable: true });
     for (const suffix of ["/json/version", "/json/list"]) {
-        expect((await fetch(`${f.origin}/cdp/missing${suffix}`)).status).toBe(404);
-        const response = await fetch(`${f.origin}/cdp/root${suffix}`);
+        expect(
+            (await fetch(`${f.origin}/cdp/missing/${cdpKey(TOKEN, "missing")}${suffix}`)).status,
+        ).toBe(404);
+        const response = await fetch(`${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}${suffix}`);
         expect(response.status).toBe(503);
         expect(await response.json()).toEqual({ error: new BrowserHostUnavailableError().message });
     }
@@ -479,24 +489,29 @@ it("app WS clients still receive broadcasts and cdp sockets do not", async () =>
     expect(f.backend.clientCount()).toBe(1);
 });
 
-it("an upgrade to /cdp/<id>/devtools/page/<x> gets 404 and is not an app client", async () => {
+it("an upgrade to /cdp/<id>/<key>/devtools/page/<x> gets 404 and is not an app client", async () => {
     const f = await fixture();
-    const response = await fetch(`${f.origin}/cdp/root/devtools/page/T-root`, {
-        headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
+    const response = await fetch(
+        `${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}/devtools/page/T-root`,
+        {
+            headers: {
+                Upgrade: "websocket",
+                Connection: "Upgrade",
+                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Version": "13",
+            },
         },
-    });
+    );
     expect(response.status).toBe(404);
     expect(f.backend.clientCount()).toBe(0);
 });
 
 it("an unknown GET under /cdp/ gets 404", async () => {
     const f = await fixture();
-    expect((await fetch(`${f.origin}/cdp/root/unknown`)).status).toBe(404);
-    expect((await fetch(`${f.origin}/cdp/root/devtools/browser`)).status).toBe(404);
+    expect((await fetch(`${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}/unknown`)).status).toBe(404);
+    expect(
+        (await fetch(`${f.origin}/cdp/root/${cdpKey(TOKEN, "root")}/devtools/browser`)).status,
+    ).toBe(404);
 });
 
 it("closing the client during ensureLoaded never opens upstream or increments connections", async () => {

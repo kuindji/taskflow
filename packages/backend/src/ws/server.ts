@@ -92,7 +92,7 @@ export function createServer(
                 }
                 const path = url.pathname;
                 if (path.startsWith("/cdp/")) {
-                    const match = /^\/cdp\/([^/]+)\/devtools\/browser$/.exec(path);
+                    const match = /^\/cdp\/([^/]+)\/[^/]+\/devtools\/browser$/.exec(path);
                     if (
                         match &&
                         cdpGateway &&
@@ -104,7 +104,10 @@ export function createServer(
                         return;
                     if (req.headers.get("upgrade"))
                         return new Response("Not found", { status: 404 });
-                    if (/^\/cdp\/[^/]+\/json(?:\/version\/?|\/list)?$/.test(path) && apiRouter) {
+                    if (
+                        /^\/cdp\/[^/]+\/[^/]+\/json(?:\/version\/?|\/list)?$/.test(path) &&
+                        apiRouter
+                    ) {
                         const response = await apiRouter.handle(req);
                         if (response) return response;
                     }

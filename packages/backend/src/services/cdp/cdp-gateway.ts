@@ -13,7 +13,7 @@ interface CdpGateway {
     open(ws: ServerWebSocket<CdpSocketData>): void;
     message(ws: ServerWebSocket<CdpSocketData>, data: string): void;
     close(ws: ServerWebSocket<CdpSocketData>): void;
-    versionJson(tabId: string, host: string): Promise<Record<string, unknown>>;
+    versionJson(tabId: string, host: string, key: string): Promise<Record<string, unknown>>;
     listJson(tabId: string, host: string): Promise<Record<string, unknown>[]>;
 }
 
@@ -327,11 +327,11 @@ function createCdpGateway({
             const connection = connections.get(ws.data.connId);
             if (connection) finish(connection);
         },
-        async versionJson(tabId, host) {
+        async versionJson(tabId, host, key) {
             const { version } = await discovery(tabId);
             return {
                 ...version,
-                webSocketDebuggerUrl: `ws://${host}/cdp/${tabId}/devtools/browser`,
+                webSocketDebuggerUrl: `ws://${host}/cdp/${tabId}/${key}/devtools/browser`,
             };
         },
         async listJson(tabId, _host) {

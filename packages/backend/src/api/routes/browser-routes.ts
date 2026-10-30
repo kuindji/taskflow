@@ -13,6 +13,7 @@ interface BrowserRouteDeps {
     apiRouter: ApiRouter;
     browserTabService: BrowserTabService;
     cdpGateway: CdpGateway;
+    cdpKeyFor: (tabId: string) => string;
 }
 
 function resolveScope(req: Request, kind: unknown): BrowserTabScope {
@@ -37,16 +38,17 @@ async function readBody(req: Request): Promise<unknown> {
     }
 }
 
-function endpoint(req: Request, id: string): string {
-    const url = new URL(req.url);
-    return `${url.protocol}//${req.headers.get("host") || url.host}/cdp/${id}`;
-}
-
 function registerBrowserRoutes({
     apiRouter,
     browserTabService,
     cdpGateway,
+    cdpKeyFor,
 }: BrowserRouteDeps): void {
+    function endpoint(req: Request, id: string): string {
+        const url = new URL(req.url);
+        return `${url.protocol}//${req.headers.get("host") || url.host}/cdp/${id}/${cdpKeyFor(id)}`;
+    }
+
     function register(method: string, path: string, handler: Parameters<ApiRouter["register"]>[2]) {
         apiRouter.register(method, path, async (req, params) => {
             try {
@@ -62,17 +64,18 @@ function registerBrowserRoutes({
         });
     }
 
-    for (const path of ["/cdp/:tabId/json/version", "/cdp/:tabId/json/version/"]) {
+    for (const path of ["/cdp/:tabId/:key/json/version", "/cdp/:tabId/:key/json/version/"]) {
         register("GET", path, async (req, params) =>
             jsonResponse(
                 await cdpGateway.versionJson(
                     params.tabId,
                     req.headers.get("host") || new URL(req.url).host,
+                    params.key,
                 ),
             ),
         );
     }
-    for (const path of ["/cdp/:tabId/json/list", "/cdp/:tabId/json"]) {
+    for (const path of ["/cdp/:tabId/:key/json/list", "/cdp/:tabId/:key/json"]) {
         register("GET", path, async (req, params) =>
             jsonResponse(
                 await cdpGateway.listJson(
