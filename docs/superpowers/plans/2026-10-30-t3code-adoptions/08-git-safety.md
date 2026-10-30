@@ -201,24 +201,3 @@ Implementation detail: keep successful payloads unchanged, use discriminated fai
 ## Planner decisions (2026-10-30)
 
 - **Windows removes the files first; POSIX asks git first.** Git for Windows before 2.54 follows junctions on `worktree remove`, so on Windows the validated safe filesystem removal (t3code's path in `apps/server/src/vcs/worktreeRemoval.ts`) runs first, then `git worktree prune` clears the metadata. POSIX keeps git first, with the safe remover as the fallback. No minimum git version is introduced. `design.md` §5 is amended to match.
-
-## Implementation validation (2026-10-30)
-
-Steps 1–6 were retained from the gate session. The authorized client timeout and archive warning changes were implemented before Step 7. Steps 7–12 are implemented; Step 10's checkbox remains open because its live manual check and Windows junction acceptance remain unverified under the boundaries in `handoff.md`. No branch, worktree or push was created.
-
-Focused commands and final outcomes:
-
-```sh
-# PASS: 48 tests
-bun test packages/backend/tests/services/git-helpers.test.ts packages/backend/tests/services/git-service.test.ts
-# PASS: 42 tests, 1 Windows-only skip
-bun test packages/backend/tests/services/git-worktree.test.ts packages/backend/tests/services/worktree-removal.test.ts packages/backend/tests/handlers/task.test.ts packages/backend/tests/api/task-worktree-cleanup.test.ts packages/ui/src/stores/task-store.cleanup.test.ts
-# PASS: 24 tests; the first timeout/archive run failed as expected before implementation
-bun test packages/ui/src/lib/connection-registry.test.ts packages/tui/src/archive/store.test.ts packages/tui/src/net/offline-guard.test.ts
-# PASS: 92 tests; initial Step 8 run failed as expected before implementation
-bun test packages/backend/tests/services/file-preview.test.ts packages/backend/tests/services/git-service.test.ts packages/backend/tests/services/git-history.test.ts packages/backend/tests/services/git-pr.test.ts packages/backend/tests/handlers/file.test.ts packages/backend/tests/handlers/git.test.ts
-# PASS: 28 tests; initial Step 10 run failed as expected before implementation
-bun test packages/ui/src/stores/file-store.test.ts packages/ui/src/components/panes/editor-preview-access.test.ts packages/ui/src/components/panes/DiffPreview.test.tsx packages/tui/src/git/store.test.ts
-```
-
-Aggregate, formatting, Git option and manual-check outcomes are in `handoff.md`. The UI aggregate was replaced with `bun test <file>` for each UI test file, as instructed. Additional invalid-byte regression: `bun test packages/backend/tests/services/git-service.test.ts -t 'UTF-8 cap'` failed before the decoded-byte cap fix and passes in the final focused suite.
