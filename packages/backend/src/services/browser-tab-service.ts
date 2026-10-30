@@ -68,6 +68,8 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
     const tabs = new Map<string, BrowserTab>();
     const targets = new Map<string, string>();
     const tabTargets = new Map<string, string>();
+    // Families being closed: close works from a snapshot, so no child may join one.
+    const closing = new Set<string>();
     const goneListeners = new Set<(tabId: string) => void>();
     const targetWaiters = new Map<string, Set<(tabId: string | null) => void>>();
     let host: { controlUrl: string; debugPort: number; lastSeen: number } | null = null;
@@ -139,7 +141,9 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
         if (!tabs.has(id)) return false;
         let firstError: unknown;
         let failed = false;
-        for (const tabId of [...familyOf(id)].reverse()) {
+        const family = [...familyOf(id)];
+        for (const tabId of family) closing.add(tabId);
+        for (const tabId of family.reverse()) {
             const tab = tabs.get(tabId);
             if (tellHost && tab?.loaded && hostAvailable() && host) {
                 await hostClient.close(host.controlUrl, tabId).catch(() => {});
@@ -151,6 +155,7 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
                 failed = true;
             }
             tabs.delete(tabId);
+            closing.delete(tabId);
             forgetTarget(tabId);
             tabGone(tabId);
         }
@@ -242,7 +247,8 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
         },
         async openChild(parentId, url) {
             const parent = tabs.get(parentId);
-            if (!parent) throw new BrowserTabNotFoundError("Browser tab not found");
+            if (!parent || closing.has(parentId))
+                throw new BrowserTabNotFoundError("Browser tab not found");
             requireHost();
             const tab = newTab(randomUUID(), parent.scope, url, parentId);
             tabs.set(tab.id, tab);
@@ -314,7 +320,10 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
             for (;;) {
                 const remaining: typeof unknown = [];
                 for (const entry of unknown) {
-                    const parent = entry.parentId ? tabs.get(entry.parentId) : undefined;
+                    const parent =
+                        entry.parentId && !closing.has(entry.parentId)
+                            ? tabs.get(entry.parentId)
+                            : undefined;
                     if (parent)
                         tabs.set(
                             entry.tabId,
@@ -366,7 +375,7 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
             }
             if (ev.type === "child-opened") {
                 const parent = tabs.get(ev.parentId);
-                if (!parent) {
+                if (!parent || closing.has(ev.parentId)) {
                     closeUnknown(ev.tabId);
                     return;
                 }

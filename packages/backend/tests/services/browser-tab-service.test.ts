@@ -41,6 +41,7 @@ class FakeHost implements BrowserHostClient {
     failEnsure = false;
     failClose = false;
     ensureGate: Promise<void> | null = null;
+    closeGate: Promise<void> | null = null;
     async ensure(
         controlUrl: string,
         req: { tabId: string; url: string; parentId?: string },
@@ -52,6 +53,7 @@ class FakeHost implements BrowserHostClient {
     }
     async close(controlUrl: string, tabId: string): Promise<void> {
         this.closed.push({ controlUrl, tabId });
+        if (this.closeGate) await this.closeGate;
         if (this.failClose) throw new BrowserHostUnavailableError();
     }
 }
@@ -464,6 +466,37 @@ describe("BrowserTabService", () => {
         expect(host.closed).toEqual([{ controlUrl, tabId: "root" }]);
         expect(service.tabIdForTarget("target:root")).toBeNull();
         expect(service.get("root")).toBeNull();
+    });
+    it("no child joins a family while it is closing", async () => {
+        heartbeat();
+        const root = await open();
+        let release = () => {};
+        host.closeGate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const closing = service.close(root.id);
+        await rejectsAs(
+            service.openChild(root.id, "https://example.com/late"),
+            BrowserTabNotFoundError,
+            "Browser tab not found",
+        );
+        await service.hostEvent({
+            type: "child-opened",
+            tabId: "popup",
+            parentId: root.id,
+            url: "https://example.com/popup",
+            targetId: "target:popup",
+        });
+        heartbeat([
+            { tabId: root.id, targetId: `target:${root.id}`, url: root.url },
+            { tabId: "adopted", targetId: "target:adopted", url: "about:blank", parentId: root.id },
+        ]);
+        release();
+        expect(await closing).toBe(true);
+        expect(service.list().tabs).toEqual([]);
+        expect(host.closed.map((call) => call.tabId).sort()).toEqual(
+            ["adopted", "popup", root.id].sort(),
+        );
     });
     it("resolveTarget returns null at once for app targets", async () => {
         heartbeat([], ["app", "park"]);
