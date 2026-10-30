@@ -6,7 +6,7 @@ Plan: `../2026-10-30-agent-browser.md`. Spec: `docs/superpowers/specs/2026-10-30
 
 ## Next step
 
-Implement Section 2. The Section 1 gate passed (2026-10-30): all criteria pass for Playwright Node, Playwright Python and Puppeteer. Spike amendments are folded into Sections 4, 5 and 8 and spec Amendment 11; Sections 2 and 3 are unchanged apart from what `appTargetIds` holds.
+Implement Section 3.
 
 ## Status
 
@@ -17,7 +17,7 @@ Implement Section 2. The Section 1 gate passed (2026-10-30): all criteria pass f
 | — | Plan review round 3 | done: 1 blocker, 3 majors, 1 minor confirmed and folded in; round 4 output saved | 84c0815b |
 | — | Plan review round 4 (cap) | done: 1 blocker, 2 majors, 1 minor confirmed and folded in; chain stopped for the user | cd1699ab |
 | 1 | Spike (gate) | done: PASS, 3 clients × all criteria; plan amended | 3d910bb8, 7a57f492 |
-| 2 | Shared types, store, host client, service | not started | |
+| 2 | Shared types, store, host client, service | done: review had 1 finding (late `ensure` after close), confirmed and fixed | e78299eb, 0a8c1025, caf2df69, cdb54a6f |
 | 3 | HTTP/WS API, wiring, cleanup hooks | not started | |
 | 4 | CDP gateway | not started | |
 | 5 | Electron host | not started | |
@@ -27,7 +27,10 @@ Implement Section 2. The Section 1 gate passed (2026-10-30): all criteria pass f
 
 ## Facts for the next section
 
-- Base commit before implementation (final-review base): not recorded yet. The Section 2 session records it.
+- Base commit before implementation (final-review base): `91a3e89c`.
+- Section 2 outputs: `browserTabLabel(url)` lives in `packages/shared/src/utils/browser-tab-label.ts` (exported from the shared index; `terminal-links.ts` uses it). `BrowserTabStore` exports `SavedBrowserTab`. The service's deps type is `BrowserTabServiceDeps` (not exported). The staleness timer re-checks 1 ms past 15000 ms, because availability includes the 15000 ms boundary.
+- `load` (used by `open`, `openChild`, `ensureLoaded`) throws `BrowserTabNotFoundError` and closes the host view when the tab was closed while `ensure` was pending.
+- Running Sol: `codex exec -m gpt-6.1-sol -s workspace-write -c sandbox_workspace_write.network_access=true --add-dir "$PWD/.git" -C "$PWD" -o <report> - < <brief>`. Without `--add-dir .git` it can't commit (`.git` is read-only under workspace-write). In its sandbox the backend process-stopper and watcher tests fail (19); rerun the suite yourself outside it.
 - Spike facts: full detail in `spike/results.md` (method log, raw facts). Summary:
   - Debug port: `<userData>/DevToolsActivePort`, line 1 = port, line 2 = `/devtools/browser/<uuid>`; present right after `ready`.
   - Hidden views live in one hidden park window (1280×800). A view in no window has a 0×0 viewport; one removed from a window stops painting after a client reconnect. The park window's renderer goes in `appTargetIds`; any unlisted page target costs a 2 s `resolveTarget` wait.
