@@ -6,7 +6,7 @@ Plan: `../2026-10-30-t3code-adoptions.md`. Design: `design.md`. Chain protocol: 
 
 ## Next step
 
-Section 13.
+None: complete, ready for the user's review and push.
 
 ## Status
 
@@ -28,7 +28,39 @@ Section 13.
 | 10 | Desktop updater | done: Codex review 1 P2 confirmed and fixed (macOS Squirrel staging failure after `update-downloaded` left Restart stuck in `installing`); Step 8 packaged check moved to Section 13; electron 100/0, shared 261/0, all 93 UI files, typecheck, Electron build pass | 42829761, 205473a0 |
 | 11 | Editor discovery | done: Codex review 1 P2 confirmed and fixed (remote TUI ran the backend's absolute internal-editor path locally); backend 1370/0, shared 261/0, open-file-plan 9/0, typecheck pass; real macOS detection checked | 4b5da463, c01619e8 |
 | 12 | GitLab | done: Codex review 1 P2 confirmed and fixed (HTTPS remote port dropped); 2 own minors fixed (header/card unavailable message placement); backend 1395/0, shared 261/0, TUI 491/0, section UI files, typecheck pass | 9b7f3f5c, d25ab5af |
-| 13 | Verification, final review | not started | |
+| 13 | Verification, final review | done: checklist run (see below); final review 1 blocker, 1 major, 1 minor confirmed and fixed; re-review of the fixes 1 major (File Provider fallback) fixed; 1 pre-existing scheduler bug fixed | 6032b8c4, 32a73588, fda0e0ee, 3ccc65bd, 67c17c25 |
+
+## Section 13 checklist
+
+Sandbox: `TASKFLOW_CONFIG_DIR=<scratch>` backends (dev, prod-instance for schedules, packaged app, dev Electron, a `dev-verify` "remote" over `ssh localhost`); packaged app from `bun run package` launched with `open -g -n --env ...` (focus handed back each launch); headless Chrome via `playwright-core`; remote work in dev Electron loading the UI from Vite (`TASKFLOW_UI_URL`) with a sandbox `HOME` and a pre-trusted `~/.taskflow/known_hosts`.
+
+1. pass: page on `localhost:8765` (headless Chrome): socket 403/1006, `no-cors` POST 403 (opaque), no session; same page in a hosted tab of the packaged app: same.
+2. pass: 401 `{"error":"Unauthorized"}`, Bun socket 4401, evil Host 403, `GET /` identity. Found and fixed: an auth-only subprotocol offer echoed the token (6032b8c4).
+3. pass: packaged app (renderer reload, terminal, markdown raw image with `token=`, tray/notification poller: no auth errors in main logs); dev app (needs a fresh `bun run build:backend`: a stale `dist/index.js` fails the protocol check, environment only); plain-browser dev UI; TUI local (packaged backend binary); TUI `--connect --token` and `TASKFLOW_TOKEN` (wrong token: `Remote backend rejected the access token`); sh + TS CLI in a PTY session (`task`, `log info`, `browser open`); a flow-run session and a scheduled session calling the CLI. Artifact download not clicked: covered by the `server.test.ts` token-query test on the flow-artifact raw route.
+4. pass: `0600`; delete + restart rotates, packaged app reconnects by itself, old token 401.
+5. pass over `ssh localhost` (instance `dev-verify`, token/port symlinked into `~/.config/taskflow`, removed after): add reads the token over ssh and stores it (`backends.json` `0600`); rotation: reattached with the new token; wrong hand token, readable: re-read and attached; wrong token, unreadable, working as that remote: `Remote backend rejected the access token`, retries stop, overlay shows it with `Return to local`, which restores local.
+6. pass: Settings token row + Copy (clipboard restored); saving the right token on an unauthorized machine (dialog path: `updateBackend` + `retry`) reattaches.
+7. pass: Playwright over the endpoint, one changed char 401, tab A key on tab B 401, endpoints unchanged after an app restart.
+8. pass: `controlmaster false`, `controlpersist no`, no `controlpath`, with a `ControlMaster auto`/`ControlPersist 10m` config (without Taskflow options ssh shows `auto`, the path and `600`).
+9. kill the tunnel ssh: `reconnecting`, attached again in ~1-2 s, pass. Sleep/wake: not run (would sleep the user's Mac); `remote-wakeup` unit tests. Remote terminal resync: not run by hand; Section 6/3 unit tests, local remount checked in item 10.
+10. pass (packaged app): live `CSI 6n` replied once; after reload + remount no new reply. Unit tests pass.
+11. unit tests only (`terminal-broadcaster`, `time-budgeted-writer`, `terminal-attachment`, `terminal-lifecycle`, TUI `session-bridge`); no throttled tunnel.
+12. pass: rate(2 minutes), backend down ~5 min, one run at startup, `nextRunAt` = run + 2 min.
+13. pass: two concurrent `schedule trigger`: one accepted, one refused, one session. Found and fixed: scheduled shell sessions failed to spawn (`shell path is required`), pre-existing (3ccc65bd).
+14. pass: rename keeps `nextRunAt`; interval change moves it.
+15. pass: revert `app/[id]/page.tsx`; `app/i/page.tsx` keeps its change.
+16. pass (backend): 6 MiB text `tooLarge`, PNG `binary`; Save disabled by unit tests.
+17. pass: worktree and branch removed; hand-removed worktree pruned, no error. Windows: not run.
+18. pass with real CLIs: Codex default account `signed-in` + 8 models; Pi `supportsXhigh` false for gpt-5.1, true for 5.2+. Only one Codex account here; per-account env by unit tests.
+19. unit tests only (`update-machine`, `update-controller` 22/0); no test feed.
+20. pass: with `PATH=/usr/bin:/bin` Zed resolves to `/Applications/Zed.app/Contents/MacOS/cli` (runs `--version`), Cursor to `~/.local/bin/cursor`. "Open in" not clicked (would open a window and take focus).
+21. pass: GitHub merged PR found, `main` is `none`; invalid `GH_TOKEN` gives `unavailable/not-authenticated`. An empty `GH_CONFIG_DIR` doesn't log gh out (with `GH_HOST` set, gh reads the keychain). PR create not run (outward-facing). GitLab: not run (no `glab` account).
+
+Fixes: 6032b8c4 (subprotocol echo), 32a73588 (anonymous identity probe upgraded to an app socket: final-review blocker), fda0e0ee (atomic `schedules.json`: final-review major and the Section 7 flake), 3ccc65bd (scheduled shell sessions got no shell path: pre-existing), 67c17c25 (schedule reads queue behind writes, for the File Provider in-place fallback: re-review major). Final review: `reviews/final.md`, re-review `reviews/final-2.md`, triage `reviews/final-triage.md`.
+
+Pre-existing, not fixed: shell sessions ignore `prompt` (shell schedules and flow shell actions open an idle shell); xterm logs `cols must be numeric` when `lastTerminalSize` is null (`terminal-lifecycle.ts:143`); sh CLI prints nothing on HTTP errors (`curl -sf`, rc 22); `wiki-index.test.ts` "pushes a new index" can time out under full-suite load.
+
+Suites after the fixes: typecheck pass; backend 1395/1 (the wiki timeout above, 12/0 alone); shared 261/0; TUI 491/0.
 
 ## Facts for the next step
 
@@ -78,6 +110,7 @@ Section 13.
 
 ## Deviations from the design
 
+- Section 13: none to the design. The identity exemption now requires no `Upgrade` header at all (`AuthVerdict.anonymous`), and an upgrade offering `taskflow.auth.*` without `taskflow` gets HTTP 401 instead of a 4401 close, because Bun echoes an unanswered protocol.
 - Section 12: none to the design. `openPullRequestUrl` moved from `TaskHeader.tsx` into `pull-request-labels.ts` for reuse; DOM tests use a Chromium user agent (Monaco's Safari clipboard path); the gate kept HTTPS ports in the host and shows the unavailable message only beside a request action.
 - Section 11: the gate kept internal editors' bare command (the section said every detected command becomes the resolved path); the remote TUI runs it on its own machine.
 - Section 10: none to the design. Added by the gate: macOS readiness waits for Squirrel's staged event, and a download that settles without an outcome stays active (electron-updater 6.8.3 announces the download before staging).
