@@ -165,6 +165,11 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
             url: tab.url,
             ...(tab.parentId ? { parentId: tab.parentId } : {}),
         });
+        if (tabs.get(tab.id) !== tab) {
+            // Closed while the host was creating the view, so close skipped the host.
+            void hostClient.close(liveHost.controlUrl, tab.id).catch(() => {});
+            throw new BrowserTabNotFoundError("Browser tab not found");
+        }
         tab.loaded = true;
         setTarget(tab.id, targetId);
         return { targetId, debugPort: liveHost.debugPort };

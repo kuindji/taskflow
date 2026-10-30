@@ -40,11 +40,13 @@ class FakeHost implements BrowserHostClient {
     closed: { controlUrl: string; tabId: string }[] = [];
     failEnsure = false;
     failClose = false;
+    ensureGate: Promise<void> | null = null;
     async ensure(
         controlUrl: string,
         req: { tabId: string; url: string; parentId?: string },
     ): Promise<{ targetId: string }> {
         this.ensured.push({ controlUrl, ...req });
+        if (this.ensureGate) await this.ensureGate;
         if (this.failEnsure) throw new BrowserHostUnavailableError();
         return { targetId: `target:${req.tabId}` };
     }
@@ -440,6 +442,22 @@ describe("BrowserTabService", () => {
         );
         expect(service.get(child)).toBeNull();
         expect(service.familyOf(root)).toEqual(new Set([root]));
+    });
+    it("close during a pending ensure closes the late view and rejects the load", async () => {
+        await seed(saved("root"));
+        heartbeat();
+        let release = () => {};
+        host.ensureGate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const loading = service.ensureLoaded("root");
+        expect(await service.close("root")).toBe(true);
+        expect(host.closed).toEqual([]);
+        release();
+        await rejectsAs(loading, BrowserTabNotFoundError, "Browser tab not found");
+        expect(host.closed).toEqual([{ controlUrl, tabId: "root" }]);
+        expect(service.tabIdForTarget("target:root")).toBeNull();
+        expect(service.get("root")).toBeNull();
     });
     it("resolveTarget returns null at once for app targets", async () => {
         heartbeat([], ["app", "park"]);
