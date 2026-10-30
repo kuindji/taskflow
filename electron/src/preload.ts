@@ -327,6 +327,13 @@ contextBridge.exposeInMainWorld("taskflow", {
             ipcRenderer.removeListener("backends-changed", listener);
         };
     },
+    onRemoteResume: (callback: () => void) => {
+        const listener = () => callback();
+        ipcRenderer.on("remote-resume", listener);
+        return () => {
+            ipcRenderer.removeListener("remote-resume", listener);
+        };
+    },
     onBackendDropped: (callback: (id: string, failure: TunnelFailure) => void) => {
         const listener = (
             _event: Electron.IpcRendererEvent,

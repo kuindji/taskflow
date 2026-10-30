@@ -726,9 +726,11 @@ async function runSwitch(id: string): Promise<SwitchResult> {
     return { ok: true };
 }
 
-window.taskflow?.onBackendsChanged(() => void useBackendStore.getState().refresh());
+const unsubscribeChanged = window.taskflow?.onBackendsChanged(
+    () => void useBackendStore.getState().refresh(),
+);
 
-window.taskflow?.onBackendDropped((id, failure) => {
+const unsubscribeDropped = window.taskflow?.onBackendDropped((id, failure) => {
     const machine = useBackendStore.getState().machines.find((m) => m.id === id);
     if (!machine || machine.isLocal || !machine.keepAttached) return;
     nextAttempt(id);
@@ -738,7 +740,7 @@ window.taskflow?.onBackendDropped((id, failure) => {
     reconnects.lost(id);
 });
 
-window.taskflow?.onBackendSeen((id) => {
+const unsubscribeSeen = window.taskflow?.onBackendSeen((id) => {
     // The beacon reappeared, which is positive evidence the machine woke up.
     // Re-attach now rather than waiting out the reconnect backoff. Only a machine
     // the user left attached: main announces every saved machine it sees, and a
@@ -755,3 +757,21 @@ window.taskflow?.onBackendSeen((id) => {
         else if (machine.state === "offline") useBackendStore.getState().retry(id);
     })();
 });
+
+const wakeRemotes = () => reconnects.retryNow();
+const unsubscribeResume = window.taskflow?.onRemoteResume?.(wakeRemotes);
+window.addEventListener("online", wakeRemotes);
+
+function disposeRemoteListeners(): void {
+    unsubscribeChanged?.();
+    unsubscribeDropped?.();
+    unsubscribeSeen?.();
+    unsubscribeResume?.();
+    window.removeEventListener("online", wakeRemotes);
+    window.removeEventListener("beforeunload", disposeRemoteListeners);
+    reconnects.dispose();
+    recovering.clear();
+    for (const id of attempts.keys()) nextAttempt(id);
+}
+window.addEventListener("beforeunload", disposeRemoteListeners);
+if (import.meta.hot) import.meta.hot.dispose(disposeRemoteListeners);

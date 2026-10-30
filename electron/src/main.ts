@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, nativeTheme, Notification } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, Notification, powerMonitor } from "electron";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 
@@ -50,6 +50,7 @@ import {
     setWordWrapChecked,
 } from "./app-menu";
 import { initAutoUpdater, clearUpdaterCache, setupAutoUpdater } from "./auto-updater";
+import { installRemoteWakeup } from "./remote-wakeup";
 import { createNotificationPoller, fetchBackendNotifications } from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { createBackendFetch } from "./backend-fetch";
@@ -58,6 +59,7 @@ import * as browserHost from "./browser-host";
 
 declare const BUILD_GIT_BRANCH: string;
 
+let disposeRemoteWakeup: (() => void) | undefined;
 let quitting = false;
 let confirmBeforeExit = false;
 let exitConfirmed = false;
@@ -215,6 +217,10 @@ registerIpcHandlers({
 // --- App lifecycle ---
 
 void app.whenReady().then(async () => {
+    disposeRemoteWakeup = installRemoteWakeup({
+        source: powerMonitor,
+        notify: () => getMainWindow()?.webContents.send("remote-resume"),
+    });
     try {
         const { port, token } = await startBackend(devBranch);
         setBackendPort(port);
@@ -283,6 +289,8 @@ app.on("before-quit", (e) => {
         }
         exitConfirmed = true;
     }
+    disposeRemoteWakeup?.();
+    disposeRemoteWakeup = undefined;
     stopTrayStatePolling();
     notificationPoller.stop();
     const savePromise = getWindowSavePromise();

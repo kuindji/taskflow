@@ -25,6 +25,7 @@ export const main: FakeMain = {
     confirmed: [],
 };
 
+let remoteResume: () => void = () => {};
 let backendSeen: (id: string) => void = () => {};
 let backendDropped: (id: string, failure: TunnelFailure) => void = () => {};
 
@@ -44,6 +45,7 @@ export const bridge: Pick<
     | "onBackendsChanged"
     | "onBackendDropped"
     | "onBackendSeen"
+    | "onRemoteResume"
     | "sendTrayState"
 > = {
     // Session state reports the tray on import; the bootstrap's flow store pulls it in.
@@ -62,16 +64,30 @@ export const bridge: Pick<
     onBackendsChanged: () => () => {},
     onBackendDropped: (handler) => {
         backendDropped = handler;
-        return () => {};
+        return () => {
+            if (backendDropped === handler) backendDropped = () => {};
+        };
+    },
+    onRemoteResume: (handler) => {
+        remoteResume = handler;
+        return () => {
+            if (remoteResume === handler) remoteResume = () => {};
+        };
     },
     onBackendSeen: (handler) => {
         backendSeen = handler;
-        return () => {};
+        return () => {
+            if (backendSeen === handler) backendSeen = () => {};
+        };
     },
 };
 
 export function emitBackendDropped(id: string, failure: TunnelFailure): void {
     backendDropped(id, failure);
+}
+
+export function emitRemoteResume(): void {
+    remoteResume();
 }
 
 export function emitBackendSeen(id: string): void {

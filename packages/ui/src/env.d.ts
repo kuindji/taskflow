@@ -129,6 +129,7 @@ interface TaskflowBridge {
         id: string,
     ): Promise<{ ok: true; fingerprint: string } | { ok: false; reason: string }>;
     onBackendsChanged(cb: () => void): () => void;
+    onRemoteResume(callback: () => void): () => void;
     onBackendDropped(cb: (id: string, failure: TunnelFailure) => void): () => void;
     onBackendSeen(cb: (id: string) => void): () => void;
     attachedRecordIds(): Promise<string[]>;

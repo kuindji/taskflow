@@ -14,6 +14,7 @@ import {
     bridge,
     emitBackendDropped,
     emitBackendSeen,
+    emitRemoteResume,
     installFakeBridge,
     main,
     resetFakeMain,
@@ -790,4 +791,48 @@ test("a refresh announcing the canonical id during confirmation preserves its re
     await waitUntil(() => row("abc123")?.state === "attached");
     expect(store.getState().machines.map((m) => m.id)).toEqual(["abc123"]);
     expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
+});
+
+test("OS resume wakes a pending remote reconnect", async () => {
+    await recoverySetup();
+    let calls = 0;
+    main.attachBackend = () => {
+        calls++;
+        return Promise.resolve({ ok: false, failure: failure("asleep") });
+    };
+    emitBackendDropped("abc123", failure("ssh exited"));
+    emitRemoteResume();
+    expect(calls).toBe(1);
+    await Bun.sleep(10);
+    expect(row("abc123")?.state).toBe("reconnecting");
+});
+test("online wakes a pending remote reconnect", async () => {
+    await recoverySetup();
+    let calls = 0;
+    main.attachBackend = () => {
+        calls++;
+        return Promise.resolve({ ok: false, failure: failure("asleep") });
+    };
+    emitBackendDropped("abc123", failure("ssh exited"));
+    window.dispatchEvent(new Event("online"));
+    expect(calls).toBe(1);
+    await Bun.sleep(10);
+});
+test("resume and online do not reconnect an explicitly detached backend", async () => {
+    await recoverySetup();
+    let calls = 0;
+    main.attachBackend = () => {
+        calls++;
+        return Promise.resolve({ ok: false, failure: failure("asleep") });
+    };
+    // Healthy connections ignore both signals too.
+    emitRemoteResume();
+    window.dispatchEvent(new Event("online"));
+    expect(calls).toBe(0);
+    emitBackendDropped("abc123", failure("ssh exited"));
+    await store.getState().detach("abc123");
+    emitRemoteResume();
+    window.dispatchEvent(new Event("online"));
+    await Bun.sleep(20);
+    expect(calls).toBe(0);
 });
