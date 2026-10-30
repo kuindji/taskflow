@@ -1,0 +1,4 @@
+# Section 4 review triage
+
+- [P2] Worker targets wait on `resolveTarget` (cdp-filter.ts `allowed`): **confirmed**. The service waits 2000 ms for any unknown id, and service/shared workers and the browser target are never in the registry. Each discovery event stalled the ordered upstream chain, which can let a held `createTarget` reply time out before its attach. My own check found the same thing. Fixed: a recorded type other than `page`/`tab` is denied at once; nested attaches under allowed sessions are unchanged. Two tests added.
+- Own notes, not changed: `listJson` resolves unknown page ids with the 2 s wait sequentially, but every page target is either a tab or in `appTargetIds`, so no wait happens in practice. `fromClient` isn't serialized, so a command that awaits (attach by id, cookies, createTarget) can be overtaken by a later synchronous one; replies route by id and no client depends on that order (spike runs pass).
