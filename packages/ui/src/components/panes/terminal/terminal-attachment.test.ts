@@ -200,3 +200,193 @@ describe("terminal attachment replay", () => {
         expect(f.writes[0]).toBe("new");
     });
 });
+
+describe("terminal attachment recovery", () => {
+    it("a sequence gap buffers output and requests a fresh snapshot", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(5);
+        f.output(6);
+        const good = [...f.writes];
+        f.output(8);
+        expect(f.snapshots.length).toBe(2);
+        expect(f.writes).toEqual(good);
+        f.snapshots[1].resolve(snapshot("repaired", 8));
+        await tick();
+        expect(f.writes[0]).toBe("repaired");
+        expect(f.histories.length).toBe(0);
+    });
+    it("another session counter never creates a gap in this session", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(100, "other", "s2");
+        f.output(5);
+        expect(f.snapshots.length).toBe(1);
+        expect(f.writes.at(-1)).toBe("chunk5");
+    });
+    it("a snapshot watermark filters old chunks and flushes newer chunks once", async () => {
+        const f = fixture();
+        const p = f.attachment.ensureLoaded();
+        f.output(4, "stale");
+        f.output(5);
+        f.output(6);
+        f.output(5);
+        f.snapshots[0].resolve(snapshot());
+        await p;
+        expect(f.writes.join("")).not.toContain("stale");
+        expect(f.writes.filter((v) => v === "chunk5")).toHaveLength(1);
+        expect(f.writes.filter((v) => v === "chunk6")).toHaveLength(1);
+        f.output(7);
+        expect(f.snapshots.length).toBe(1);
+    });
+    it("a lagging snapshot retains recent chunks already displayed before resync", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(5);
+        f.output(6);
+        const p = f.attachment.resync();
+        expect(f.writes.at(-1)).toBe("chunk6");
+        f.snapshots[1].resolve(snapshot("replacement"));
+        await p;
+        expect(f.writes.slice(-2)).toEqual(["chunk5", "chunk6"]);
+        expect(f.histories.length).toBe(0);
+    });
+    it("an unbridgeable snapshot falls back to queued session history", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(5);
+        f.output(6);
+        f.output(8);
+        f.snapshots[1].resolve(snapshot("incomplete"));
+        await tick();
+        expect(f.histories.length).toBe(1);
+        expect(f.writes[0]).toBe("screen");
+        f.histories[0].resolve({ data: "complete-history", lastSequence: 8 });
+        await tick();
+        expect(f.writes[0]).toBe("complete-history");
+        expect(f.writes.join("")).not.toContain("chunk8");
+    });
+    it("duplicate output does not write twice or trigger recovery", async () => {
+        const f = fixture();
+        await f.load();
+        f.output(5);
+        f.output(5);
+        f.output(4);
+        expect(f.writes.filter((v) => v === "chunk5")).toHaveLength(1);
+        expect(f.snapshots.length).toBe(1);
+    });
+    it("resync during an in flight attach coalesces into one follow up", async () => {
+        const f = fixture();
+        await f.load();
+        const p = f.attachment.resync();
+        const a = f.attachment.resync(),
+            b = f.attachment.resync();
+        expect(f.snapshots.length).toBe(2);
+        f.snapshots[1].resolve(snapshot());
+        await tick();
+        expect(f.snapshots.length).toBe(3);
+        f.snapshots[2].resolve(snapshot("latest"));
+        await Promise.all([p, a, b]);
+        expect(f.snapshots.length).toBe(3);
+    });
+    it("an exit marker during resync is shown once without changing the output sequence", async () => {
+        const f = fixture();
+        await f.load();
+        const p = f.attachment.resync();
+        f.output(5);
+        f.attachment.receiveExit(0);
+        f.output(6);
+        f.snapshots[1].resolve(snapshot());
+        await p;
+        expect(f.writes.join("").match(/Process exited/g)).toHaveLength(1);
+        f.output(7);
+        expect(f.snapshots.length).toBe(2);
+    });
+    it("a failed resync keeps the good screen dirty for the next recovery trigger", async () => {
+        const f = fixture();
+        await f.load();
+        const good = [...f.writes];
+        const p = f.attachment.resync().catch(() => undefined);
+        f.snapshots[1].reject(new Error("offline"));
+        await tick();
+        f.histories[0].reject(new Error("offline"));
+        await p;
+        expect(f.writes).toEqual(good);
+        f.output(5);
+        expect(f.snapshots.length).toBe(3);
+        expect(f.writes).toEqual(good);
+        f.snapshots[2].resolve(snapshot("recovered", 5));
+        await tick();
+        expect(f.writes[0]).toBe("recovered");
+    });
+    it("a null snapshot on a resync falls back to session history and repairs a missing tail with no later output", async () => {
+        const f = fixture();
+        await f.load();
+        const p = f.attachment.resync();
+        f.snapshots[1].resolve({ ...snapshot(), snapshot: null, lastSequence: 0 });
+        await tick();
+        expect(f.histories.length).toBe(1);
+        f.histories[0].resolve({ data: "screen-and-missing-tail", lastSequence: 5 });
+        await p;
+        expect(f.writes[0]).toBe("screen-and-missing-tail");
+        f.output(5, "duplicate-tail");
+        expect(f.writes.join("")).not.toContain("duplicate-tail");
+    });
+    it("a new drop while parsing leaves recovery dirty without a tight retry loop", async () => {
+        const f = fixture();
+        await f.load();
+        f.hold();
+        const p = f.attachment.resync().catch(() => undefined);
+        f.snapshots[1].resolve(snapshot());
+        await tick();
+        f.flushes.shift()?.resolve(undefined);
+        await tick();
+        f.output(6);
+        f.release();
+        await p;
+        expect(f.snapshots.length).toBe(2);
+        expect(f.writes.join("")).not.toContain("chunk6");
+        f.output(7);
+        expect(f.snapshots.length).toBe(3);
+        f.snapshots[2].resolve(snapshot("complete", 7));
+        await tick();
+    });
+    it("an incompatible non-null snapshot rejects without history fallback", async () => {
+        const f = fixture();
+        await f.load();
+        const p = f.attachment.resync().catch((error: unknown) => error);
+        f.snapshots[1].resolve({ snapshot: "legacy", lastSequence: 4 } as SessionSnapshotResponse);
+        const error: unknown = await p;
+        expect(error).toBeInstanceOf(Error);
+        expect(error instanceof Error ? error.message : "").toContain("Upgrade the remote backend");
+        expect(f.histories.length).toBe(0);
+        expect(f.writes[0]).toBe("screen");
+    });
+});
+
+it("recent retention falling short uses queued history before resetting", async () => {
+    const f = fixture();
+    await f.load();
+    f.output(5);
+    f.output(6, "x".repeat(128 * 1024));
+    const p = f.attachment.resync();
+    f.snapshots[1].resolve(snapshot("lagging"));
+    await tick();
+    expect(f.histories.length).toBe(1);
+    expect(f.writes[0]).toBe("screen");
+    f.histories[0].resolve({ data: "retained-history", lastSequence: 6 });
+    await p;
+    expect(f.writes[0]).toBe("retained-history");
+});
+
+it("the snapshot establishes a resumed session baseline above one", async () => {
+    const f = fixture();
+    const p = f.attachment.ensureLoaded();
+    f.output(37);
+    f.snapshots[0].resolve(snapshot("resumed", 36));
+    await p;
+    f.output(38);
+    expect(f.histories.length).toBe(0);
+    expect(f.snapshots.length).toBe(1);
+    expect(f.writes.slice(-2)).toEqual(["chunk37", "chunk38"]);
+});

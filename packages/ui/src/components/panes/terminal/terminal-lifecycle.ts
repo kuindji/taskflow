@@ -15,6 +15,7 @@ import {
 } from "@taskflow/shared";
 import type {
     TerminalOutputEvent,
+    TerminalResyncEvent,
     SessionExitedEvent,
     SessionHistoryResponse,
     SessionSnapshotResponse,
@@ -23,7 +24,8 @@ import type {
 import { middleTruncate } from "@/lib/middle-truncate";
 import { TimeBudgetedWriter } from "@/lib/time-budgeted-writer";
 import { isTerminalViewportAtBottom } from "@/lib/terminal-viewport";
-import { createTerminalAttachment } from "./terminal-attachment";
+import { onBackendReady } from "@/lib/backend-ready";
+import { createTerminalAttachment, subscribeTerminalRecovery } from "./terminal-attachment";
 import { createWebLinkHandler, sessionWorkspace } from "./terminal-links";
 import { createFilePathLinkProvider } from "./terminal-link-provider";
 import { refreshTerminal } from "./terminal-utils";
@@ -37,6 +39,7 @@ interface CachedTerminal {
     element: HTMLDivElement;
     unsubOutput: () => void;
     unsubExit: () => void;
+    unsubRecovery: () => void;
     ensureHistoryLoaded: () => Promise<void>;
     attachment: ReturnType<typeof createTerminalAttachment>;
     disposeRuntime: () => void;
@@ -237,6 +240,17 @@ function getOrCreateTerminal(
         if (event.sessionId === sessionId) attachment.receiveExit(event.exitCode);
     });
 
+    const unsubRecovery = subscribeTerminalRecovery({
+        sessionId,
+        backendId: () => sessionBackend(sessionId),
+        onResync: (handler) =>
+            onEvent(MSG.TERMINAL_RESYNC, (payload, backendId) =>
+                handler(payload as TerminalResyncEvent, backendId),
+            ),
+        onReady: onBackendReady,
+        resync: () => attachment.resync(),
+    });
+
     /** Session ids are unique across machines; its history lives where it runs. */
     function requestFromSessionMachine<T>(type: string, payload: unknown): Promise<T> {
         const backendId = sessionBackend(sessionId);
@@ -251,6 +265,7 @@ function getOrCreateTerminal(
         element,
         unsubOutput,
         unsubExit,
+        unsubRecovery,
         attachment,
         ensureHistoryLoaded: () => attachment.ensureLoaded(),
         disposeRuntime: () => {
@@ -279,6 +294,7 @@ function destroyTerminal(sessionId: string): void {
     const cached = terminalCache.get(sessionId);
     if (!cached) return;
     terminalCache.delete(sessionId);
+    cached.unsubRecovery();
     cached.attachment.dispose();
     cached.unsubOutput();
     cached.unsubExit();

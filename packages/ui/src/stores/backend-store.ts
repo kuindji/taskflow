@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { MSG, PROTOCOL_VERSION } from "@taskflow/shared";
 import type { SystemInfoResponse, TunnelFailure } from "@taskflow/shared";
+import { notifyBackendReady } from "@/lib/backend-ready";
 import { dirtyFilePaths } from "@/components/panes/editor-dirty-state";
 import { initConnectivity } from "@/hooks/useConnectivity";
 import {
@@ -301,7 +302,14 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
 
         patch(liveId, { state: "attached", failure: undefined, backendUid: info.backendUid });
         followSocket(liveId);
+        const liveAttempt = attempts.get(liveId);
         await get().bootstrapBackend(liveId);
+        if (
+            attempts.get(liveId) === liveAttempt &&
+            get().machines.find((m) => m.id === liveId)?.state === "attached"
+        ) {
+            notifyBackendReady(liveId);
+        }
         return liveId;
     },
 
@@ -432,6 +440,12 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
         }
         patch(id, { state: "attached", failure: undefined });
         await get().bootstrapBackend(id);
+        if (
+            attempts.get(id) === attempt &&
+            get().machines.find((m) => m.id === id)?.state === "attached"
+        ) {
+            notifyBackendReady(id);
+        }
     },
 
     retry(id) {

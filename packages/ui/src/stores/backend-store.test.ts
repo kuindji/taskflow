@@ -19,6 +19,8 @@ import {
     uninstallFakeBridge,
 } from "./fake-desktop-bridge";
 
+import { onBackendReady } from "@/lib/backend-ready";
+
 type Bridge = NonNullable<Window["taskflow"]>;
 type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
 
@@ -30,6 +32,7 @@ function startBackend(
     info: () => { protocolVersion: number; backendUid?: string },
     holdInfo?: (answer: () => void) => void,
     answerLists = true,
+    holdRequest?: (type: string, answer: () => void) => void,
 ): {
     origin: string;
     stop(): void;
@@ -51,7 +54,11 @@ function startBackend(
                         payload = { projects: [] };
                     }
                     if (answerLists && request.type === MSG.TASK_LIST) payload = { tasks: [] };
-                    ws.send(JSON.stringify({ correlationId, payload }));
+                    const answer = () => {
+                        ws.send(JSON.stringify({ correlationId, payload }));
+                    };
+                    if (holdRequest) holdRequest(request.type, answer);
+                    else answer();
                     return;
                 }
                 const answer = () => ws.send(JSON.stringify({ correlationId, payload: info() }));
@@ -509,4 +516,102 @@ test("attach opens the socket with the token main returned", async () => {
     main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
     expect(await store.getState().attach("abc123")).toBe("abc123");
     expect(tokenFor("abc123")).toBe(token);
+});
+
+async function waitUntil(check: () => boolean): Promise<void> {
+    const deadline = Date.now() + 2000;
+    while (!check()) {
+        if (Date.now() > deadline) throw new Error("Timed out");
+        await Bun.sleep(5);
+    }
+}
+
+describe("backend terminal readiness", () => {
+    test("backend ready is published after the canonical handshake and required bootstrap", async () => {
+        const ids: string[] = [];
+        cleanups.push(onBackendReady((id) => ids.push(id)));
+        let taskAnswer: (() => void) | null = null;
+        const backend = startBackend(
+            () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }),
+            undefined,
+            true,
+            (type, answer) => {
+                if (type === MSG.TASK_LIST) taskAnswer = answer;
+                else answer();
+            },
+        );
+        cleanups.push(backend.stop);
+        seedRow("provisional");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+        const attaching = store.getState().attach("provisional");
+        await waitUntil(() => taskAnswer !== null);
+        expect(row("abc123")?.state).toBe("attached");
+        expect(ids).toEqual([]);
+        const answer = taskAnswer as unknown as () => void;
+        answer();
+        await attaching;
+        expect(ids).toEqual(["abc123"]);
+        taskAnswer = null;
+        const reconnect = store.getState().rehandshake("abc123");
+        await waitUntil(() => taskAnswer !== null);
+        expect(ids).toEqual(["abc123"]);
+        (taskAnswer as unknown as () => void)();
+        await reconnect;
+        expect(ids).toEqual(["abc123", "abc123"]);
+    });
+    test("failed bootstrap does not publish backend ready", async () => {
+        const ids: string[] = [];
+        cleanups.push(onBackendReady((id) => ids.push(id)));
+        const backend = startBackend(
+            () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }),
+            undefined,
+            false,
+        );
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+        await store.getState().attach("abc123");
+        expect(row("abc123")?.state).toBe("offline");
+        await store.getState().rehandshake("abc123");
+        expect(ids).toEqual([]);
+    });
+    test("an incompatible or refused backend never publishes backend ready", async () => {
+        const ids: string[] = [];
+        cleanups.push(onBackendReady((id) => ids.push(id)));
+        let version = PROTOCOL_VERSION + 1;
+        const backend = startBackend(() => ({ protocolVersion: version, backendUid: "abc123" }));
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.reject(new Error("refused"));
+        expect(await store.getState().attach("abc123")).toBeNull();
+        version = PROTOCOL_VERSION;
+        expect(await store.getState().attach("abc123")).toBeNull();
+        expect(ids).toEqual([]);
+    });
+    test("a detach during bootstrap prevents a stale backend ready notification", async () => {
+        const ids: string[] = [];
+        cleanups.push(onBackendReady((id) => ids.push(id)));
+        let held = false;
+        const backend = startBackend(
+            () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }),
+            undefined,
+            true,
+            (type, answer) => {
+                if (type === MSG.TASK_LIST) held = true;
+                else answer();
+            },
+        );
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+        const attaching = store.getState().attach("abc123");
+        await waitUntil(() => held);
+        await store.getState().detach("abc123");
+        await attaching;
+        expect(ids).toEqual([]);
+    });
 });

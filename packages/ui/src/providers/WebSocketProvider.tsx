@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { initConnectivity } from "../hooks/useConnectivity";
-import { onPrimaryStatusChange, openConnection } from "../lib/connection-registry";
+import { onPrimaryStatusChange, onStatusChange, openConnection } from "../lib/connection-registry";
 import { LOCAL_BACKEND_ID, setPrimaryBackend, useBackendStore } from "../stores/backend-store";
+import { notifyBackendReady } from "../lib/backend-ready";
 import { WsContext } from "./ws-context";
 
 /** The non-Electron dev renderer: one connection to `VITE_BACKEND_PORT`, no machines. */
-async function connectDevRenderer(): Promise<void> {
+async function connectDevRenderer(): Promise<() => void> {
     const rawPort: string | undefined = import.meta.env.VITE_BACKEND_PORT as string | undefined;
     if (!rawPort) {
         throw new Error("VITE_BACKEND_PORT must be set when running the renderer outside Electron");
@@ -22,6 +23,11 @@ async function connectDevRenderer(): Promise<void> {
     }
     setPrimaryBackend(LOCAL_BACKEND_ID);
     await openConnection(LOCAL_BACKEND_ID, `http://localhost:${port}`, token);
+    let wasConnected = true;
+    return onStatusChange(LOCAL_BACKEND_ID, (status) => {
+        if (status.connected && !wasConnected) notifyBackendReady(LOCAL_BACKEND_ID);
+        wasConnected = status.connected;
+    });
 }
 
 async function attachAll(taskflow: NonNullable<Window["taskflow"]>): Promise<void> {
@@ -50,6 +56,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        let disposed = false;
+        let offReady = () => {};
         const unsubscribe = onPrimaryStatusChange((status) => {
             setConnected(status.connected);
             if (status.connected || status.reconnecting) {
@@ -63,7 +71,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
                 if (window.taskflow) {
                     await attachAll(window.taskflow);
                 } else {
-                    await connectDevRenderer();
+                    const off = await connectDevRenderer();
+                    if (disposed) {
+                        off();
+                        return;
+                    }
+                    offReady = off;
                     initConnectivity(LOCAL_BACKEND_ID);
                 }
             } catch (err) {
@@ -72,7 +85,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         }
         void connect();
 
-        return unsubscribe;
+        return () => {
+            disposed = true;
+            unsubscribe();
+            offReady();
+        };
     }, []);
 
     return <WsContext.Provider value={{ connected, error }}>{children}</WsContext.Provider>;
