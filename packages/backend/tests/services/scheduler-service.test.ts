@@ -451,3 +451,25 @@ it("deletion during registration closes the run when the caller saw no runningSe
     expect(active()).toHaveLength(0);
     expect(await store.getById("s1")).toBeNull();
 });
+it("a pending overdue spawn holds neither init nor other overdue schedules", async () => {
+    const overdue = new Date(start - 60_000).toISOString();
+    await save({ nextRunAt: overdue });
+    await store.save({ ...(await record()), id: "s2", name: "Other" });
+    const pending = pendingSpawn();
+    await service.init();
+    for (let i = 0; i < 100 && spawned.length < 2; i++) await Bun.sleep(2);
+    expect(spawned.map((s) => s.id).sort()).toEqual(["s1", "s2"]);
+    pending.resolve({ sessionId: "late", isShell: false });
+    await drain();
+});
+it("a scheduling failure is recorded once across ticks", async () => {
+    await save({ expression: "rate(soon)", nextRunAt: null });
+    await service.init();
+    expect((await record()).lastError).toBe(
+        "Failed to schedule: Invalid rate expression: rate(soon)",
+    );
+    const before = await readFile(file, "utf-8");
+    now += 30_000;
+    await fireAndDrain(timer(30_000));
+    expect(await readFile(file, "utf-8")).toBe(before);
+});

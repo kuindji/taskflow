@@ -126,7 +126,22 @@ class SchedulerService {
                 try {
                     await this.scheduleNext(schedule.id);
                 } catch (error) {
+                    const lastError = `Failed to schedule: ${error instanceof Error ? error.message : String(error)}`;
+                    // The tick repeats this check; record a failure once, not every 30 s.
+                    if (schedule.lastError === lastError) continue;
                     console.error(`Failed to schedule "${schedule.name}" (${schedule.id}):`, error);
+                    try {
+                        await this.deps.scheduleStore.update(schedule.id, (s) => ({
+                            ...s,
+                            lastError,
+                            updatedAt: new Date(this.now()).toISOString(),
+                        }));
+                    } catch (writeError) {
+                        console.error(
+                            `Failed to record schedule error ${schedule.id}:`,
+                            writeError,
+                        );
+                    }
                 }
             }
         }
@@ -157,7 +172,8 @@ class SchedulerService {
         if (this.stopped || !schedule.enabled || this.admitted.has(scheduleId)) return;
         const delay = Date.parse(schedule.nextRunAt ?? "") - this.now();
         if (delay <= 0) {
-            await this.execute(scheduleId, "scheduled");
+            // execute admits synchronously; don't hold the due scan or init open on its spawn.
+            this.background(this.execute(scheduleId, "scheduled"));
         } else {
             // Concurrent checks may have read together; replace the timer at installation too.
             this.clearTimer(scheduleId);
