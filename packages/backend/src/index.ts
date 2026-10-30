@@ -202,6 +202,7 @@ async function main() {
                 const sessionId = await sessionLifecycle.createSession({
                     owner: { projectId: schedule.projectId },
                     type: sessionType,
+                    shell: isShell ? (systemShellPath ?? undefined) : undefined,
                     label: `[Scheduled] ${schedule.name}`,
                     prompt,
                     systemPrompt: isShell ? undefined : SYSTEM_PROMPT_ADDON,
