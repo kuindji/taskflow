@@ -161,6 +161,8 @@ function createCdpGateway({
             if (info.type !== "page" || typeof targetId !== "string" || seen.has(targetId)) return;
             seen.add(targetId);
             const tab = await service.resolveTarget(targetId);
+            // Not registered yet: a later targetInfoChanged tries again.
+            if (!tab) seen.delete(targetId);
             if (!tab || !service.familyOf(tabId).has(tab.tabId)) return;
             if (ws.readyState === WebSocket.OPEN)
                 attaches.add(send("Target.attachToTarget", { targetId, flatten: true }));
@@ -171,7 +173,7 @@ function createCdpGateway({
         ws.addEventListener("message", (event) => {
             try {
                 const m = JSON.parse(String(event.data)) as CdpMessage;
-                if (m.method === "Target.targetCreated")
+                if (m.method === "Target.targetCreated" || m.method === "Target.targetInfoChanged")
                     void consider(record(m.params?.targetInfo));
                 else if (m.method === "Target.targetDestroyed") {
                     if (typeof m.params?.targetId === "string") seen.delete(m.params.targetId);

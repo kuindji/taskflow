@@ -35,7 +35,12 @@ function deferred() {
 }
 
 async function fixture(
-    options: { unavailable?: boolean; loadGate?: Promise<void>; infoGate?: Promise<void> } = {},
+    options: {
+        unavailable?: boolean;
+        loadGate?: Promise<void>;
+        infoGate?: Promise<void>;
+        resolveTarget?: BrowserTabService["resolveTarget"];
+    } = {},
 ) {
     const upstreamSockets = new Set<ServerWebSocket<{ id: number }>>();
     const records: Array<{ connection: number; message: CdpMessage }> = [];
@@ -181,8 +186,10 @@ async function fixture(
             if (options.loadGate) await options.loadGate;
             return { targetId: "T-root", debugPort: upstream.port! };
         },
-        resolveTarget: async (id) =>
-            id === "T-root" ? { tabId: "root" } : id === "T-child" ? { tabId: "child" } : null,
+        resolveTarget:
+            options.resolveTarget ??
+            (async (id) =>
+                id === "T-root" ? { tabId: "root" } : id === "T-child" ? { tabId: "child" } : null),
         tabIdForTarget: (id) => (id === "T-root" ? "root" : id === "T-child" ? "child" : null),
         familyOf: () => new Set(["root", "child"]),
         addAgentConnection: (_id, delta) => {
@@ -338,6 +345,35 @@ it("keeps every family page awake on its own upstream connection while the clien
     c.ws.close();
     await c.closed;
     await until(() => f.upstreamSockets.size === 0);
+});
+
+it("keep-awake retries a page that registers late when its info changes", async () => {
+    let childKnown = false;
+    const f = await fixture({
+        resolveTarget: async (id) =>
+            id === "T-root"
+                ? { tabId: "root" }
+                : id === "T-child" && childKnown
+                  ? { tabId: "child" }
+                  : null,
+    });
+    f.connect();
+    const emulated = () =>
+        f.records
+            .filter((r) => r.message.method === "Emulation.setFocusEmulationEnabled")
+            .map((r) => r.message.sessionId);
+    await until(() => emulated().length === 1);
+    childKnown = true;
+    for (const ws of f.upstreamSockets)
+        if (ws.data.id === 2)
+            ws.send(
+                JSON.stringify({
+                    method: "Target.targetInfoChanged",
+                    params: { targetInfo: { targetId: "T-child", type: "page" } },
+                }),
+            );
+    await until(() => emulated().length === 2);
+    expect(emulated().sort()).toEqual(["helper-2", "helper-2-child"]);
 });
 
 it("pageOfTabTarget answers from a separate upstream connection and closes it", async () => {
