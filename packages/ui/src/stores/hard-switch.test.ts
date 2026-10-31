@@ -79,12 +79,12 @@ afterAll(uninstallFakeBridge);
 
 beforeEach(answerAsMain);
 
-afterEach(() => {
+afterEach(async () => {
     for (const machine of store.getState().machines) closeConnection(machine.id, "detach");
     for (const server of servers.values()) server.stop();
     servers.clear();
     dials.length = 0;
-    resetFakeMain();
+    await resetFakeMain();
     store.setState({ machines: [], primaryId: null });
 });
 
