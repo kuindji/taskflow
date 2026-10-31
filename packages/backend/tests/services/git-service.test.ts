@@ -387,6 +387,13 @@ describe("GitService", () => {
         expect(status.unstagedFiles[0].path).toBe("a.txt");
     });
 
+    it("unstages both sides of a staged rename", async () => {
+        await run(["git", "mv", "initial.txt", "renamed file.txt"], repoDir);
+        await git.unstage(repoDir, "renamed file.txt");
+        const status = await git.status(repoDir);
+        expect(status.stagedFiles).toHaveLength(0);
+    });
+
     it("unstages all files", async () => {
         await writeFile(join(repoDir, "a.txt"), "aaa");
         await writeFile(join(repoDir, "b.txt"), "bbb");

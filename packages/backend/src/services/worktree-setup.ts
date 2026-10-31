@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, win32 } from "path";
 import type { TaskStore } from "./task-store";
 import type { GitService } from "./git-service";
 import type { TaskWorktree, WsEvent } from "@taskflow/shared";
@@ -19,6 +19,23 @@ interface WorktreeSetupDeps {
     ptyManager?: PtyManager;
     systemShellPath?: string | null;
     logToTask?: (taskId: string, type: "info" | "warning", message: string) => Promise<void>;
+}
+
+/**
+ * The line typed into the init shell: run the command, then exit with its
+ * status so the setup can tell success from failure.
+ */
+function initCommandLine(shellPath: string, command: string): string {
+    // win32.basename splits on both separators, so it also handles POSIX paths
+    const shell = win32
+        .basename(shellPath)
+        .replace(/\.exe$/i, "")
+        .toLowerCase();
+    if (shell === "cmd") return `${command} && exit 0 || exit 1`;
+    if (shell === "powershell" || shell === "pwsh") {
+        return `${command}; if ($?) { exit 0 } else { exit 1 }`;
+    }
+    return `${command}; exit $?`;
 }
 
 export function createWorktreeSetup(deps: WorktreeSetupDeps) {
@@ -58,7 +75,10 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
                 // Small delay to let the PTY initialize before writing
                 setTimeout(() => {
                     try {
-                        ptyManager.write(sessionId, `${initCommand}; exit $?\r`);
+                        ptyManager.write(
+                            sessionId,
+                            `${initCommandLine(systemShellPath, initCommand)}\r`,
+                        );
                     } catch {
                         // Session may have already exited
                         if (!resolved) {
@@ -98,13 +118,14 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
         initCommand?: string,
     ): Promise<void> {
         const task = await taskStore.getTask(taskId);
-        if (!task || !task.worktree.enabled || task.worktree.path) return;
+        // A subtask works in its parent's worktree; setWorktree hands it over.
+        if (!task || task.parentId || !task.worktree.enabled || task.worktree.path) return;
 
         const project = await taskStore.getProject(task.projectId);
         if (!project) return;
 
-        const slug = slugify(nameSource);
-        if (!slug) return;
+        // A title without ASCII letters or digits slugifies to nothing
+        const slug = slugify(nameSource) || `task-${task.id.slice(0, 8)}`;
 
         const branch = `task/${slug}`;
         const worktreePath = join(project.path, ".worktrees", slug);

@@ -433,7 +433,14 @@ export class GitService {
 
     async unstage(repoPath: string, filePath?: string): Promise<void> {
         if (filePath) {
-            await git(["restore", "--staged", "--", filePath], repoPath, {
+            // A staged rename shows under its new path; restoring only that path
+            // would leave the old path's deletion staged.
+            const { stagedFiles } = await this.status(repoPath);
+            const previousPath = stagedFiles.find(
+                (file) => file.path === filePath && file.status === "renamed",
+            )?.previousPath;
+            const paths = previousPath ? [previousPath, filePath] : [filePath];
+            await git(["restore", "--staged", "--", ...paths], repoPath, {
                 literalPathspecs: true,
             });
         } else {
