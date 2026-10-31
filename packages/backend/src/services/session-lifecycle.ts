@@ -29,6 +29,7 @@ import {
     acquireNativeSessionLaunchLock,
     captureNativeSessionIds,
     discoverNativeSessionId,
+    newPiSessionPath,
 } from "./native-session-discovery";
 import {
     accountEnv,
@@ -412,6 +413,15 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 (task?.worktree.enabled && task.worktree.path ? task.worktree.path : project.path);
         }
 
+        // Agents Taskflow can tell which conversation to start skip discovery.
+        const newNativeSessionId = opts.resumeSession
+            ? undefined
+            : type === "claude"
+              ? sessionId
+              : type === "pi"
+                ? newPiSessionPath(cwd)
+                : undefined;
+
         let command: string;
         const args: string[] = [];
         let specEnv: Record<string, string> | undefined;
@@ -543,7 +553,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     !!flow,
                     opts.resumeSession
                         ? { mode: "resume", id: opts.resumeSession.nativeSessionId }
-                        : { mode: "new", ...(type === "claude" && { id: sessionId }) },
+                        : { mode: "new", id: newNativeSessionId },
                 );
                 command = spec.command;
                 if (opts.sessionName && type === "claude") {
@@ -585,7 +595,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             : { data: "", lastSequence: 0 };
 
         let appendErrorLogged = false;
-        const needsNativeDiscovery = !opts.resumeSession && isAgentType(type) && type !== "claude";
+        const needsNativeDiscovery =
+            !opts.resumeSession && isAgentType(type) && newNativeSessionId === undefined;
         const acquiredNativeLaunchLock = needsNativeDiscovery
             ? await nativeSessionDiscovery.acquire(type, accountHomeDir)
             : null;
@@ -726,8 +737,8 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
                         ...(opts.resumeSession?.nativeSessionId
                             ? { nativeSessionId: opts.resumeSession.nativeSessionId }
-                            : type === "claude"
-                              ? { nativeSessionId: sessionId }
+                            : newNativeSessionId
+                              ? { nativeSessionId: newNativeSessionId }
                               : {}),
                         ...(flow && { flow }),
                         ...(opts.trayExclude && { trayExclude: true }),

@@ -544,6 +544,22 @@ describe("buildAgentLaunchSpec native resume", () => {
         const index = spec.args.indexOf("--session-id");
         expect(spec.args[index + 1]).toBe("taskflow-session-id");
     });
+
+    it("starts a new Pi session on its preassigned session file", () => {
+        const spec = buildAgentLaunchSpec(
+            "pi",
+            "Start work",
+            SKILL,
+            { type: "pi" },
+            undefined,
+            false,
+            false,
+            { mode: "new", id: "/sessions/new.jsonl" },
+        );
+        const index = spec.args.indexOf("--session");
+        expect(spec.args[index + 1]).toBe("/sessions/new.jsonl");
+        expect(spec.args.at(-1)).toBe("Start work");
+    });
 });
 
 describe("internal agent skill files", () => {

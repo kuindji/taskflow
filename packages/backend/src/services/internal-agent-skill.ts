@@ -294,9 +294,8 @@ export function buildAgentLaunchSpec(
                 ...optionArgs,
                 "--append-system-prompt",
                 systemPrompt,
-                ...(nativeSession?.mode === "resume" && nativeSession.id
-                    ? ["--session", nativeSession.id]
-                    : []),
+                // A new session's ID is the session file Taskflow assigned it.
+                ...(nativeSession?.id ? ["--session", nativeSession.id] : []),
                 ...(prompt ? [prompt] : []),
             ],
         };

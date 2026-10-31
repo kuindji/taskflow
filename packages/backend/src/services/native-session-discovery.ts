@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { mkdir, readdir, readFile, rm, stat } from "fs/promises";
@@ -97,20 +97,24 @@ async function openCodeCandidates(since: number): Promise<NativeSessionCandidate
     }
 }
 
-async function piCandidates(since: number): Promise<NativeSessionCandidate[]> {
-    const files = await recentFiles(join(homedir(), ".pi", "agent", "sessions"), since);
-    const candidates: NativeSessionCandidate[] = [];
-    for (const file of files.filter((path) => path.endsWith(".jsonl"))) {
-        try {
-            const info = await stat(file);
-            // Pi accepts either an ID or an exact session path. The path avoids
-            // having to infer the UUID from its timestamp-prefixed filename.
-            candidates.push({ id: file, createdAt: info.birthtimeMs || info.mtimeMs });
-        } catch {
-            continue;
-        }
-    }
-    return candidates;
+/**
+ * A path for a new Pi conversation, in Pi's own per-directory store
+ * (`~/.pi/agent/sessions/--<cwd>--/`). `pi --session <path>` starts a new
+ * conversation there when the file does not exist yet, so Taskflow knows the
+ * conversation from launch instead of discovering it: Pi writes the file only
+ * after the first assistant reply, which may come long after launch.
+ */
+function newPiSessionPath(cwd: string): string {
+    const encodedCwd = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    return join(
+        homedir(),
+        ".pi",
+        "agent",
+        "sessions",
+        encodedCwd,
+        `${timestamp}_${randomUUID()}.jsonl`,
+    );
 }
 
 /**
@@ -142,7 +146,6 @@ async function candidatesFor(
 ): Promise<NativeSessionCandidate[]> {
     if (type === "codex") return codexCandidates(since, homeDir);
     if (type === "opencode") return openCodeCandidates(since);
-    if (type === "pi") return piCandidates(since);
     if (type === "kimi") return kimiCandidates(since, homeDir);
     return [];
 }
@@ -216,4 +219,9 @@ async function captureNativeSessionIds(
     );
 }
 
-export { acquireNativeSessionLaunchLock, captureNativeSessionIds, discoverNativeSessionId };
+export {
+    acquireNativeSessionLaunchLock,
+    captureNativeSessionIds,
+    discoverNativeSessionId,
+    newPiSessionPath,
+};

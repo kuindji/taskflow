@@ -10,7 +10,7 @@ import { TaskStore } from "../../src/services/task-store";
 import { createSessionLifecycle } from "../../src/services/session-lifecycle";
 import { mkdtemp, mkdir, rm, realpath, stat } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
 import type { PiModelsResponse, SessionRef } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
@@ -233,6 +233,21 @@ describe("session handlers", () => {
         expect(piProbes[0].cwd).toBe(spawn.cwd);
         expect(piProbes[0].env?.PATH).toBeTruthy();
         expect(piProbes[0].env?.CLAUDECODE).toBeUndefined();
+    });
+    it("a new Pi session records the session file it was launched on, without discovery", async () => {
+        const task = await store.createTask({ projectId, title: "Pi", description: "" });
+        const id = await sessionLifecycle.createSession({ owner: { taskId: task.id }, type: "pi" });
+        const args = ptyManager.spawns.at(-1)?.args ?? [];
+        const sessionFile = args[args.indexOf("--session") + 1];
+        const encodedCwd = `--${join(tempDir, "project")
+            .replace(/^[/\\]/, "")
+            .replace(/[/\\:]/g, "-")}--`;
+        expect(sessionFile).toStartWith(join(homedir(), ".pi", "agent", "sessions", encodedCwd));
+        expect(sessionFile).toEndWith(".jsonl");
+        expect(
+            (await store.getTask(task.id))?.sessions.find((s) => s.id === id)?.nativeSessionId,
+        ).toBe(sessionFile);
+        expect(discoveryHomes).toHaveLength(0);
     });
     it("Pi normalization uses the effective model after session defaults are merged", async () => {
         const settings = await settingsStore.get();
