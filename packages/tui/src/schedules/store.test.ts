@@ -92,6 +92,26 @@ describe("ScheduleStore", () => {
         expect(store.schedules).toEqual([{ ...schedule("s1"), enabled: true }]);
     });
 
+    it("drops a schedule another client deleted, also from a load already in flight", async () => {
+        const net = fakeNet();
+        net.respond(MSG.SCHEDULE_LIST, { schedules: [schedule("s1"), schedule("s2")] });
+        const store = new ScheduleStore(net);
+        await store.load("p1");
+        net.emit(MSG.SCHEDULE_DELETED, { id: "s1" });
+        expect(store.schedules.map((item) => item.id)).toEqual(["s2"]);
+
+        let resolveLoad: ((value: { schedules: Schedule[] }) => void) | undefined;
+        net.request = (<T>(): Promise<T> =>
+            new Promise((resolve) => {
+                resolveLoad = resolve as (value: { schedules: Schedule[] }) => void;
+            })) as NetLike["request"];
+        const loading = store.load("p1");
+        net.emit(MSG.SCHEDULE_DELETED, { id: "s2" });
+        resolveLoad?.({ schedules: [schedule("s2")] });
+        await loading;
+        expect(store.schedules).toEqual([]);
+    });
+
     it("changes local state only after successful mutations", async () => {
         const net = fakeNet();
         net.respond(MSG.SCHEDULE_LIST, { schedules: [schedule("s1")] });
@@ -110,9 +130,11 @@ describe("ScheduleStore", () => {
         const net = fakeNet();
         const store = new ScheduleStore(net);
         expect(net.listenerCount(MSG.SCHEDULE_UPDATED)).toBe(1);
+        expect(net.listenerCount(MSG.SCHEDULE_DELETED)).toBe(1);
         store.dispose();
         store.dispose();
         expect(net.listenerCount(MSG.SCHEDULE_UPDATED)).toBe(0);
+        expect(net.listenerCount(MSG.SCHEDULE_DELETED)).toBe(0);
     });
 
     it("prevents an older project response from replacing a newer load", async () => {

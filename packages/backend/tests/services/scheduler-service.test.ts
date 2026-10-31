@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { Schedule, WsEvent } from "@taskflow/shared";
+import { MSG } from "@taskflow/shared";
 import { ScheduleStore } from "../../src/services/schedule-store";
 import { SchedulerService } from "../../src/services/scheduler-service";
 import { expectRejects } from "../expect-rejects";
@@ -472,4 +473,11 @@ it("a scheduling failure is recorded once across ticks", async () => {
     now += 30_000;
     await fireAndDrain(timer(30_000));
     expect(await readFile(file, "utf-8")).toBe(before);
+});
+it("tells connected clients a schedule was deleted", async () => {
+    await save();
+    events.length = 0;
+    await store.delete("s1");
+    await service.onScheduleDeleted("s1", null);
+    expect(events).toEqual([{ type: MSG.SCHEDULE_DELETED, payload: { id: "s1" } }]);
 });

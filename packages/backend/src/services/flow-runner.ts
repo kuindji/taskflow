@@ -102,13 +102,7 @@ class FlowRunner {
         const ownerId = this.getOwnerId(owner);
 
         return this.withOwnerLock(ownerId, async () => {
-            const existingRuns = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
-            const activeRun = existingRuns.find(
-                (r) => r.status === "running" || r.status === "paused",
-            );
-            if (activeRun) {
-                throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
-            }
+            await this.assertNoOtherActiveRun(ownerId);
 
             // Overwrite only terminal runs; active runs are blocked above
             const existingRun = await this.deps.flowStore.getFlowRun(ownerId, flow.id);
@@ -223,6 +217,9 @@ class FlowRunner {
             if (targetIndex < 0 || targetIndex >= run.actions.length) {
                 throw new Error(`Invalid action index: ${targetIndex}`);
             }
+            // Jumping reopens an ended run, so it must respect the one active
+            // flow per owner rule that startFlow enforces.
+            await this.assertNoOtherActiveRun(ownerId, flowId);
 
             const currentActionIndex = run.currentActionIndex;
             const currentAction = run.actions[currentActionIndex];
@@ -552,6 +549,16 @@ class FlowRunner {
         throw new Error("FlowOwner must have taskId, projectId, or master");
     }
 
+    private async assertNoOtherActiveRun(ownerId: string, exceptFlowId?: string): Promise<void> {
+        const runs = await this.deps.flowStore.getFlowRunsForOwner(ownerId);
+        const activeRun = runs.find(
+            (r) => r.flowId !== exceptFlowId && (r.status === "running" || r.status === "paused"),
+        );
+        if (activeRun) {
+            throw new Error(`Owner already has an active flow: ${activeRun.flowId}`);
+        }
+    }
+
     private ownerFromRun(run: FlowRun): FlowOwner {
         if (run.taskId) return { taskId: run.taskId };
         if (run.projectId) return { projectId: run.projectId };
@@ -644,8 +651,15 @@ class FlowRunner {
         run: FlowRun,
         actionIndex: number,
     ): Promise<void> {
-        const actionEntry = flow.actions[actionIndex];
-        if (!actionEntry) return;
+        // The run keeps the step list it started with; the definition may have
+        // been edited since, so find the step by id rather than by position.
+        const actionEntryId = run.actions[actionIndex].actionEntryId;
+        const actionEntry = flow.actions.find((entry) => entry.id === actionEntryId);
+        if (!actionEntry) {
+            throw new Error(
+                `Flow "${flow.id}" no longer has action "${actionEntryId}"; skip it or jump to another action`,
+            );
+        }
 
         const resolved = await this.resolveAction(actionEntry);
         // Persisted flows may reference removed agent types; fail the action

@@ -3,6 +3,7 @@ import type {
     Schedule,
     ScheduleCreatePayload,
     ScheduleUpdatePayload,
+    ScheduleDeletePayload,
     ScheduleListResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
@@ -108,9 +109,19 @@ const _unsubScheduleUpdated = onEvent(MSG.SCHEDULE_UPDATED, (payload, backendId)
     }
 });
 
+// Another client or an agent's `taskflow-cli schedule delete` removed it.
+const _unsubScheduleDeleted = onEvent(MSG.SCHEDULE_DELETED, (payload, backendId) => {
+    if (payload && typeof payload === "object" && "id" in payload) {
+        const { id } = payload as ScheduleDeletePayload;
+        slices.apply(backendId, (items) => items.filter((sc) => sc.id !== id));
+        publish();
+    }
+});
+
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
         _unsubScheduleUpdated();
+        _unsubScheduleDeleted();
     });
 }
 

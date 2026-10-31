@@ -2,6 +2,7 @@ import { MSG } from "@taskflow/shared";
 import type {
     Schedule,
     ScheduleCreatePayload,
+    ScheduleDeletePayload,
     ScheduleListResponse,
     ScheduleUpdatePayload,
 } from "@taskflow/shared";
@@ -20,7 +21,11 @@ class ScheduleStore {
     private projectFilter: string | undefined;
     private readonly listeners = new Set<() => void>();
     private readonly disposers: (() => void)[] = [];
-    private readonly eventUpdates = new Map<string, { revision: number; schedule: Schedule }>();
+    // Keyed by schedule id; a null schedule records a deletion.
+    private readonly eventUpdates = new Map<
+        string,
+        { revision: number; schedule: Schedule | null }
+    >();
     private loadToken = 0;
     private eventRevision = 0;
     private disposed = false;
@@ -37,6 +42,13 @@ class ScheduleStore {
                 } else {
                     this.scheduleList = this.scheduleList.filter((item) => item.id !== schedule.id);
                 }
+                this.notify();
+            }),
+            net.on(MSG.SCHEDULE_DELETED, (payload) => {
+                if (!payload || typeof payload !== "object" || !("id" in payload)) return;
+                const { id } = payload as ScheduleDeletePayload;
+                this.eventUpdates.set(id, { revision: ++this.eventRevision, schedule: null });
+                this.scheduleList = this.scheduleList.filter((item) => item.id !== id);
                 this.notify();
             }),
         );
@@ -75,9 +87,11 @@ class ScheduleStore {
         });
         if (this.disposed || token !== this.loadToken) return;
         let schedules = response.schedules;
-        for (const update of this.eventUpdates.values()) {
+        for (const [id, update] of this.eventUpdates) {
             if (update.revision <= revision) continue;
-            schedules = upsert(schedules, update.schedule);
+            schedules = update.schedule
+                ? upsert(schedules, update.schedule)
+                : schedules.filter((item) => item.id !== id);
         }
         this.scheduleList = schedules.filter((schedule) => this.matchesFilter(schedule));
         this.notify();

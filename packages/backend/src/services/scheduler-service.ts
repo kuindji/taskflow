@@ -1,5 +1,5 @@
 import { CronExpressionParser } from "cron-parser";
-import type { Schedule, WsEvent } from "@taskflow/shared";
+import type { Schedule, ScheduleDeletePayload, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import type { ScheduleStore } from "./schedule-store";
 
@@ -395,6 +395,8 @@ class SchedulerService {
         this.runningSessions.delete(scheduleId);
         this.admitted.delete(scheduleId);
         if (sessionId) this.deps.closeSession(sessionId);
+        const payload: ScheduleDeletePayload = { id: scheduleId };
+        this.deps.broadcast({ type: MSG.SCHEDULE_DELETED, payload });
     }
 
     async triggerNow(scheduleId: string): Promise<void> {

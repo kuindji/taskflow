@@ -3,6 +3,7 @@ import { FlowRunner } from "../flow-runner";
 import type { FlowStore } from "../flow-store";
 import type { FlowDefinition, FlowRun, ActionDefinition, FlowOwner } from "@taskflow/shared";
 import { MASTER_OWNER_ID, MSG, getFlowRunOwnerId } from "@taskflow/shared";
+import { expectRejects } from "../../../tests/expect-rejects";
 
 function createMockFlowStore(): FlowStore {
     const runs = new Map<string, FlowRun>();
@@ -249,6 +250,45 @@ describe("handleActionComplete", () => {
         const run = await flowStore.getFlowRun("task-1", "flow-1");
         expect(run?.status).toBe("completed");
     });
+
+    test("pauses with the next step failed when that step was removed from the definition", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await flowStore.saveFlow({ ...testFlow, actions: [testFlow.actions[0]] });
+
+        await expectRejects(
+            runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId),
+            "entry-2",
+        );
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(spawnedSessions).toHaveLength(1);
+        expect(run?.status).toBe("paused");
+        expect(run?.actions[1].status).toBe("failed");
+    });
+
+    test("launches the run's next step even after the definition reorders its steps", async () => {
+        const extra = {
+            id: "entry-3",
+            inline: { name: "Ship", prompt: "Ship it", sessionType: "claude" as const },
+        };
+        const threeStep: FlowDefinition = {
+            ...testFlow,
+            actions: [...testFlow.actions, extra],
+        };
+        await flowStore.saveFlow(threeStep);
+        await runner.startFlow(taskOwner, threeStep);
+        await flowStore.saveFlow({
+            ...threeStep,
+            actions: [testFlow.actions[0], extra, testFlow.actions[1]],
+        });
+
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.actions[1].actionEntryId).toBe("entry-2");
+        expect(run?.actions[1].sessionId).toBe("session-2");
+        expect(spawnedSessions[1].prompt).toBe("Review the plan");
+    });
 });
 
 describe("skipAction", () => {
@@ -278,6 +318,22 @@ describe("jumpToAction", () => {
         expect(run?.actions[1].status).toBe("pending");
         expect(run?.actions[1].sessionId).toBeUndefined();
         expect(closedSessions).toEqual(["session-1", "session-2"]);
+    });
+
+    test("refuses to reopen an ended run while another flow is active on the owner", async () => {
+        await runner.startFlow(taskOwner, testFlow);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[0].sessionId);
+        await runner.handleActionComplete("task-1", "flow-1", spawnedSessions[1].sessionId);
+        await runner.startFlow(taskOwner, loopFlow);
+
+        await expectRejects(
+            runner.jumpToAction("task-1", "flow-1", 0),
+            "Owner already has an active flow: loop-flow",
+        );
+
+        const run = await flowStore.getFlowRun("task-1", "flow-1");
+        expect(run?.status).toBe("completed");
+        expect(spawnedSessions).toHaveLength(3);
     });
 });
 

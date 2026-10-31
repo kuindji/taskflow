@@ -187,6 +187,7 @@ export const MSG = {
     SCHEDULE_DELETE: "schedule:delete",
     SCHEDULE_TRIGGER: "schedule:trigger",
     SCHEDULE_UPDATED: "schedule:updated",
+    SCHEDULE_DELETED: "schedule:deleted",
 
     // Browser
     BROWSER_TABS_LIST: "browser:tabs:list",
