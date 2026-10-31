@@ -97,6 +97,9 @@ class RemoteAgentService {
         const settings = await this.deps.settingsStore.get();
         const appName = await this.getAppName();
 
+        // The PTY spawns, and can exit, before createSession resolves.
+        let starting = true;
+        let exitedWhileStarting = false;
         const sessionId = await this.deps.sessionLifecycle.createSession({
             owner: { master: true },
             type: "claude",
@@ -114,9 +117,14 @@ class RemoteAgentService {
             internal: settings.remoteAgent.headless,
             trayExclude: true,
             onSessionExited: (exitedSessionId) => {
+                if (starting) {
+                    exitedWhileStarting = true;
+                    return;
+                }
                 this.handleSessionExit(exitedSessionId);
             },
         });
+        starting = false;
 
         if (this.explicitlyStopped) {
             // Stop was pressed while this session was still starting.
@@ -125,6 +133,11 @@ class RemoteAgentService {
             } catch {
                 // Session may already be gone
             }
+            return this.getStatus();
+        }
+
+        if (exitedWhileStarting) {
+            this.afterSessionExit();
             return this.getStatus();
         }
 
@@ -192,6 +205,10 @@ class RemoteAgentService {
         // A stopped session can exit after its replacement has started.
         if (sessionId !== this.currentSessionId) return;
         this.currentSessionId = null;
+        this.afterSessionExit();
+    }
+
+    private afterSessionExit(): void {
         this.clearStabilityTimer();
         this.broadcastStatus();
 

@@ -38,7 +38,7 @@ interface CaptureCliOptions {
 async function captureCliOutput(
     cmd: string[],
     { env = process.env, timeoutMs = VERSION_TIMEOUT_MS }: CaptureCliOptions = {},
-): Promise<{ stdout: string; stderr: string } | null> {
+): Promise<{ stdout: string; stderr: string; exitCode: number } | null> {
     const proc = Bun.spawn(cmd, {
         stdin: "ignore",
         stdout: "pipe",
@@ -57,14 +57,17 @@ async function captureCliOutput(
         proc.kill();
         return null;
     }
-    await proc.exited;
-    return result;
+    return { ...result, exitCode: await proc.exited };
 }
 
-async function getRuntimeVersion(path: string): Promise<string> {
+/** `PATH` must be the one `path` was resolved from, so `#!/usr/bin/env node` shims run. */
+async function getRuntimeVersion(path: string, PATH: string): Promise<string> {
     try {
-        const result = await captureCliOutput([path, "--version"]);
-        if (!result) return "unknown";
+        const result = await captureCliOutput([path, "--version"], {
+            env: { ...process.env, PATH },
+        });
+        // A failed run prints an error (e.g. "env: node: No such file or directory").
+        if (!result || result.exitCode !== 0) return "unknown";
         // Some CLIs (e.g. pi) print --version on stderr. Merge both streams.
         const version = (result.stdout.trim() || result.stderr.trim()).replace(/^v/, "");
         return version || "unknown";
@@ -80,7 +83,7 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     for (const name of KNOWN_RUNTIMES) {
         const path = Bun.which(name, { PATH });
         if (!path) continue;
-        const version = await getRuntimeVersion(path);
+        const version = await getRuntimeVersion(path, PATH);
         runtimes.push({ name, path, version });
     }
 
@@ -420,7 +423,7 @@ export async function detectAgents(): Promise<AgentAvailability[]> {
             if (!path) {
                 return { type, available: false, path: "", version: "" };
             }
-            const version = await getRuntimeVersion(path);
+            const version = await getRuntimeVersion(path, PATH);
             return {
                 type,
                 available: true,

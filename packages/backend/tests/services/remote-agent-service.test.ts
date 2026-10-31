@@ -136,4 +136,20 @@ describe("RemoteAgentService", () => {
 
         expect(service.getStatus()).toEqual({ running: true, sessionId: "remote-session-2" });
     });
+
+    it("reports stopped when the session exits before its start finishes", async () => {
+        const { service, created } = createHarness({
+            createSession: async (opts) => {
+                // The PTY is spawned, and can exit, before the session is saved.
+                opts.onSessionExited?.("remote-session", 1);
+                return "remote-session";
+            },
+        });
+
+        await service.start();
+        expect(service.getStatus()).toEqual({ running: false, sessionId: undefined });
+
+        await service.start();
+        expect(created).toHaveLength(2);
+    });
 });

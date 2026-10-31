@@ -63,6 +63,24 @@ describe("detectAgents", () => {
         },
         { timeout: 15000 },
     );
+    it(
+        "reads versions with the expanded PATH when the app was launched with a minimal one",
+        async () => {
+            // A Finder-launched app inherits only the system PATH, so a
+            // `#!/usr/bin/env node` agent cannot find node through it.
+            const inherited = process.env.PATH;
+            process.env.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+            try {
+                const agents = await detectAgents();
+                for (const agent of agents) {
+                    expect(agent.version).not.toContain("No such file or directory");
+                }
+            } finally {
+                process.env.PATH = inherited;
+            }
+        },
+        { timeout: 15000 },
+    );
 });
 
 describe("parsePiModelsOutput", () => {
