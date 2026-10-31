@@ -59,15 +59,18 @@ function prioritizeSystemShell(
     return [shells[index], ...shells.slice(0, index), ...shells.slice(index + 1)];
 }
 
-async function detectUnixShells(): Promise<ShellInfo[]> {
+export async function detectUnixShells(
+    shellsFile = "/etc/shells",
+    envShell = getDefaultShellEnvVar() ?? null,
+): Promise<ShellInfo[]> {
     let content: string;
     try {
-        content = await readFile("/etc/shells", "utf-8");
+        content = await readFile(shellsFile, "utf-8");
     } catch {
         return [];
     }
 
-    const seen = new Set<string>();
+    const preferred = envShell?.trim();
     const shells: ShellInfo[] = [];
 
     for (const line of content.split("\n")) {
@@ -76,15 +79,19 @@ async function detectUnixShells(): Promise<ShellInfo[]> {
 
         const name = basename(trimmed);
         if (!knownShells().has(name)) continue;
-        if (seen.has(name)) continue;
-
-        if (await isExecutable(trimmed)) {
-            seen.add(name);
-            shells.push({ name, path: trimmed });
+        // One entry per shell name; the user's $SHELL wins over an earlier
+        // install of the same shell (e.g. Homebrew bash after /bin/bash).
+        const existing = shells.findIndex((shell) => shell.name === name);
+        if (existing >= 0 && (trimmed !== preferred || shells[existing].path === trimmed)) {
+            continue;
         }
+        if (!(await isExecutable(trimmed))) continue;
+
+        if (existing >= 0) shells[existing] = { name, path: trimmed };
+        else shells.push({ name, path: trimmed });
     }
 
-    return prioritizeSystemShell(shells);
+    return prioritizeSystemShell(shells, envShell);
 }
 
 async function detectWindowsShells(): Promise<ShellInfo[]> {

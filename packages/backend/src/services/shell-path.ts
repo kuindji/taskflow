@@ -4,10 +4,13 @@ import { delimiter, join } from "path";
 import { config } from "../config";
 import { isWindows, getHomeDir, getDefaultShell, getEnsurePaths } from "./platform";
 
-function resolveNvmNodeBin(home: string): string | null {
+export function resolveNvmNodeBin(home: string): string | null {
     const nvmDir = join(home, ".nvm");
     try {
-        const alias = readFileSync(join(nvmDir, "alias", "default"), "utf8").trim();
+        // `nvm alias default v22.14.0` stores the version with its "v" prefix.
+        const alias = readFileSync(join(nvmDir, "alias", "default"), "utf8")
+            .trim()
+            .replace(/^v/, "");
         const versionsDir = join(nvmDir, "versions", "node");
         const installed = readdirSync(versionsDir);
         // Find best match: alias can be a full version like "22.14.0" or a major like "22"

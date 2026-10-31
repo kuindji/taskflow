@@ -53,14 +53,14 @@ function parseVaultRegistry(json: string): string[] {
     return out;
 }
 
-function appPath(): string {
+function appPaths(): string[] {
     switch (platform()) {
         case "darwin":
-            return "/Applications/Obsidian.app";
+            return ["/Applications/Obsidian.app", join(homedir(), "Applications", "Obsidian.app")];
         case "win32":
-            return join(process.env.LOCALAPPDATA ?? "", "Obsidian", "Obsidian.exe");
+            return [join(process.env.LOCALAPPDATA ?? "", "Obsidian", "Obsidian.exe")];
         default:
-            return join(homedir(), ".local", "share", "applications", "obsidian.desktop");
+            return [join(homedir(), ".local", "share", "applications", "obsidian.desktop")];
     }
 }
 
@@ -87,7 +87,8 @@ async function exists(path: string): Promise<boolean> {
  * query because it changes whenever the user adds a vault.
  */
 async function detectObsidian(wikiRoot: string | null): Promise<ObsidianState> {
-    const installed = await exists(appPath());
+    const found = await Promise.all(appPaths().map(exists));
+    const installed = found.includes(true);
     if (!installed || wikiRoot === null) return { installed, vault: null };
 
     const json = await readFile(registryPath(), "utf-8").catch(() => "");
