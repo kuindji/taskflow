@@ -9,6 +9,7 @@ import {
     type PiModelsResponse,
     type RuntimeListResponse,
     type SettingsUpdatePayload,
+    type SettingsUpdatedEvent,
     type ShellListResponse,
     type SystemInfo,
 } from "@taskflow/shared";
@@ -63,10 +64,21 @@ class SettingsStore {
     private settingsSnapshot: AppSettings | null = null;
     private choiceSnapshot: SettingsChoices = EMPTY_CHOICES;
     private loadToken = 0;
+    /** Bumped when newer settings arrive, so a slower load cannot put back older ones. */
+    private settingsEpoch = 0;
     private disposed = false;
     private readonly listeners = new Set<() => void>();
+    private readonly unsubscribe: () => void;
 
-    constructor(private readonly net: NetLike) {}
+    constructor(private readonly net: NetLike) {
+        this.unsubscribe = net.on(MSG.SETTINGS_UPDATED, (payload) => {
+            const event = payload as Partial<SettingsUpdatedEvent>;
+            if (!event.settings || this.disposed) return;
+            this.settingsEpoch++;
+            this.settingsSnapshot = event.settings;
+            this.notify();
+        });
+    }
 
     get settings(): AppSettings | null {
         return this.settingsSnapshot;
@@ -88,12 +100,13 @@ class SettingsStore {
 
     async loadSettings(): Promise<void> {
         const token = ++this.loadToken;
+        const epoch = this.settingsEpoch;
         const [settings, systemInfo] = await Promise.all([
             this.net.request<AppSettings>(MSG.SETTINGS_GET),
             this.net.request<SystemInfo>(MSG.SYSTEM_INFO),
         ]);
         if (this.disposed || token !== this.loadToken) return;
-        this.settingsSnapshot = settings;
+        if (epoch === this.settingsEpoch) this.settingsSnapshot = settings;
         this.choiceSnapshot = {
             ...this.choiceSnapshot,
             editors: editorChoices(systemInfo),
@@ -126,6 +139,7 @@ class SettingsStore {
 
     async load(): Promise<void> {
         const token = ++this.loadToken;
+        const epoch = this.settingsEpoch;
         const [settings, agents, runtimes, shells, systemInfo, modelResults] = await Promise.all([
             this.net.request<AppSettings>(MSG.SETTINGS_GET),
             this.net.request<AgentListResponse>(MSG.AGENTS_LIST),
@@ -148,7 +162,7 @@ class SettingsStore {
         const opencode = modelValue(1) as OpenCodeModelsResponse | null;
         const pi = modelValue(2) as PiModelsResponse | null;
         const kimi = modelValue(3) as KimiModelsResponse | null;
-        this.settingsSnapshot = settings;
+        if (epoch === this.settingsEpoch) this.settingsSnapshot = settings;
         this.choiceSnapshot = {
             agents: agents.agents
                 .filter((agent) => agent.available)
@@ -191,6 +205,7 @@ class SettingsStore {
     async update(partial: SettingsUpdatePayload): Promise<AppSettings> {
         const settings = await this.net.request<AppSettings>(MSG.SETTINGS_UPDATE, partial);
         if (this.disposed) return settings;
+        this.settingsEpoch++;
         this.settingsSnapshot = settings;
         this.notify();
         return settings;
@@ -200,6 +215,7 @@ class SettingsStore {
         if (this.disposed) return;
         this.disposed = true;
         this.loadToken++;
+        this.unsubscribe();
         this.listeners.clear();
     }
 }

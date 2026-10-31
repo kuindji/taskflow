@@ -1,6 +1,8 @@
 import type { Notification } from "@taskflow/shared";
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { randomUUID } from "crypto";
+import { defaultFileOperations, writeJsonAtomic } from "./write-file-atomic";
+import type { FileOperations } from "./write-file-atomic";
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
     return error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -10,7 +12,10 @@ export class NotificationStore {
     private filePath: string;
     private mutation: Promise<void> = Promise.resolve();
 
-    constructor(filePath: string) {
+    constructor(
+        filePath: string,
+        private readonly fileOperations: FileOperations = defaultFileOperations,
+    ) {
         this.filePath = filePath;
     }
 
@@ -40,8 +45,10 @@ export class NotificationStore {
         }
     }
 
+    // Atomic: list() reads outside the mutation queue and must never see a
+    // truncated file mid-write.
     private async writeAll(notifications: Notification[]): Promise<void> {
-        await writeFile(this.filePath, JSON.stringify(notifications, null, 2));
+        await writeJsonAtomic(this.filePath, notifications, this.fileOperations);
     }
 
     async list(): Promise<Notification[]> {

@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import type { AppSettings, SettingsUpdatePayload } from "@taskflow/shared";
+import type { AppSettings, SettingsUpdatePayload, SettingsUpdatedEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
-import { getPrimary, sendRequest } from "@/lib/connection-registry";
+import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 import { useUIStore } from "./ui-store";
 import { useMarkdownInputStore } from "./markdown-input-store";
@@ -101,3 +101,20 @@ registerBackendReset("settings-mirror", (backendId) => {
     const { [backendId]: _dropped, ...rest } = useSettingsStore.getState().byBackend;
     publish(rest);
 });
+
+// Another client saved: launch payloads read these defaults, so a stale copy
+// would start agents with the old model. Layout stays this window's own.
+const _unsubSettingsUpdated = onEvent(MSG.SETTINGS_UPDATED, (payload, backendId) => {
+    const { settings } = payload as Partial<SettingsUpdatedEvent>;
+    if (!settings) return;
+    publish({ ...useSettingsStore.getState().byBackend, [backendId]: settings });
+    if (backendId === getPrimary()) {
+        window.taskflow?.sendConfirmBeforeExitState(settings.general.confirmBeforeExit);
+    }
+});
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        _unsubSettingsUpdated();
+    });
+}

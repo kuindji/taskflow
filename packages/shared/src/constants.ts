@@ -197,6 +197,7 @@ export const MSG = {
     // Settings
     SETTINGS_GET: "settings:get",
     SETTINGS_UPDATE: "settings:update",
+    SETTINGS_UPDATED: "settings:updated",
     SETTINGS_GET_DATA_DIR: "settings:get-data-dir",
     SETTINGS_UPDATE_DATA_DIR: "settings:update-data-dir",
 

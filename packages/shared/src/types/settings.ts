@@ -133,6 +133,11 @@ export interface AppSettings {
 
 type NullablePartial<T> = { [K in keyof T]?: T[K] | null };
 
+/** Broadcast after every settings write so each attached client drops stale defaults. */
+export interface SettingsUpdatedEvent {
+    settings: AppSettings;
+}
+
 export interface SettingsUpdatePayload {
     general?: NullablePartial<GeneralSettings>;
     terminal?: NullablePartial<TerminalSettings>;

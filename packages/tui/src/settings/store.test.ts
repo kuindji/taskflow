@@ -65,13 +65,37 @@ function fakeNet(
         { id: "vim", name: "Vim", command: "vim", type: "internal" },
         { id: "zed", name: "Zed", command: "zed", type: "external" },
     ],
-): NetLike & { requests: Array<{ type: string; payload: unknown }> } {
+): NetLike & {
+    requests: Array<{ type: string; payload: unknown }>;
+    emit(type: string, payload: unknown): void;
+    holdNext(type: string): () => void;
+} {
     const requests: Array<{ type: string; payload: unknown }> = [];
+    const handlers = new Map<string, Set<(payload: unknown) => void>>();
+    const held = new Map<string, Promise<void>>();
     const current = settings();
     return {
         requests,
+        emit(type, payload) {
+            for (const handler of handlers.get(type) ?? []) handler(payload);
+        },
+        holdNext(type) {
+            let release!: () => void;
+            held.set(
+                type,
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+            );
+            return () => release();
+        },
         async request<T>(type: string, payload?: unknown): Promise<T> {
             requests.push({ type, payload });
+            const hold = held.get(type);
+            if (hold) {
+                held.delete(type);
+                await hold;
+            }
             if (type === MSG.SETTINGS_GET) return current as T;
             if (type === MSG.SETTINGS_UPDATE) {
                 const update = payload as { editor?: { externalEditor?: string } };
@@ -130,7 +154,12 @@ function fakeNet(
             }
             throw new Error(`Unexpected request: ${type}`);
         },
-        on: () => () => undefined,
+        on(type, handler) {
+            const set = handlers.get(type) ?? new Set();
+            set.add(handler);
+            handlers.set(type, set);
+            return () => set.delete(handler);
+        },
         onStatusChange: () => () => undefined,
     };
 }
@@ -175,6 +204,37 @@ describe("SettingsStore", () => {
         });
         expect(store.settings?.general.defaultRuntime).toBe("bun");
         expect(store.settings?.editor.internalEditor).toBe("vim");
+        store.dispose();
+    });
+
+    test("follows settings another client saved", async () => {
+        const net = fakeNet();
+        const store = new SettingsStore(net);
+        await store.loadSettings();
+        let changes = 0;
+        store.onChange(() => changes++);
+        const next = settings();
+        next.claude.defaultModel = "haiku";
+        net.emit(MSG.SETTINGS_UPDATED, { settings: next });
+        expect(store.settings?.claude.defaultModel).toBe("haiku");
+        expect(changes).toBe(1);
+        store.dispose();
+        net.emit(MSG.SETTINGS_UPDATED, { settings: settings() });
+        expect(store.settings?.claude.defaultModel).toBe("haiku");
+    });
+
+    test("a load that finishes after a broadcast keeps the broadcast settings", async () => {
+        const net = fakeNet();
+        const store = new SettingsStore(net);
+        const release = net.holdNext(MSG.SYSTEM_INFO);
+        const loading = store.load();
+        const next = settings();
+        next.claude.defaultModel = "haiku";
+        net.emit(MSG.SETTINGS_UPDATED, { settings: next });
+        release();
+        await loading;
+        expect(store.settings?.claude.defaultModel).toBe("haiku");
+        expect(store.choices.runtimes[0]?.value).toBe("bun");
         store.dispose();
     });
 });

@@ -374,6 +374,31 @@ describe("the stores the sidebar reads, across backends", () => {
         expect(serverB.received.map((r) => r.type)).not.toContain(MSG.SETTINGS_UPDATE);
     });
 
+    test("a settings broadcast replaces only that machine's copy", async () => {
+        const settings = (mode: string) => ({
+            general: { confirmBeforeExit: false },
+            claude: { permissionMode: mode },
+        });
+        const [serverA, serverB] = await openTwo(
+            (type) => (type === MSG.SETTINGS_GET ? settings("default") : {}),
+            (type) => (type === MSG.SETTINGS_GET ? settings("plan") : {}),
+        );
+        setPrimary("a");
+        await useSettingsStore.getState().fetchSettings("a");
+        await useSettingsStore.getState().fetchSettings("b");
+
+        serverB.broadcast(MSG.SETTINGS_UPDATED, { settings: settings("acceptEdits") });
+        await until(() => settingsFor("b")?.claude.permissionMode === "acceptEdits");
+        expect(useSettingsStore.getState().settings?.claude.permissionMode).toBe("default");
+
+        serverA.broadcast(MSG.SETTINGS_UPDATED, { settings: settings("bypassPermissions") });
+        await until(
+            () =>
+                useSettingsStore.getState().settings?.claude.permissionMode === "bypassPermissions",
+        );
+        expect(settingsFor("b")?.claude.permissionMode).toBe("acceptEdits");
+    });
+
     test("pausing another machine's run reaches that machine and no other", async () => {
         const action = (id: string): ActionDefinition => ({
             id,

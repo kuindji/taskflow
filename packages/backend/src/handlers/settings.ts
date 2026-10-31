@@ -1,5 +1,5 @@
 import { MSG } from "@taskflow/shared";
-import type { SettingsUpdatePayload } from "@taskflow/shared";
+import type { SettingsUpdatePayload, SettingsUpdatedEvent, WsEvent } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { SettingsStore } from "../services/settings-store";
 import type { TaskStore } from "../services/task-store";
@@ -17,6 +17,7 @@ interface SettingsHandlerDeps {
     router: Router;
     settingsStore: SettingsStore;
     taskStore: TaskStore;
+    broadcast: (event: WsEvent) => void;
 }
 
 interface DataDirResponse {
@@ -27,7 +28,14 @@ interface DataDirResponse {
 }
 
 export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
-    const { router, settingsStore, taskStore } = deps;
+    const { router, settingsStore, taskStore, broadcast } = deps;
+
+    // Every write, HTTP included: other clients bake their cached defaults
+    // into launch options, so they must not keep a stale copy.
+    settingsStore.onUpdated((settings) => {
+        const payload: SettingsUpdatedEvent = { settings };
+        broadcast({ type: MSG.SETTINGS_UPDATED, payload });
+    });
 
     router.register(MSG.SETTINGS_GET, async () => {
         return settingsStore.get();

@@ -390,7 +390,12 @@ async function main() {
         });
 
         const themeService = new ThemeService(config.themesDir);
-        registerSettingsHandlers({ router, settingsStore, taskStore: store });
+        registerSettingsHandlers({
+            router,
+            settingsStore,
+            taskStore: store,
+            broadcast: server.broadcast,
+        });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
         registerAgentCommandsHandlers({ router, taskStore: store, settingsStore });
