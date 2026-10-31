@@ -30,12 +30,19 @@ async function codexHomeWithSession(id: string, cwd: string): Promise<string> {
 }
 
 /** Kimi Code's layout: one directory per conversation, named by the ID `--session` takes. */
-async function kimiHomeWithSession(id: string): Promise<string> {
-    const home = await mkdtemp(join(tmpdir(), "taskflow-kimi-home-"));
-    dirs.push(home);
-    const sessionDir = join(home, "sessions", "wd_repo_0123456789ab", id);
+async function kimiHomeWithSession(
+    id: string,
+    workDir = "/work/repo",
+    home?: string,
+): Promise<string> {
+    if (!home) {
+        home = await mkdtemp(join(tmpdir(), "taskflow-kimi-home-"));
+        dirs.push(home);
+    }
+    const workspace = `wd_${workDir.split("/").pop()}_0123456789ab`;
+    const sessionDir = join(home, "sessions", workspace, id);
     await mkdir(join(sessionDir, "agents", "main"), { recursive: true });
-    await writeFile(join(sessionDir, "state.json"), JSON.stringify({ workDir: "/work/repo" }));
+    await writeFile(join(sessionDir, "state.json"), JSON.stringify({ workDir }));
     await writeFile(join(sessionDir, "agents", "main", "wire.jsonl"), "{}\n");
     return home;
 }
@@ -46,6 +53,17 @@ describe("Kimi native session discovery", () => {
         const home = await kimiHomeWithSession("session_4f1c2d3e-0000-4000-8000-000000000001");
         const id = await discoverNativeSessionId("kimi", "/work/repo", new Set(), startedAt, home);
         expect(id).toBe("session_4f1c2d3e-0000-4000-8000-000000000001");
+    });
+
+    it("ignores a Kimi conversation another workspace started at the same time", async () => {
+        const startedAt = Date.now();
+        const home = await kimiHomeWithSession(
+            "session_4f1c2d3e-0000-4000-8000-00000000000a",
+            "/work/a",
+        );
+        await kimiHomeWithSession("session_4f1c2d3e-0000-4000-8000-00000000000b", "/work/b", home);
+        const id = await discoverNativeSessionId("kimi", "/work/a", new Set(), startedAt, home);
+        expect(id).toBe("session_4f1c2d3e-0000-4000-8000-00000000000a");
     });
 
     it("counts an existing Kimi conversation once in the baseline", async () => {

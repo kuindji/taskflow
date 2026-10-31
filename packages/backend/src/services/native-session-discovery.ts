@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "crypto";
 import { homedir, tmpdir } from "os";
-import { join } from "path";
+import { join, sep } from "path";
 import { mkdir, readdir, readFile, rm, stat } from "fs/promises";
 import type { Dirent } from "fs";
 import type { AgentType } from "@taskflow/shared";
+import { buildShellPath } from "./shell-path";
 
 interface NativeSessionCandidate {
     id: string;
@@ -79,6 +80,8 @@ async function openCodeCandidates(since: number): Promise<NativeSessionCandidate
         const proc = Bun.spawn(["opencode", "session", "list", "--format", "json", "-n", "50"], {
             stdout: "pipe",
             stderr: "ignore",
+            // The PATH sessions launch with: a desktop-launched backend inherits a minimal one.
+            env: { ...process.env, PATH: buildShellPath() },
         });
         const output = await new Response(proc.stdout).text();
         if ((await proc.exited) !== 0) return [];
@@ -120,18 +123,28 @@ function newPiSessionPath(cwd: string): string {
 /**
  * Kimi Code keeps each conversation in its own directory,
  * `<KIMI_CODE_HOME>/sessions/<workspace>/session_<uuid>/`, and `kimi --session`
- * takes that directory name. Every file under it belongs to that one conversation.
+ * takes that directory name. Every file under it belongs to that one conversation,
+ * and its `state.json` records the conversation's `workDir`.
  */
 async function kimiCandidates(since: number, homeDir?: string): Promise<NativeSessionCandidate[]> {
     const home = homeDir ?? (process.env.KIMI_CODE_HOME || join(homedir(), ".kimi-code"));
     const files = await recentFiles(join(home, "sessions"), since);
     const byId = new Map<string, NativeSessionCandidate>();
     for (const file of files) {
-        const id = file.split(/[\\/]/).find((part) => part.startsWith("session_"));
-        if (!id || byId.has(id)) continue;
+        const parts = file.split(/[\\/]/);
+        const idIndex = parts.findIndex((part) => part.startsWith("session_"));
+        if (idIndex < 0) continue;
+        const id = parts[idIndex];
+        if (byId.has(id)) continue;
         try {
+            const sessionDir = parts.slice(0, idIndex + 1).join(sep);
+            const state = JSON.parse(await readFile(join(sessionDir, "state.json"), "utf-8")) as {
+                workDir?: unknown;
+            };
+            // Without its workDir the conversation could be another workspace's; retry next poll.
+            if (typeof state.workDir !== "string") continue;
             const info = await stat(file);
-            byId.set(id, { id, createdAt: info.birthtimeMs || info.mtimeMs });
+            byId.set(id, { id, cwd: state.workDir, createdAt: info.birthtimeMs || info.mtimeMs });
         } catch {
             continue;
         }
