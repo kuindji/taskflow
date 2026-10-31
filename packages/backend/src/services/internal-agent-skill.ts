@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { access, chmod, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -42,8 +43,10 @@ const COMMAND_FILES: Record<string, string> = {
 
 const SKILL_DIR_NAME = "taskflow-internal-api";
 const SKILL_FILE_NAME = "SKILL.md";
-// OpenCode takes no system prompt, only instruction files, so PROMPT_BASE goes in one.
-const AGENT_PROMPT_FILE_NAME = "taskflow-agent-prompt.md";
+// OpenCode takes no system prompt, only instruction files, so each launch's
+// assembled prompt goes in a file named after its content hash. Launches with
+// the same scope and project context share one.
+const AGENT_PROMPT_FILE_PREFIX = "taskflow-agent-prompt-";
 
 let resolvedSkillDir: string | undefined;
 
@@ -122,9 +125,6 @@ export async function ensureInternalAgentSkillFile(baseDir: string): Promise<str
         // Write main skill file with resolved absolute paths
         const resolved = resolveSkillReferences(skillMarkdown, skillDir);
         writeOps.push(writeFile(skillPath, resolved, "utf8"));
-        writeOps.push(
-            writeFile(join(skillDir, AGENT_PROMPT_FILE_NAME), `${PROMPT_BASE.trim()}\n`, "utf8"),
-        );
 
         await Promise.all(writeOps);
         resolvedSkillDir = skillDir;
@@ -208,10 +208,21 @@ export function buildAgentLaunchSpec(
     isProjectScope?: boolean,
     isFlowScope?: boolean,
     nativeSession?: { mode: "new" | "resume"; id?: string },
-): { command: string; args: string[]; env?: Record<string, string>; initialInput?: string } {
-    // Codex registers the taskflow skill separately via `skills.config`, so exclude
-    // it from the embedded prompt to avoid duplicating the skill content.
-    const basePrompt = buildSystemPrompt(isProjectScope ?? false, isFlowScope, type !== "codex");
+): {
+    command: string;
+    args: string[];
+    env?: Record<string, string>;
+    initialInput?: string;
+    /** A file the caller must write before spawning; the launch reads it. */
+    instructionFile?: { path: string; content: string };
+} {
+    // Codex and OpenCode load the taskflow skill file separately, so exclude it
+    // from the embedded prompt to avoid duplicating the skill content.
+    const basePrompt = buildSystemPrompt(
+        isProjectScope ?? false,
+        isFlowScope,
+        type !== "codex" && type !== "opencode",
+    );
     const systemPrompt = additionalSystemPrompt
         ? `${basePrompt}\n\n${additionalSystemPrompt}`
         : basePrompt;
@@ -257,8 +268,11 @@ export function buildAgentLaunchSpec(
     }
 
     if (type === "opencode") {
+        const content = `${systemPrompt.trim()}\n`;
+        const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
+        const promptPath = join(dirname(skillPath), `${AGENT_PROMPT_FILE_PREFIX}${hash}.md`);
         const config: Record<string, unknown> = {
-            instructions: [join(dirname(skillPath), AGENT_PROMPT_FILE_NAME), skillPath],
+            instructions: [promptPath, skillPath],
         };
         if (agentOptions?.type === "opencode" && agentOptions.autoApprove) {
             config.permission = { edit: "allow", bash: "allow", write: "allow" };
@@ -277,6 +291,7 @@ export function buildAgentLaunchSpec(
             command: "opencode",
             args,
             env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
+            instructionFile: { path: promptPath, content },
         };
     }
 

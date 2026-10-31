@@ -21,9 +21,16 @@ tf_curl() {
   fi
 }
 
+# The extra newline makes awk see the text's own trailing newline as a line
+# break instead of dropping it. Control characters other than tab, newline and
+# carriage return go out as \u00XX: raw JSON rejects them, and `session input
+# --raw` exists to send keys such as Ctrl-C or Escape.
 json_string() {
-  printf '%s' "$1" | awk '
-    BEGIN { printf "\"" }
+  printf '%s\n' "$1" | awk '
+    BEGIN {
+      printf "\""
+      for (i = 1; i < 32; i++) ctl[sprintf("%c", i)] = sprintf("\\u%04x", i)
+    }
     {
       if (NR > 1) {
         printf "\\n"
@@ -32,7 +39,13 @@ json_string() {
       gsub(/"/, "\\\"")
       gsub(/\t/, "\\t")
       gsub(/\r/, "\\r")
-      printf "%s", $0
+      line = $0
+      out = ""
+      while (match(line, /[\001-\010\013\014\016-\037]/)) {
+        out = out substr(line, 1, RSTART - 1) ctl[substr(line, RSTART, 1)]
+        line = substr(line, RSTART + 1)
+      }
+      printf "%s", out line
     }
     END { printf "\"" }
   '
@@ -394,21 +407,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli action get <id>" >&2
           exit 1
         fi
-        # Fetch all actions and filter by id
-        all_actions=$(tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions")
-        # Use awk to extract the matching action object from the JSON array
-        printf '%s' "$all_actions" | awk -v id="$action_id" '
-          BEGIN { RS="{"; FS="}" }
-          NR > 1 {
-            obj = "{" $1 "}"
-            if (index(obj, "\"id\":\"" id "\"") > 0) {
-              print obj
-              found = 1
-              exit
-            }
-          }
-          END { if (!found) { print "{\"error\":\"Action not found: " id "\"}" > "/dev/stderr"; exit 1 } }
-        '
+        api_request GET "$TASKFLOW_API_URL/api/flow-actions/$action_id"
         ;;
       create)
         action_name=""
@@ -452,20 +451,6 @@ case "$cmd" in
           exit 1
         fi
         shift
-        # Fetch current action
-        current=$(tf_curl -sf "$TASKFLOW_API_URL/api/flow-actions")
-        # Extract the action JSON (simple grep-based approach)
-        action_json=$(printf '%s' "$current" | awk -v id="$action_id" '
-          BEGIN { RS="{"; FS="}" }
-          NR > 1 {
-            obj = "{" $1 "}"
-            if (index(obj, "\"id\":\"" id "\"") > 0) { print obj; exit }
-          }
-        ')
-        if [ -z "$action_json" ]; then
-          echo "Error: Action not found: $action_id" >&2
-          exit 1
-        fi
         # Parse update flags and build overlay fields
         overlay=""
         while [ $# -gt 0 ]; do
@@ -482,14 +467,10 @@ case "$cmd" in
           echo "No update fields provided" >&2
           exit 1
         fi
-        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-        overlay=$(printf '%s"updatedAt":%s,' "$overlay" "$(json_string "$now")")
-        overlay=$(printf '%s' "$overlay" | sed 's/,$//')
-        # Merge: start with existing action JSON, replace closing brace with overlay fields
-        merged=$(printf '%s' "$action_json" | sed "s/}$/,$overlay}/")
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flow-actions" \
-          -H "Content-Type: application/json" \
-          -d "$merged"
+        # The backend merges the fields into the stored action and stamps
+        # updatedAt. The trailing comma is cut with ${%,}, not sed, which
+        # would rewrite & and \ in the values.
+        api_request PATCH "$TASKFLOW_API_URL/api/flow-actions/$action_id" "{${overlay%,}}"
         ;;
       delete)
         action_id="${1:-}"
@@ -772,19 +753,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli flow get <id>" >&2
           exit 1
         fi
-        all_flows=$(tf_curl -sf "$TASKFLOW_API_URL/api/flows")
-        printf '%s' "$all_flows" | awk -v id="$flow_id" '
-          BEGIN { RS="{"; FS="}" }
-          NR > 1 {
-            obj = "{" $1 "}"
-            if (index(obj, "\"id\":\"" id "\"") > 0) {
-              print obj
-              found = 1
-              exit
-            }
-          }
-          END { if (!found) { print "{\"error\":\"Flow not found: " id "\"}" > "/dev/stderr"; exit 1 } }
-        '
+        api_request GET "$TASKFLOW_API_URL/api/flows/$flow_id"
         ;;
       create)
         flow_name=""
@@ -857,19 +826,6 @@ case "$cmd" in
           exit 1
         fi
         shift
-        # Fetch current flow
-        current=$(tf_curl -sf "$TASKFLOW_API_URL/api/flows")
-        flow_json=$(printf '%s' "$current" | awk -v id="$flow_id" '
-          BEGIN { RS="{"; FS="}" }
-          NR > 1 {
-            obj = "{" $1 "}"
-            if (index(obj, "\"id\":\"" id "\"") > 0) { print obj; exit }
-          }
-        ')
-        if [ -z "$flow_json" ]; then
-          echo "Error: Flow not found: $flow_id" >&2
-          exit 1
-        fi
         overlay=""
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -882,13 +838,7 @@ case "$cmd" in
           echo "No update fields provided" >&2
           exit 1
         fi
-        now=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-        overlay=$(printf '%s"updatedAt":%s,' "$overlay" "$(json_string "$now")")
-        overlay=$(printf '%s' "$overlay" | sed 's/,$//')
-        merged=$(printf '%s' "$flow_json" | sed "s/}$/,$overlay}/")
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows" \
-          -H "Content-Type: application/json" \
-          -d "$merged"
+        api_request PATCH "$TASKFLOW_API_URL/api/flows/$flow_id" "{${overlay%,}}"
         ;;
       delete)
         flow_id="${1:-}"
@@ -1134,8 +1084,37 @@ case "$cmd" in
           -H "Content-Type: application/json" \
           -d "{$payload}"
         ;;
+      move)
+        proj_id="${1:-}"
+        move_usage="Usage: taskflow-cli project move <id> (--to <n> | --before <id> | --after <id>)"
+        if [ -z "$proj_id" ]; then
+          echo "$move_usage" >&2
+          exit 1
+        fi
+        shift
+        move_target=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --to)
+              case "${2:-}" in
+                ''|-|*[!0-9-]*|?*-*) echo "--to must be a number" >&2; exit 1 ;;
+              esac
+              # Leading zeros are not valid JSON numbers.
+              move_to=$(printf '%s' "$2" | sed 's/^\(-\{0,1\}\)0*\([0-9]\)/\1\2/')
+              move_target=$(printf '"to":%s' "$move_to"); shift 2 ;;
+            --before) move_target=$(printf '"before":%s' "$(json_string "${2:-}")"); shift 2 ;;
+            --after) move_target=$(printf '"after":%s' "$(json_string "${2:-}")"); shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        if [ -z "$move_target" ]; then
+          echo "One of --to, --before, or --after is required" >&2
+          exit 1
+        fi
+        api_request POST "$TASKFLOW_API_URL/api/projects/$proj_id/move" "{$move_target}"
+        ;;
       *)
-        echo "Usage: taskflow-cli project <list|add|remove|update|fork>" >&2
+        echo "Usage: taskflow-cli project <list|add|remove|update|fork|move>" >&2
         exit 1
         ;;
     esac

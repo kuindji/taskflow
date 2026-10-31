@@ -2,12 +2,17 @@ import { stat } from "fs/promises";
 import { isAbsolute } from "path";
 import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
-import type { FlowStore } from "../../services/flow-store";
+import type {
+    ActionDefinitionPatch,
+    FlowDefinitionPatch,
+    FlowStore,
+} from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
 import type { ScheduleStore } from "../../services/schedule-store";
 import { getActionInUseError } from "../../services/action-usage";
 import {
     MASTER_OWNER_ID,
+    isAgentType,
     type ActionDefinition,
     type AgentAvailability,
     type AgentType,
@@ -286,6 +291,83 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] POST /api/flow-actions failed:", err);
+            return errorResponse(message, 500);
+        }
+    });
+
+    // Single-definition reads and partial updates, so taskflow-cli never has
+    // to pick an object out of the list or merge JSON itself.
+    apiRouter.register("GET", "/api/flows/:id", async (_req, params) => {
+        const flow = (await flowStore.getFlows()).find((f) => f.id === params.id);
+        return flow ? jsonResponse(flow) : errorResponse(`Flow not found: ${params.id}`, 404);
+    });
+
+    apiRouter.register("GET", "/api/flow-actions/:id", async (_req, params) => {
+        const action = (await flowStore.getActions()).find((a) => a.id === params.id);
+        return action ? jsonResponse(action) : errorResponse(`Action not found: ${params.id}`, 404);
+    });
+
+    apiRouter.register("PATCH", "/api/flows/:id", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        const patch: FlowDefinitionPatch = {};
+        for (const key of ["name", "description"] as const) {
+            if (body[key] === undefined) continue;
+            const value = body[key];
+            if (typeof value !== "string") return errorResponse(`${key} must be a string`, 400);
+            patch[key] = value;
+        }
+        if (Object.keys(patch).length === 0) return errorResponse("No update fields provided", 400);
+        try {
+            const flow = await flowStore.updateFlow(params.id, patch);
+            return flow ? jsonResponse(flow) : errorResponse(`Flow not found: ${params.id}`, 404);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] PATCH /api/flows/:id failed:", err);
+            return errorResponse(message, 500);
+        }
+    });
+
+    apiRouter.register("PATCH", "/api/flow-actions/:id", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        const patch: ActionDefinitionPatch = {};
+        for (const key of ["name", "prompt"] as const) {
+            if (body[key] === undefined) continue;
+            const value = body[key];
+            if (typeof value !== "string") return errorResponse(`${key} must be a string`, 400);
+            patch[key] = value;
+        }
+        if (body.sessionType !== undefined) {
+            const sessionType = body.sessionType;
+            if (sessionType !== "shell" && !isAgentType(sessionType)) {
+                return errorResponse(`Unknown session type: ${JSON.stringify(sessionType)}`, 400);
+            }
+            patch.sessionType = sessionType;
+        }
+        if (body.standalone !== undefined) {
+            if (typeof body.standalone !== "boolean") {
+                return errorResponse("standalone must be a boolean", 400);
+            }
+            patch.standalone = body.standalone;
+        }
+        if (Object.keys(patch).length === 0) return errorResponse("No update fields provided", 400);
+        try {
+            const action = await flowStore.updateAction(params.id, patch);
+            return action
+                ? jsonResponse(action)
+                : errorResponse(`Action not found: ${params.id}`, 404);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] PATCH /api/flow-actions/:id failed:", err);
             return errorResponse(message, 500);
         }
     });

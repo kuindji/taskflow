@@ -38,6 +38,7 @@ import {
     resumeAccountOverride,
 } from "./agent-accounts";
 import { KeyedQueue } from "./keyed-queue";
+import { writeFileAtomic } from "./write-file-atomic";
 import { normalizeOwner, ownerIdOf, ownerKey, sameOwner } from "./session-owner";
 
 type SessionOwner = SessionOwnerRef;
@@ -555,6 +556,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         ? { mode: "resume", id: opts.resumeSession.nativeSessionId }
                         : { mode: "new", id: newNativeSessionId },
                 );
+                if (spec.instructionFile) {
+                    await writeFileAtomic(spec.instructionFile.path, spec.instructionFile.content);
+                }
                 command = spec.command;
                 if (opts.sessionName && type === "claude") {
                     args.push("--name", opts.sessionName);

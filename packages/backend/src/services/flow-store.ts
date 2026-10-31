@@ -13,6 +13,14 @@ import { acquireFileMutationLock } from "./file-mutation-lock";
 
 const FLOW_RUN_SEPARATOR = "--";
 
+/** The action fields a partial update may change. */
+export type ActionDefinitionPatch = Partial<
+    Pick<ActionDefinition, "name" | "prompt" | "sessionType" | "standalone">
+>;
+
+/** The flow fields a partial update may change. */
+export type FlowDefinitionPatch = Partial<Pick<FlowDefinition, "name" | "description">>;
+
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
     return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -129,6 +137,19 @@ class FlowStore {
         });
     }
 
+    /** Applies `patch` to a stored action; null when no action has that id. */
+    async updateAction(id: string, patch: ActionDefinitionPatch): Promise<ActionDefinition | null> {
+        return this.withMutation("definitions", async () => {
+            const actions = await this.getActions();
+            const index = actions.findIndex((a) => a.id === id);
+            if (index < 0) return null;
+            const updated = { ...actions[index], ...patch, updatedAt: new Date().toISOString() };
+            actions[index] = updated;
+            await writeFile(this.actionsFile, JSON.stringify(actions, null, 2));
+            return updated;
+        });
+    }
+
     async deleteAction(id: string): Promise<void> {
         await this.withMutation("definitions", async () => {
             const referencingFlows = await this.getFlowsReferencingAction(id);
@@ -213,6 +234,19 @@ class FlowStore {
                 flows.push(flow);
             }
             await writeFile(this.definitionsFile, JSON.stringify(flows, null, 2));
+        });
+    }
+
+    /** Applies `patch` to a stored flow; null when no flow has that id. */
+    async updateFlow(id: string, patch: FlowDefinitionPatch): Promise<FlowDefinition | null> {
+        return this.withMutation("definitions", async () => {
+            const flows = await this.getFlows();
+            const index = flows.findIndex((f) => f.id === id);
+            if (index < 0) return null;
+            const updated = { ...flows[index], ...patch, updatedAt: new Date().toISOString() };
+            flows[index] = updated;
+            await writeFile(this.definitionsFile, JSON.stringify(flows, null, 2));
+            return updated;
         });
     }
 

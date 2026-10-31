@@ -895,6 +895,56 @@ describe("project reorder routes", () => {
         );
         expect(res?.status).toBe(400);
     });
+
+    async function addProjects(names: string[]): Promise<string[]> {
+        const ids: string[] = [];
+        for (const name of names) {
+            const dir = join(tempDir, name);
+            await mkdir(dir, { recursive: true });
+            const project = await taskStore.addProject({ name, path: await realpath(dir) });
+            ids.push(project.id);
+        }
+        return ids;
+    }
+
+    function move(id: string, body: unknown): Promise<Response | null> {
+        return apiRouter.handle(
+            new Request(`http://localhost/api/projects/${id}/move`, {
+                method: "POST",
+                body: JSON.stringify(body),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+    }
+
+    it("POST /api/projects/:id/move places a project by position, before or after", async () => {
+        const [a, b, c] = await addProjects(["a", "b", "c"]);
+
+        let res = await move(c, { to: 1 });
+        expect(res?.status).toBe(200);
+        expect((await taskStore.listProjects()).map((p) => p.id)).toEqual([c, a, b]);
+
+        res = await move(c, { after: b });
+        expect(res?.status).toBe(200);
+        expect((await taskStore.listProjects()).map((p) => p.id)).toEqual([a, b, c]);
+
+        res = await move(a, { before: c });
+        expect(res?.status).toBe(200);
+        const body = (await res?.json()) as { projects: Array<{ id: string }> };
+        expect(body.projects.map((p) => p.id)).toEqual([b, a, c]);
+        expect(events.at(-1)).toEqual({
+            type: MSG.PROJECT_REORDERED,
+            payload: { orderedIds: [b, a, c] },
+        });
+    });
+
+    it("POST /api/projects/:id/move refuses unknown ids and a missing target", async () => {
+        const [a] = await addProjects(["a"]);
+        expect((await move("missing", { to: 1 }))?.status).toBe(400);
+        expect((await move(a, { before: "missing" }))?.status).toBe(400);
+        expect((await move(a, {}))?.status).toBe(400);
+        expect(events).toEqual([]);
+    });
 });
 
 describe("project update routes", () => {

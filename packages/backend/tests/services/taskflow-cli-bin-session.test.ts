@@ -574,3 +574,66 @@ describe("taskflow-cli binary: authentication", () => {
         expect(requests.map((request) => request.authorization)).toEqual([null, null]);
     });
 });
+
+describe("taskflow-cli binary: flow and action definitions", () => {
+    const flow = { id: "f1", name: "Ship", actions: [{ id: "e1", actionId: "a1" }] };
+
+    it("reads one flow or action through its own route", async () => {
+        const requests = startDevServerApi(200, flow);
+        const flowResult = await runBin(["flow", "get", "f1"], {});
+        expect(flowResult.status).toBe(0);
+        expect(JSON.parse(flowResult.stdout)).toEqual(flow);
+        const actionResult = await runBin(["action", "get", "a1"], {});
+        expect(actionResult.status).toBe(0);
+        expect(requests.map((r) => `${r.method} ${r.path}`)).toEqual([
+            "GET /api/flows/f1",
+            "GET /api/flow-actions/a1",
+        ]);
+    });
+
+    it("patches only the changed fields", async () => {
+        const requests = startDevServerApi(200, flow);
+        const prompt = "Build & test src/main.ts";
+        const actionResult = await runBin(
+            ["action", "update", "a1", "--prompt", prompt, "--no-standalone"],
+            {},
+        );
+        expect(actionResult.status).toBe(0);
+        const flowResult = await runBin(["flow", "update", "f1", "--name", "Ship it"], {});
+        expect(flowResult.status).toBe(0);
+        expect(
+            requests.map((r) => [`${r.method} ${r.path}`, JSON.parse(r.body) as unknown]),
+        ).toEqual([
+            ["PATCH /api/flow-actions/a1", { prompt, standalone: false }],
+            ["PATCH /api/flows/f1", { name: "Ship it" }],
+        ]);
+    });
+
+    it("fails for an unknown id with the backend's message", async () => {
+        startDevServerApi(404, { error: "Flow not found: nope" });
+        const result = await runBin(["flow", "get", "nope"], {});
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Flow not found: nope");
+    });
+});
+
+describe("taskflow-cli binary: project move", () => {
+    it("sends the target to the move route", async () => {
+        const requests = startDevServerApi(200, { projects: [] });
+        for (const flags of [
+            ["--to", "2"],
+            ["--before", "p2"],
+            ["--after", "p3"],
+        ]) {
+            const result = await runBin(["project", "move", "p1", ...flags], {});
+            expect(result.status).toBe(0);
+        }
+        expect(
+            requests.map((r) => [`${r.method} ${r.path}`, JSON.parse(r.body) as unknown]),
+        ).toEqual([
+            ["POST /api/projects/p1/move", { to: 2 }],
+            ["POST /api/projects/p1/move", { before: "p2" }],
+            ["POST /api/projects/p1/move", { after: "p3" }],
+        ]);
+    });
+});

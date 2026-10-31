@@ -397,6 +397,108 @@ describe("taskflow-cli", () => {
         });
     });
 
+    it("sends raw control keys and trailing newlines as valid JSON", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        for (const data of ["\u0003", "\u001b[A", "y\n", "\u0007tab\tcr\r"]) {
+            const result = runCli(cliPath, ["session", "input", "session-1", data, "--raw"], env);
+            expect(result.status).toBe(0);
+            expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+                data,
+                raw: true,
+            });
+        }
+    });
+
+    it("reads one flow or action through its own route", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const flow = '{"id":"f1","actions":[{"id":"e1","actionId":"a1"}],"name":"Ship"}';
+        const flowResult = runCli(cliPath, ["flow", "get", "f1"], { ...env, CURL_RESPONSE: flow });
+        expect(flowResult.status).toBe(0);
+        expect(JSON.parse(String(flowResult.stdout))).toEqual(JSON.parse(flow));
+        expect(await readCapturedRequest(captureFile)).toEqual({
+            method: "GET",
+            url: "http://localhost:1234/api/flows/f1",
+            data: "",
+        });
+
+        const actionResult = runCli(cliPath, ["action", "get", "a1"], env);
+        expect(actionResult.status).toBe(0);
+        expect(await readCapturedRequest(captureFile)).toEqual({
+            method: "GET",
+            url: "http://localhost:1234/api/flow-actions/a1",
+            data: "",
+        });
+    });
+
+    it("fails flow get for an unknown id", async () => {
+        const { cliPath, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["flow", "get", "nope"], {
+            ...env,
+            CURL_STATUS: "404",
+            CURL_RESPONSE: '{"error":"Flow not found: nope"}',
+        });
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("returned 404");
+    });
+
+    it("patches only the changed action fields, text verbatim", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const prompt = 'Build & test src/main.ts with "quotes", {braces} and \\ back';
+        const result = runCli(
+            cliPath,
+            ["action", "update", "a1", "--prompt", prompt, "--name", "Build", "--no-standalone"],
+            env,
+        );
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(request.method).toBe("PATCH");
+        expect(request.url).toBe("http://localhost:1234/api/flow-actions/a1");
+        expect(JSON.parse(request.data)).toEqual({ prompt, name: "Build", standalone: false });
+        // One request: no list fetch to merge into.
+        expect((await readFile(captureFile, "utf8")).match(/^METHOD=/gm)).toHaveLength(1);
+    });
+
+    it("patches a flow's name and description", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            ["flow", "update", "f1", "--name", "A & B", "--description", "x/y"],
+            env,
+        );
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(request.method).toBe("PATCH");
+        expect(request.url).toBe("http://localhost:1234/api/flows/f1");
+        expect(JSON.parse(request.data)).toEqual({ name: "A & B", description: "x/y" });
+    });
+
+    it("moves a project by position, before or after another", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const cases: Array<[string[], unknown]> = [
+            [["--to", "2"], { to: 2 }],
+            [["--to", "007"], { to: 7 }],
+            [["--before", "p2"], { before: "p2" }],
+            [["--after", "p3"], { after: "p3" }],
+        ];
+        for (const [flags, body] of cases) {
+            const result = runCli(cliPath, ["project", "move", "p1", ...flags], env);
+            expect(result.status).toBe(0);
+            const request = await readCapturedRequest(captureFile);
+            expect(request.method).toBe("POST");
+            expect(request.url).toBe("http://localhost:1234/api/projects/p1/move");
+            expect(JSON.parse(request.data)).toEqual(body);
+        }
+    });
+
+    it("refuses project move without a valid target, before any request", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        for (const args of [["p1"], ["p1", "--to", "two"], ["p1", "--to"], []]) {
+            const result = runCli(cliPath, ["project", "move", ...args], env);
+            expect(result.status).toBe(1);
+        }
+        expect(await captured(captureFile)).toBe(false);
+    });
+
     it("maps Claude's legacy dangerous flag to the canonical bypass permission mode", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(

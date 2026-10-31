@@ -4,7 +4,6 @@
 import { decideAttrScope, type AttrScope } from "./attr-scope";
 import { splitAttrArgs } from "./attr-args";
 import { consumeFlags } from "./cli-flags";
-import { computeMovedOrder } from "./project-move";
 import { resolve } from "path";
 import { ACCOUNT_AGENT_TYPES, INHERIT_AGENT_ACCOUNT, MASTER_OWNER_ID } from "@taskflow/shared";
 import type { ProjectAgentAccountsPatch, SessionOwnerRef } from "@taskflow/shared";
@@ -119,20 +118,6 @@ function contextHeaders(): Record<string, string> {
     if (taskId) headers["X-Taskflow-Task-Id"] = taskId;
     if (sessionId) headers["X-Taskflow-Session-Id"] = sessionId;
     return headers;
-}
-
-interface ParsedItem {
-    id?: string;
-    [key: string]: unknown;
-}
-
-function findById(items: ParsedItem[], id: string, label: string): ParsedItem {
-    const item = items.find((it) => it.id === id);
-    if (!item) {
-        process.stderr.write(`Error: ${label} not found: ${id}\n`);
-        process.exit(1);
-    }
-    return item;
 }
 
 /**
@@ -533,9 +518,9 @@ async function handleAction(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli action get <id>\n");
                 process.exit(1);
             }
-            const allActions = JSON.parse(await api("GET", "/api/flow-actions")) as ParsedItem[];
-            const action = findById(allActions, actionId, "Action");
-            process.stdout.write(JSON.stringify(action));
+            process.stdout.write(
+                await api("GET", `/api/flow-actions/${encodeURIComponent(actionId)}`),
+            );
             break;
         }
         case "create": {
@@ -573,8 +558,6 @@ async function handleAction(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const allActions = JSON.parse(await api("GET", "/api/flow-actions")) as ParsedItem[];
-            const existing = findById(allActions, actionId, "Action");
             const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 prompt: "string",
@@ -592,9 +575,9 @@ async function handleAction(args: string[]): Promise<void> {
                 process.stderr.write("No update fields provided\n");
                 process.exit(1);
             }
-            overlay.updatedAt = new Date().toISOString();
-            const merged = { ...existing, ...overlay };
-            process.stdout.write(await api("POST", "/api/flow-actions", merged));
+            process.stdout.write(
+                await api("PATCH", `/api/flow-actions/${encodeURIComponent(actionId)}`, overlay),
+            );
             break;
         }
         case "delete": {
@@ -837,9 +820,7 @@ async function handleFlow(args: string[]): Promise<void> {
                 process.stderr.write("Usage: taskflow-cli flow get <id>\n");
                 process.exit(1);
             }
-            const allFlows = JSON.parse(await api("GET", "/api/flows")) as ParsedItem[];
-            const flow = findById(allFlows, fId, "Flow");
-            process.stdout.write(JSON.stringify(flow));
+            process.stdout.write(await api("GET", `/api/flows/${encodeURIComponent(fId)}`));
             break;
         }
         case "create": {
@@ -904,8 +885,6 @@ async function handleFlow(args: string[]): Promise<void> {
                 );
                 process.exit(1);
             }
-            const allFlows = JSON.parse(await api("GET", "/api/flows")) as ParsedItem[];
-            const existing = findById(allFlows, fId, "Flow");
             const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 description: "string",
@@ -917,9 +896,9 @@ async function handleFlow(args: string[]): Promise<void> {
                 process.stderr.write("No update fields provided\n");
                 process.exit(1);
             }
-            overlay.updatedAt = new Date().toISOString();
-            const merged = { ...existing, ...overlay };
-            process.stdout.write(await api("POST", "/api/flows", merged));
+            process.stdout.write(
+                await api("PATCH", `/api/flows/${encodeURIComponent(fId)}`, overlay),
+            );
             break;
         }
         case "delete": {
@@ -1161,18 +1140,9 @@ async function handleProject(args: string[]): Promise<void> {
                 process.stderr.write("One of --to, --before, or --after is required\n");
                 process.exit(1);
             }
-            const listed = JSON.parse(await api("GET", "/api/projects")) as {
-                projects: Array<{ id: string }>;
-            };
-            const orderedIds = listed.projects.map((p) => p.id);
-            let next: string[];
-            try {
-                next = computeMovedOrder(orderedIds, projId, target);
-            } catch (err) {
-                process.stderr.write(`${err instanceof Error ? err.message : "Error"}\n`);
-                process.exit(1);
-            }
-            process.stdout.write(await api("PATCH", "/api/projects/reorder", { orderedIds: next }));
+            process.stdout.write(
+                await api("POST", `/api/projects/${encodeURIComponent(projId)}/move`, target),
+            );
             break;
         }
         default:

@@ -7,6 +7,7 @@ import type { ChangeTracker } from "../../services/change-tracker";
 import type { Project, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { filterProjectSessions } from "../../services/instance-filter";
+import { computeMovedOrder } from "../../services/project-move";
 import { config } from "../../config";
 import { jsonResponse, errorResponse } from "./response-helpers";
 import {
@@ -34,6 +35,14 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         changeTracker,
         browserTabService,
     } = deps;
+
+    async function applyProjectOrder(orderedIds: string[]): Promise<Response> {
+        const projects = await taskStore.reorderProjects(orderedIds);
+        broadcast({ type: MSG.PROJECT_REORDERED, payload: { orderedIds } });
+        return jsonResponse({
+            projects: projects.map((p) => filterProjectSessions(p, config.instanceId)),
+        });
+    }
 
     apiRouter.register("GET", "/api/projects", async () => {
         const projects = await taskStore.listProjects();
@@ -120,16 +129,46 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         ) {
             return errorResponse("orderedIds must be an array of strings", 400);
         }
-        const orderedIds = body.orderedIds;
         try {
-            const projects = await taskStore.reorderProjects(orderedIds);
-            broadcast({ type: MSG.PROJECT_REORDERED, payload: { orderedIds } });
-            return jsonResponse({
-                projects: projects.map((p) => filterProjectSessions(p, config.instanceId)),
-            });
+            return await applyProjectOrder(body.orderedIds);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] PATCH /api/projects/reorder failed:", err);
+            return errorResponse(message, 500);
+        }
+    });
+
+    // taskflow-cli's `project move`: the order is computed here so the shell
+    // CLI does not have to read the project list out of JSON.
+    apiRouter.register("POST", "/api/projects/:id/move", async (req, params) => {
+        let body: Record<string, unknown>;
+        try {
+            body = (await req.json()) as Record<string, unknown>;
+        } catch {
+            return errorResponse("Invalid JSON body", 400);
+        }
+        const target: { to?: number; before?: string; after?: string } = {};
+        if (typeof body.to === "number" && Number.isInteger(body.to)) target.to = body.to;
+        else if (typeof body.before === "string") target.before = body.before;
+        else if (typeof body.after === "string") target.after = body.after;
+        else return errorResponse("One of to (integer), before or after is required", 400);
+
+        let orderedIds: string[];
+        try {
+            const projects = await taskStore.listProjects();
+            orderedIds = computeMovedOrder(
+                projects.map((p) => p.id),
+                params.id,
+                target,
+            );
+        } catch (err) {
+            return errorResponse(err instanceof Error ? err.message : "Unknown error", 400);
+        }
+        try {
+            return await applyProjectOrder(orderedIds);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            console.error("[api] POST /api/projects/:id/move failed:", err);
             return errorResponse(message, 500);
         }
     });

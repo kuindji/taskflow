@@ -8,7 +8,7 @@ import { registerProjectHandlers } from "../../src/handlers/project";
 import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { createSessionLifecycle } from "../../src/services/session-lifecycle";
-import { mkdtemp, mkdir, rm, realpath, stat } from "fs/promises";
+import { mkdtemp, mkdir, readFile, rm, realpath, stat } from "fs/promises";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
@@ -234,6 +234,28 @@ describe("session handlers", () => {
         expect(piProbes[0].env?.PATH).toBeTruthy();
         expect(piProbes[0].env?.CLAUDECODE).toBeUndefined();
     });
+    it("gives OpenCode the project instructions and the task scope in its instruction file", async () => {
+        // Unique per run, so the content-named file is this test's own.
+        const rule = `Always run the linter (${tempDir})`;
+        await store.updateProject(projectId, { prompt: rule });
+        const task = await store.createTask({ projectId, title: "OC", description: "" });
+        await sessionLifecycle.createSession({ owner: { taskId: task.id }, type: "opencode" });
+
+        const env = ptyManager.spawns.at(-1)?.env ?? {};
+        const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? "{}") as {
+            instructions: string[];
+        };
+        const promptFile = config.instructions[0];
+        try {
+            const content = await readFile(promptFile, "utf8");
+            expect(content).toContain("You are running inside Taskflow application");
+            expect(content).toContain("This session is scoped to a specific task.");
+            expect(content).toContain(`## Project Instructions\n\n${rule}`);
+        } finally {
+            await rm(promptFile, { force: true });
+        }
+    });
+
     it("a new Pi session records the session file it was launched on, without discovery", async () => {
         const task = await store.createTask({ projectId, title: "Pi", description: "" });
         const id = await sessionLifecycle.createSession({ owner: { taskId: task.id }, type: "pi" });

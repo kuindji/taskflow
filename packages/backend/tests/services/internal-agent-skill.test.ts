@@ -88,18 +88,41 @@ describe("internal agent skill", () => {
         }
     });
 
-    it("gives OpenCode the Taskflow prompt file before the skill", () => {
+    it("gives OpenCode its assembled prompt file before the skill", () => {
         const skillPath = "/tmp/ignored/SKILL.md";
         for (const prompt of ["Do it", undefined]) {
-            const spec = buildAgentLaunchSpec("opencode", prompt, skillPath);
+            const spec = buildAgentLaunchSpec(
+                "opencode",
+                prompt,
+                skillPath,
+                undefined,
+                "## Project Instructions\n\nUse tabs",
+                true,
+                true,
+            );
             const config = JSON.parse(spec.env!.OPENCODE_CONFIG_CONTENT) as {
                 instructions: string[];
             };
-            expect(config.instructions).toEqual([
-                join(dirname(skillPath), "taskflow-agent-prompt.md"),
-                skillPath,
-            ]);
+            const file = spec.instructionFile!;
+            expect(config.instructions).toEqual([file.path, skillPath]);
+            expect(dirname(file.path)).toBe(dirname(skillPath));
+            expect(file.content).toContain("You are running inside Taskflow application");
+            expect(file.content).toContain("This session is scoped to a project");
+            expect(file.content).toContain("This session is scoped to a flow step");
+            expect(file.content).toContain("## Project Instructions\n\nUse tabs");
+            // The skill is its own instruction file; the prompt does not repeat it.
+            expect(file.content).not.toContain("# Taskflow CLI");
         }
+    });
+
+    it("names OpenCode prompt files by content, so different contexts never share one", () => {
+        const skillPath = "/tmp/ignored/SKILL.md";
+        const path = (extra?: string, projectScope?: boolean) =>
+            buildAgentLaunchSpec("opencode", "Do it", skillPath, undefined, extra, projectScope)
+                .instructionFile!.path;
+        expect(path("A")).toBe(path("A"));
+        expect(path("A")).not.toBe(path("B"));
+        expect(path("A", true)).not.toBe(path("A", false));
     });
 
     it("serves the devserver commands in the CLI help", () => {
@@ -584,16 +607,5 @@ describe("internal agent skill files", () => {
         const docPath = join(dirname(skillPath), "taskflow-cli-browser-commands.md");
         expect(await readFile(docPath, "utf8")).toContain("connectOverCDP");
         expect(await readFile(skillPath, "utf8")).toContain(docPath);
-    });
-
-    it("writes the Taskflow prompt file that OpenCode loads", async () => {
-        const baseDir = await mkdtemp(join(tmpdir(), "taskflow-skill-test-"));
-        tempDirs.push(baseDir);
-
-        const skillPath = await ensureInternalAgentSkillFile(baseDir);
-        const prompt = await readFile(join(dirname(skillPath), "taskflow-agent-prompt.md"), "utf8");
-
-        expect(prompt).toContain("You are running inside Taskflow application");
-        expect(prompt).toContain("taskflow-cli devserver add --pid <pid>");
     });
 });
