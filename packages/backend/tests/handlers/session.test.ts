@@ -440,6 +440,81 @@ describe("session handlers", () => {
         ]);
     });
 
+    it("closes the agent it started when its task is deleted mid-launch", async () => {
+        let enterAcquire!: () => void;
+        const acquiring = new Promise<void>((resolve) => {
+            enterAcquire = resolve;
+        });
+        let openLock!: () => void;
+        const lockFree = new Promise<void>((resolve) => {
+            openLock = resolve;
+        });
+        let lockReleased = false;
+        const lifecycle = createSessionLifecycle({
+            apiToken: "test-token",
+            ptyManager: ptyManager as never,
+            taskStore: store,
+            settingsStore,
+            broadcast: () => {},
+            getPort: () => 0,
+            detectedEditors: [],
+            trayStateTracker: new TrayStateTracker(),
+            nativeSessionDiscovery: {
+                // Another Codex launch holds the lock while it identifies its session.
+                acquire: async () => {
+                    enterAcquire();
+                    await lockFree;
+                    return async () => {
+                        lockReleased = true;
+                    };
+                },
+                capture: async () => new Set<string>(),
+                discover: async () => null,
+            },
+        });
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+        const launch = lifecycle.createSession({ owner: { taskId: task.id }, type: "codex" });
+        await acquiring;
+        await store.deleteTask(task.id);
+        openLock();
+
+        await expectRejects(launch, "Task not found");
+        expect(ptyManager.spawns).toHaveLength(1);
+        expect(ptyManager.closed).toEqual([ptyManager.spawns[0].id]);
+        expect(lockReleased).toBe(true);
+    });
+
+    it("renaming a task session tells every client", async () => {
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+        const sessionId = await sessionLifecycle.createSession({
+            owner: { taskId: task.id },
+            type: "codex",
+        });
+        events.length = 0;
+
+        await router.handle(MSG.SESSION_RENAME, { sessionId, label: "Renamed" });
+
+        const update = events.find((event) => event.type === MSG.TASK_UPDATED);
+        expect(
+            (update?.payload as { sessions: SessionRef[] } | undefined)?.sessions[0]?.label,
+        ).toBe("Renamed");
+    });
+
+    it("renames a master session and tells every client", async () => {
+        const sessionId = await sessionLifecycle.createSession({
+            owner: { master: true },
+            type: "shell",
+            shell: testShell,
+        });
+        events.length = 0;
+
+        expect(await sessionLifecycle.renameSession(sessionId, "Renamed")).toBe(true);
+
+        expect(store.getMasterSessions().find((s) => s.id === sessionId)?.label).toBe("Renamed");
+        expect(events.map((event) => event.type)).toContain(MSG.MASTER_SESSIONS_LIST);
+        expect(await sessionLifecycle.renameSession("missing", "Renamed")).toBe(false);
+    });
+
     it("marks agent sessions as working when they start", async () => {
         const task = (await router.handle(MSG.TASK_CREATE, {
             projectId,

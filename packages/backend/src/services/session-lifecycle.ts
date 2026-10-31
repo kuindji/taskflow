@@ -705,82 +705,90 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
             throw error;
         }
 
-        if (!opts.internal) {
-            const sessionRef: SessionRef = {
-                id: sessionId,
-                type,
-                label:
-                    opts.label ??
-                    opts.resumeSession?.label ??
-                    getDefaultSessionLabel(type, accountName),
-                createdAt: opts.resumeSession?.createdAt ?? new Date().toISOString(),
-                instance: config.instanceId,
-                bootId: config.bootId,
-                state: "live",
-                cwd,
-                ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
-                ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
-                ...(opts.resumeSession?.nativeSessionId
-                    ? { nativeSessionId: opts.resumeSession.nativeSessionId }
-                    : type === "claude"
-                      ? { nativeSessionId: sessionId }
-                      : {}),
-                ...(flow && { flow }),
-                ...(opts.trayExclude && { trayExclude: true }),
-                ...(opts.remoteControl && type === "claude" && { remoteControl: true }),
-            };
-            if (master) {
-                if (opts.resumeSession) {
-                    await taskStore.updateMasterSession(sessionId, sessionRef);
+        try {
+            if (!opts.internal) {
+                const sessionRef: SessionRef = {
+                    id: sessionId,
+                    type,
+                    label:
+                        opts.label ??
+                        opts.resumeSession?.label ??
+                        getDefaultSessionLabel(type, accountName),
+                    createdAt: opts.resumeSession?.createdAt ?? new Date().toISOString(),
+                    instance: config.instanceId,
+                    bootId: config.bootId,
+                    state: "live",
+                    cwd,
+                    ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
+                    ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
+                    ...(opts.resumeSession?.nativeSessionId
+                        ? { nativeSessionId: opts.resumeSession.nativeSessionId }
+                        : type === "claude"
+                          ? { nativeSessionId: sessionId }
+                          : {}),
+                    ...(flow && { flow }),
+                    ...(opts.trayExclude && { trayExclude: true }),
+                    ...(opts.remoteControl && type === "claude" && { remoteControl: true }),
+                };
+                if (master) {
+                    if (opts.resumeSession) {
+                        await taskStore.updateMasterSession(sessionId, sessionRef);
+                    } else {
+                        await taskStore.addMasterSession(sessionRef);
+                    }
+                    broadcast({
+                        type: MSG.MASTER_SESSIONS_LIST,
+                        payload: { sessions: taskStore.getMasterSessions() },
+                    });
+                } else if (task) {
+                    await taskStore.updateTask(task.id, (currentTask) => ({
+                        sessions: opts.resumeSession
+                            ? currentTask.sessions.map((session) =>
+                                  session.id === sessionId ? sessionRef : session,
+                              )
+                            : [...currentTask.sessions, sessionRef],
+                    }));
+                    const updatedTask = await taskStore.getTask(task.id);
+                    if (updatedTask) {
+                        broadcast({
+                            type: MSG.TASK_UPDATED,
+                            payload: filterTaskSessions(updatedTask, config.instanceId),
+                        });
+                    }
                 } else {
-                    await taskStore.addMasterSession(sessionRef);
+                    await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
+                        sessions: opts.resumeSession
+                            ? currentProject.sessions.map((session) =>
+                                  session.id === sessionId ? sessionRef : session,
+                              )
+                            : [...currentProject.sessions, sessionRef],
+                    }));
+                    const updatedProject = await taskStore.getProject(resolvedProjectId);
+                    if (updatedProject) {
+                        broadcast({
+                            type: MSG.PROJECT_UPDATED,
+                            payload: filterProjectSessions(updatedProject, config.instanceId),
+                        });
+                    }
                 }
-                broadcast({
-                    type: MSG.MASTER_SESSIONS_LIST,
-                    payload: { sessions: taskStore.getMasterSessions() },
-                });
-            } else if (task) {
-                await taskStore.updateTask(task.id, (currentTask) => ({
-                    sessions: opts.resumeSession
-                        ? currentTask.sessions.map((session) =>
-                              session.id === sessionId ? sessionRef : session,
-                          )
-                        : [...currentTask.sessions, sessionRef],
-                }));
-                const updatedTask = await taskStore.getTask(task.id);
-                if (updatedTask) {
+
+                if (type !== "shell" && type !== "editor") {
                     broadcast({
-                        type: MSG.TASK_UPDATED,
-                        payload: filterTaskSessions(updatedTask, config.instanceId),
+                        type: MSG.SESSION_STATUS,
+                        payload: { sessionId, status: "initializing" },
                     });
                 }
-            } else {
-                await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
-                    sessions: opts.resumeSession
-                        ? currentProject.sessions.map((session) =>
-                              session.id === sessionId ? sessionRef : session,
-                          )
-                        : [...currentProject.sessions, sessionRef],
-                }));
-                const updatedProject = await taskStore.getProject(resolvedProjectId);
-                if (updatedProject) {
-                    broadcast({
-                        type: MSG.PROJECT_UPDATED,
-                        payload: filterProjectSessions(updatedProject, config.instanceId),
-                    });
-                }
-            }
 
-            if (type !== "shell" && type !== "editor") {
-                broadcast({
-                    type: MSG.SESSION_STATUS,
-                    payload: { sessionId, status: "initializing" },
-                });
+                // Registered only once the ref is persisted: a move must never copy
+                // the ref of a session that is still being created or resumed.
+                if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
             }
-
-            // Registered only once the ref is persisted: a move must never copy
-            // the ref of a session that is still being created or resumed.
-            if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
+        } catch (error) {
+            // The owner went away while the agent was starting (the task was
+            // deleted or archived): nothing will ever list or close this PTY.
+            ptyManager.close(sessionId);
+            await releaseNativeLaunchLock?.();
+            throw error;
         }
 
         if (needsNativeDiscovery && releaseNativeLaunchLock) {
@@ -1046,6 +1054,16 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         }
     }
 
+    /** Relabel a session wherever it is listed and tell every client. False when no owner lists it. */
+    function renameSession(sessionId: string, label: string): Promise<boolean> {
+        return sessionQueue.run(sessionId, async () => {
+            const found = await findSession(sessionId);
+            if (!found) return false;
+            await patchOwnedSessionRef(found.owner, sessionId, { label });
+            return true;
+        });
+    }
+
     async function getSessionOwner(sessionId: string): Promise<SessionOwner | null> {
         const owner = currentOwnerOf(sessionId);
         if (!owner) return null;
@@ -1062,6 +1080,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         drainSessionOutput,
         closeClientSession,
         moveSession,
+        renameSession,
         getSessionOwner,
         prepareForShutdown,
         setRecoveredSessionExitHandler,

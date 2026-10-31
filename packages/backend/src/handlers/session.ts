@@ -9,7 +9,6 @@ import type {
     SessionHistoryPayload,
     SessionSnapshotPayload,
     TerminalResizePayload,
-    SessionRef,
 } from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { PtyManager } from "../services/pty-manager";
@@ -79,36 +78,10 @@ export function registerSessionHandlers(deps: SessionHandlerDeps): void {
 
     router.register(MSG.SESSION_RENAME, async (payload) => {
         const { sessionId, label } = payload as SessionRenamePayload;
-
-        const updateLabel = (sessions: SessionRef[]) =>
-            sessions.map((s) => (s.id === sessionId ? { ...s, label } : s));
-
-        const tasks = await taskStore.listTasks();
-        const ownerTask = tasks.find((t) => t.sessions.some((s) => s.id === sessionId));
-        if (ownerTask) {
-            await taskStore.updateTask(ownerTask.id, (task) => ({
-                sessions: updateLabel(task.sessions),
-            }));
-            return { success: true };
+        if (!(await sessionLifecycle.renameSession(sessionId, label))) {
+            throw new Error(`Session not found: ${sessionId}`);
         }
-
-        const projects = await taskStore.listProjects();
-        const ownerProject = projects.find((p) => p.sessions.some((s) => s.id === sessionId));
-        if (ownerProject) {
-            await taskStore.updateProject(ownerProject.id, (project) => ({
-                sessions: updateLabel(project.sessions),
-            }));
-            return { success: true };
-        }
-
-        // Check master sessions
-        const masterSessions = taskStore.getMasterSessions();
-        if (masterSessions.some((s) => s.id === sessionId)) {
-            await taskStore.updateMasterSession(sessionId, { label });
-            return { success: true };
-        }
-
-        throw new Error(`Session not found: ${sessionId}`);
+        return { success: true };
     });
 
     router.register(MSG.SESSION_MOVE, async (payload) => {

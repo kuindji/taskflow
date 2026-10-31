@@ -73,6 +73,7 @@ const sharedTestDeps = {
             if (target.taskId === "archived") throw new Error("Task not found");
             moveCalls.push({ sessionId, target });
         },
+        renameSession: async () => false,
         getSessionOwner: async (sessionId: string): Promise<SessionOwnerRef | null> =>
             sessionId === "session-1" ? { taskId: "t1", projectId: "p1" } : null,
     },

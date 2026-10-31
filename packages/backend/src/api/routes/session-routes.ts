@@ -7,7 +7,6 @@ import type {
     AgentAvailability,
     AgentType,
     SessionOwnerRef,
-    SessionRef,
     SessionStatus,
     WsEvent,
 } from "@taskflow/shared";
@@ -23,6 +22,7 @@ interface SessionRouteLifecycle {
         owner?: { taskId?: string; projectId?: string },
     ) => Promise<void>;
     moveSession: (sessionId: string, target: SessionOwnerRef) => Promise<void>;
+    renameSession: (sessionId: string, label: string) => Promise<boolean>;
     getSessionOwner: (sessionId: string) => Promise<SessionOwnerRef | null>;
 }
 
@@ -267,28 +267,10 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
 
         const { sessionId } = params;
 
-        const updateLabel = (sessions: SessionRef[]) =>
-            sessions.map((s) => (s.id === sessionId ? { ...s, label } : s));
-
         try {
-            const tasks = await taskStore.listTasks();
-            const ownerTask = tasks.find((t) => t.sessions.some((s) => s.id === sessionId));
-            if (ownerTask) {
-                await taskStore.updateTask(ownerTask.id, (task) => ({
-                    sessions: updateLabel(task.sessions),
-                }));
+            if (await sessionLifecycle.renameSession(sessionId, label)) {
                 return jsonResponse({ success: true });
             }
-
-            const projects = await taskStore.listProjects();
-            const ownerProject = projects.find((p) => p.sessions.some((s) => s.id === sessionId));
-            if (ownerProject) {
-                await taskStore.updateProject(ownerProject.id, (project) => ({
-                    sessions: updateLabel(project.sessions),
-                }));
-                return jsonResponse({ success: true });
-            }
-
             return errorResponse(`Session not found: ${sessionId}`, 404);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";

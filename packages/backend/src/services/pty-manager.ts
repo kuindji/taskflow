@@ -354,7 +354,12 @@ export class PtyManager {
             pty = {
                 write: (d: string) => terminal?.write(d),
                 resize: (c: number, r: number) => terminal?.resize(c, r),
-                kill: () => proc.kill(),
+                // Hang up the terminal first, as closing a terminal window does:
+                // an interactive shell ignores the SIGTERM that follows.
+                kill: () => {
+                    terminal?.close();
+                    proc.kill();
+                },
             };
 
             void proc.exited.then(cleanup).catch((err: unknown) => {

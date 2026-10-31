@@ -147,8 +147,9 @@ class WindowsPtySession {
     }
 
     kill(): void {
-        if (!this.alive) return;
-        this.alive = false;
+        // `alive` stays set until the exit arrives, so the kill message goes out
+        // and the exit still reaches onExit.
+        if (!this.alive || this.killTimer !== null) return;
         this.send({ type: "kill" });
         this.killTimer = setTimeout(() => {
             this.killTimer = null;

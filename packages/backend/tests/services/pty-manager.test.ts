@@ -131,6 +131,26 @@ describe("PtyManager", () => {
         manager.close(sessionId);
         expect(manager.list()).not.toContain(sessionId);
     });
+
+    it.skipIf(isWindows)("closing an interactive shell ends its process", async () => {
+        let exited = false;
+        const sessionId = manager.spawn({
+            command: "/bin/bash",
+            args: ["--norc", "--noprofile", "-i"],
+            cwd: testCwd,
+            onData: () => {},
+            onExit: () => {
+                exited = true;
+            },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        manager.close(sessionId);
+        const deadline = Date.now() + 3000;
+        while (!exited && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(exited).toBe(true);
+    });
 });
 
 describe("PtyManager initialInput", () => {
