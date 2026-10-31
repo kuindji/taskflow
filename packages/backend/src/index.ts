@@ -167,7 +167,8 @@ async function main() {
         });
 
         const connectivityService = new ConnectivityService();
-        await connectivityService.init();
+        // Awaited only before the scheduler starts, after the handshake.
+        const connectivityReady = connectivityService.init();
 
         const scheduleStore = new ScheduleStore(config.schedulesFile);
         const schedulerService = new SchedulerService({
@@ -578,7 +579,34 @@ async function main() {
         await applyNetworkSettings(network);
         settingsStore.onUpdated((settings) => void applyNetworkSettings(settings.network));
 
+        // Installed before the connectivity wait, which can outlast a quit.
+        let shuttingDown = false;
+        const shutdown = async () => {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            try {
+                await sessionLifecycle.prepareForShutdown();
+            } catch (error) {
+                console.error("Failed to persist interrupted sessions during shutdown:", error);
+            }
+            connectivityService.shutdown();
+            schedulerService.shutdown();
+            changeTracker.dispose();
+            ptyManager.closeAll();
+            await sessionLifecycle.drainSessionOutput();
+            await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
+            advertiser.stop();
+            await releaseInstancePort(config.instancePortFile, startedServer.port, stop);
+            process.exit(0);
+        };
+        process.on("SIGINT", () => void shutdown());
+        if (process.platform !== "win32") {
+            process.on("SIGTERM", () => void shutdown());
+        }
+
         // Initialize scheduler after server is running
+        await connectivityReady;
+        if (shuttingDown) return;
         await schedulerService.init();
 
         // Auto-start remote agent if enabled
@@ -606,30 +634,6 @@ async function main() {
             worktreeSetup.resumePendingWorktrees().catch((error: unknown) => {
                 console.error("Failed to resume pending worktree setups:", error);
             });
-        }
-
-        let shuttingDown = false;
-        const shutdown = async () => {
-            if (shuttingDown) return;
-            shuttingDown = true;
-            try {
-                await sessionLifecycle.prepareForShutdown();
-            } catch (error) {
-                console.error("Failed to persist interrupted sessions during shutdown:", error);
-            }
-            connectivityService.shutdown();
-            schedulerService.shutdown();
-            changeTracker.dispose();
-            ptyManager.closeAll();
-            await sessionLifecycle.drainSessionOutput();
-            await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
-            advertiser.stop();
-            await releaseInstancePort(config.instancePortFile, startedServer.port, stop);
-            process.exit(0);
-        };
-        process.on("SIGINT", () => void shutdown());
-        if (process.platform !== "win32") {
-            process.on("SIGTERM", () => void shutdown());
         }
     } catch (error) {
         if (advertisedPort !== undefined) {

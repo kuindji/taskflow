@@ -39,4 +39,30 @@ describe("ConnectivityService", () => {
 
         service.shutdown();
     });
+
+    it("tells listeners registered during startup that the first check found no connection", async () => {
+        let calls = 0;
+        let finish!: (online: boolean) => void;
+        const service = new ConnectivityService(() => {
+            calls += 1;
+            return new Promise<boolean>((resolve) => {
+                finish = resolve;
+            });
+        });
+        const seen: boolean[] = [];
+
+        const ready = service.init();
+        service.onChange((online) => {
+            seen.push(online);
+        });
+        const recheck = service.refresh();
+        finish(false);
+
+        expect(await ready).toBe(false);
+        expect(await recheck).toBe(false);
+        expect(seen).toEqual([false]);
+        expect(calls).toBe(1);
+
+        service.shutdown();
+    });
 });

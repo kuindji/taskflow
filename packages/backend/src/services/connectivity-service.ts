@@ -49,8 +49,14 @@ class ConnectivityService {
         return this.online;
     }
 
+    /**
+     * Startup does not wait for this: on a network that drops the probes it
+     * takes up to three timeouts, longer than the launchers' handshake
+     * deadline. It goes through `refresh` so listeners registered meanwhile
+     * hear an offline result and a recheck shares the probe.
+     */
     async init(): Promise<boolean> {
-        this.online = await this.checkConnectivity();
+        await this.refresh();
         this.pollTimer = setInterval(() => {
             void this.refresh();
         }, POLL_INTERVAL_MS);
