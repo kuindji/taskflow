@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { migrateDataDir } from "../../src/services/data-dir-migrator";
+import { expectRejects } from "../expect-rejects";
 
 describe("migrateDataDir", () => {
     let root: string;
@@ -27,5 +28,27 @@ describe("migrateDataDir", () => {
             "log\n",
         );
         expect(await readFile(join(to, "sessions", "main", "master.json"), "utf-8")).toBe("[]");
+    });
+
+    it("refuses to move into the parent folder of a data folder named like a data item", async () => {
+        const current = join(root, "tasks");
+        await mkdir(join(current, "tasks"), { recursive: true });
+        await writeFile(join(current, "projects.json"), "[]");
+        await writeFile(join(current, "tasks", "t1.json"), "{}");
+
+        await expectRejects(migrateDataDir(current, root), "overlaps");
+
+        expect(await readFile(join(current, "projects.json"), "utf-8")).toBe("[]");
+        expect(await readFile(join(current, "tasks", "t1.json"), "utf-8")).toBe("{}");
+    });
+
+    it("refuses to move a folder onto itself under another spelling", async () => {
+        const current = join(root, "data");
+        await mkdir(current, { recursive: true });
+        await writeFile(join(current, "projects.json"), "[]");
+
+        await expectRejects(migrateDataDir(current, `${current}/`), "overlaps");
+
+        expect(await readFile(join(current, "projects.json"), "utf-8")).toBe("[]");
     });
 });

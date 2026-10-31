@@ -1,6 +1,18 @@
-import { access, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
+import {
+    access,
+    cp,
+    mkdir,
+    readdir,
+    readFile,
+    realpath,
+    rename,
+    rm,
+    stat,
+    writeFile,
+} from "fs/promises";
 import { constants } from "fs";
 import { join } from "path";
+import { isPathInsideDirectory } from "./theme-service";
 
 /**
  * Items that live in the data directory and move with it: everything
@@ -124,6 +136,19 @@ export async function hasExistingData(dirPath: string): Promise<boolean> {
 /** Move data from currentDir to newDir, overwriting any existing data at destination */
 export async function migrateDataDir(currentDir: string, newDir: string): Promise<void> {
     await mkdir(newDir, { recursive: true });
+
+    // Clearing a destination that holds its own source (the same folder under
+    // another spelling, or the parent of a data folder named like an item)
+    // would delete the data before it moves, so refuse before touching anything.
+    const [realCurrent, realNew] = await Promise.all([realpath(currentDir), realpath(newDir)]);
+    for (const item of DATA_ITEMS) {
+        const src = join(realCurrent, item);
+        const dest = join(realNew, item);
+        if (!(await exists(src))) continue;
+        if (isPathInsideDirectory(src, dest) || isPathInsideDirectory(dest, src)) {
+            throw new Error(`The new data folder overlaps the current one at ${src}`);
+        }
+    }
 
     for (const item of DATA_ITEMS) {
         const src = join(currentDir, item);

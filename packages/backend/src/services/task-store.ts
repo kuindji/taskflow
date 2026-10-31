@@ -1340,6 +1340,26 @@ export class TaskStore {
         return tasks.filter((t) => t.parentId === parentId);
     }
 
+    /**
+     * Subtasks carry a copy of their parent's worktree; give every subtask
+     * (active and archived) the parent's new one. Returns the updated active
+     * subtasks for the caller to broadcast.
+     */
+    async syncSubtaskWorktrees(parentId: string, worktree: TaskWorktree): Promise<Task[]> {
+        const [subtasks, archivedSubtasks] = await Promise.all([
+            this.getSubtasks(parentId),
+            this.getArchivedSubtasks(parentId),
+        ]);
+        const updated: Task[] = [];
+        for (const subtask of subtasks) {
+            updated.push(await this.updateTask(subtask.id, { worktree: { ...worktree } }));
+        }
+        for (const subtask of archivedSubtasks) {
+            await this.updateArchived(subtask.id, { worktree: { ...worktree } });
+        }
+        return updated;
+    }
+
     async unarchiveTask(id: string): Promise<Task> {
         return this.withTaskMutation(id, async () => {
             const task = await this.readTask(this.archivePath(id));

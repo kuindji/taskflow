@@ -201,20 +201,11 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
 
             const worktree = { ...task.worktree, enabled: body.enabled };
             const updated = await taskStore.updateTask(params.taskId, { worktree });
-            // Subtasks carry a copy of the parent's worktree; keep them in step.
-            const [subtasks, archivedSubtasks] = await Promise.all([
-                taskStore.getSubtasks(params.taskId),
-                taskStore.getArchivedSubtasks(params.taskId),
-            ]);
-            for (const subtask of subtasks) {
-                const updatedSubtask = await taskStore.updateTask(subtask.id, { worktree });
+            for (const subtask of await taskStore.syncSubtaskWorktrees(params.taskId, worktree)) {
                 broadcast({
                     type: MSG.TASK_UPDATED,
-                    payload: filterTaskSessions(updatedSubtask, config.instanceId),
+                    payload: filterTaskSessions(subtask, config.instanceId),
                 });
-            }
-            for (const subtask of archivedSubtasks) {
-                await taskStore.updateArchived(subtask.id, { worktree });
             }
             const filtered = filterTaskSessions(updated, config.instanceId);
             broadcast({ type: MSG.TASK_UPDATED, payload: filtered });

@@ -1,7 +1,7 @@
 import { join } from "path";
 import type { TaskStore } from "./task-store";
 import type { GitService } from "./git-service";
-import type { WsEvent } from "@taskflow/shared";
+import type { TaskWorktree, WsEvent } from "@taskflow/shared";
 import type { ChangeTracker } from "./change-tracker";
 import type { PtyManager } from "./pty-manager";
 import type { CreateSessionOpts } from "./session-lifecycle";
@@ -128,21 +128,24 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
 
             // Now persist the worktree path and broadcast — this unblocks
             // the UI's pending agent start.
-            const updated = await taskStore.updateTask(taskId, {
-                worktree: { enabled: true, path: worktreePath, branch, pr: null },
-            });
-            broadcast({
-                type: MSG.TASK_UPDATED,
-                payload: filterTaskSessions(updated, config.instanceId),
-            });
+            await setWorktree(taskId, { enabled: true, path: worktreePath, branch, pr: null });
         } catch (error) {
             console.error(`Failed to create worktree for task ${taskId}:`, error);
-            const updated = await taskStore.updateTask(taskId, {
-                worktree: { enabled: false, path: null, branch: null, pr: null },
-            });
+            await setWorktree(taskId, { enabled: false, path: null, branch: null, pr: null });
+        }
+    }
+
+    /**
+     * Persist the task's finished worktree and broadcast it, together with
+     * any subtasks added while it was pending (they copied the pending state).
+     */
+    async function setWorktree(taskId: string, worktree: TaskWorktree): Promise<void> {
+        const updated = await taskStore.updateTask(taskId, { worktree });
+        const subtasks = await taskStore.syncSubtaskWorktrees(taskId, worktree);
+        for (const task of [updated, ...subtasks]) {
             broadcast({
                 type: MSG.TASK_UPDATED,
-                payload: filterTaskSessions(updated, config.instanceId),
+                payload: filterTaskSessions(task, config.instanceId),
             });
         }
     }
