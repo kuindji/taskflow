@@ -38,9 +38,8 @@ function buildRgArgs(payload: SearchQueryPayload): string[] {
     if (payload.wholeWord) {
         args.push("--word-regexp");
     }
-    if (payload.useRegex) {
-        args.push("--pcre2");
-    }
+    // Without a flag rg treats the query as a regex; the UI's literal mode must not.
+    args.push(payload.useRegex ? "--pcre2" : "--fixed-strings");
     if (payload.includePattern) {
         for (const pattern of payload.includePattern.split(",")) {
             const trimmed = pattern.trim();
@@ -58,9 +57,15 @@ function buildRgArgs(payload: SearchQueryPayload): string[] {
     return args;
 }
 
+/** rg sends `bytes` (base64) instead of `text` for data that is not valid UTF-8. */
+interface RgData {
+    text?: string;
+    bytes?: string;
+}
+
 interface RgMatchData {
-    path: { text: string };
-    lines: { text: string };
+    path: RgData;
+    lines: RgData;
     line_number: number;
     submatches: Array<{ start: number; end: number }>;
 }
@@ -80,8 +85,14 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         if (parsed.type !== "match") continue;
 
         const data = parsed.data;
+        // A path that is not UTF-8 cannot be named back to the file system as a JS string.
+        if (data.path.text === undefined) continue;
         const filePath = toForwardSlash(data.path.text);
-        const lineContent = data.lines.text.replace(/\r?\n$/, "");
+        const rawLine =
+            data.lines.text !== undefined
+                ? Buffer.from(data.lines.text, "utf-8")
+                : Buffer.from(data.lines.bytes ?? "", "base64");
+        const lineContent = rawLine.toString("utf-8").replace(/\r?\n$/, "");
 
         let matches = fileMap.get(filePath);
         if (!matches) {
@@ -90,10 +101,9 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         }
 
         // Convert byte offsets from rg to character offsets for JS string operations
-        const lineBytes = Buffer.from(lineContent, "utf-8");
         for (const sub of data.submatches) {
-            const charStart = lineBytes.subarray(0, sub.start).toString("utf-8").length;
-            const charEnd = lineBytes.subarray(0, sub.end).toString("utf-8").length;
+            const charStart = rawLine.subarray(0, sub.start).toString("utf-8").length;
+            const charEnd = rawLine.subarray(0, sub.end).toString("utf-8").length;
             matches.push({
                 line: data.line_number,
                 column: charStart + 1,
@@ -121,10 +131,13 @@ function buildSearchRegex(
 ): RegExp {
     let pattern = useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (wholeWord) {
-        pattern = `\\b${pattern}\\b`;
+        // Group it: `\bfoo|bar\b` would match "foo" inside "foobar".
+        pattern = `\\b(?:${pattern})\\b`;
     }
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
 }
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 async function replaceInFile(
     filePath: string,
@@ -135,8 +148,20 @@ async function replaceInFile(
     useRegex: boolean,
     matchFilter?: SearchMatch[],
 ): Promise<number> {
-    const content = await readFile(filePath, "utf-8");
+    const bytes = await readFile(filePath);
+    let content: string;
+    try {
+        // Decoding a non-UTF-8 file and writing it back would replace every
+        // undecodable byte with U+FFFD, so such files are left alone.
+        content = utf8Decoder.decode(bytes);
+    } catch {
+        return 0;
+    }
+    // rg strips a UTF-8 BOM before counting columns; the decoder drops it too,
+    // and it is written back unchanged.
+    const bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? "\uFEFF" : "";
     const lines = content.split("\n");
+    const originalLines = [...lines];
     let replacedCount = 0;
 
     if (matchFilter && matchFilter.length > 0) {
@@ -146,6 +171,9 @@ async function replaceInFile(
         for (const match of sorted) {
             const lineIdx = match.line - 1;
             if (lineIdx < 0 || lineIdx >= lines.length) continue;
+            // Coordinates are only valid for the line the search saw; once the
+            // file changed they would overwrite unrelated text.
+            if (originalLines[lineIdx].replace(/\r$/, "") !== match.lineContent) continue;
             const line = lines[lineIdx];
             const colIdx = match.column - 1;
             if (colIdx < 0 || colIdx > line.length) continue;
@@ -165,7 +193,7 @@ async function replaceInFile(
     }
 
     if (replacedCount > 0) {
-        await writeFile(filePath, lines.join("\n"), "utf-8");
+        await writeFile(filePath, bom + lines.join("\n"), "utf-8");
     }
     return replacedCount;
 }

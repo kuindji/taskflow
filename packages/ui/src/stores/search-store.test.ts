@@ -126,3 +126,57 @@ describe("search-store across machines", () => {
         expect(useSearchStore.getState().query).toBe("needle");
     });
 });
+
+describe("search-store single-match replace", () => {
+    const line = "foo foo tail";
+    const file = {
+        path: "/repo/a.ts",
+        matches: [
+            { line: 1, column: 1, matchLength: 3, lineContent: line },
+            { line: 1, column: 5, matchLength: 3, lineContent: line },
+        ],
+    };
+
+    async function attachReplacing(replacedCount: number): Promise<TestServer> {
+        const server = startTestServer("a", (type) => {
+            if (type === MSG.SEARCH_QUERY) {
+                return { result: { searchId: "s", totalMatches: 2, files: [file] } };
+            }
+            if (type === MSG.SEARCH_REPLACE) return { replacedCount };
+            return {};
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+        return server;
+    }
+
+    test("moves the later matches on the replaced line to the new text", async () => {
+        await attachReplacing(1);
+        const store = useSearchStore.getState();
+        store.setQuery("foo");
+        store.setReplacement("x");
+        await store.search("a", "/repo");
+
+        await useSearchStore.getState().replaceMatch(file.path, file.matches[0]);
+
+        expect(useSearchStore.getState().results).toEqual([
+            {
+                path: file.path,
+                matches: [{ line: 1, column: 3, matchLength: 3, lineContent: "x foo tail" }],
+            },
+        ]);
+    });
+
+    test("keeps a match the backend refused and says why", async () => {
+        await attachReplacing(0);
+        const store = useSearchStore.getState();
+        store.setQuery("foo");
+        store.setReplacement("x");
+        await store.search("a", "/repo");
+
+        await useSearchStore.getState().replaceMatch(file.path, file.matches[0]);
+
+        expect(useSearchStore.getState().results).toEqual([file]);
+        expect(useSearchStore.getState().error).toContain("Not replaced");
+    });
+});

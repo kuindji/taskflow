@@ -49,6 +49,32 @@ interface SearchStore {
     clear(): void;
 }
 
+/**
+ * The line now reads differently: later matches on it moved by the length
+ * difference, and every match on it carries the new text so the backend accepts
+ * their coordinates.
+ */
+function shiftAfterReplace(
+    matches: SearchMatch[],
+    replaced: SearchMatch,
+    replacement: string,
+): SearchMatch[] {
+    const start = replaced.column - 1;
+    const lineContent =
+        replaced.lineContent.slice(0, start) +
+        replacement +
+        replaced.lineContent.slice(start + replaced.matchLength);
+    const delta = replacement.length - replaced.matchLength;
+    return matches.map((m) => {
+        if (m.line !== replaced.line || m.column === replaced.column) return m;
+        return {
+            ...m,
+            column: m.column > replaced.column ? m.column + delta : m.column,
+            lineContent,
+        };
+    });
+}
+
 /** Bumped by every search and by a detach of the searched machine: a late answer is dropped. */
 let searchGeneration = 0;
 /** The machine the running search asked, until its answer lands. */
@@ -171,17 +197,36 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         const state = get();
         if (!state.searchBackendId || !state.searchRoot) return;
         try {
-            await sendRequest<SearchReplaceResponse>(state.searchBackendId, MSG.SEARCH_REPLACE, {
-                path: state.searchRoot,
-                filePath,
-                query: state.query,
-                replacement: state.replacement,
-                caseSensitive: state.caseSensitive,
-                wholeWord: state.wholeWord,
-                useRegex: state.useRegex,
-                matches: [match],
-            });
+            const { replacedCount } = await sendRequest<SearchReplaceResponse>(
+                state.searchBackendId,
+                MSG.SEARCH_REPLACE,
+                {
+                    path: state.searchRoot,
+                    filePath,
+                    query: state.query,
+                    replacement: state.replacement,
+                    caseSensitive: state.caseSensitive,
+                    wholeWord: state.wholeWord,
+                    useRegex: state.useRegex,
+                    matches: [match],
+                },
+            );
 
+            if (replacedCount === 0) {
+                set({
+                    error: "Not replaced: the file changed since the search or is not UTF-8 text. Search again.",
+                });
+                return;
+            }
+            const replacement = state.replacement;
+            set((s) => {
+                const results = s.results.map((file) =>
+                    file.path === filePath
+                        ? { ...file, matches: shiftAfterReplace(file.matches, match, replacement) }
+                        : file,
+                );
+                return { results };
+            });
             get().removeMatch(filePath, match);
         } catch (err) {
             set({ error: err instanceof Error ? err.message : "Replace failed" });

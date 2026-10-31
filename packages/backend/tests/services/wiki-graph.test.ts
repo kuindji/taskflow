@@ -39,6 +39,16 @@ describe("buildWikiGraph", () => {
         expect(graph.backlinks["a"]).toBeUndefined();
     });
 
+    it("builds backlinks for page ids that name Object.prototype members", () => {
+        const graph = buildWikiGraph("/root", true, [
+            page("index", { rawLinks: ["constructor"] }),
+            page("constructor"),
+            page("toString"),
+        ]);
+        expect(graph.backlinks["constructor"]).toEqual(["index"]);
+        expect(graph.orphans).toEqual(["index", "toString"]);
+    });
+
     it("lists a page once in a backlink list even when it links twice", () => {
         // "business" and "business/index" are different raw targets that resolve
         // to the same page; the backlink list must not repeat the source.

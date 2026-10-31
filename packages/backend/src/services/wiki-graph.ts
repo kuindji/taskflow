@@ -125,7 +125,8 @@ function buildWikiGraph(
     parsed: ParsedWikiPage[],
 ): WikiIndexData {
     const byId = new Map(parsed.map((page) => [page.id, page]));
-    const backlinks: Record<string, string[]> = {};
+    // A Map: page ids such as "constructor" would read Object.prototype members.
+    const backlinks = new Map<string, string[]>();
     const unresolved: WikiUnresolvedLink[] = [];
 
     const pages: WikiPage[] = parsed.map((page) => {
@@ -147,19 +148,21 @@ function buildWikiGraph(
             if (linked.has(resolved)) continue;
             linked.add(resolved);
             links.push(resolved);
-            (backlinks[resolved] ??= []).push(page.id);
+            const sources = backlinks.get(resolved);
+            if (sources) sources.push(page.id);
+            else backlinks.set(resolved, [page.id]);
         }
         const { rawLinks: _rawLinks, ...rest } = page;
         return { ...rest, links, brokenLinks };
     });
 
-    for (const list of Object.values(backlinks)) list.sort();
+    for (const list of backlinks.values()) list.sort();
 
     const builder = emptyBuilder();
     for (const page of parsed) insert(builder, page.id.split("/"), page.id);
 
     const orphans = pages
-        .filter((page) => (backlinks[page.id]?.length ?? 0) === 0 && page.parents.length === 0)
+        .filter((page) => !backlinks.has(page.id) && page.parents.length === 0)
         .map((page) => page.id)
         .sort();
 
@@ -168,7 +171,7 @@ function buildWikiGraph(
         rootExists,
         pages,
         tree: toNodes(builder, byId),
-        backlinks,
+        backlinks: Object.fromEntries(backlinks),
         unresolved,
         orphans,
     };
