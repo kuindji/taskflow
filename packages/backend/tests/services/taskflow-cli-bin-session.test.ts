@@ -238,6 +238,19 @@ describe("taskflow-cli binary: flow context", () => {
         }
     });
 
+    it("encodes the artifact label as one path segment on get", async () => {
+        const requests = startServer(null);
+        const result = await runBin(["artifact", "get", "code review#2/é"], {
+            ...flowEnv,
+            TASKFLOW_TASK_ID: "task-1",
+        });
+
+        expect(result.status).toBe(0);
+        const prefix = "/api/flow/artifact/task-1/flow-1/";
+        const get = requests.find((r) => r.path.startsWith(prefix));
+        expect(decodeURIComponent(get?.path.slice(prefix.length) ?? "")).toBe("code review#2/é");
+    });
+
     it("saves a relative artifact path as an absolute one", async () => {
         const requests = startServer(null);
         const result = await runBin(["artifact", "save", "plan", "--path", "docs/plan.md"], {

@@ -8,7 +8,7 @@ import { registerFlowRoutes } from "../../src/api/routes/flow-routes";
 
 const BASE = "http://localhost/api/flow/artifact";
 
-describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
+describe("GET /api/flow/artifact/:ownerId/:flowId/:type[/raw]", () => {
     let tempDir: string;
     let apiRouter: ApiRouter;
     let runs: FlowRun[];
@@ -64,6 +64,17 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
 
     afterEach(async () => {
         await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("decodes an encoded type on the JSON route", async () => {
+        runs.push(
+            run([artifact("code review#2", { text: "NEW" }), artifact("code", { text: "OLD" })]),
+        );
+
+        const res = await get(`task-1/flow-1/${encodeURIComponent("code review#2")}`);
+
+        expect(res.status).toBe(200);
+        expect(((await res.json()) as FlowArtifact).text).toBe("NEW");
     });
 
     it("serves the bytes at the path the run registered, outside every workspace", async () => {

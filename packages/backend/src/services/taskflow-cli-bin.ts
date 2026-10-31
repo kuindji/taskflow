@@ -663,7 +663,10 @@ async function handleArtifact(args: string[]): Promise<void> {
                 process.exit(1);
             }
             process.stdout.write(
-                await api("GET", `/api/flow/artifact/${ownerId}/${flowId}/${artifactType}`),
+                await api(
+                    "GET",
+                    `/api/flow/artifact/${ownerId}/${flowId}/${encodeURIComponent(artifactType)}`,
+                ),
             );
             break;
         }

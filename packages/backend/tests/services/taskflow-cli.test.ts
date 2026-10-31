@@ -737,6 +737,23 @@ describe("taskflow-cli", () => {
         }
     });
 
+    it("encodes the artifact label as one path segment on get", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["artifact", "get", "code review#2/é"], {
+            ...env,
+            TASKFLOW_TASK_ID: "task-1",
+            TASKFLOW_FLOW_ID: "flow-1",
+        });
+
+        expect(result.status).toBe(0);
+        const prefix = "http://localhost:1234/api/flow/artifact/task-1/flow-1/";
+        const { url } = await readCapturedRequest(captureFile);
+        expect(url.startsWith(prefix)).toBe(true);
+        const segment = url.slice(prefix.length);
+        expect(segment).not.toMatch(/[ #/?]/);
+        expect(decodeURIComponent(segment)).toBe("code review#2/é");
+    });
+
     it("saves a relative artifact path as an absolute one", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const cwd = await mkdtemp(join(tmpdir(), "taskflow-cli-cwd-"));

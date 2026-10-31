@@ -22,6 +22,21 @@ import {
 import type { CreateSessionOpts } from "../../services/session-lifecycle";
 import { jsonResponse, errorResponse } from "./response-helpers";
 
+/** Artifact route params, decoded: the router matches them raw. Null when malformed. */
+function decodeArtifactAddress(
+    params: Record<string, string>,
+): { ownerId: string; flowId: string; type: string } | null {
+    try {
+        return {
+            ownerId: decodeURIComponent(params.ownerId),
+            flowId: decodeURIComponent(params.flowId),
+            type: decodeURIComponent(params.type),
+        };
+    } catch {
+        return null;
+    }
+}
+
 interface FlowRouteDeps {
     apiRouter: ApiRouter;
     taskStore: TaskStore;
@@ -173,10 +188,13 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
         return jsonResponse({ artifacts: flowRunner.getArtifacts(run) });
     });
 
+    // The type is a free-form label ("code review"), so it arrives encoded.
     apiRouter.register("GET", "/api/flow/artifact/:ownerId/:flowId/:type", async (_req, params) => {
-        const run = await flowStore.getFlowRun(params.ownerId, params.flowId);
+        const address = decodeArtifactAddress(params);
+        if (!address) return errorResponse("Malformed artifact address", 400);
+        const run = await flowStore.getFlowRun(address.ownerId, address.flowId);
         if (!run) return errorResponse("Flow run not found", 404);
-        const artifacts = flowRunner.getArtifacts(run, params.type);
+        const artifacts = flowRunner.getArtifacts(run, address.type);
         if (artifacts.length === 0) return errorResponse("Artifact not found", 404);
         return jsonResponse(artifacts[0]);
     });
@@ -185,20 +203,14 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
      * The bytes of a file artifact, for a client that may be on another machine.
      * Authorised by "this path was registered as an artifact of this run", not by
      * workspace containment: an agent may save an artifact anywhere, e.g. `/tmp`.
-     * Params are decoded here because the router matches them raw.
      */
     apiRouter.register(
         "GET",
         "/api/flow/artifact/:ownerId/:flowId/:type/raw",
         async (_req, params) => {
-            let ownerId: string, flowId: string, type: string;
-            try {
-                ownerId = decodeURIComponent(params.ownerId);
-                flowId = decodeURIComponent(params.flowId);
-                type = decodeURIComponent(params.type);
-            } catch {
-                return errorResponse("Malformed artifact address", 400);
-            }
+            const address = decodeArtifactAddress(params);
+            if (!address) return errorResponse("Malformed artifact address", 400);
+            const { ownerId, flowId, type } = address;
 
             const run = await flowStore.getFlowRun(ownerId, flowId);
             if (!run) return errorResponse("Flow run not found", 404);

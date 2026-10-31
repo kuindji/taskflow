@@ -31,6 +31,13 @@ abs_path() {
   esac
 }
 
+# One URL path segment for a free-form value (an artifact label such as
+# "code review"): every byte goes out as %XX, so no character of it can end
+# the segment or the path.
+url_encode() {
+  printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g'
+}
+
 # The extra newline makes awk see the text's own trailing newline as a line
 # break instead of dropping it. Control characters other than tab, newline and
 # carriage return go out as \u00XX: raw JSON rejects them, and `session input
@@ -599,7 +606,7 @@ case "$cmd" in
           echo "Usage: taskflow-cli artifact get <type>" >&2
           exit 1
         fi
-        tf_curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$artifact_type"
+        tf_curl -sf "$TASKFLOW_API_URL/api/flow/artifact/$flow_owner_id/$TASKFLOW_FLOW_ID/$(url_encode "$artifact_type")"
         ;;
       *)
         echo "Usage: taskflow-cli artifact <save|list|get>" >&2
