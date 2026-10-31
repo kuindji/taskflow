@@ -209,4 +209,56 @@ describe("title generator", () => {
         await generator.generate(task.id, "d");
         expect((await store.getTask(task.id))?.title).toBe("Quoted title");
     });
+
+    it("keeps a title the user saved while generation was running", async () => {
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const task = await store.createTask({ projectId: project.id, title: "", description: "d" });
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast: (event) => {
+                events.push(event);
+            },
+            builtinActionRunner: {
+                runHeadless: async () => {
+                    await store.updateTask(task.id, { title: "User title" });
+                    return "Generated title";
+                },
+            },
+        });
+
+        await generator.generate(task.id, "d");
+
+        expect((await store.getTask(task.id))?.title).toBe("User title");
+        expect(events).toEqual([]);
+    });
+
+    it("names the worktree after a title the user saved while generation was running", async () => {
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const task = await store.createTask({
+            projectId: project.id,
+            title: "",
+            description: "d",
+            worktree: { enabled: true, path: null, branch: null, pr: null },
+        });
+        const worktreeSetup = createWorktreeSetup({
+            taskStore: store,
+            gitService: gitService as unknown as GitService,
+            broadcast: () => {},
+        });
+        const generator = createTitleGenerator({
+            taskStore: store,
+            broadcast: () => {},
+            createWorktree: worktreeSetup.createWorktreeForTask,
+            builtinActionRunner: {
+                runHeadless: async () => {
+                    await store.updateTask(task.id, { title: "User title" });
+                    return "Generated title";
+                },
+            },
+        });
+
+        await generator.generate(task.id, "d");
+
+        expect(gitService.createdWorktrees.map((w) => w.branch)).toEqual(["task/user-title"]);
+    });
 });

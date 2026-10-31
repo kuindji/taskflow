@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 import type { CreateSessionOpts } from "../../src/services/session-lifecycle";
 import { RemoteAgentService } from "../../src/services/remote-agent-service";
 
-function createHarness(options?: { version?: string; permissionMode?: string }) {
+function createHarness(options?: {
+    version?: string;
+    permissionMode?: string;
+    createSession?: (opts: CreateSessionOpts) => Promise<string>;
+}) {
     const created: CreateSessionOpts[] = [];
     const closed: string[] = [];
     const service = new RemoteAgentService({
@@ -22,7 +26,7 @@ function createHarness(options?: { version?: string; permissionMode?: string }) 
         sessionLifecycle: {
             createSession: async (opts) => {
                 created.push(opts);
-                return "remote-session";
+                return options?.createSession ? options.createSession(opts) : "remote-session";
             },
         },
         broadcast: () => {},
@@ -78,5 +82,58 @@ describe("RemoteAgentService", () => {
         }
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain("2.1.51 or later");
+    });
+
+    it("starts one session when Start is pressed again while the first start is pending", async () => {
+        let resolveSession!: (id: string) => void;
+        const { service, created } = createHarness({
+            createSession: () =>
+                new Promise<string>((resolve) => {
+                    resolveSession = resolve;
+                }),
+        });
+
+        const first = service.start();
+        const second = service.start();
+        await Promise.resolve();
+        await Bun.sleep(0);
+        resolveSession("remote-session");
+        await Promise.all([first, second]);
+
+        expect(created).toHaveLength(1);
+        expect(service.getStatus()).toEqual({ running: true, sessionId: "remote-session" });
+    });
+
+    it("closes a session whose start was still pending when Stop was pressed", async () => {
+        let resolveSession!: (id: string) => void;
+        const { service, closed } = createHarness({
+            createSession: () =>
+                new Promise<string>((resolve) => {
+                    resolveSession = resolve;
+                }),
+        });
+
+        const starting = service.start();
+        await Bun.sleep(0);
+        await service.stop();
+        resolveSession("remote-session");
+        await starting;
+
+        expect(closed).toEqual(["remote-session"]);
+        expect(service.getStatus()).toEqual({ running: false, sessionId: undefined });
+    });
+
+    it("ignores the exit of a stopped session after a new one has started", async () => {
+        let next = 0;
+        const { service, created } = createHarness({
+            createSession: async () => `remote-session-${++next}`,
+        });
+
+        await service.start();
+        await service.stop();
+        await service.start();
+        created[0].onSessionExited?.("remote-session-1", 0);
+
+        expect(service.getStatus()).toEqual({ running: true, sessionId: "remote-session-2" });
     });
 });

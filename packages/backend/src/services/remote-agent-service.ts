@@ -26,6 +26,7 @@ interface RemoteAgentServiceDeps {
 
 class RemoteAgentService {
     private currentSessionId: string | null = null;
+    private pendingStart: Promise<RemoteAgentStatusPayload> | null = null;
     private explicitlyStopped = false;
     private restartTimer: ReturnType<typeof setTimeout> | null = null;
     private stabilityTimer: ReturnType<typeof setTimeout> | null = null;
@@ -69,11 +70,22 @@ class RemoteAgentService {
         }
 
         this.explicitlyStopped = false;
+        if (this.pendingStart) return this.pendingStart;
         this.restartAttempts = 0;
         this.clearRestartTimer();
         this.clearStabilityTimer();
 
-        return this.startSession();
+        return this.launchSession();
+    }
+
+    /** One session start at a time: a start requested while one is pending joins it. */
+    private launchSession(): Promise<RemoteAgentStatusPayload> {
+        if (!this.pendingStart) {
+            this.pendingStart = this.startSession().finally(() => {
+                this.pendingStart = null;
+            });
+        }
+        return this.pendingStart;
     }
 
     private async startSession(): Promise<RemoteAgentStatusPayload> {
@@ -101,10 +113,20 @@ class RemoteAgentService {
             remoteControl: true,
             internal: settings.remoteAgent.headless,
             trayExclude: true,
-            onSessionExited: (_sessionId, _exitCode) => {
-                this.handleSessionExit();
+            onSessionExited: (exitedSessionId) => {
+                this.handleSessionExit(exitedSessionId);
             },
         });
+
+        if (this.explicitlyStopped) {
+            // Stop was pressed while this session was still starting.
+            try {
+                this.deps.ptyManager.close(sessionId);
+            } catch {
+                // Session may already be gone
+            }
+            return this.getStatus();
+        }
 
         this.currentSessionId = sessionId;
         this.scheduleStabilityReset();
@@ -166,7 +188,9 @@ class RemoteAgentService {
         await this.autoStartIfEnabled();
     }
 
-    private handleSessionExit(): void {
+    private handleSessionExit(sessionId: string): void {
+        // A stopped session can exit after its replacement has started.
+        if (sessionId !== this.currentSessionId) return;
         this.currentSessionId = null;
         this.clearStabilityTimer();
         this.broadcastStatus();
@@ -197,7 +221,7 @@ class RemoteAgentService {
         this.restartAttempts += 1;
         this.restartTimer = setTimeout(() => {
             this.restartTimer = null;
-            void this.startSession().catch((err: unknown) => {
+            void this.launchSession().catch((err: unknown) => {
                 console.error("[remote-agent] Restart failed:", err);
                 void this.deps.settingsStore
                     .get()

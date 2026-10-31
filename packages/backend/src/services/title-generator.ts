@@ -43,13 +43,18 @@ export function createTitleGenerator(deps: TitleGeneratorDeps) {
                 return;
             }
 
-            const updated = await taskStore.updateTask(taskId, { title });
-            broadcast({
-                type: MSG.TASK_UPDATED,
-                payload: filterTaskSessions(updated, config.instanceId),
-            });
+            // A title the user saved while generation ran wins over the generated one.
+            const updated = await taskStore.updateTask(taskId, (current) =>
+                current.title ? {} : { title },
+            );
+            if (updated.title === title) {
+                broadcast({
+                    type: MSG.TASK_UPDATED,
+                    payload: filterTaskSessions(updated, config.instanceId),
+                });
+            }
 
-            await createWorktree?.(taskId, title, initCommand);
+            await createWorktree?.(taskId, updated.title, initCommand);
         } catch {
             // Title generation failed — still try to create worktree
             await createWorktree?.(taskId, description, initCommand).catch(() => {});
