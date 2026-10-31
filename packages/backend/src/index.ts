@@ -180,11 +180,12 @@ async function main() {
                 if (schedule.actionId) {
                     const actions = await flowStore.getActions();
                     const action = actions.find((a) => a.id === schedule.actionId);
-                    if (action) {
-                        prompt = action.prompt;
-                        agentType = action.sessionType;
-                        agentOptions = action.agentOptions;
-                    }
+                    // Running the schedule's own (usually empty) prompt instead
+                    // would launch a session nobody asked for.
+                    if (!action) throw new Error(`Action not found: ${schedule.actionId}`);
+                    prompt = action.prompt;
+                    agentType = action.sessionType;
+                    agentOptions = action.agentOptions;
                 }
 
                 let sessionType: "shell" | import("@taskflow/shared").AgentType;
@@ -392,7 +393,7 @@ async function main() {
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
         registerAgentCommandsHandlers({ router, taskStore: store, settingsStore });
-        registerFlowHandlers({ router, flowStore, flowRunner });
+        registerFlowHandlers({ router, flowStore, flowRunner, scheduleStore });
         registerBuiltinActionHandlers({ router, builtinActions });
         registerNotificationHandlers({
             router,

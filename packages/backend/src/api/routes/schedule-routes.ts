@@ -97,7 +97,8 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
         try {
             await scheduleStore.save(schedule);
             await schedulerService.onScheduleCreated(schedule.id);
-            return jsonResponse(schedule, 201);
+            // Creation armed the schedule and stored its first due time.
+            return jsonResponse((await scheduleStore.getById(schedule.id)) ?? schedule, 201);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
             console.error("[api] POST /api/schedules failed:", err);

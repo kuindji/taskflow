@@ -372,7 +372,8 @@ it("disabling a running schedule lets it finish without rescheduling", async () 
     await service.handleComplete("session1");
     expect(active()).toHaveLength(0);
     expect((await record()).runningSessionId).toBeNull();
-    await service.triggerNow("s1");
+    // Admission was released: the trigger gets past "already running".
+    await expectRejects(service.triggerNow("s1"), /^Schedule is disabled$/);
     expect(spawned).toHaveLength(1);
 });
 it("a due time passed during a run catches up once after completion", async () => {
@@ -415,6 +416,12 @@ it("startup clears a stale runningSessionId and retains the restart error", asyn
         lastError: "Previous run did not complete (app restarted)",
         nextRunAt: due,
     });
+});
+it("manually triggering a disabled schedule rejects without launching", async () => {
+    await save({ enabled: false });
+    await expectRejects(service.triggerNow("s1"), /^Schedule is disabled$/);
+    expect(spawned).toEqual([]);
+    expect((await record()).lastRunAt).toBeNull();
 });
 it("a disabled scheduler installs no timers and rejects manual triggering", async () => {
     service = makeService(false);

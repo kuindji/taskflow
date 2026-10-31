@@ -13,11 +13,14 @@ import type {
 import type { Router } from "../ws/router";
 import type { FlowStore } from "../services/flow-store";
 import type { FlowRunner } from "../services/flow-runner";
+import type { ScheduleStore } from "../services/schedule-store";
+import { getActionInUseError } from "../services/action-usage";
 
 interface FlowHandlerDeps {
     router: Router;
     flowStore: FlowStore;
     flowRunner: FlowRunner;
+    scheduleStore: ScheduleStore;
 }
 
 // Narrow payload types without `as any` — the router handler signature is
@@ -30,7 +33,7 @@ function typed<T>(
 }
 
 function registerFlowHandlers(deps: FlowHandlerDeps): void {
-    const { router, flowStore, flowRunner } = deps;
+    const { router, flowStore, flowRunner, scheduleStore } = deps;
 
     // --- Definitions ---
 
@@ -69,12 +72,8 @@ function registerFlowHandlers(deps: FlowHandlerDeps): void {
     router.register(
         MSG.FLOW_ACTION_DELETE,
         typed<FlowActionDeletePayload>(async (payload) => {
-            const referencingFlows = await flowStore.getFlowsReferencingAction(payload.id);
-            if (referencingFlows.length > 0) {
-                throw new Error(
-                    `Cannot delete action "${payload.id}" because it is used by: ${referencingFlows.map((flow) => flow.name).join(", ")}`,
-                );
-            }
+            const inUse = await getActionInUseError(flowStore, scheduleStore, payload.id);
+            if (inUse) throw new Error(inUse);
             await flowStore.deleteAction(payload.id);
             return { success: true };
         }),

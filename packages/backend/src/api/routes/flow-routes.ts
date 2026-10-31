@@ -4,6 +4,8 @@ import type { ApiRouter } from "../router";
 import type { TaskStore } from "../../services/task-store";
 import type { FlowStore } from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
+import type { ScheduleStore } from "../../services/schedule-store";
+import { getActionInUseError } from "../../services/action-usage";
 import type {
     ActionDefinition,
     AgentAvailability,
@@ -19,6 +21,7 @@ interface FlowRouteDeps {
     taskStore: TaskStore;
     flowStore: FlowStore;
     flowRunner: FlowRunner;
+    scheduleStore: ScheduleStore;
     broadcast: (event: WsEvent) => void;
     agents: AgentAvailability[];
     sessionLifecycle: {
@@ -27,7 +30,8 @@ interface FlowRouteDeps {
 }
 
 function registerFlowRoutes(deps: FlowRouteDeps): void {
-    const { apiRouter, taskStore, flowStore, flowRunner, agents, sessionLifecycle } = deps;
+    const { apiRouter, taskStore, flowStore, flowRunner, scheduleStore, agents, sessionLifecycle } =
+        deps;
 
     const availableAgentTypes = new Set(agents.filter((a) => a.available).map((a) => a.type));
 
@@ -302,13 +306,8 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
 
     apiRouter.register("DELETE", "/api/flow-actions/:id", async (_req, params) => {
         try {
-            const referencingFlows = await flowStore.getFlowsReferencingAction(params.id);
-            if (referencingFlows.length > 0) {
-                return errorResponse(
-                    `Cannot delete action "${params.id}" because it is used by: ${referencingFlows.map((f) => f.name).join(", ")}`,
-                    409,
-                );
-            }
+            const inUse = await getActionInUseError(flowStore, scheduleStore, params.id);
+            if (inUse) return errorResponse(inUse, 409);
             await flowStore.deleteAction(params.id);
             return jsonResponse({ success: true });
         } catch (err) {

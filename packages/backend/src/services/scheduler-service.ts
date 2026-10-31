@@ -229,6 +229,9 @@ class SchedulerService {
                 if (source === "manual") throw new Error(`Schedule not found: ${scheduleId}`);
                 return;
             }
+            if (!schedule.enabled && source === "manual" && !this.stopped) {
+                throw new Error("Schedule is disabled");
+            }
             if (!schedule.enabled || this.stopped) return;
             if (
                 source === "scheduled" &&

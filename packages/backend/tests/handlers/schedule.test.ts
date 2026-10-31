@@ -83,6 +83,17 @@ it("WS schedule:update preserves nextRunAt for agent and action edits", async ()
     expect(cleared.agentOptions).toBeUndefined();
     expect(cleared.actionId).toBeUndefined();
 });
+it("WS schedule:create returns the due time creation stored", async () => {
+    const created = (await router.handle(MSG.SCHEDULE_CREATE, {
+        projectId: "p1",
+        name: "Hourly",
+        prompt: "Work",
+        expression: "rate(1 hour)",
+        expressionType: "rate",
+    })) as Schedule;
+    expect(created.nextRunAt).toBe("2026-10-30T11:00:00.000Z");
+    expect(await store.getById(created.id)).toEqual(created);
+});
 it("WS schedule:update changing timing returns the newly stored due time", async () => {
     expect((await update({ expression: "rate(2 hours)" })).nextRunAt).toBe(
         "2026-10-30T12:00:00.000Z",

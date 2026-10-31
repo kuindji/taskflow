@@ -86,7 +86,8 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
 
             await scheduleStore.save(schedule);
             await schedulerService.onScheduleCreated(schedule.id);
-            return schedule;
+            // Creation armed the schedule and stored its first due time.
+            return (await scheduleStore.getById(schedule.id)) ?? schedule;
         }),
     );
 

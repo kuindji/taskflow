@@ -55,6 +55,7 @@ describe("GET /api/flow/artifact/:ownerId/:flowId/:type/raw", () => {
                         type ? r.artifacts.filter((a) => a.type === type) : r.artifacts,
                     ),
             } as never,
+            scheduleStore: {} as never,
             broadcast: () => {},
             agents: [],
             sessionLifecycle: { createSession: () => Promise.resolve("") },

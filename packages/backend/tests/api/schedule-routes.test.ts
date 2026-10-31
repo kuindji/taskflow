@@ -92,6 +92,26 @@ it("HTTP PATCH preserves nextRunAt for prompt and timeout edits", async () => {
 it("HTTP PATCH repeating enabled true preserves nextRunAt", async () => {
     expect((await updated({ enabled: true })).nextRunAt).toBe(due);
 });
+it("HTTP POST returns the due time creation stored", async () => {
+    const response = await router.handle(
+        new Request("http://localhost/api/schedules", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                projectId: "p1",
+                name: "Hourly",
+                prompt: "Work",
+                expression: "rate(1 hour)",
+                expressionType: "rate",
+            }),
+        }),
+    );
+    if (!response) throw new Error("Missing route");
+    expect(response.status).toBe(201);
+    const created = (await response.json()) as Schedule;
+    expect(created.nextRunAt).toBe("2026-10-30T11:00:00.000Z");
+    expect(await store.getById(created.id)).toEqual(created);
+});
 it("HTTP PATCH changing timing returns the newly stored due time", async () => {
     expect((await updated({ expression: "rate(2 hours)" })).nextRunAt).toBe(
         "2026-10-30T12:00:00.000Z",
