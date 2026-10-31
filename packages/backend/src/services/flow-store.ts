@@ -316,17 +316,23 @@ class FlowStore {
         }
 
         const files: string[] = [];
+        const legacyNames: string[] = [];
+        // Legacy top-level runs belong to the main instance, and its own record
+        // of the same run supersedes them (see getFlowRun).
+        const mainNames = new Set<string>();
         for (const entry of entries) {
             if (entry.isFile() && entry.name.endsWith(".json")) {
-                files.push(join(this.flowRunsDir, entry.name));
+                legacyNames.push(entry.name);
             } else if (entry.isDirectory()) {
-                const nested = await readdir(join(this.flowRunsDir, entry.name));
-                files.push(
-                    ...nested
-                        .filter((file) => file.endsWith(".json"))
-                        .map((file) => join(this.flowRunsDir, entry.name, file)),
+                const nested = (await readdir(join(this.flowRunsDir, entry.name))).filter((file) =>
+                    file.endsWith(".json"),
                 );
+                if (entry.name === "main") nested.forEach((file) => mainNames.add(file));
+                files.push(...nested.map((file) => join(this.flowRunsDir, entry.name, file)));
             }
+        }
+        for (const name of legacyNames) {
+            if (!mainNames.has(name)) files.push(join(this.flowRunsDir, name));
         }
 
         for (const file of files) {

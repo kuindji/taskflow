@@ -29,6 +29,7 @@ function parseRateExpression(expression: string): number {
     const match = expression.match(/^rate\((\d+)\s+(minutes?|hours?|days?)\)$/i);
     if (!match) throw new Error(`Invalid rate expression: ${expression}`);
     const value = parseInt(match[1], 10);
+    if (value < 1) throw new Error(`Rate must be at least 1: ${expression}`);
     const unit = match[2].toLowerCase().replace(/s$/, "");
     switch (unit) {
         case "minute":
@@ -64,6 +65,11 @@ class SchedulerService {
     private timers = new Map<string, () => void>();
     private timeoutTimers = new Map<string, () => void>();
     private runningSessions = new Map<string, SpawnResult>();
+    // Schedules between spawning a session and recording it as their run. A
+    // session can exit in that window; its exit is held in earlyExits and
+    // replayed once the run is recorded.
+    private launching = new Set<string>();
+    private earlyExits = new Map<string, number>();
     private admitted = new Set<string>();
     private deferredSchedules = new Set<string>();
     private cancelTick: (() => void) | null = null;
@@ -244,6 +250,7 @@ class SchedulerService {
                 return;
             }
             this.deferredSchedules.delete(scheduleId);
+            this.launching.add(scheduleId);
             try {
                 result = await this.deps.spawnSession(schedule);
             } catch (error) {
@@ -320,8 +327,18 @@ class SchedulerService {
             keepAdmission = false;
             throw error;
         } finally {
+            if (this.launching.delete(scheduleId)) this.replayEarlyExit(result, keepAdmission);
             if (!keepAdmission) this.admitted.delete(scheduleId);
             if (rearm && !this.stopped) await this.scheduleNext(scheduleId);
+        }
+    }
+
+    private replayEarlyExit(result: SpawnResult | undefined, recorded: boolean): void {
+        const exitCode = result ? this.earlyExits.get(result.sessionId) : undefined;
+        if (result) this.earlyExits.delete(result.sessionId);
+        if (this.launching.size === 0) this.earlyExits.clear();
+        if (result && recorded && exitCode !== undefined) {
+            this.background(this.handleSessionExit(result.sessionId, exitCode));
         }
     }
 
@@ -362,15 +379,16 @@ class SchedulerService {
     }
 
     async handleSessionExit(sessionId: string, exitCode: number): Promise<void> {
-        const schedule = await this.deps.scheduleStore.findBySessionId(sessionId);
-        if (!schedule) return;
-        const runInfo = this.runningSessions.get(schedule.id);
-        if (!runInfo || runInfo.sessionId !== sessionId) return;
-        const error =
-            runInfo.isShell && exitCode === 0
-                ? null
-                : `${runInfo.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`;
-        await this.finishRun(schedule.id, sessionId, error, false);
+        for (const [scheduleId, runInfo] of this.runningSessions) {
+            if (runInfo.sessionId !== sessionId || this.launching.has(scheduleId)) continue;
+            const error =
+                runInfo.isShell && exitCode === 0
+                    ? null
+                    : `${runInfo.isShell ? "Shell" : "Agent"} exited unexpectedly with code ${exitCode}`;
+            await this.finishRun(scheduleId, sessionId, error, false);
+            return;
+        }
+        if (this.launching.size > 0) this.earlyExits.set(sessionId, exitCode);
     }
 
     async onScheduleCreated(scheduleId: string): Promise<void> {

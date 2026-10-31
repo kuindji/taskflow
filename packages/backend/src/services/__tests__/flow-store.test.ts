@@ -254,6 +254,40 @@ describe("flow definitions", () => {
 });
 
 describe("flow runs", () => {
+    test("deleteFlow ignores a legacy run superseded by the main instance's record", async () => {
+        const flow = {
+            id: "flow-1",
+            name: "Feature Dev",
+            description: "test",
+            actions: [
+                {
+                    id: "entry-1",
+                    inline: { name: "Plan", prompt: "Plan it", sessionType: "claude" as const },
+                },
+            ],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+        const run = {
+            taskId: "task-1",
+            flowId: "flow-1",
+            currentActionIndex: 0,
+            actions: [{ actionEntryId: "entry-1", status: "running" as const }],
+            artifacts: [],
+            startedAt: new Date().toISOString(),
+        };
+        await store.saveFlow(flow);
+        // Written before runs were partitioned by instance.
+        await writeFile(
+            join(tempDir, "flow-runs", "task-1--flow-1.json"),
+            JSON.stringify({ ...run, status: "paused" }),
+        );
+        await store.saveFlowRun({ ...run, status: "completed" });
+
+        await store.deleteFlow("flow-1");
+        expect(await store.getFlows()).toEqual([]);
+    });
+
     test("partitions runs by Taskflow instance", async () => {
         const production = new FlowStore(
             join(tempDir, "flows"),

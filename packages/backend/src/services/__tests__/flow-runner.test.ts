@@ -583,6 +583,29 @@ describe("handleSessionExit", () => {
         expect(run?.status).toBe("paused");
     });
 
+    test("a session that exits before its launch registers it still fails the action", async () => {
+        const earlyRunner: FlowRunner = new FlowRunner({
+            flowStore,
+            spawnSession: async () => {
+                // The PTY exits while the lifecycle is still persisting the session.
+                void earlyRunner.handleSessionExit("early", 1);
+                await Bun.sleep(1);
+                return "early";
+            },
+            closeSession: () => {},
+            broadcast: () => {},
+            getOwnerDescription: async () => "Build a feature",
+        });
+        await earlyRunner.startFlow(taskOwner, testFlow);
+        let run = await flowStore.getFlowRun("task-1", "flow-1");
+        for (let i = 0; i < 50 && run?.status !== "paused"; i++) {
+            await Bun.sleep(1);
+            run = await flowStore.getFlowRun("task-1", "flow-1");
+        }
+        expect(run?.actions[0]).toMatchObject({ sessionId: "early", status: "failed" });
+        expect(run?.status).toBe("paused");
+    });
+
     test("shell action auto-completes on exit code 0", async () => {
         const shellFlow: FlowDefinition = {
             ...testFlow,

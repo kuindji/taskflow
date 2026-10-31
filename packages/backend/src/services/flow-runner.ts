@@ -53,6 +53,11 @@ class FlowRunner {
     private deps: FlowRunnerDeps;
     // Maps sessionId → flow metadata for exit handling
     private sessionFlowMap = new Map<string, SessionFlowMapping>();
+    // A session can exit while its launch is still registering it (the
+    // lifecycle persists the session ref after spawning the PTY). Such exits
+    // are held here and replayed once the launch has mapped the session.
+    private launchesInFlight = 0;
+    private earlyExits = new Map<string, number>();
     private ownerLocks = new Map<string, Promise<void>>();
 
     constructor(deps: FlowRunnerDeps) {
@@ -361,7 +366,10 @@ class FlowRunner {
         // The mapping lookup stays outside the lock: it is what supplies the
         // owner key, and it is a synchronous read of an in-memory map.
         const mapping = this.sessionFlowMap.get(sessionId);
-        if (!mapping) return;
+        if (!mapping) {
+            if (this.launchesInFlight > 0) this.earlyExits.set(sessionId, exitCode);
+            return;
+        }
 
         const { ownerId, flowId, sessionType } = mapping;
         return this.withOwnerLock(ownerId, async () => {
@@ -679,16 +687,25 @@ class FlowRunner {
         );
 
         const ownerId = this.getOwnerId(owner);
-        const sessionId = await this.deps.spawnSession({
-            owner,
-            sessionType: resolved.sessionType,
-            prompt,
-            systemPrompt,
-            label: actionEntry.label ?? resolved.name,
-            agentOptions: resolved.agentOptions,
-            flowId: flow.id,
-            actionEntryId: actionEntry.id,
-        });
+        let sessionId: string;
+        let earlyExitCode: number | undefined;
+        this.launchesInFlight++;
+        try {
+            sessionId = await this.deps.spawnSession({
+                owner,
+                sessionType: resolved.sessionType,
+                prompt,
+                systemPrompt,
+                label: actionEntry.label ?? resolved.name,
+                agentOptions: resolved.agentOptions,
+                flowId: flow.id,
+                actionEntryId: actionEntry.id,
+            });
+            earlyExitCode = this.earlyExits.get(sessionId);
+            this.earlyExits.delete(sessionId);
+        } finally {
+            if (--this.launchesInFlight === 0) this.earlyExits.clear();
+        }
 
         this.sessionFlowMap.set(sessionId, {
             ownerId,
@@ -700,6 +717,9 @@ class FlowRunner {
         run.actions[actionIndex].sessionId = sessionId;
         await this.deps.flowStore.saveFlowRun(run);
         this.broadcastUpdate(run);
+        // Launches run under the owner lock, so the replay waits until the run
+        // that records this session is saved.
+        if (earlyExitCode !== undefined) void this.handleSessionExit(sessionId, earlyExitCode);
     }
 
     private async launchActionWithRecovery(

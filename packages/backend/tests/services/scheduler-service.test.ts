@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import type { Schedule, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { ScheduleStore } from "../../src/services/schedule-store";
-import { SchedulerService } from "../../src/services/scheduler-service";
+import { SchedulerService, validateExpression } from "../../src/services/scheduler-service";
 import { expectRejects } from "../expect-rejects";
 
 type Spawn = { sessionId: string; isShell: boolean };
@@ -282,6 +282,39 @@ it("completion, shell exit, agent exit and timeout each release admission", asyn
         expect((await record()).runningSessionId).toBe(kind);
         await service.handleComplete(kind);
     }
+});
+it("a session that exits while its run is being recorded still finishes the run", async () => {
+    const realUpdate = store.update.bind(store);
+    for (const window of ["spawn", "record"] as const) {
+        await save();
+        const sessionId = `early-${window}`;
+        spawn = async () => {
+            if (window === "spawn") exits.push(service.handleSessionExit(sessionId, 3));
+            return { sessionId, isShell: false };
+        };
+        const update = spyOn(store, "update").mockImplementation((id, fn) => {
+            if (window === "record") exits.push(service.handleSessionExit(sessionId, 3));
+            update.mockRestore();
+            return realUpdate(id, fn);
+        });
+        await service.triggerNow("s1");
+        update.mockRestore();
+        await drain();
+        expect(await record()).toMatchObject({
+            runningSessionId: null,
+            lastError: "Agent exited unexpectedly with code 3",
+        });
+        spawn = async () => ({ sessionId: "next", isShell: false });
+        await service.triggerNow("s1");
+        expect((await record()).runningSessionId).toBe("next");
+        await service.handleComplete("next");
+    }
+});
+it("rejects a zero rate", () => {
+    expect(() => validateExpression("rate(0 minutes)", "rate")).toThrow(
+        "Rate must be at least 1: rate(0 minutes)",
+    );
+    expect(() => validateExpression("rate(1 minute)", "rate")).not.toThrow();
 });
 it("closing a completed session does not finalize its run twice", async () => {
     await service.triggerNow("s1");
