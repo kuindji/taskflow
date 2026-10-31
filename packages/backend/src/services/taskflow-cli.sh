@@ -21,6 +21,16 @@ tf_curl() {
   fi
 }
 
+# Paths the backend stores or opens later: its working directory is not the
+# caller's, so a relative path goes out joined to $PWD. Empty stays empty for
+# the backend to refuse.
+abs_path() {
+  case "$1" in
+    /*|'') printf '%s' "$1" ;;
+    *) printf '%s/%s' "$PWD" "$1" ;;
+  esac
+}
+
 # The extra newline makes awk see the text's own trailing newline as a line
 # break instead of dropping it. Control characters other than tab, newline and
 # carriage return go out as \u00XX: raw JSON rejects them, and `session input
@@ -556,12 +566,7 @@ case "$cmd" in
           exit 1
         fi
         if [ -n "$artifact_path" ]; then
-          # The backend serves the file to clients later, without this
-          # session's working directory, so store it absolute.
-          case "$artifact_path" in
-            /*) ;;
-            *) artifact_path="$PWD/$artifact_path" ;;
-          esac
+          artifact_path=$(abs_path "$artifact_path")
           payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
             "$owner_field" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
@@ -670,9 +675,15 @@ case "$cmd" in
           case "$1" in
             --input)
               kv="${2:-}"
-              key=$(printf '%s' "$kv" | cut -d= -f1)
-              value=$(printf '%s' "$kv" | cut -d= -f2-)
-              input_fields=$(printf '%s%s:%s,' "$input_fields" "$(json_string "$key")" "$(json_string "$value")")
+              # Split on the first "=" without line tools: values may be
+              # multiline. A pair with no key is skipped, as on Windows.
+              case "$kv" in
+                ?*=*)
+                  key="${kv%%=*}"
+                  value="${kv#*=}"
+                  input_fields=$(printf '%s%s:%s,' "$input_fields" "$(json_string "$key")" "$(json_string "$value")")
+                  ;;
+              esac
               shift 2
               ;;
             *) shift ;;
@@ -1001,7 +1012,7 @@ case "$cmd" in
             *) shift ;;
           esac
         done
-        payload=$(printf '"path":%s' "$(json_string "$proj_path")")
+        payload=$(printf '"path":%s' "$(json_string "$(abs_path "$proj_path")")")
         if [ -n "$proj_name" ]; then
           payload=$(printf '%s,"name":%s' "$payload" "$(json_string "$proj_name")")
         fi
@@ -1030,7 +1041,7 @@ case "$cmd" in
         while [ $# -gt 0 ]; do
           case "$1" in
             --name) payload=$(printf '%s"name":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
-            --path) payload=$(printf '%s"path":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
+            --path) payload=$(printf '%s"path":%s,' "$payload" "$(json_string "$(abs_path "${2:-}")")"); shift 2 ;;
             --hidden) payload=$(printf '%s"hidden":true,' "$payload"); shift ;;
             --visible) payload=$(printf '%s"hidden":false,' "$payload"); shift ;;
             --claude-account) proj_claude_account="${2:-}"; shift 2 ;;

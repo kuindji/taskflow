@@ -198,9 +198,14 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
                 type: resolvedType,
                 prompt: resolvedPrompt,
                 label: typeof label === "string" ? label : undefined,
+                // `taskflow-cli agent run --model x` without an agent name sends
+                // options with no type; they belong to the resolved default agent.
                 agentOptions:
                     agentOptions && typeof agentOptions === "object" && !Array.isArray(agentOptions)
-                        ? (agentOptions as import("@taskflow/shared").AgentLaunchOptions)
+                        ? ({
+                              type: resolvedType,
+                              ...agentOptions,
+                          } as import("@taskflow/shared").AgentLaunchOptions)
                         : undefined,
             });
 

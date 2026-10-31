@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
 import {
     MASTER_OWNER_ID,
     MSG,
+    type AgentLaunchOptions,
     type AppSettings,
     type SessionOwnerRef,
     type WsEvent,
@@ -726,6 +727,7 @@ describe("session creation route", () => {
     let projectB: string;
     let taskInB: string;
     let createdOwners: SessionOwnerRef[];
+    let createdOptions: (AgentLaunchOptions | undefined)[];
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-session-create-"));
@@ -747,6 +749,7 @@ describe("session creation route", () => {
         ).id;
 
         createdOwners = [];
+        createdOptions = [];
         registerApiRoutes({
             apiRouter,
             taskStore,
@@ -760,8 +763,9 @@ describe("session creation route", () => {
             ...sharedTestDeps,
             sessionLifecycle: {
                 ...sharedTestDeps.sessionLifecycle,
-                createSession: async ({ owner }) => {
+                createSession: async ({ owner, agentOptions }) => {
                     createdOwners.push(owner);
+                    createdOptions.push(agentOptions);
                     return "new-session";
                 },
             },
@@ -803,6 +807,17 @@ describe("session creation route", () => {
 
         expect(response?.status).toBe(400);
         expect(createdOwners).toEqual([]);
+    });
+
+    it("types untyped agent options with the default agent", async () => {
+        const response = await post({
+            type: undefined,
+            projectId: projectA,
+            agentOptions: { model: "haiku" },
+        });
+
+        expect(response?.status).toBe(201);
+        expect(createdOptions).toEqual([{ type: "claude", model: "haiku" }]);
     });
 
     it("rejects an unknown project and a request with no owner", async () => {

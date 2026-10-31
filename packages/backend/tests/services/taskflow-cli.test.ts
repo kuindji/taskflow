@@ -499,6 +499,52 @@ describe("taskflow-cli", () => {
         expect(await captured(captureFile)).toBe(false);
     });
 
+    it("sends relative project paths joined to the caller's directory", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const cwd = await mkdtemp(join(tmpdir(), "taskflow-cli-cwd-"));
+        tempDirs.push(cwd);
+        const run = (args: string[]) => spawnSync(cliPath, args, { env, cwd, encoding: "utf8" });
+        const base = await realpath(cwd);
+
+        expect(run(["project", "add", ".", "--name", "Here"]).status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+            path: `${base}/.`,
+            name: "Here",
+        });
+        expect(run(["project", "update", "p1", "--path", "sub"]).status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+            path: `${base}/sub`,
+        });
+        expect(run(["project", "add", "/abs/repo"]).status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+            path: "/abs/repo",
+        });
+    });
+
+    it("keeps a multiline flow input value under its key", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(
+            cliPath,
+            [
+                "flow",
+                "start",
+                "f1",
+                "--input",
+                "instructions=first line\nsecond=line",
+                "--input",
+                "=orphan",
+            ],
+            { ...env, TASKFLOW_TASK_ID: "t1" },
+        );
+
+        expect(result.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+            taskId: "t1",
+            flowId: "f1",
+            inputValues: { instructions: "first line\nsecond=line" },
+        });
+    });
+
     it("maps Claude's legacy dangerous flag to the canonical bypass permission mode", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         const result = runCli(

@@ -617,6 +617,18 @@ describe("taskflow-cli binary: flow and action definitions", () => {
     });
 });
 
+describe("taskflow-cli binary: project paths", () => {
+    it("sends relative project paths resolved against the caller's directory", async () => {
+        const requests = startDevServerApi(200, { id: "p1" });
+        expect((await runBin(["project", "add", ".", "--name", "Here"], {})).status).toBe(0);
+        expect((await runBin(["project", "update", "p1", "--path", "sub"], {})).status).toBe(0);
+        expect(requests.map((r) => JSON.parse(r.body) as unknown)).toEqual([
+            { path: process.cwd(), name: "Here" },
+            { path: join(process.cwd(), "sub") },
+        ]);
+    });
+});
+
 describe("taskflow-cli binary: project move", () => {
     it("sends the target to the move route", async () => {
         const requests = startDevServerApi(200, { projects: [] });

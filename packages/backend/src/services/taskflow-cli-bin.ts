@@ -1046,7 +1046,8 @@ async function handleProject(args: string[]): Promise<void> {
                 process.exit(1);
             }
             const { flags } = parseFlags(subArgs.slice(1), { name: "string" });
-            const body: Record<string, unknown> = { path: projPath };
+            // The backend's working directory is not the caller's.
+            const body: Record<string, unknown> = { path: resolve(projPath) };
             if (flags.name) body.name = flags.name;
             process.stdout.write(await api("POST", "/api/projects", body));
             break;
@@ -1078,7 +1079,9 @@ async function handleProject(args: string[]): Promise<void> {
             });
             const body: Record<string, unknown> = {};
             if (flags.name !== undefined) body.name = flags.name;
-            if (flags.path !== undefined) body.path = flags.path;
+            if (flags.path !== undefined)
+                body.path =
+                    typeof flags.path === "string" && flags.path ? resolve(flags.path) : flags.path;
             if (flags.hidden) body.hidden = true;
             if (flags.visible) body.hidden = false;
             const agentAccounts: ProjectAgentAccountsPatch = {};
