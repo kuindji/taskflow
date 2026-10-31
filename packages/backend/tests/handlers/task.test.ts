@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { registerTaskHandlers } from "../../src/handlers/task";
 import { registerProjectHandlers } from "../../src/handlers/project";
 import { TestRouter } from "../test-router";
+import { expectRejects } from "../expect-rejects";
 import { TaskStore } from "../../src/services/task-store";
 import { mkdtemp, mkdir, rm, realpath } from "fs/promises";
 import { join } from "path";
@@ -101,6 +102,14 @@ describe("task handlers", () => {
             tasks: unknown[];
         };
         expect(result.tasks).toHaveLength(1);
+    });
+
+    it("refuses to create a task for a project that does not exist", async () => {
+        await expectRejects(
+            router.handle(MSG.TASK_CREATE, { projectId: "missing-project", title: "Orphan" }),
+            "Project not found",
+        );
+        expect(await store.listTasks()).toHaveLength(0);
     });
 
     it("creates worktree-enabled tasks with pending worktree metadata", async () => {

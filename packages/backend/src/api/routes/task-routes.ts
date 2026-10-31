@@ -537,10 +537,12 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 : undefined;
 
         try {
+            // A subtask takes its parent's project; a top-level task needs an existing one.
+            const project = parent ? undefined : await taskStore.getProject(params.projectId);
+            if (!parent && !project) return errorResponse("Project not found", 404);
+
             const resolvedInitCommand = worktree
-                ? requestedInitCommand
-                    ? requestedInitCommand
-                    : (await taskStore.getProject(params.projectId))?.defaultInitCommand
+                ? (requestedInitCommand ?? project?.defaultInitCommand)
                 : undefined;
             let task = await taskStore.createTask({
                 projectId: parent?.projectId ?? params.projectId,

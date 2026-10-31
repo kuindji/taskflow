@@ -222,6 +222,9 @@ export class ChangeTracker {
             // computeStats runs stays set and forces a prompt re-poll
             target.invalidated = false;
             const stats = await this.computeStats(target.path);
+            // The target was untracked (or replaced under the same id, e.g. a project
+            // path change) while git ran; its result must not overwrite the current one
+            if (this.targets.get(target.id) !== target) return;
             const changed = !statsEqual(target.stats, stats);
             if (changed) {
                 target.stats = stats;

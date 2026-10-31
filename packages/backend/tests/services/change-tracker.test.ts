@@ -9,6 +9,7 @@ class FakeGitService {
     fetchCalls: string[] = [];
     fetchResults: Record<string, boolean> = {};
     statusGate: Promise<void> | null = null;
+    branches: Record<string, string> = {};
 
     async numstat(): Promise<Array<{ path: string; additions: number; deletions: number }>> {
         return [];
@@ -18,7 +19,7 @@ class FakeGitService {
         this.statusCalls.push(repoPath);
         if (this.statusGate) await this.statusGate;
         return {
-            branch: "main",
+            branch: this.branches[repoPath] ?? "main",
             stagedFiles: [],
             unstagedFiles: [],
             ahead: 0,
@@ -232,6 +233,40 @@ describe("ChangeTracker", () => {
         await pollDue(tracker);
         expect(git.statusCalls).toHaveLength(4);
 
+        tracker.dispose();
+    });
+
+    it("drops a poll that finishes after its target was replaced under the same id", async () => {
+        const git = new FakeGitService();
+        git.branches = { "/old": "old-branch", "/new": "new-branch" };
+        const events: Array<{ targetId: string; stats: ChangeStats | null }> = [];
+        const tracker = new ChangeTracker(git as unknown as GitService, (event) => {
+            if (event.type === MSG.GIT_CHANGE_STATS) {
+                events.push(event.payload as { targetId: string; stats: ChangeStats | null });
+            }
+        });
+        stubStartPolling(tracker);
+        tracker.track("project-id", "/old");
+
+        // A poll of the old path blocks inside git status
+        let releaseGate = () => {};
+        git.statusGate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        tracker.invalidate("/old");
+        await waitFor(() => git.statusCalls.includes("/old"));
+
+        // The project moves to a new path, which is polled first
+        tracker.untrack("project-id");
+        tracker.track("project-id", "/new");
+        git.statusGate = null;
+        await pollDue(tracker);
+
+        releaseGate();
+        await Bun.sleep(25);
+
+        const branches = events.map((event) => event.stats?.branch ?? null);
+        expect(branches).toEqual([null, "new-branch"]);
         tracker.dispose();
     });
 });

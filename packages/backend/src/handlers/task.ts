@@ -93,6 +93,8 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             // Subtasks inherit parent's projectId and worktree config
             resolvedProjectId = parent.projectId;
             resolvedWorktree = { ...parent.worktree };
+        } else if (!(await store.getProject(projectId))) {
+            throw new Error("Project not found");
         }
 
         let resolvedInitCommand: string | undefined;

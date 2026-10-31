@@ -670,6 +670,19 @@ describe("task creation and cleanup routes", () => {
         const emptyBody = (await emptyResponse?.json()) as { initCommand?: string };
         expect(emptyBody.initCommand).toBe("bun install");
     });
+
+    it("refuses to create a task for a project that does not exist", async () => {
+        const response = await apiRouter.handle(
+            new Request(`http://localhost/api/projects/missing-project/tasks`, {
+                method: "POST",
+                body: JSON.stringify({ title: "Follow up", description: "Follow up" }),
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+
+        expect(response?.status).toBe(404);
+        expect(await taskStore.listTasks()).toHaveLength(0);
+    });
 });
 
 describe("session creation route", () => {
