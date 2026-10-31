@@ -51,34 +51,55 @@ function resolveFnmNodeBin(home: string): string | null {
     }
 }
 
+const PATH_MARKER = "__TASKFLOW_PATH__";
+const PATH_PATTERN = new RegExp(`${PATH_MARKER}(.*?)${PATH_MARKER}`, "s");
+
 /**
- * Resolve the user's login shell PATH by spawning their shell in login mode.
- * This captures everything set in .zshrc, .bash_profile, etc.
- * Falls back to process.env.PATH on failure.
+ * PATH as `shell` reports it with `flags`. The value is framed by markers
+ * because interactive startup files may print to stdout. Null on failure.
  */
-function resolveLoginShellPath(): string {
+function readShellPath(shell: string, flags: string[]): string | null {
+    try {
+        const result = spawnSync(
+            shell,
+            [...flags, `printf '%s%s%s' ${PATH_MARKER} "$PATH" ${PATH_MARKER}`],
+            {
+                encoding: "utf8",
+                timeout: 5000,
+                // No stdin, so an interactive startup prompt reads EOF instead of hanging.
+                stdio: ["ignore", "pipe", "pipe"],
+                env: {
+                    ...process.env,
+                    // Prevent shell from trying to update the terminal title etc.
+                    TERM: "dumb",
+                },
+            },
+        );
+        if (result.error) return null;
+        const path = result.stdout?.match(PATH_PATTERN)?.[1]?.trim();
+        return path ? path : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Resolve the user's shell PATH by spawning their shell as an interactive
+ * login shell, which reads both the login files (.zprofile, .bash_profile)
+ * and the interactive ones (.zshrc, .bashrc) where installers add PATH
+ * entries. Falls back to a login-only shell, then to process.env.PATH.
+ */
+export function resolveLoginShellPath(): string {
     if (isWindows()) {
         return process.env.PATH ?? "";
     }
     const shell = getDefaultShell();
-    try {
-        const result = spawnSync(shell, ["-l", "-c", "echo $PATH"], {
-            encoding: "utf8",
-            timeout: 5000,
-            env: {
-                ...process.env,
-                // Prevent shell from trying to update the terminal title etc.
-                TERM: "dumb",
-            },
-        });
-        const output = result.stdout?.trim();
-        if (output && !result.error && result.status === 0) {
-            return output;
-        }
-    } catch {
-        // Fall through to process.env.PATH
-    }
-    return process.env.PATH ?? "";
+    return (
+        readShellPath(shell, ["-i", "-l", "-c"]) ??
+        readShellPath(shell, ["-l", "-c"]) ??
+        process.env.PATH ??
+        ""
+    );
 }
 
 let cachedPath: string | null = null;

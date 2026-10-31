@@ -60,7 +60,12 @@ function appPaths(): string[] {
         case "win32":
             return [join(process.env.LOCALAPPDATA ?? "", "Obsidian", "Obsidian.exe")];
         default:
-            return [join(homedir(), ".local", "share", "applications", "obsidian.desktop")];
+            // Per-user installs, then distro packages (.deb/.rpm) and local builds.
+            return [
+                join(homedir(), ".local", "share", "applications", "obsidian.desktop"),
+                "/usr/share/applications/obsidian.desktop",
+                "/usr/local/share/applications/obsidian.desktop",
+            ];
     }
 }
 

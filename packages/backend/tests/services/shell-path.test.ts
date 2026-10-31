@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { resolveNvmNodeBin } from "../../src/services/shell-path";
+import { resolveLoginShellPath, resolveNvmNodeBin } from "../../src/services/shell-path";
 
 const homes: string[] = [];
 
@@ -35,4 +35,34 @@ describe("resolveNvmNodeBin", () => {
             join(home, ".nvm", "versions", "node", "v22.14.0", "bin"),
         );
     });
+});
+
+describe("resolveLoginShellPath", () => {
+    const zsh = "/bin/zsh";
+    const savedShell = process.env.SHELL;
+    const savedZdotdir = process.env.ZDOTDIR;
+
+    afterEach(() => {
+        if (savedShell === undefined) delete process.env.SHELL;
+        else process.env.SHELL = savedShell;
+        if (savedZdotdir === undefined) delete process.env.ZDOTDIR;
+        else process.env.ZDOTDIR = savedZdotdir;
+    });
+
+    it.skipIf(process.platform === "win32" || !existsSync(zsh))(
+        "includes PATH entries added only in .zshrc",
+        () => {
+            const zdotdir = mkdtempSync(join(tmpdir(), "tf-zdot-"));
+            homes.push(zdotdir);
+            const extra = join(zdotdir, "zshrc-only-bin");
+            writeFileSync(
+                join(zdotdir, ".zshrc"),
+                `echo "startup noise"\nexport PATH="$PATH:${extra}"\n`,
+            );
+            process.env.SHELL = zsh;
+            process.env.ZDOTDIR = zdotdir;
+
+            expect(resolveLoginShellPath().split(":")).toContain(extra);
+        },
+    );
 });
