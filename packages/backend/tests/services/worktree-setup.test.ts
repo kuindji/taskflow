@@ -11,10 +11,17 @@ import type { CreateSessionOpts } from "../../src/services/session-lifecycle";
 class FakeGitService {
     fail = false;
     created: string[] = [];
+    branches = new Set<string>();
 
-    async createWorktree(_repoPath: string, _branch: string, path: string): Promise<void> {
+    async createWorktree(_repoPath: string, branch: string, path: string): Promise<void> {
         if (this.fail) throw new Error("git worktree add failed");
+        if (this.branches.has(branch)) throw new Error(`branch '${branch}' already exists`);
+        this.branches.add(branch);
         this.created.push(path);
+    }
+
+    async branchExists(_repoPath: string, branch: string): Promise<boolean> {
+        return this.branches.has(branch);
     }
 }
 
@@ -119,6 +126,43 @@ describe("worktree setup", () => {
             path: join(projectPath, ".worktrees", slug),
             branch: `task/${slug}`,
         });
+    });
+
+    it("gives a task whose title matches an existing worktree a name of its own", async () => {
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const setup = createWorktreeSetup({
+            taskStore: store,
+            gitService: gitService as unknown as GitService,
+            broadcast: () => {},
+        });
+        // A leftover folder without a branch is taken too.
+        await mkdir(join(projectPath, ".worktrees", "fix-login-2"), { recursive: true });
+        const worktrees = [];
+        for (let i = 0; i < 2; i += 1) {
+            const task = await store.createTask({
+                projectId: project.id,
+                title: "Fix login",
+                description: "",
+                worktree: { enabled: true, path: null, branch: null, pr: null },
+            });
+            await setup.createWorktreeForTask(task.id, task.title);
+            worktrees.push((await store.getTask(task.id))?.worktree);
+        }
+
+        expect(worktrees).toEqual([
+            {
+                enabled: true,
+                path: join(projectPath, ".worktrees", "fix-login"),
+                branch: "task/fix-login",
+                pr: null,
+            },
+            {
+                enabled: true,
+                path: join(projectPath, ".worktrees", "fix-login-3"),
+                branch: "task/fix-login-3",
+                pr: null,
+            },
+        ]);
     });
 
     for (const [shell, line] of [

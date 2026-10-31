@@ -12,10 +12,14 @@ async function createWorktree(
     await git(["worktree", "add", "-b", branch, worktreePath], repoPath);
 }
 
+async function branchExists(repoPath: string, branch: string): Promise<boolean> {
+    const branches = await git(["branch", "--list", branch], repoPath, { readOnly: true });
+    return branches.trim() !== "";
+}
+
 async function isBranchMerged(repoPath: string, branch: string): Promise<boolean> {
     // If the branch no longer exists, treat as already merged/cleaned up
-    const branches = await git(["branch", "--list", branch], repoPath, { readOnly: true });
-    if (!branches.trim()) {
+    if (!(await branchExists(repoPath, branch))) {
         return true;
     }
     const output = await git(["branch", "--merged"], repoPath, { readOnly: true });
@@ -152,4 +156,4 @@ async function deleteBranch(repoPath: string, branch: string): Promise<void> {
     await git(["branch", "-D", branch], repoPath);
 }
 
-export { createWorktree, isBranchMerged, removeWorktree, deleteBranch };
+export { createWorktree, branchExists, isBranchMerged, removeWorktree, deleteBranch };

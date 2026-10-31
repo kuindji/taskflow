@@ -207,6 +207,19 @@ describe("GitService", () => {
         expect(status.unstagedFiles).toHaveLength(0);
     });
 
+    it("reverts the unstaged row of an edited rename", async () => {
+        await run(["git", "mv", "initial.txt", "renamed file.txt"], repoDir);
+        await writeFile(join(repoDir, "renamed file.txt"), "edited");
+        const before = await git.status(repoDir);
+        const row = before.unstagedFiles.find((file) => file.path === "renamed file.txt");
+        expect(row).toMatchObject({ status: "modified", previousPath: "initial.txt" });
+        if (!row) return;
+        await git.revertFile(repoDir, row);
+        const status = await git.status(repoDir);
+        expect(status.stagedFiles).toHaveLength(0);
+        expect(status.unstagedFiles).toHaveLength(0);
+    });
+
     it("reverts a staged new file", async () => {
         await writeFile(join(repoDir, "staged.txt"), "new content");
         await run(["git", "add", "staged.txt"], repoDir);

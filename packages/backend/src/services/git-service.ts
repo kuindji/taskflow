@@ -23,6 +23,7 @@ import {
     isBranchMerged as isBranchMergedImpl,
     removeWorktree as removeWorktreeImpl,
     deleteBranch as deleteBranchImpl,
+    branchExists as branchExistsImpl,
 } from "./git-worktree";
 import {
     type GitPrDeps,
@@ -429,10 +430,9 @@ export class GitService {
             return;
         }
 
-        const paths =
-            file.status === "renamed" && file.previousPath
-                ? [file.previousPath, file.path]
-                : [file.path];
+        // Either row of a rename (the unstaged side of an edited rename shows as
+        // "modified") must restore the old path too, or its deletion stays staged.
+        const paths = file.previousPath ? [file.previousPath, file.path] : [file.path];
 
         await git(
             ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths],
@@ -468,6 +468,10 @@ export class GitService {
 
     async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
         return createWorktreeImpl(repoPath, branch, worktreePath);
+    }
+
+    async branchExists(repoPath: string, branch: string): Promise<boolean> {
+        return branchExistsImpl(repoPath, branch);
     }
 
     async isBranchMerged(repoPath: string, branch: string): Promise<boolean> {

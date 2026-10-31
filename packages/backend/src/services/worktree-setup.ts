@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { join, win32 } from "path";
 import type { TaskStore } from "./task-store";
 import type { GitService } from "./git-service";
@@ -125,12 +126,20 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
         if (!project) return;
 
         // A title without ASCII letters or digits slugifies to nothing
-        const slug = slugify(nameSource) || `task-${task.id.slice(0, 8)}`;
-
-        const branch = `task/${slug}`;
-        const worktreePath = join(project.path, ".worktrees", slug);
+        const baseSlug = slugify(nameSource) || `task-${task.id.slice(0, 8)}`;
+        // Another task with the same title (or a kept branch or folder) may
+        // already hold the name; git would refuse it and the task would run
+        // in the main checkout.
+        const taken = async (slug: string): Promise<boolean> =>
+            existsSync(join(project.path, ".worktrees", slug)) ||
+            (await gitService.branchExists(project.path, `task/${slug}`));
 
         try {
+            let slug = baseSlug;
+            for (let n = 2; await taken(slug); n += 1) slug = `${baseSlug}-${n}`;
+            const branch = `task/${slug}`;
+            const worktreePath = join(project.path, ".worktrees", slug);
+
             await gitService.createWorktree(project.path, branch, worktreePath);
             changeTracker?.track(taskId, worktreePath);
 

@@ -15,6 +15,10 @@ class FakeGitService {
     async createWorktree(repoPath: string, branch: string, worktreePath: string): Promise<void> {
         this.createdWorktrees.push({ repoPath, branch, worktreePath });
     }
+
+    async branchExists(): Promise<boolean> {
+        return false;
+    }
 }
 
 function runnerReturning(result: string | Error, seen: unknown[] = []): BuiltinActionRunner {
