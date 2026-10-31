@@ -84,3 +84,22 @@ test("a cleanup warning queues behind an existing dialog without blocking deleti
     });
     useDialogStore.getState().dismiss();
 });
+
+test("a task:deleted broadcast drops the task family from both lists", async () => {
+    await useTaskStore.getState().fetchTasks("task-cleanup");
+    await useTaskStore.getState().fetchArchivedTasks("task-cleanup");
+    useTaskStore.getState().setActiveTask("child");
+    const dropped = new Promise<void>((resolve) => {
+        const unsubscribe = useTaskStore.subscribe((state) => {
+            if (state.tasks.every((task) => task.id !== "parent")) {
+                unsubscribe();
+                resolve();
+            }
+        });
+    });
+    server.broadcast(MSG.TASK_DELETED, { id: "parent" });
+    await dropped;
+    expect(useTaskStore.getState().tasks.map((task) => task.id)).toEqual(["other"]);
+    expect(useTaskStore.getState().archivedTasks).toEqual([]);
+    expect(useTaskStore.getState().activeTaskId).toBeNull();
+});

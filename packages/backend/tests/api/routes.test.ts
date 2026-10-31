@@ -495,6 +495,7 @@ describe("flow complete route", () => {
 
 describe("task creation and cleanup routes", () => {
     let apiRouter: ApiRouter;
+    let events: WsEvent[];
     let tempDir: string;
     let taskStore: TaskStore;
     let projectId: string;
@@ -503,6 +504,7 @@ describe("task creation and cleanup routes", () => {
         tempDir = await mkdtemp(join(tmpdir(), "taskflow-api-task-create-"));
         closeForOwner.mockClear();
         apiRouter = new ApiRouter();
+        events = [];
         taskStore = new TaskStore({
             projectsFile: join(tempDir, "projects.json"),
             tasksDir: join(tempDir, "tasks"),
@@ -528,7 +530,9 @@ describe("task creation and cleanup routes", () => {
             apiRouter,
             taskStore,
             ptyManager: new FakePtyManager() as never,
-            broadcast: () => {},
+            broadcast: (event) => {
+                events.push(event);
+            },
             settingsStore: new SettingsStore(join(tempDir, "settings.json")),
             flowStore: { getFlowRunsForOwner: async () => [] } as never,
             flowRunner: {} as never,
@@ -589,6 +593,35 @@ describe("task creation and cleanup routes", () => {
             }
         });
     }
+
+    it("broadcasts a deletion so connected clients drop the task", async () => {
+        const task = await taskStore.createTask({ projectId, title: "Doomed", description: "" });
+        const response = await apiRouter.handle(
+            new Request(`http://localhost/api/tasks/${task.id}`, { method: "DELETE" }),
+        );
+        expect(response?.status).toBe(200);
+        expect(events).toEqual([{ type: MSG.TASK_DELETED, payload: { id: task.id } }]);
+    });
+
+    it("refuses to restore a subtask while its parent is archived", async () => {
+        const parent = await taskStore.createTask({ projectId, title: "Parent", description: "" });
+        const child = await taskStore.createTask({
+            projectId,
+            parentId: parent.id,
+            title: "Child",
+            description: "",
+        });
+        await taskStore.archiveTask(child.id);
+        await taskStore.archiveTask(parent.id);
+
+        const response = await apiRouter.handle(
+            new Request(`http://localhost/api/tasks/${child.id}/unarchive`, { method: "POST" }),
+        );
+        expect(response?.status).toBe(409);
+        expect(await taskStore.getTask(child.id)).toBeNull();
+        expect((await taskStore.getArchived(child.id))?.status).toBe("archived");
+        expect(events).toEqual([]);
+    });
 
     it("closes project and task browser tabs on project removal", async () => {
         const first = await taskStore.createTask({ projectId, title: "First", description: "" });

@@ -7,6 +7,7 @@ import type {
     ProjectReorderPayload,
     SessionRef,
     Task,
+    TaskDeletePayload,
     TaskListResponse,
 } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
@@ -55,6 +56,9 @@ class Store {
             }),
             net.on(MSG.TASK_UPDATED, (payload) => {
                 this.apply(() => this.updateTask(payload));
+            }),
+            net.on(MSG.TASK_DELETED, (payload) => {
+                this.removeTask((payload as Pick<TaskDeletePayload, "id">).id);
             }),
             net.on(MSG.MASTER_SESSIONS_LIST, (payload) => {
                 this.apply(() => {
@@ -150,6 +154,13 @@ class Store {
         this.apply(() => {
             this.projectList = this.projectList.filter((p) => p.id !== id);
             this.taskList = this.taskList.filter((t) => t.projectId !== id);
+        });
+    }
+
+    /** Deleting a task deletes its subtasks on the backend, which broadcasts the task alone. */
+    removeTask(id: string): void {
+        this.apply(() => {
+            this.taskList = this.taskList.filter((t) => t.id !== id && t.parentId !== id);
         });
     }
 

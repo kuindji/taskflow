@@ -4,6 +4,7 @@ import type {
     TaskLogEntry,
     TaskLogAddedEvent,
     TaskListResponse,
+    TaskDeletePayload,
     TaskDeleteResponse,
     TaskLogListResponse,
 } from "@taskflow/shared";
@@ -71,6 +72,18 @@ function activeTaskAfterRemoving(id: string): string | null {
     const removed =
         activeTaskId === id || tasks.some((t) => t.parentId === id && t.id === activeTaskId);
     return removed ? null : activeTaskId;
+}
+
+/** A deleted task leaves both lists, with its subtasks. */
+function dropDeletedTask(backendId: string, id: string): void {
+    const activeTaskId = activeTaskAfterRemoving(id);
+    live.apply(backendId, (items) => withoutTaskFamily(items, id));
+    archived.apply(backendId, (items) => withoutTaskFamily(items, id));
+    useTaskStore.setState({
+        tasks: live.read(),
+        archivedTasks: archived.read(),
+        activeTaskId,
+    });
 }
 
 export const useTaskStore = create<TaskStore>((set) => ({
@@ -151,7 +164,16 @@ export const useTaskStore = create<TaskStore>((set) => ({
         }
     },
     async unarchiveTask(task) {
-        await sendRequest(task.backendId, MSG.TASK_UNARCHIVE, { id: task.id });
+        try {
+            await sendRequest(task.backendId, MSG.TASK_UNARCHIVE, { id: task.id });
+        } catch (err) {
+            // The backend refuses a subtask whose parent is still archived.
+            void alert({
+                title: "Could not restore task",
+                description: err instanceof Error ? err.message : String(err),
+            });
+            return;
+        }
         archived.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
         publish();
         useTaskStore
@@ -169,14 +191,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
             },
             TASK_DELETE_TIMEOUT_MS,
         );
-        const activeTaskId = activeTaskAfterRemoving(task.id);
-        live.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
-        archived.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
-        useTaskStore.setState({
-            tasks: live.read(),
-            archivedTasks: archived.read(),
-            activeTaskId,
-        });
+        dropDeletedTask(task.backendId, task.id);
         if (response.cleanupError) {
             void alert({ title: "Worktree cleanup failed", description: response.cleanupError });
         }
@@ -260,6 +275,12 @@ const _unsubTaskCreated = onEvent(MSG.TASK_CREATED, (payload, backendId) => {
     if (isTask(payload)) insertTask(backendId, payload);
 });
 
+// Deletions made elsewhere, e.g. `taskflow-cli task delete`.
+const _unsubTaskDeleted = onEvent(MSG.TASK_DELETED, (payload, backendId) => {
+    const id = (payload as Pick<TaskDeletePayload, "id"> | null)?.id;
+    if (typeof id === "string") dropDeletedTask(backendId, id);
+});
+
 // Task ids are UUIDs, so a log entry cannot land on another machine's task.
 const _unsubTaskLogAdded = onEvent(MSG.TASK_LOG_ADDED, (payload) => {
     const event = payload as TaskLogAddedEvent;
@@ -272,6 +293,7 @@ if (import.meta.hot) {
     import.meta.hot.dispose(() => {
         _unsubTaskUpdated();
         _unsubTaskCreated();
+        _unsubTaskDeleted();
         _unsubTaskLogAdded();
     });
 }

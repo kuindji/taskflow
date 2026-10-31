@@ -19,7 +19,7 @@ import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { isMissingFileError, isJsonParseError } from "./task-store-helpers";
 import { addAttribute, editAttribute, removeAttribute } from "./attribute-mutations";
-import { NotFoundError } from "./errors";
+import { ConflictError, NotFoundError } from "./errors";
 import { acquireFileMutationLock } from "./file-mutation-lock";
 import { ownerKey } from "./session-owner";
 import {
@@ -1344,6 +1344,13 @@ export class TaskStore {
         return this.withTaskMutation(id, async () => {
             const task = await this.readTask(this.archivePath(id));
             if (!task) throw new Error(`Archived task not found: ${id}`);
+            // Clients list an active subtask only under its active parent, so a
+            // subtask restored alone would vanish from both the task list and the archive.
+            if (task.parentId && (await this.getArchived(task.parentId))) {
+                throw new ConflictError(
+                    `Restore the parent task first: ${task.parentId} is archived`,
+                );
+            }
             const restored: Task = {
                 ...task,
                 status: "active",

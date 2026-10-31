@@ -6,11 +6,18 @@ import type { GitService } from "../../services/git-service";
 import type { ChangeTracker } from "../../services/change-tracker";
 import type { FlowStore } from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
-import type { Task, TaskDeleteResponse, TaskLogEntryType, WsEvent } from "@taskflow/shared";
+import type {
+    Task,
+    TaskDeletePayload,
+    TaskDeleteResponse,
+    TaskLogEntryType,
+    WsEvent,
+} from "@taskflow/shared";
 import { MSG, resolveAttributes } from "@taskflow/shared";
 import { filterTaskSessions } from "../../services/instance-filter";
 import { config } from "../../config";
 import { cleanupTaskWorktree } from "../../services/task-worktree-cleanup";
+import { ConflictError } from "../../services/errors";
 import { jsonResponse, errorResponse } from "./response-helpers";
 
 interface TaskRouteDeps {
@@ -404,6 +411,7 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             return jsonResponse(filtered);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Unknown error";
+            if (err instanceof ConflictError) return errorResponse(message, 409);
             if (message.includes("not found")) return errorResponse(message, 404);
             console.error("[api] POST /api/tasks/:taskId/unarchive failed:", err);
             return errorResponse(message, 500);
@@ -460,6 +468,9 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 }
                 changeTracker?.untrack(params.taskId);
                 await browserTabService.closeForOwner({ taskId: params.taskId });
+                // Clients drop the task's subtasks with it, as they do for their own deletes.
+                const deleted: Pick<TaskDeletePayload, "id"> = { id: params.taskId };
+                broadcast({ type: MSG.TASK_DELETED, payload: deleted });
 
                 const cleanupError = await cleanupTaskWorktree(task, deleteWorktree, {
                     store: taskStore,

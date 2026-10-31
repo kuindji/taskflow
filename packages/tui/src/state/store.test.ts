@@ -98,6 +98,19 @@ describe("Store project reducers", () => {
         expect(store.projectOrder).toEqual(["p2"]);
         expect(store.tasks).toEqual([]);
     });
+
+    test("a task:deleted broadcast drops the task and its subtasks", async () => {
+        const subtask = { ...task("t2", "p1", "Child"), parentId: "t1" };
+        const net = fakeNet(
+            [project("p1", "One")],
+            [task("t1", "p1", "Parent"), subtask, task("t3", "p1", "Other")],
+        );
+        const store = new Store(net);
+        await store.load();
+
+        net.emit(MSG.TASK_DELETED, { id: "t1" });
+        expect(store.tasks.map((t) => t.id)).toEqual(["t3"]);
+    });
 });
 
 /**

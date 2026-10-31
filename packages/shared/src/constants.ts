@@ -70,6 +70,7 @@ export const MSG = {
     TASK_UNARCHIVE: "task:unarchive",
     TASK_LIST_ARCHIVED: "task:list-archived",
     TASK_DELETE: "task:delete",
+    TASK_DELETED: "task:deleted",
     TASK_LOG_LIST: "task:log-list",
     TASK_LOG_ADDED: "task:log-added",
 
