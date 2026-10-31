@@ -31,6 +31,14 @@ async function resolveWorkspacePath(path: string): Promise<string> {
     });
 }
 
+// The entry itself, not what it points to: a symlink resolves to its own
+// location (parent resolved), so deleting or renaming it touches only the link.
+async function resolveWorkspaceEntry(path: string): Promise<string> {
+    const absolutePath = resolve(path);
+    const parentPath = await realpath(dirname(absolutePath)).catch(() => dirname(absolutePath));
+    return resolve(parentPath, basename(absolutePath));
+}
+
 /** Project owning a path: a task worktree's project first, else the deepest project root. */
 export async function findProjectForPath(
     taskStore: TaskStore,
@@ -55,13 +63,14 @@ export async function findProjectForPath(
     return best;
 }
 
-export async function assertMutableWorkspacePath(
+async function assertMutableResolvedPath(
     taskStore: TaskStore,
     path: string,
+    resolvePath: (path: string) => Promise<string>,
 ): Promise<string> {
     const [roots, resolvedPath] = await Promise.all([
         listWorkspaceRoots(taskStore),
-        resolveWorkspacePath(path),
+        resolvePath(path),
     ]);
     if (!roots.some((root) => isWithinRoot(resolvedPath, root))) {
         throw new Error(`Path is outside known workspaces: ${path}`);
@@ -70,6 +79,22 @@ export async function assertMutableWorkspacePath(
         throw new Error("Cannot modify workspace root");
     }
     return resolvedPath;
+}
+
+/** A path whose contents get written; symlinks are followed to their target. */
+export async function assertMutableWorkspacePath(
+    taskStore: TaskStore,
+    path: string,
+): Promise<string> {
+    return assertMutableResolvedPath(taskStore, path, resolveWorkspacePath);
+}
+
+/** An entry that gets deleted or renamed; a symlink is the link, not its target. */
+export async function assertMutableWorkspaceEntry(
+    taskStore: TaskStore,
+    path: string,
+): Promise<string> {
+    return assertMutableResolvedPath(taskStore, path, resolveWorkspaceEntry);
 }
 
 export async function assertWorkspacePath(taskStore: TaskStore, path: string): Promise<string> {

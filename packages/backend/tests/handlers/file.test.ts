@@ -3,7 +3,18 @@ import { registerFileHandlers } from "../../src/handlers/file";
 import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { FileWatcher } from "../../src/services/file-watcher";
-import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath } from "fs/promises";
+import {
+    lstat,
+    mkdtemp,
+    mkdir,
+    readFile,
+    readlink,
+    realpath,
+    rm,
+    stat,
+    symlink,
+    writeFile,
+} from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
@@ -221,6 +232,21 @@ describe("file handlers", () => {
             );
         });
 
+        it("renames a symlink itself, not its target", async () => {
+            const targetDir = join(projectDir, "docs");
+            await mkdir(targetDir);
+            const linkPath = join(projectDir, "docs-link");
+            await symlink(targetDir, linkPath);
+            const newPath = join(projectDir, "docs-link-renamed");
+
+            await router.handle(MSG.FILE_RENAME, { oldPath: linkPath, newPath });
+
+            expect((await stat(targetDir)).isDirectory()).toBe(true);
+            expect((await lstat(newPath)).isSymbolicLink()).toBe(true);
+            expect(await readlink(newPath)).toBe(targetDir);
+            await expectRejects(() => lstat(linkPath));
+        });
+
         it("rejects rename outside workspace", async () => {
             const outsidePath = join(tmpdir(), "outside.txt");
             await expectRejects(
@@ -265,6 +291,33 @@ describe("file handlers", () => {
 
             expect(result).toEqual({ success: true });
             await expectRejects(() => stat(dirPath));
+        });
+
+        it("deletes a symlink to a directory without touching the target", async () => {
+            const targetDir = join(projectDir, "docs");
+            await mkdir(targetDir);
+            await writeFile(join(targetDir, "keep.md"), "keep");
+            const linkPath = join(projectDir, "docs-link");
+            await symlink(targetDir, linkPath);
+
+            const result = await router.handle(MSG.FILE_DELETE_FILE, { path: linkPath });
+
+            expect(result).toEqual({ success: true });
+            await expectRejects(() => lstat(linkPath));
+            expect(await readFile(join(targetDir, "keep.md"), "utf-8")).toBe("keep");
+        });
+
+        it("deletes a symlink whose target is outside the workspace", async () => {
+            const outsideDir = join(tempDir, "outside-target");
+            await mkdir(outsideDir);
+            await writeFile(join(outsideDir, "keep.md"), "keep");
+            const linkPath = join(projectDir, "outside-link");
+            await symlink(outsideDir, linkPath);
+
+            await router.handle(MSG.FILE_DELETE_FILE, { path: linkPath });
+
+            await expectRejects(() => lstat(linkPath));
+            expect(await readFile(join(outsideDir, "keep.md"), "utf-8")).toBe("keep");
         });
 
         it("rejects delete of workspace root", async () => {

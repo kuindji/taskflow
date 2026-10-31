@@ -669,4 +669,13 @@ describe("agent accounts settings", () => {
         expect(settings.claude.defaultAccount).toBe("default");
         expect(settings.claude.accounts).toEqual([]);
     });
+    it("keeps both patches when two updates overlap", async () => {
+        await Promise.all([
+            store.update({ general: { confirmBeforeExit: true } }),
+            store.update({ layout: { panels: { sidebarWidth: 333 } } }),
+        ]);
+        const settings = await store.get();
+        expect(settings.general.confirmBeforeExit).toBe(true);
+        expect(settings.layout.panels.sidebarWidth).toBe(333);
+    });
 });

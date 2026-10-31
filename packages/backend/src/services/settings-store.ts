@@ -1,5 +1,7 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { isAbsolute, resolve } from "path";
+import { KeyedQueue } from "./keyed-queue";
+import { writeJsonAtomic } from "./write-file-atomic";
 import {
     ALL_AGENT_TYPES,
     CLAUDE_EFFORT_LEVELS,
@@ -347,6 +349,9 @@ function normalizeNetworkSettings(settings: NetworkSettings, defaults: NetworkSe
 
 export class SettingsStore {
     private updateListeners = new Set<(settings: AppSettings) => void>();
+    // update() is read-modify-write: overlapping calls (two clients, or the
+    // UI and Electron's window-close PATCH) would each drop the other's patch.
+    private readonly updates = new KeyedQueue();
 
     constructor(private filePath: string) {}
 
@@ -422,7 +427,7 @@ export class SettingsStore {
 
             // Persist migration so it only runs once
             if (needsMigration) {
-                await writeFile(this.filePath, JSON.stringify(result, null, 2));
+                await writeJsonAtomic(this.filePath, result);
             }
 
             return result;
@@ -431,7 +436,11 @@ export class SettingsStore {
         }
     }
 
-    async update(partial: SettingsUpdatePayload): Promise<AppSettings> {
+    update(partial: SettingsUpdatePayload): Promise<AppSettings> {
+        return this.updates.run(this.filePath, () => this.applyUpdate(partial));
+    }
+
+    private async applyUpdate(partial: SettingsUpdatePayload): Promise<AppSettings> {
         const current = await this.get();
         if (partial.general) {
             applyNullable(current.general, partial.general);
@@ -478,7 +487,7 @@ export class SettingsStore {
             applyNullable(current.network, partial.network);
         }
         // Persist without null keys so defaults fill in on next get()
-        await writeFile(this.filePath, JSON.stringify(current, null, 2));
+        await writeJsonAtomic(this.filePath, current);
         // Re-read to apply defaults for any deleted keys
         const settings = await this.get();
         for (const listener of this.updateListeners) listener(settings);

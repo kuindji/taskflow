@@ -17,7 +17,11 @@ import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
 import { writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
-import { assertWorkspacePath, assertMutableWorkspacePath } from "../utils/path-validation";
+import {
+    assertMutableWorkspaceEntry,
+    assertMutableWorkspacePath,
+    assertWorkspacePath,
+} from "../utils/path-validation";
 import { readFilePreview } from "../services/file-preview";
 import { getKnownEditor } from "../services/editor-detector";
 import { resolveEditorCommand } from "../services/editor-resolver";
@@ -98,7 +102,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
 
     router.register(MSG.FILE_RENAME, async (payload) => {
         const { oldPath, newPath } = payload as FileRenamePayload;
-        const resolvedOld = await assertMutableWorkspacePath(taskStore, oldPath);
+        const resolvedOld = await assertMutableWorkspaceEntry(taskStore, oldPath);
         const resolvedNew = await assertWorkspacePath(taskStore, newPath);
         try {
             await fsStat(resolvedNew);
@@ -117,7 +121,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
 
     router.register(MSG.FILE_DELETE_FILE, async (payload) => {
         const { path } = payload as FilePathPayload;
-        const resolvedPath = await assertMutableWorkspacePath(taskStore, path);
+        const resolvedPath = await assertMutableWorkspaceEntry(taskStore, path);
         await rm(resolvedPath, { recursive: true });
         return { success: true };
     });
