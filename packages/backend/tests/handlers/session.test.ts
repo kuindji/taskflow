@@ -761,6 +761,76 @@ describe("session handlers", () => {
         });
     });
 
+    it("drops the ref of an agent that exits while its launch is still saving it", async () => {
+        const exitingPty = new FakePtyManager();
+        const spawn = exitingPty.spawn.bind(exitingPty);
+        exitingPty.spawn = (options) => {
+            const id = spawn(options);
+            queueMicrotask(() => exitingPty.close(id));
+            return id;
+        };
+        const lifecycle = createSessionLifecycle({
+            apiToken: "test-token",
+            ptyManager: exitingPty as never,
+            taskStore: store,
+            settingsStore,
+            broadcast: () => {},
+            getPort: () => 0,
+            detectedEditors: [],
+            trayStateTracker: new TrayStateTracker(),
+        });
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+
+        await lifecycle.createSession({ owner: { taskId: task.id }, type: "claude" });
+        await lifecycle.drainSessionOutput();
+
+        expect((await store.getTask(task.id))?.sessions).toEqual([]);
+    });
+
+    it("closes the agent a resume started when its session was closed meanwhile", async () => {
+        const task = await store.createTask({ projectId, title: "Task", description: "" });
+        await store.updateTask(task.id, {
+            sessions: [
+                {
+                    id: "closing-resume",
+                    type: "codex",
+                    label: "Codex",
+                    createdAt: new Date().toISOString(),
+                    instance: config.instanceId,
+                    bootId: "previous-boot",
+                    state: "interrupted",
+                    nativeSessionId: "native-session",
+                    cwd: (await store.getProject(projectId))!.path,
+                    agentOptions: { type: "codex" },
+                },
+            ],
+        });
+        let enterResume!: () => void;
+        const resuming = new Promise<void>((resolve) => {
+            enterResume = resolve;
+        });
+        let openResume!: () => void;
+        const resumeGate = new Promise<void>((resolve) => {
+            openResume = resolve;
+        });
+        sessionLifecycle.setRecoveredSessionResumeHandler(async () => {
+            enterResume();
+            await resumeGate;
+            return undefined;
+        });
+
+        const resume = router.handle(MSG.SESSION_RESUME, { sessionId: "closing-resume" });
+        await resuming;
+        // Another client closes the interrupted session while it resumes.
+        await router.handle(MSG.SESSION_CLOSE, { sessionId: "closing-resume" });
+        openResume();
+
+        await expectRejects(resume, "closed");
+        expect(ptyManager.spawns).toHaveLength(1);
+        expect(ptyManager.has("closing-resume")).toBe(false);
+        expect((await store.getTask(task.id))?.sessions).toEqual([]);
+    });
+
     it("resumes an interrupted agent with its native ID and retained transcript", async () => {
         const task = (await router.handle(MSG.TASK_CREATE, {
             projectId,

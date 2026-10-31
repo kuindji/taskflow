@@ -707,85 +707,99 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
 
         try {
             if (!opts.internal) {
-                const sessionRef: SessionRef = {
-                    id: sessionId,
-                    type,
-                    label:
-                        opts.label ??
-                        opts.resumeSession?.label ??
-                        getDefaultSessionLabel(type, accountName),
-                    createdAt: opts.resumeSession?.createdAt ?? new Date().toISOString(),
-                    instance: config.instanceId,
-                    bootId: config.bootId,
-                    state: "live",
-                    cwd,
-                    ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
-                    ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
-                    ...(opts.resumeSession?.nativeSessionId
-                        ? { nativeSessionId: opts.resumeSession.nativeSessionId }
-                        : type === "claude"
-                          ? { nativeSessionId: sessionId }
-                          : {}),
-                    ...(flow && { flow }),
-                    ...(opts.trayExclude && { trayExclude: true }),
-                    ...(opts.remoteControl && type === "claude" && { remoteControl: true }),
-                };
-                if (master) {
-                    if (opts.resumeSession) {
-                        await taskStore.updateMasterSession(sessionId, sessionRef);
+                // Queued before the PTY can queue its exit cleanup or a client its
+                // close, so both find the ref this saves instead of racing it.
+                await sessionQueue.run(sessionId, async () => {
+                    const sessionRef: SessionRef = {
+                        id: sessionId,
+                        type,
+                        label:
+                            opts.label ??
+                            opts.resumeSession?.label ??
+                            getDefaultSessionLabel(type, accountName),
+                        createdAt: opts.resumeSession?.createdAt ?? new Date().toISOString(),
+                        instance: config.instanceId,
+                        bootId: config.bootId,
+                        state: "live",
+                        cwd,
+                        ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
+                        ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
+                        ...(opts.resumeSession?.nativeSessionId
+                            ? { nativeSessionId: opts.resumeSession.nativeSessionId }
+                            : type === "claude"
+                              ? { nativeSessionId: sessionId }
+                              : {}),
+                        ...(flow && { flow }),
+                        ...(opts.trayExclude && { trayExclude: true }),
+                        ...(opts.remoteControl && type === "claude" && { remoteControl: true }),
+                    };
+                    // A client may close an interrupted session while it resumes.
+                    const requireResumedRef = (sessions: SessionRef[]): void => {
+                        if (!sessions.some((session) => session.id === sessionId)) {
+                            throw new Error("Session was closed while it was resuming");
+                        }
+                    };
+                    const withResumedRef = (sessions: SessionRef[]): SessionRef[] => {
+                        requireResumedRef(sessions);
+                        return sessions.map((session) =>
+                            session.id === sessionId ? sessionRef : session,
+                        );
+                    };
+                    if (master) {
+                        if (opts.resumeSession) {
+                            requireResumedRef(taskStore.getMasterSessions());
+                            await taskStore.updateMasterSession(sessionId, sessionRef);
+                        } else {
+                            await taskStore.addMasterSession(sessionRef);
+                        }
+                        broadcast({
+                            type: MSG.MASTER_SESSIONS_LIST,
+                            payload: { sessions: taskStore.getMasterSessions() },
+                        });
+                    } else if (task) {
+                        await taskStore.updateTask(task.id, (currentTask) => ({
+                            sessions: opts.resumeSession
+                                ? withResumedRef(currentTask.sessions)
+                                : [...currentTask.sessions, sessionRef],
+                        }));
+                        const updatedTask = await taskStore.getTask(task.id);
+                        if (updatedTask) {
+                            broadcast({
+                                type: MSG.TASK_UPDATED,
+                                payload: filterTaskSessions(updatedTask, config.instanceId),
+                            });
+                        }
                     } else {
-                        await taskStore.addMasterSession(sessionRef);
+                        await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
+                            sessions: opts.resumeSession
+                                ? withResumedRef(currentProject.sessions)
+                                : [...currentProject.sessions, sessionRef],
+                        }));
+                        const updatedProject = await taskStore.getProject(resolvedProjectId);
+                        if (updatedProject) {
+                            broadcast({
+                                type: MSG.PROJECT_UPDATED,
+                                payload: filterProjectSessions(updatedProject, config.instanceId),
+                            });
+                        }
                     }
-                    broadcast({
-                        type: MSG.MASTER_SESSIONS_LIST,
-                        payload: { sessions: taskStore.getMasterSessions() },
-                    });
-                } else if (task) {
-                    await taskStore.updateTask(task.id, (currentTask) => ({
-                        sessions: opts.resumeSession
-                            ? currentTask.sessions.map((session) =>
-                                  session.id === sessionId ? sessionRef : session,
-                              )
-                            : [...currentTask.sessions, sessionRef],
-                    }));
-                    const updatedTask = await taskStore.getTask(task.id);
-                    if (updatedTask) {
+
+                    if (type !== "shell" && type !== "editor") {
                         broadcast({
-                            type: MSG.TASK_UPDATED,
-                            payload: filterTaskSessions(updatedTask, config.instanceId),
+                            type: MSG.SESSION_STATUS,
+                            payload: { sessionId, status: "initializing" },
                         });
                     }
-                } else {
-                    await taskStore.updateProject(resolvedProjectId, (currentProject) => ({
-                        sessions: opts.resumeSession
-                            ? currentProject.sessions.map((session) =>
-                                  session.id === sessionId ? sessionRef : session,
-                              )
-                            : [...currentProject.sessions, sessionRef],
-                    }));
-                    const updatedProject = await taskStore.getProject(resolvedProjectId);
-                    if (updatedProject) {
-                        broadcast({
-                            type: MSG.PROJECT_UPDATED,
-                            payload: filterProjectSessions(updatedProject, config.instanceId),
-                        });
-                    }
-                }
 
-                if (type !== "shell" && type !== "editor") {
-                    broadcast({
-                        type: MSG.SESSION_STATUS,
-                        payload: { sessionId, status: "initializing" },
-                    });
-                }
-
-                // Registered only once the ref is persisted: a move must never copy
-                // the ref of a session that is still being created or resumed.
-                if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
+                    // Registered only once the ref is persisted: a move must never copy
+                    // the ref of a session that is still being created or resumed.
+                    if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
+                });
             }
         } catch (error) {
-            // The owner went away while the agent was starting (the task was
-            // deleted or archived): nothing will ever list or close this PTY.
+            // The owner or the resumed ref went away while the agent was starting
+            // (the task was deleted or archived, or the session closed): nothing
+            // will ever list or close this PTY.
             ptyManager.close(sessionId);
             await releaseNativeLaunchLock?.();
             throw error;

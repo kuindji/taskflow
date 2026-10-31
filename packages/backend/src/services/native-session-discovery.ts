@@ -113,16 +113,18 @@ async function piCandidates(since: number): Promise<NativeSessionCandidate[]> {
     return candidates;
 }
 
-async function kimiCandidates(since: number): Promise<NativeSessionCandidate[]> {
-    const root = join(homedir(), ".kimi", "sessions");
-    const files = await recentFiles(root, since);
+/**
+ * Kimi Code keeps each conversation in its own directory,
+ * `<KIMI_CODE_HOME>/sessions/<workspace>/session_<uuid>/`, and `kimi --session`
+ * takes that directory name. Every file under it belongs to that one conversation.
+ */
+async function kimiCandidates(since: number, homeDir?: string): Promise<NativeSessionCandidate[]> {
+    const home = homeDir ?? (process.env.KIMI_CODE_HOME || join(homedir(), ".kimi-code"));
+    const files = await recentFiles(join(home, "sessions"), since);
     const byId = new Map<string, NativeSessionCandidate>();
     for (const file of files) {
-        const parts = file.split(/[\\/]/);
-        const fileName = parts.at(-1) ?? "";
-        const parent = parts.at(-2) ?? "";
-        const id = fileName.endsWith(".jsonl") ? fileName.replace(/\.jsonl$/, "") : parent;
-        if (!id) continue;
+        const id = file.split(/[\\/]/).find((part) => part.startsWith("session_"));
+        if (!id || byId.has(id)) continue;
         try {
             const info = await stat(file);
             byId.set(id, { id, createdAt: info.birthtimeMs || info.mtimeMs });
@@ -141,7 +143,7 @@ async function candidatesFor(
     if (type === "codex") return codexCandidates(since, homeDir);
     if (type === "opencode") return openCodeCandidates(since);
     if (type === "pi") return piCandidates(since);
-    if (type === "kimi") return kimiCandidates(since);
+    if (type === "kimi") return kimiCandidates(since, homeDir);
     return [];
 }
 
