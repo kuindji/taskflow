@@ -6,12 +6,13 @@ import type { FlowStore } from "../../services/flow-store";
 import type { FlowRunner } from "../../services/flow-runner";
 import type { ScheduleStore } from "../../services/schedule-store";
 import { getActionInUseError } from "../../services/action-usage";
-import type {
-    ActionDefinition,
-    AgentAvailability,
-    AgentType,
-    FlowDefinition,
-    WsEvent,
+import {
+    MASTER_OWNER_ID,
+    type ActionDefinition,
+    type AgentAvailability,
+    type AgentType,
+    type FlowDefinition,
+    type WsEvent,
 } from "@taskflow/shared";
 import type { CreateSessionOpts } from "../../services/session-lifecycle";
 import { jsonResponse, errorResponse } from "./response-helpers";
@@ -27,6 +28,17 @@ interface FlowRouteDeps {
     sessionLifecycle: {
         createSession: (opts: CreateSessionOpts) => Promise<string>;
     };
+}
+
+/**
+ * The run a flow-context CLI call names: its task, its project, or, for a flow
+ * started in the master workspace (whose sessions have neither), `master: true`.
+ */
+function flowRunOwnerId(body: Record<string, unknown>): string | undefined {
+    if (typeof body.taskId === "string") return body.taskId;
+    if (typeof body.projectId === "string") return body.projectId;
+    if (body.master === true) return MASTER_OWNER_ID;
+    return undefined;
 }
 
 function registerFlowRoutes(deps: FlowRouteDeps): void {
@@ -45,16 +57,11 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, projectId, flowId, sessionId } = body;
-        const ownerId =
-            typeof taskId === "string"
-                ? taskId
-                : typeof projectId === "string"
-                  ? projectId
-                  : undefined;
+        const { flowId, sessionId } = body;
+        const ownerId = flowRunOwnerId(body);
         if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
             return errorResponse(
-                "Fields flowId, sessionId, and one of taskId/projectId are required strings",
+                "Fields flowId, sessionId, and one of taskId/projectId/master are required",
                 400,
             );
         }
@@ -79,16 +86,11 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, projectId, flowId, sessionId } = body;
-        const ownerId =
-            typeof taskId === "string"
-                ? taskId
-                : typeof projectId === "string"
-                  ? projectId
-                  : undefined;
+        const { flowId, sessionId } = body;
+        const ownerId = flowRunOwnerId(body);
         if (!ownerId || typeof flowId !== "string" || typeof sessionId !== "string") {
             return errorResponse(
-                "Fields flowId, sessionId, and one of taskId/projectId are required strings",
+                "Fields flowId, sessionId, and one of taskId/projectId/master are required",
                 400,
             );
         }
@@ -113,13 +115,8 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { taskId, projectId, flowId, actionEntryId, sessionId, type, path, text } = body;
-        const ownerId =
-            typeof taskId === "string"
-                ? taskId
-                : typeof projectId === "string"
-                  ? projectId
-                  : undefined;
+        const { flowId, actionEntryId, sessionId, type, path, text } = body;
+        const ownerId = flowRunOwnerId(body);
         if (
             !ownerId ||
             typeof flowId !== "string" ||
@@ -128,7 +125,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             typeof type !== "string"
         ) {
             return errorResponse(
-                "Fields flowId, actionEntryId, sessionId, type, and one of taskId/projectId are required strings",
+                "Fields flowId, actionEntryId, sessionId, type, and one of taskId/projectId/master are required",
                 400,
             );
         }

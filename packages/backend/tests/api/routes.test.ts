@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, mock } from "bun:test";
 import {
+    MASTER_OWNER_ID,
     MSG,
     type AppSettings,
     type SessionOwnerRef,
@@ -400,11 +401,13 @@ describe("flow complete route", () => {
     let apiRouter: ApiRouter;
     const flowRunner = {
         completeFlow: mock(async () => {}),
+        handleActionComplete: mock(async () => {}),
     };
 
     beforeEach(() => {
         apiRouter = new ApiRouter();
         flowRunner.completeFlow.mockClear();
+        flowRunner.handleActionComplete.mockClear();
         registerApiRoutes({
             apiRouter,
             taskStore: {} as never,
@@ -453,6 +456,36 @@ describe("flow complete route", () => {
 
         expect(response?.status).toBe(200);
         expect(flowRunner.completeFlow).toHaveBeenCalledWith("project-1", "flow-1", "session-1");
+    });
+
+    // A flow started in the master workspace: its sessions carry no task or
+    // project id, so the CLI names the master owner.
+    it("completes a master-workspace flow and its steps", async () => {
+        for (const path of ["complete", "action-complete"]) {
+            const response = await apiRouter.handle(
+                new Request(`http://localhost/api/flow/${path}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        master: true,
+                        flowId: "flow-1",
+                        sessionId: "session-1",
+                    }),
+                }),
+            );
+            expect(response?.status).toBe(200);
+        }
+
+        expect(flowRunner.completeFlow).toHaveBeenCalledWith(
+            MASTER_OWNER_ID,
+            "flow-1",
+            "session-1",
+        );
+        expect(flowRunner.handleActionComplete).toHaveBeenCalledWith(
+            MASTER_OWNER_ID,
+            "flow-1",
+            "session-1",
+        );
     });
 
     it("rejects a request with no owner", async () => {

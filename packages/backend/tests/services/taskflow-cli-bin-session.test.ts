@@ -189,6 +189,56 @@ describe("taskflow-cli binary: session owner", () => {
     });
 });
 
+describe("taskflow-cli binary: flow context", () => {
+    const flowEnv = {
+        TASKFLOW_FLOW_ID: "flow-1",
+        TASKFLOW_ACTION_ENTRY_ID: "entry-1",
+        TASKFLOW_SESSION_ID: "session-1",
+    };
+
+    it("names the master owner from a master-workspace flow session", async () => {
+        const requests = startServer(null);
+        for (const args of [
+            ["action", "complete"],
+            ["flow", "complete"],
+            ["artifact", "save", "summary", "--text", "done"],
+            ["artifact", "list"],
+            ["flow", "input"],
+        ]) {
+            expect((await runBin(args, flowEnv)).status).toBe(0);
+        }
+
+        const calls = requests.filter((r) => !r.path.endsWith("/owner"));
+        expect(calls.map((r) => r.path)).toEqual([
+            "/api/flow/action-complete",
+            "/api/flow/complete",
+            "/api/flow/artifact",
+            "/api/flow/artifact/__master__/flow-1",
+            "/api/flow/input/__master__/flow-1",
+        ]);
+        for (const r of calls.slice(0, 3)) {
+            const body = JSON.parse(r.body) as Record<string, unknown>;
+            expect(body.master).toBe(true);
+            expect(body.taskId).toBeUndefined();
+            expect(body.projectId).toBeUndefined();
+        }
+    });
+
+    it("saves a relative artifact path as an absolute one", async () => {
+        const requests = startServer(null);
+        const result = await runBin(["artifact", "save", "plan", "--path", "docs/plan.md"], {
+            ...flowEnv,
+            TASKFLOW_TASK_ID: "task-1",
+        });
+
+        expect(result.status).toBe(0);
+        const save = requests.find((r) => r.path === "/api/flow/artifact");
+        expect((JSON.parse(save?.body ?? "{}") as { path?: string }).path).toBe(
+            join(process.cwd(), "docs/plan.md"),
+        );
+    });
+});
+
 describe("taskflow-cli binary: agent run", () => {
     const owner = { TASKFLOW_PROJECT_ID: "p1", TASKFLOW_TASK_ID: "t1" };
 

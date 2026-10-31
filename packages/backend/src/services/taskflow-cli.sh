@@ -50,6 +50,23 @@ resolve_owner_id() {
   fi
 }
 
+# The flow run this flow-action session belongs to, as a URL owner id
+# (flow_owner_id) and a request field (owner_field). A flow started in the
+# master workspace gives its sessions neither id, and flow sessions cannot be
+# moved, so "neither" means the master workspace.
+set_flow_owner() {
+  if [ -n "$TASKFLOW_TASK_ID" ]; then
+    flow_owner_id="$TASKFLOW_TASK_ID"
+    owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
+  elif [ -n "$TASKFLOW_PROJECT_ID" ]; then
+    flow_owner_id="$TASKFLOW_PROJECT_ID"
+    owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
+  else
+    flow_owner_id="__master__"
+    owner_field='"master":true'
+  fi
+}
+
 # Unlike `curl -sf` used elsewhere in this script, this prints the API's
 # error body. Some writes fail for actionable reasons (duplicate attribute
 # name, an unmovable session, an invalid dev server) and an agent needs to
@@ -359,11 +376,7 @@ case "$cmd" in
           echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
           exit 1
         fi
-        if [ -n "$TASKFLOW_TASK_ID" ]; then
-          owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
-        else
-          owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
-        fi
+        set_flow_owner
         payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
           "$owner_field" \
           "$(json_string "$TASKFLOW_FLOW_ID")" \
@@ -533,14 +546,7 @@ case "$cmd" in
       echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
       exit 1
     fi
-    # Determine owner ID (task or project)
-    if [ -n "$TASKFLOW_TASK_ID" ]; then
-      flow_owner_id="$TASKFLOW_TASK_ID"
-      owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
-    else
-      flow_owner_id="$TASKFLOW_PROJECT_ID"
-      owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
-    fi
+    set_flow_owner
     subcmd="${1:-}"
     shift 2>/dev/null || true
     case "$subcmd" in
@@ -569,6 +575,12 @@ case "$cmd" in
           exit 1
         fi
         if [ -n "$artifact_path" ]; then
+          # The backend serves the file to clients later, without this
+          # session's working directory, so store it absolute.
+          case "$artifact_path" in
+            /*) ;;
+            *) artifact_path="$PWD/$artifact_path" ;;
+          esac
           payload=$(printf '{%s,"flowId":%s,"actionEntryId":%s,"sessionId":%s,"type":%s,"path":%s}' \
             "$owner_field" \
             "$(json_string "$TASKFLOW_FLOW_ID")" \
@@ -626,11 +638,7 @@ case "$cmd" in
           echo "Error: TASKFLOW_SESSION_ID is not set" >&2
           exit 1
         fi
-        if [ -n "$TASKFLOW_TASK_ID" ]; then
-          owner_field=$(printf '"taskId":%s' "$(json_string "$TASKFLOW_TASK_ID")")
-        else
-          owner_field=$(printf '"projectId":%s' "$(json_string "$TASKFLOW_PROJECT_ID")")
-        fi
+        set_flow_owner
         payload=$(printf '{%s,"flowId":%s,"sessionId":%s}' \
           "$owner_field" \
           "$(json_string "$TASKFLOW_FLOW_ID")" \
@@ -644,7 +652,7 @@ case "$cmd" in
           echo "Error: TASKFLOW_FLOW_ID is not set (not running as a flow action)" >&2
           exit 1
         fi
-        flow_owner_id=$(resolve_owner_id) || exit 1 || exit 1
+        set_flow_owner
         input_id="${1:-}"
         if [ -z "$input_id" ]; then
           tf_curl -sf "$TASKFLOW_API_URL/api/flow/input/$flow_owner_id/$TASKFLOW_FLOW_ID"

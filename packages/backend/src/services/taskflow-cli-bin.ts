@@ -5,7 +5,8 @@ import { decideAttrScope, type AttrScope } from "./attr-scope";
 import { splitAttrArgs } from "./attr-args";
 import { consumeFlags } from "./cli-flags";
 import { computeMovedOrder } from "./project-move";
-import { ACCOUNT_AGENT_TYPES, INHERIT_AGENT_ACCOUNT } from "@taskflow/shared";
+import { resolve } from "path";
+import { ACCOUNT_AGENT_TYPES, INHERIT_AGENT_ACCOUNT, MASTER_OWNER_ID } from "@taskflow/shared";
 import type { ProjectAgentAccountsPatch, SessionOwnerRef } from "@taskflow/shared";
 
 const API_URL = process.env.TASKFLOW_API_URL;
@@ -98,6 +99,17 @@ function ownerField(): Record<string, string> {
     if (projectId) return { projectId };
     process.stderr.write("Error: neither TASKFLOW_TASK_ID nor TASKFLOW_PROJECT_ID is set\n");
     process.exit(1);
+}
+
+/**
+ * The flow run this flow-action session belongs to, as a URL owner id and a
+ * request field. A flow started in the master workspace gives its sessions
+ * neither id, and flow sessions cannot be moved, so "neither" means master.
+ */
+function flowOwner(): { ownerId: string; field: Record<string, string | boolean> } {
+    if (taskId) return { ownerId: taskId, field: { taskId } };
+    if (projectId) return { ownerId: projectId, field: { projectId } };
+    return { ownerId: MASTER_OWNER_ID, field: { master: true } };
 }
 
 /** The caller's context, for routes that act on "the caller's owner". */
@@ -503,10 +515,9 @@ async function handleAction(args: string[]): Promise<void> {
     switch (subcmd) {
         case "complete": {
             requireFlowId();
-            const of = ownerField();
             process.stdout.write(
                 await api("POST", "/api/flow/action-complete", {
-                    ...of,
+                    ...flowOwner().field,
                     flowId,
                     sessionId,
                 }),
@@ -620,8 +631,7 @@ async function handleAction(args: string[]): Promise<void> {
 
 async function handleArtifact(args: string[]): Promise<void> {
     requireFlowId();
-    const ownerId = resolveOwnerId();
-    const of = ownerField();
+    const { ownerId, field: of } = flowOwner();
     const subcmd = args[0] ?? "";
     const subArgs = args.slice(1);
 
@@ -650,7 +660,12 @@ async function handleArtifact(args: string[]): Promise<void> {
                 sessionId,
                 type: artifactType,
             };
-            if (flags.path) body.path = flags.path;
+            // The backend serves the file to clients later, without this
+            // session's working directory, so store it absolute.
+            // A bare `--path` (no value) is sent as is, for the backend to refuse.
+            if (flags.path) {
+                body.path = typeof flags.path === "string" ? resolve(flags.path) : flags.path;
+            }
             if (flags.text) body.text = flags.text;
             process.stdout.write(await api("POST", "/api/flow/artifact", body));
             break;
@@ -686,10 +701,9 @@ async function handleFlow(args: string[]): Promise<void> {
             // acts when it matches the current action's session, so an empty value
             // would post successfully, do nothing, and still print {"success":true}.
             requireSessionId();
-            const of = ownerField();
             process.stdout.write(
                 await api("POST", "/api/flow/complete", {
-                    ...of,
+                    ...flowOwner().field,
                     flowId,
                     sessionId,
                 }),
@@ -698,7 +712,7 @@ async function handleFlow(args: string[]): Promise<void> {
         }
         case "input": {
             requireFlowId();
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const inputId = subArgs[0] ?? "";
             if (inputId) {
                 process.stdout.write(

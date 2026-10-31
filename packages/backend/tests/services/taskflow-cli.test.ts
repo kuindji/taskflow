@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "fs/promises";
 import { join, delimiter } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
@@ -500,6 +500,84 @@ describe("taskflow-cli", () => {
             flowId: "flow-1",
             sessionId: "session-1",
         });
+    });
+
+    it("names the master owner from a master-workspace flow session", async () => {
+        const masterEnv = {
+            TASKFLOW_FLOW_ID: "flow-1",
+            TASKFLOW_ACTION_ENTRY_ID: "entry-1",
+            TASKFLOW_SESSION_ID: "session-1",
+        };
+        const cases: { args: string[]; method: string; url: string; data?: object }[] = [
+            {
+                args: ["action", "complete"],
+                method: "POST",
+                url: "http://localhost:1234/api/flow/action-complete",
+                data: { master: true, flowId: "flow-1", sessionId: "session-1" },
+            },
+            {
+                args: ["flow", "complete"],
+                method: "POST",
+                url: "http://localhost:1234/api/flow/complete",
+                data: { master: true, flowId: "flow-1", sessionId: "session-1" },
+            },
+            {
+                args: ["artifact", "save", "summary", "--text", "done"],
+                method: "POST",
+                url: "http://localhost:1234/api/flow/artifact",
+                data: {
+                    master: true,
+                    flowId: "flow-1",
+                    actionEntryId: "entry-1",
+                    sessionId: "session-1",
+                    type: "summary",
+                    text: "done",
+                },
+            },
+            {
+                args: ["artifact", "list"],
+                method: "GET",
+                url: "http://localhost:1234/api/flow/artifact/__master__/flow-1",
+            },
+            {
+                args: ["flow", "input"],
+                method: "GET",
+                url: "http://localhost:1234/api/flow/input/__master__/flow-1",
+            },
+        ];
+        for (const c of cases) {
+            const { cliPath, captureFile, env } = await setupCliHarness();
+            const result = runCli(cliPath, c.args, { ...env, ...masterEnv });
+
+            expect(result.status).toBe(0);
+            const request = await readCapturedRequest(captureFile);
+            expect(request.method).toBe(c.method);
+            expect(request.url).toBe(c.url);
+            if (c.data) expect(JSON.parse(request.data)).toEqual(c.data);
+        }
+    });
+
+    it("saves a relative artifact path as an absolute one", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const cwd = await mkdtemp(join(tmpdir(), "taskflow-cli-cwd-"));
+        tempDirs.push(cwd);
+        const result = spawnSync(cliPath, ["artifact", "save", "plan", "--path", "docs/plan.md"], {
+            env: {
+                ...env,
+                TASKFLOW_TASK_ID: "task-1",
+                TASKFLOW_FLOW_ID: "flow-1",
+                TASKFLOW_ACTION_ENTRY_ID: "entry-1",
+                TASKFLOW_SESSION_ID: "session-1",
+            },
+            cwd,
+            encoding: "utf8",
+        });
+
+        expect(result.status).toBe(0);
+        const body = JSON.parse((await readCapturedRequest(captureFile)).data) as {
+            path: string;
+        };
+        expect(body.path).toBe(join(await realpath(cwd), "docs/plan.md"));
     });
 
     it("refuses flow complete outside a flow action", async () => {
