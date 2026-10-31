@@ -75,6 +75,16 @@ describe("parseWikiPage", () => {
         expect(parse(source).rawLinks).toEqual(["real"]);
     });
 
+    it("ignores links inside inline code spans", () => {
+        const source = "Example: `[[target]]` and ``[x](missing.md) ` `` then [[real]]\n";
+        expect(parse(source).rawLinks).toEqual(["real"]);
+    });
+
+    it("does not let stray backticks in separate paragraphs hide links", () => {
+        const source = "a ` tick\n\n[[real]]\n\nanother ` tick\n";
+        expect(parse(source).rawLinks).toEqual(["real"]);
+    });
+
     it("drops a relative link that climbs above the wiki root", () => {
         // `page.md` at a/b linking three levels up lands outside the wiki, so it
         // is not a page and must not become a graph edge to the root README.

@@ -195,4 +195,28 @@ describe("search handlers", () => {
         expect(await replaceAll("(\\w)=(\\d)", "$2:$1", { useRegex: true })).toBe(3);
         expect(await readFile(file, "utf-8")).toBe("1:a 2:b\n3:c\n");
     });
+
+    it("replaces regex matches where JS would pick a shorter or narrower match", async () => {
+        const file = join(projectDir, "unicode.txt");
+        const cases: Array<[string, string, string]> = [
+            ["foobar\n", "foo|foobar", "X\n"],
+            ["café\n", "\\w+", "X\n"],
+            ["😀\n", "^.$", "X\n"],
+        ];
+        for (const [content, query, expected] of cases) {
+            await writeFile(file, content);
+            expect(await replaceAll(query, "X", { useRegex: true, wholeWord: true })).toBe(1);
+            expect(await readFile(file, "utf-8")).toBe(expected);
+        }
+    });
+
+    it("expands capture groups where JS's leftmost alternative is shorter than rg's match", async () => {
+        const file = join(projectDir, "alternation.txt");
+        await writeFile(file, "foobar\n");
+
+        expect(await replaceAll("(foo|foobar)", "<$1>", { useRegex: true, wholeWord: true })).toBe(
+            1,
+        );
+        expect(await readFile(file, "utf-8")).toBe("<foobar>\n");
+    });
 });

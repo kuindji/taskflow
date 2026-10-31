@@ -139,15 +139,14 @@ function buildReplaceRegex(query: string, caseSensitive: boolean): RegExp | null
     }
 }
 
-/** The text that replaces one match, or null when JS does not see rg's match there. */
-function replacementAt(
+/** `regex` replaced at exactly `column`, or null when its match there is not `length` long. */
+function expandAt(
     line: string,
     column: number,
     length: number,
     replacement: string,
-    regex: RegExp | null,
+    regex: RegExp,
 ): string | null {
-    if (!regex) return replacement;
     regex.lastIndex = column;
     const found = regex.exec(line);
     if (!found || found[0].length !== length) return null;
@@ -156,6 +155,26 @@ function replacementAt(
     regex.lastIndex = column;
     const replaced = line.replace(regex, replacement);
     return replaced.slice(column, replaced.length - (line.length - column - length));
+}
+
+/** The text that replaces one match, or null when JS does not see rg's match there. */
+function replacementAt(
+    line: string,
+    column: number,
+    length: number,
+    replacement: string,
+    regex: RegExp | null,
+): string | null {
+    // Without a `$` there is nothing to expand, so rg's span is replaced as is,
+    // even where JS's ASCII `\w` or code-unit `.` would match differently.
+    if (!regex || !replacement.includes("$")) return replacement;
+    const direct = expandAt(line, column, length, replacement, regex);
+    if (direct !== null) return direct;
+    // JS takes the first alternative that matches (`foo` of `foo|foobar`)
+    // where rg took a longer one; forcing the match to end where rg's ended
+    // makes JS backtrack to the same span.
+    const ending = new RegExp(`(?:${regex.source})$`, regex.flags);
+    return expandAt(line.slice(0, column + length), column, length, replacement, ending);
 }
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
