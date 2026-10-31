@@ -192,9 +192,23 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                 }
             }
 
-            const updated = await taskStore.updateTask(params.taskId, {
-                worktree: { ...task.worktree, enabled: body.enabled },
-            });
+            const worktree = { ...task.worktree, enabled: body.enabled };
+            const updated = await taskStore.updateTask(params.taskId, { worktree });
+            // Subtasks carry a copy of the parent's worktree; keep them in step.
+            const [subtasks, archivedSubtasks] = await Promise.all([
+                taskStore.getSubtasks(params.taskId),
+                taskStore.getArchivedSubtasks(params.taskId),
+            ]);
+            for (const subtask of subtasks) {
+                const updatedSubtask = await taskStore.updateTask(subtask.id, { worktree });
+                broadcast({
+                    type: MSG.TASK_UPDATED,
+                    payload: filterTaskSessions(updatedSubtask, config.instanceId),
+                });
+            }
+            for (const subtask of archivedSubtasks) {
+                await taskStore.updateArchived(subtask.id, { worktree });
+            }
             const filtered = filterTaskSessions(updated, config.instanceId);
             broadcast({ type: MSG.TASK_UPDATED, payload: filtered });
             return jsonResponse(filtered);
@@ -497,8 +511,21 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
         const title =
             typeof body.title === "string" && body.title.trim() ? body.title.trim() : undefined;
 
+        let parent: Task | undefined;
+        if (body.parentId !== undefined) {
+            if (typeof body.parentId !== "string" || !body.parentId) {
+                return errorResponse('Field "parentId" must be a non-empty string', 400);
+            }
+            try {
+                parent = await taskStore.getSubtaskParent(body.parentId);
+            } catch (err) {
+                return errorResponse(err instanceof Error ? err.message : "Invalid parent", 400);
+            }
+        }
+
+        // A subtask shares its parent's project and worktree; it never gets its own.
         const worktree =
-            body.worktree === true
+            !parent && body.worktree === true
                 ? { enabled: true, path: null, branch: null, pr: null }
                 : undefined;
 
@@ -514,10 +541,11 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
                     : (await taskStore.getProject(params.projectId))?.defaultInitCommand
                 : undefined;
             let task = await taskStore.createTask({
-                projectId: params.projectId,
+                projectId: parent?.projectId ?? params.projectId,
+                parentId: parent?.id,
                 title: title ?? "",
                 description: description.trim(),
-                worktree,
+                worktree: parent ? { ...parent.worktree } : worktree,
                 initCommand: resolvedInitCommand,
             });
 

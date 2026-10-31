@@ -89,13 +89,7 @@ export function registerTaskHandlers(deps: TaskHandlerDeps): void {
             : undefined;
 
         if (parentId) {
-            const parent = await store.getTask(parentId);
-            if (!parent) {
-                throw new Error(`Parent task not found: ${parentId}`);
-            }
-            if (parent.parentId) {
-                throw new Error("Cannot create a subtask of a subtask");
-            }
+            const parent = await store.getSubtaskParent(parentId);
             // Subtasks inherit parent's projectId and worktree config
             resolvedProjectId = parent.projectId;
             resolvedWorktree = { ...parent.worktree };

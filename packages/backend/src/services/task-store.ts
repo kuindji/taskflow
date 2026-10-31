@@ -1323,6 +1323,18 @@ export class TaskStore {
         return tasks.filter((t) => t.parentId === parentId);
     }
 
+    /** The task a new subtask may be created under; throws if there is none. */
+    async getSubtaskParent(parentId: string): Promise<Task> {
+        const parent = await this.getTask(parentId);
+        if (!parent) {
+            throw new Error(`Parent task not found: ${parentId}`);
+        }
+        if (parent.parentId) {
+            throw new Error("Cannot create a subtask of a subtask");
+        }
+        return parent;
+    }
+
     async getArchivedSubtasks(parentId: string): Promise<Task[]> {
         const tasks = await this.listArchived();
         return tasks.filter((t) => t.parentId === parentId);

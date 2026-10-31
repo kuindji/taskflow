@@ -172,4 +172,46 @@ describe("HTTP task worktree cleanup", () => {
         expect(branches).toEqual([]);
         expect((await store.getTask(child.id))?.worktree.enabled).toBe(true);
     });
+    it("disabling a parent's worktree disables it on its subtasks", async () => {
+        const parent = await task();
+        const child = await task(parent.id);
+        const archivedChild = await task(parent.id);
+        await store.archiveTask(archivedChild.id);
+        const response = await router.handle(
+            new Request(`http://localhost/api/tasks/${parent.id}/worktree`, {
+                method: "PATCH",
+                body: JSON.stringify({ enabled: false }),
+            }),
+        );
+        expect(response?.status).toBe(200);
+        expect(removed).toEqual([join(root, "linked")]);
+        expect((await store.getTask(child.id))?.worktree.enabled).toBe(false);
+        expect((await store.getArchived(archivedChild.id))?.worktree.enabled).toBe(false);
+    });
+    async function create(body: Record<string, unknown>): Promise<Response> {
+        const response = await router.handle(
+            new Request(`http://localhost/api/projects/${projectId}/tasks`, {
+                method: "POST",
+                body: JSON.stringify(body),
+            }),
+        );
+        if (!response) throw new Error("No HTTP route");
+        return response;
+    }
+    it("creating a task with parentId makes a subtask on the parent's worktree", async () => {
+        const parent = await task();
+        const response = await create({ description: "Follow-up", parentId: parent.id });
+        expect(response.status).toBe(201);
+        const created = (await response.json()) as Task;
+        expect(created.parentId).toBe(parent.id);
+        expect(created.worktree).toEqual(parent.worktree);
+        expect((await store.getTask(created.id))?.parentId).toBe(parent.id);
+    });
+    it("creating a task under a missing or nested parent is rejected", async () => {
+        const parent = await task();
+        const child = await task(parent.id);
+        expect((await create({ description: "x", parentId: "missing" })).status).toBe(400);
+        expect((await create({ description: "x", parentId: child.id })).status).toBe(400);
+        expect(await store.getSubtasks(child.id)).toEqual([]);
+    });
 });
