@@ -417,6 +417,16 @@ it("startup clears a stale runningSessionId and retains the restart error", asyn
         nextRunAt: due,
     });
 });
+it("startup recovery keeps a run triggered before the scheduler initialized", async () => {
+    await service.triggerNow("s1");
+    await service.init();
+    expect(await record()).toMatchObject({ runningSessionId: "session1", lastError: null });
+    await service.handleComplete("session1");
+    expect(closed).toEqual(["session1"]);
+    expect((await record()).runningSessionId).toBeNull();
+    await service.triggerNow("s1");
+    expect(spawned).toHaveLength(2);
+});
 it("manually triggering a disabled schedule rejects without launching", async () => {
     await save({ enabled: false });
     await expectRejects(service.triggerNow("s1"), /^Schedule is disabled$/);

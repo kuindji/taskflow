@@ -104,12 +104,19 @@ class SchedulerService {
         for (const schedule of await this.deps.scheduleStore.getAll()) {
             if (this.stopped) return;
             if (schedule.runningSessionId) {
-                await this.deps.scheduleStore.update(schedule.id, (s) => ({
-                    ...s,
-                    runningSessionId: null,
-                    lastError: "Previous run did not complete (app restarted)",
-                    updatedAt: new Date(this.now()).toISOString(),
-                }));
+                // The server accepts triggers before init (it waits on the
+                // connectivity probe), so only a run this boot did not record is stale.
+                await this.deps.scheduleStore.update(schedule.id, (s) =>
+                    !s.runningSessionId ||
+                    this.runningSessions.get(s.id)?.sessionId === s.runningSessionId
+                        ? s
+                        : {
+                              ...s,
+                              runningSessionId: null,
+                              lastError: "Previous run did not complete (app restarted)",
+                              updatedAt: new Date(this.now()).toISOString(),
+                          },
+                );
             }
         }
         this.startTick();
