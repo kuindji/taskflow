@@ -747,7 +747,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "stop": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             if (!fId) {
                 process.stderr.write("Usage: taskflow-cli flow stop <flowId>\n");
@@ -757,7 +757,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "pause": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             if (!fId) {
                 process.stderr.write("Usage: taskflow-cli flow pause <flowId>\n");
@@ -767,7 +767,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "resume": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             if (!fId) {
                 process.stderr.write("Usage: taskflow-cli flow resume <flowId>\n");
@@ -777,7 +777,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "skip": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             if (!fId) {
                 process.stderr.write("Usage: taskflow-cli flow skip <flowId>\n");
@@ -787,7 +787,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "jump": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             const actionIndex = subArgs[1] ?? "";
             if (!fId || !actionIndex) {
@@ -805,7 +805,7 @@ async function handleFlow(args: string[]): Promise<void> {
             break;
         }
         case "status": {
-            const ownerId = resolveOwnerId();
+            const { ownerId } = flowOwner();
             const fId = subArgs[0] ?? "";
             if (fId) {
                 process.stdout.write(await api("GET", `/api/flow-runs/${ownerId}/${fId}`));
@@ -1358,7 +1358,9 @@ async function handleAgent(args: string[]): Promise<void> {
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;
             }
 
-            if (flags.account && (agentType === "claude" || agentType === "codex")) {
+            // With no agent named, the account goes to the backend's default
+            // agent, which ignores it unless that agent has accounts.
+            if (flags.account && (!agentType || agentType === "claude" || agentType === "codex")) {
                 agentOptions.account = flags.account;
             }
 

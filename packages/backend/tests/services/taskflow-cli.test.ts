@@ -602,6 +602,17 @@ describe("taskflow-cli", () => {
         });
     });
 
+    it("passes --account to the default agent when no agent is named", async () => {
+        const { cliPath, captureFile, env } = await setupCliHarness();
+        const result = runCli(cliPath, ["agent", "run", "--account", "work"], {
+            ...env,
+            TASKFLOW_PROJECT_ID: "project-1",
+        });
+        expect(result.status).toBe(0);
+        const request = await readCapturedRequest(captureFile);
+        expect(JSON.parse(request.data)).toMatchObject({ agentOptions: { account: "work" } });
+    });
+
     it("ignores --account for agents without accounts", async () => {
         const { cliPath, captureFile, env } = await setupCliHarness();
         runCli(cliPath, ["agent", "run", "pi", "--account", "work"], {
@@ -691,6 +702,27 @@ describe("taskflow-cli", () => {
                 args: ["flow", "input"],
                 method: "GET",
                 url: "http://localhost:1234/api/flow/input/__master__/flow-1",
+            },
+            {
+                args: ["flow", "status"],
+                method: "GET",
+                url: "http://localhost:1234/api/flow-runs/__master__",
+            },
+            {
+                args: ["flow", "status", "flow-1"],
+                method: "GET",
+                url: "http://localhost:1234/api/flow-runs/__master__/flow-1",
+            },
+            ...["stop", "pause", "resume", "skip"].map((cmd) => ({
+                args: ["flow", cmd, "flow-1"],
+                method: "POST",
+                url: `http://localhost:1234/api/flows/__master__/flow-1/${cmd}`,
+            })),
+            {
+                args: ["flow", "jump", "flow-1", "2"],
+                method: "POST",
+                url: "http://localhost:1234/api/flows/__master__/flow-1/jump",
+                data: { actionIndex: 2 },
             },
         ];
         for (const c of cases) {

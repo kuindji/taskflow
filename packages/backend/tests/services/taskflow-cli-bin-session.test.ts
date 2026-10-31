@@ -204,6 +204,13 @@ describe("taskflow-cli binary: flow context", () => {
             ["artifact", "save", "summary", "--text", "done"],
             ["artifact", "list"],
             ["flow", "input"],
+            ["flow", "status"],
+            ["flow", "status", "flow-1"],
+            ["flow", "stop", "flow-1"],
+            ["flow", "pause", "flow-1"],
+            ["flow", "resume", "flow-1"],
+            ["flow", "skip", "flow-1"],
+            ["flow", "jump", "flow-1", "2"],
         ]) {
             expect((await runBin(args, flowEnv)).status).toBe(0);
         }
@@ -215,6 +222,13 @@ describe("taskflow-cli binary: flow context", () => {
             "/api/flow/artifact",
             "/api/flow/artifact/__master__/flow-1",
             "/api/flow/input/__master__/flow-1",
+            "/api/flow-runs/__master__",
+            "/api/flow-runs/__master__/flow-1",
+            "/api/flows/__master__/flow-1/stop",
+            "/api/flows/__master__/flow-1/pause",
+            "/api/flows/__master__/flow-1/resume",
+            "/api/flows/__master__/flow-1/skip",
+            "/api/flows/__master__/flow-1/jump",
         ]);
         for (const r of calls.slice(0, 3)) {
             const body = JSON.parse(r.body) as Record<string, unknown>;
@@ -265,6 +279,12 @@ describe("taskflow-cli binary: agent run", () => {
         const { body } = await runAgent(["--project", "p2"]);
 
         expect(body).toEqual({ projectId: "p2" });
+    });
+
+    it("passes --account to the default agent when no agent is named", async () => {
+        const { body } = await runAgent(["--account", "work"]);
+
+        expect(body).toMatchObject({ agentOptions: { account: "work" } });
     });
 
     it("sends both for --task with --project", async () => {

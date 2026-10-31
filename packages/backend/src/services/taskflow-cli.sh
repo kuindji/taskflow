@@ -699,43 +699,43 @@ case "$cmd" in
           -d "{$payload}"
         ;;
       stop)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
           echo "Usage: taskflow-cli flow stop <flowId>" >&2
           exit 1
         fi
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/stop"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$flow_owner_id/$flow_id/stop"
         ;;
       pause)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
           echo "Usage: taskflow-cli flow pause <flowId>" >&2
           exit 1
         fi
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/pause"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$flow_owner_id/$flow_id/pause"
         ;;
       resume)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
           echo "Usage: taskflow-cli flow resume <flowId>" >&2
           exit 1
         fi
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/resume"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$flow_owner_id/$flow_id/resume"
         ;;
       skip)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
           echo "Usage: taskflow-cli flow skip <flowId>" >&2
           exit 1
         fi
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/skip"
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$flow_owner_id/$flow_id/skip"
         ;;
       jump)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         action_index="${2:-}"
         if [ -z "$flow_id" ] || [ -z "$action_index" ]; then
@@ -745,17 +745,17 @@ case "$cmd" in
         case "$action_index" in
           *[!0-9]*) echo "Error: actionIndex must be a non-negative integer" >&2; exit 1 ;;
         esac
-        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$owner_id/$flow_id/jump" \
+        tf_curl -sf -X POST "$TASKFLOW_API_URL/api/flows/$flow_owner_id/$flow_id/jump" \
           -H "Content-Type: application/json" \
           -d "{\"actionIndex\":$action_index}"
         ;;
       status)
-        owner_id=$(resolve_owner_id) || exit 1
+        set_flow_owner
         flow_id="${1:-}"
         if [ -z "$flow_id" ]; then
-          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$flow_owner_id"
         else
-          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$owner_id/$flow_id"
+          tf_curl -sf "$TASKFLOW_API_URL/api/flow-runs/$flow_owner_id/$flow_id"
         fi
         ;;
       get)
@@ -1390,7 +1390,9 @@ case "$cmd" in
             _append_opt '"autoApprove":true'
           fi
         fi
-        if [ -n "$agent_account" ] && { [ "$agent_type" = "claude" ] || [ "$agent_type" = "codex" ]; }; then
+        # With no agent named, the account goes to the backend's default agent,
+        # which ignores it unless that agent has accounts.
+        if [ -n "$agent_account" ] && { [ -z "$agent_type" ] || [ "$agent_type" = "claude" ] || [ "$agent_type" = "codex" ]; }; then
           _append_opt "$(printf '"account":%s' "$(json_string "$agent_account")")"
         fi
         if [ -n "$agent_model" ]; then
