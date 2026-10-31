@@ -141,28 +141,77 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
             const worktreePath = join(project.path, ".worktrees", slug);
 
             await gitService.createWorktree(project.path, branch, worktreePath);
-            changeTracker?.track(taskId, worktreePath);
-
             // IMPORTANT: Do NOT persist worktree.path yet. If we do,
             // createSession (for the init shell) will broadcast TASK_UPDATED
             // with the path set, causing the UI to start the agent prematurely.
-            // Instead, run the init command first using explicit `cwd`, then
-            // persist the path and broadcast in one step.
+            // The branch alone lets a restart during the init command find
+            // this worktree again (resumePendingWorktrees).
+            await taskStore.updateTask(taskId, {
+                worktree: { enabled: true, path: null, branch, pr: null },
+            });
             const cmd =
                 typeof initCommand === "string" && initCommand.trim()
                     ? initCommand.trim()
                     : task.initCommand;
-            if (cmd) {
-                await runInitCommand(taskId, worktreePath, cmd);
-            }
-
-            // Now persist the worktree path and broadcast — this unblocks
-            // the UI's pending agent start.
-            await setWorktree(taskId, { enabled: true, path: worktreePath, branch, pr: null });
+            await finishWorktree(taskId, worktreePath, branch, cmd);
         } catch (error) {
             console.error(`Failed to create worktree for task ${taskId}:`, error);
             await setWorktree(taskId, { enabled: false, path: null, branch: null, pr: null });
         }
+    }
+
+    /**
+     * Run the init command in the new worktree (explicit `cwd`), then persist
+     * the path and broadcast in one step; this unblocks the UI's pending
+     * agent start.
+     */
+    async function finishWorktree(
+        taskId: string,
+        worktreePath: string,
+        branch: string,
+        initCommand: string | undefined,
+    ): Promise<void> {
+        changeTracker?.track(taskId, worktreePath);
+        if (initCommand) {
+            await runInitCommand(taskId, worktreePath, initCommand);
+        }
+        await setWorktree(taskId, { enabled: true, path: worktreePath, branch, pr: null });
+    }
+
+    /**
+     * Pick up setups a backend stop interrupted: nothing else would ever
+     * finish them, and the task would wait behind the setup screen forever.
+     */
+    async function resumePendingWorktrees(): Promise<void> {
+        const pending = (await taskStore.listTasks()).filter(
+            (task) => !task.parentId && task.worktree.enabled && !task.worktree.path,
+        );
+        await Promise.all(
+            pending.map(async (task) => {
+                const { branch } = task.worktree;
+                const project = branch ? await taskStore.getProject(task.projectId) : null;
+                const worktreePath =
+                    project && branch?.startsWith("task/")
+                        ? join(project.path, ".worktrees", branch.slice("task/".length))
+                        : null;
+                if (!branch || !worktreePath || !existsSync(worktreePath)) {
+                    // Stopped before the worktree existed (e.g. during title generation).
+                    await createWorktreeForTask(task.id, task.title || task.description);
+                    return;
+                }
+                try {
+                    await finishWorktree(task.id, worktreePath, branch, task.initCommand);
+                } catch (error) {
+                    console.error(`Failed to resume worktree setup for task ${task.id}:`, error);
+                    await setWorktree(task.id, {
+                        enabled: false,
+                        path: null,
+                        branch: null,
+                        pr: null,
+                    });
+                }
+            }),
+        );
     }
 
     /**
@@ -180,5 +229,5 @@ export function createWorktreeSetup(deps: WorktreeSetupDeps) {
         }
     }
 
-    return { createWorktreeForTask };
+    return { createWorktreeForTask, resumePendingWorktrees };
 }

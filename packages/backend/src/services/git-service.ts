@@ -12,7 +12,7 @@ import type {
     GitLogResult,
     GitCommitFilesResult,
 } from "@taskflow/shared";
-import { rm } from "fs/promises";
+import { lstat, readlink, rm } from "fs/promises";
 import { dirname, join } from "path";
 import { git, gitCapture } from "./git-helpers";
 import { readFilePreview, readGitPreview, readGitPatch, previewPair } from "./file-preview";
@@ -356,8 +356,11 @@ export class GitService {
         ref: "HEAD" | "index" | "working",
     ): Promise<FileReadResponse | null> {
         if (ref === "working") {
+            const path = join(repoPath, filePath);
             try {
-                return await readFilePreview(join(repoPath, filePath));
+                // Git stores a symlink as its target path, not the linked file.
+                if ((await lstat(path)).isSymbolicLink()) return { content: await readlink(path) };
+                return await readFilePreview(path);
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
                 throw error;

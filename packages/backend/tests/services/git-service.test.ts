@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { GitService } from "../../src/services/git-service";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -509,6 +509,20 @@ describe("GitService", () => {
             "tooLarge",
             "tooLarge",
         ]);
+    });
+
+    it("shows a symlink's target path, not the linked file, as its working content", async () => {
+        await symlink("initial.txt", join(repoDir, "link.md"));
+        await mkdir(join(repoDir, "dir"));
+        await symlink("dir", join(repoDir, "dir-link"));
+        expect((await git.getFileContentsForDiff(repoDir, "link.md")).unstaged).toEqual({
+            original: "",
+            modified: "initial.txt",
+        });
+        expect((await git.getFileContentsForDiff(repoDir, "dir-link")).unstaged).toEqual({
+            original: "",
+            modified: "dir",
+        });
     });
 
     it("blob limits do not become an empty side", async () => {

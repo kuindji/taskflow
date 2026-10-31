@@ -600,6 +600,12 @@ async function main() {
                 changeTracker.track(task.id, task.worktree.path);
             }
         }
+        // Dev instances share the task store; only one backend may finish a setup.
+        if (config.instanceId === "main") {
+            worktreeSetup.resumePendingWorktrees().catch((error: unknown) => {
+                console.error("Failed to resume pending worktree setups:", error);
+            });
+        }
 
         let shuttingDown = false;
         const shutdown = async () => {

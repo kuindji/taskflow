@@ -165,6 +165,82 @@ describe("worktree setup", () => {
         ]);
     });
 
+    it("picks up a setup the backend was stopped in the middle of", async () => {
+        const project = await store.addProject({ name: "project", path: projectPath });
+        const interrupted = await store.createTask({
+            projectId: project.id,
+            title: "Slow init",
+            description: "",
+            worktree: { enabled: true, path: null, branch: null, pr: null },
+            initCommand: "bun install",
+        });
+        // Stopped before the title (and so the worktree) was ready.
+        const untitled = await store.createTask({
+            projectId: project.id,
+            title: "",
+            description: "Fix login",
+            worktree: { enabled: true, path: null, branch: null, pr: null },
+        });
+
+        // First run: the init shell never exits (the backend stops here).
+        let started!: () => void;
+        const initStarted = new Promise<void>((resolve) => (started = resolve));
+        const first = createWorktreeSetup({
+            taskStore: store,
+            gitService: gitService as unknown as GitService,
+            broadcast: () => {},
+            systemShellPath: "/bin/zsh",
+            ptyManager: { write: () => {} } as unknown as PtyManager,
+            createSession: async () => {
+                started();
+                return "init";
+            },
+        });
+        void first.createWorktreeForTask(interrupted.id, interrupted.title);
+        await initStarted;
+        const worktreePath = join(projectPath, ".worktrees", "slow-init");
+        await mkdir(worktreePath, { recursive: true });
+
+        // Second run after the restart.
+        const written: string[] = [];
+        let exited: CreateSessionOpts["onSessionExited"];
+        const second = createWorktreeSetup({
+            taskStore: store,
+            gitService: gitService as unknown as GitService,
+            broadcast: () => {},
+            systemShellPath: "/bin/zsh",
+            ptyManager: {
+                write: (_id: string, data: string) => {
+                    written.push(data);
+                    exited?.("init", 0);
+                },
+            } as unknown as PtyManager,
+            createSession: async (opts) => {
+                exited = opts.onSessionExited;
+                return "init";
+            },
+        });
+        await second.resumePendingWorktrees();
+
+        expect(gitService.created).toEqual([
+            worktreePath,
+            join(projectPath, ".worktrees", "fix-login"),
+        ]);
+        expect(written).toEqual(["bun install; exit $?\r"]);
+        expect((await store.getTask(interrupted.id))?.worktree).toEqual({
+            enabled: true,
+            path: worktreePath,
+            branch: "task/slow-init",
+            pr: null,
+        });
+        expect((await store.getTask(untitled.id))?.worktree).toEqual({
+            enabled: true,
+            path: join(projectPath, ".worktrees", "fix-login"),
+            branch: "task/fix-login",
+            pr: null,
+        });
+    });
+
     for (const [shell, line] of [
         ["/bin/zsh", "bun install; exit $?\r"],
         ["C:\\Windows\\System32\\cmd.exe", "bun install && exit 0 || exit 1\r"],
