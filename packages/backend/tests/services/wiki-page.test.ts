@@ -75,6 +75,12 @@ describe("parseWikiPage", () => {
         expect(parse(source).rawLinks).toEqual(["real"]);
     });
 
+    it("keeps a fenced block open past a shorter or labelled inner fence", () => {
+        const source =
+            "# t\n\n````md\n```\n[[a]]\n```\n````\n\n~~~\n```js\n[[b]]\n~~~\n\n[[real]]\n";
+        expect(parse(source).rawLinks).toEqual(["real"]);
+    });
+
     it("ignores links inside inline code spans", () => {
         const source = "Example: `[[target]]` and ``[x](missing.md) ` `` then [[real]]\n";
         expect(parse(source).rawLinks).toEqual(["real"]);

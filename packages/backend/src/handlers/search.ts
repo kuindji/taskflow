@@ -29,7 +29,30 @@ function toForwardSlash(p: string): string {
     return p.replace(/\\/g, "/");
 }
 
-function buildRgArgs(payload: SearchQueryPayload): string[] {
+/**
+ * Translates the replacement's JS-style references (`$1`, `$&`, `$<name>`,
+ * `$$`) into rg's syntax. rg reads a reference greedily (`$1a` is group `1a`)
+ * and drops an unknown one (`$x` becomes empty), so references are braced
+ * and any other `$` is escaped.
+ */
+function toRgReplacement(replacement: string): string {
+    return replacement.replace(
+        /\$(?:\$|(&)|<([A-Za-z_]\w*)>|(\d{1,2}))?/g,
+        (_all, whole?: string, name?: string, group?: string) => {
+            if (whole) return "${0}";
+            const ref = name ?? group;
+            // `$$` and a `$` that starts no reference are both a literal `$`.
+            return ref ? `\${${ref}}` : "$$";
+        },
+    );
+}
+
+/**
+ * rg arguments for a search. With `replacement` (a regex replace all), rg also
+ * reports each match's replacement, expanded by the same PCRE2 match that
+ * found it.
+ */
+function buildRgArgs(payload: SearchQueryPayload, replacement?: string): string[] {
     const args = ["--json", "--line-number", "--column", "--path-separator", "/"];
 
     if (!payload.caseSensitive) {
@@ -40,6 +63,9 @@ function buildRgArgs(payload: SearchQueryPayload): string[] {
     }
     // Without a flag rg treats the query as a regex; the UI's literal mode must not.
     args.push(payload.useRegex ? "--pcre2" : "--fixed-strings");
+    if (replacement !== undefined) {
+        args.push(`--replace=${toRgReplacement(replacement)}`);
+    }
     if (payload.includePattern) {
         for (const pattern of payload.includePattern.split(",")) {
             const trimmed = pattern.trim();
@@ -67,11 +93,26 @@ interface RgMatchData {
     path: RgData;
     lines: RgData;
     line_number: number;
-    submatches: Array<{ start: number; end: number }>;
+    submatches: Array<{ start: number; end: number; replacement?: RgData }>;
 }
 
-function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatches: number } {
-    const fileMap = new Map<string, SearchMatch[]>();
+/** A match as rg reported it; `replacement` is set when rg ran with `--replace`. */
+interface RgSearchMatch extends SearchMatch {
+    replacement?: string;
+}
+
+interface RgFileResult extends SearchFileResult {
+    matches: RgSearchMatch[];
+}
+
+function decodeRgData(data: RgData): Buffer {
+    return data.text !== undefined
+        ? Buffer.from(data.text, "utf-8")
+        : Buffer.from(data.bytes ?? "", "base64");
+}
+
+function parseRgOutput(stdout: string): { files: RgFileResult[]; totalMatches: number } {
+    const fileMap = new Map<string, RgSearchMatch[]>();
     let totalMatches = 0;
 
     for (const line of stdout.split("\n")) {
@@ -88,10 +129,7 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
         // A path that is not UTF-8 cannot be named back to the file system as a JS string.
         if (data.path.text === undefined) continue;
         const filePath = toForwardSlash(data.path.text);
-        const rawLine =
-            data.lines.text !== undefined
-                ? Buffer.from(data.lines.text, "utf-8")
-                : Buffer.from(data.lines.bytes ?? "", "base64");
+        const rawLine = decodeRgData(data.lines);
         const lineContent = rawLine.toString("utf-8").replace(/\r?\n$/, "");
 
         let matches = fileMap.get(filePath);
@@ -109,12 +147,15 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
                 column: charStart + 1,
                 matchLength: charEnd - charStart,
                 lineContent,
+                ...(sub.replacement && {
+                    replacement: decodeRgData(sub.replacement).toString("utf-8"),
+                }),
             });
             totalMatches++;
         }
     }
 
-    const files: SearchFileResult[] = [];
+    const files: RgFileResult[] = [];
     for (const [path, matches] of fileMap) {
         files.push({ path, matches });
     }
@@ -123,72 +164,18 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
     return { files, totalMatches };
 }
 
-/**
- * Builds the regex that expands `$1`, `$&` and the like in a regex-mode
- * replacement at a match rg reported. Sticky, so it only tries the match's own
- * column, and without whole-word anchors: rg already decided the boundaries
- * (its `--word-regexp` is Unicode-aware and differs from JS `\b`). Null when
- * the pattern is PCRE2-only syntax JS cannot compile; the replacement is then
- * inserted as typed.
- */
-function buildReplaceRegex(query: string, caseSensitive: boolean): RegExp | null {
-    try {
-        return new RegExp(query, caseSensitive ? "y" : "iy");
-    } catch {
-        return null;
-    }
-}
-
-/** `regex` replaced at exactly `column`, or null when its match there is not `length` long. */
-function expandAt(
-    line: string,
-    column: number,
-    length: number,
-    replacement: string,
-    regex: RegExp,
-): string | null {
-    regex.lastIndex = column;
-    const found = regex.exec(line);
-    if (!found || found[0].length !== length) return null;
-    // A non-global sticky regex replaces exactly the occurrence at lastIndex,
-    // with full `$` expansion; cut the replaced span back out of the line.
-    regex.lastIndex = column;
-    const replaced = line.replace(regex, replacement);
-    return replaced.slice(column, replaced.length - (line.length - column - length));
-}
-
-/** The text that replaces one match, or null when JS does not see rg's match there. */
-function replacementAt(
-    line: string,
-    column: number,
-    length: number,
-    replacement: string,
-    regex: RegExp | null,
-): string | null {
-    // Without a `$` there is nothing to expand, so rg's span is replaced as is,
-    // even where JS's ASCII `\w` or code-unit `.` would match differently.
-    if (!regex || !replacement.includes("$")) return replacement;
-    const direct = expandAt(line, column, length, replacement, regex);
-    if (direct !== null) return direct;
-    // JS takes the first alternative that matches (`foo` of `foo|foobar`)
-    // where rg took a longer one; forcing the match to end where rg's ended
-    // makes JS backtrack to the same span.
-    const ending = new RegExp(`(?:${regex.source})$`, regex.flags);
-    return expandAt(line.slice(0, column + length), column, length, replacement, ending);
-}
-
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 /**
- * Replaces the given rg matches. Replace all passes the matches its own rg run
- * just found, so it changes exactly what the search lists; re-matching with a
- * JS regex would disagree with rg on word boundaries and Unicode.
+ * Replaces the given rg matches with `replacement`, or with the replacement rg
+ * expanded for a match. Replace all passes the matches its own rg run just
+ * found, so it changes exactly what the search lists; re-matching with a JS
+ * regex would disagree with rg on word boundaries, Unicode and capture groups.
  */
 async function replaceInFile(
     filePath: string,
     replacement: string,
-    matches: SearchMatch[],
-    regex: RegExp | null,
+    matches: RgSearchMatch[],
 ): Promise<number> {
     const bytes = await readFile(filePath);
     let content: string;
@@ -219,9 +206,7 @@ async function replaceInFile(
         if (original.replace(/\r$/, "") !== match.lineContent) continue;
         const colIdx = match.column - 1;
         if (colIdx < 0 || colIdx > original.length) continue;
-        // Expanded against the untouched line, so lookarounds see the original text.
-        const text = replacementAt(original, colIdx, match.matchLength, replacement, regex);
-        if (text === null) continue;
+        const text = match.replacement ?? replacement;
         const line = lines[lineIdx];
         lines[lineIdx] = line.slice(0, colIdx) + text + line.slice(colIdx + match.matchLength);
         replacedCount++;
@@ -287,7 +272,7 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
 
         // Inserted as typed: the UI shifts the line's later matches by the
         // typed replacement's length, which `$` expansion would change.
-        const replacedCount = await replaceInFile(p.filePath, p.replacement, p.matches, null);
+        const replacedCount = await replaceInFile(p.filePath, p.replacement, p.matches);
         return { replacedCount } satisfies SearchReplaceResponse;
     });
 
@@ -295,17 +280,20 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
         const p = payload as SearchReplaceAllPayload;
         await assertWorkspacePath(taskStore, p.path);
 
-        const args = buildRgArgs({
-            path: p.path,
-            query: p.query,
-            caseSensitive: p.caseSensitive,
-            wholeWord: p.wholeWord,
-            useRegex: p.useRegex,
-            includePattern: p.includePattern,
-            excludePattern: p.excludePattern,
-        });
+        const args = buildRgArgs(
+            {
+                path: p.path,
+                query: p.query,
+                caseSensitive: p.caseSensitive,
+                wholeWord: p.wholeWord,
+                useRegex: p.useRegex,
+                includePattern: p.includePattern,
+                excludePattern: p.excludePattern,
+            },
+            p.useRegex ? p.replacement : undefined,
+        );
 
-        const searchResult = await new Promise<{ files: SearchFileResult[] }>((resolve) => {
+        const searchResult = await new Promise<ReturnType<typeof parseRgOutput>>((resolve) => {
             const child = spawn(getRgPath(), args, {
                 env: { ...process.env, PATH: buildShellPath() },
                 stdio: ["ignore", "pipe", "pipe"],
@@ -319,20 +307,19 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
                 resolve(parseRgOutput(stdout));
             });
 
-            child.on("error", () => resolve({ files: [] }));
+            child.on("error", () => resolve({ files: [], totalMatches: 0 }));
         });
 
         const filesToProcess = p.filePath
             ? searchResult.files.filter((f) => f.path === p.filePath)
             : searchResult.files;
 
-        const regex = p.useRegex ? buildReplaceRegex(p.query, p.caseSensitive) : null;
         let totalReplaced = 0;
         let filesModified = 0;
 
         for (const file of filesToProcess) {
             await assertMutableWorkspacePath(taskStore, file.path);
-            const count = await replaceInFile(file.path, p.replacement, file.matches, regex);
+            const count = await replaceInFile(file.path, p.replacement, file.matches);
             if (count > 0) {
                 totalReplaced += count;
                 filesModified++;

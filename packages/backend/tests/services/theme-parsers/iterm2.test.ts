@@ -45,6 +45,19 @@ describe("color component conversion", () => {
         expect(theme!.colors.foreground).toBe("#f98ba8");
     });
 
+    it("parses colors after an empty dict or array", () => {
+        const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
+            <key>Keyboard Map</key><dict/>
+            <key>Tags</key><array/>
+            <key>Foreground Color</key>${makeColorDict(1, 1, 1)}
+            <key>Background Color</key>${makeColorDict(0, 0, 0)}
+            ${Array.from({ length: 16 }, (_, i) => `<key>Ansi ${i} Color</key>${makeColorDict(0, 0, 0)}`).join("\n")}
+        </dict></plist>`;
+        const theme = parseIterm2Xml(xml, "Empties");
+        expect(theme).not.toBeNull();
+        expect(theme!.colors.foreground).toBe("#ffffff");
+    });
+
     it("should return null when color components are missing", () => {
         const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
             <key>Foreground Color</key><dict>

@@ -219,4 +219,27 @@ describe("search handlers", () => {
         );
         expect(await readFile(file, "utf-8")).toBe("<foobar>\n");
     });
+    it("expands capture groups the way rg matched them, not JS", async () => {
+        const file = join(projectDir, "captures.txt");
+        await writeFile(file, "café!\n");
+
+        expect(await replaceAll("(\\w+)(.*)", "$1", { useRegex: true })).toBe(1);
+        expect(await readFile(file, "utf-8")).toBe("café\n");
+    });
+
+    it("keeps JS replacement syntax in a regex replace all", async () => {
+        const file = join(projectDir, "syntax.txt");
+        const cases: Array<[string, string]> = [
+            ["[$&]", "[a=1]\n"],
+            ["$<key>-$2", "a-1\n"],
+            ["$1x", "ax\n"],
+            ["$$1 $x $", "$1 $x $\n"],
+            ["-$2", "-1\n"],
+        ];
+        for (const [replacement, expected] of cases) {
+            await writeFile(file, "a=1\n");
+            expect(await replaceAll("(?<key>\\w)=(\\d)", replacement, { useRegex: true })).toBe(1);
+            expect(await readFile(file, "utf-8")).toBe(expected);
+        }
+    });
 });

@@ -116,6 +116,8 @@ export function parsePlistXml(xml: string): PlistValue | null {
             }
             case "dict": {
                 const dict: PlistDict = {};
+                // plutil writes an empty dict as `<dict/>`, with no close tag to stop at.
+                if (token.selfClosing) return dict;
 
                 while (!consumeCloseTag("dict") && index < tokens.length) {
                     const key = parseValue();
@@ -130,6 +132,7 @@ export function parsePlistXml(xml: string): PlistValue | null {
             }
             case "array": {
                 const values: PlistValue[] = [];
+                if (token.selfClosing) return values;
 
                 while (!consumeCloseTag("array") && index < tokens.length) {
                     values.push(parseValue());
