@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { GitService } from "../../src/services/git-service";
-import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -614,5 +614,82 @@ describe("GitService", () => {
             Buffer.concat([Buffer.alloc(400000, 255), Buffer.from("\n")]),
         );
         expect(await git.diffFile(repoDir, "legacy.txt")).toEqual({ state: "tooLarge" });
+    });
+
+    it("gives repo-root paths a real location for a project in a repo subfolder", async () => {
+        const root = await realpath(repoDir);
+        const project = join(root, "app");
+        await mkdir(project);
+        await writeFile(join(project, "tracked.txt"), "one");
+        await run(["git", "add", "."], repoDir);
+        await run(["git", "commit", "-m", "app"], repoDir);
+        await writeFile(join(project, "tracked.txt"), "two");
+        await writeFile(join(project, "new.txt"), "new");
+
+        expect(await git.repoRoot(project)).toBe(root);
+        const status = await git.status(project);
+        expect(
+            status.unstagedFiles.map(({ path, absolutePath }) => ({ path, absolutePath })),
+        ).toEqual([
+            { path: "app/tracked.txt", absolutePath: join(project, "tracked.txt") },
+            { path: "app/new.txt", absolutePath: join(project, "new.txt") },
+        ]);
+    });
+
+    it("unstages files before the first commit", async () => {
+        const fresh = await mkdtemp(join(tmpdir(), "taskflow-git-unborn-"));
+        try {
+            await run(["git", "init"], fresh);
+            await writeFile(join(fresh, "a.txt"), "a");
+            await writeFile(join(fresh, "b.txt"), "b");
+            await run(["git", "add", "."], fresh);
+
+            await git.unstage(fresh, "a.txt");
+            let status = await git.status(fresh);
+            expect(status.stagedFiles.map((file) => file.path)).toEqual(["b.txt"]);
+
+            await git.unstage(fresh);
+            status = await git.status(fresh);
+            expect(status.stagedFiles).toEqual([]);
+            expect(status.unstagedFiles.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+        } finally {
+            await rm(fresh, { recursive: true, force: true });
+        }
+    });
+
+    it("publishes a new branch with no upstream on push and on commit-and-push", async () => {
+        const remote = await mkdtemp(join(tmpdir(), "taskflow-git-remote-"));
+        try {
+            await run(["git", "init", "--bare"], remote);
+            await run(["git", "remote", "add", "origin", remote], repoDir);
+            // Git's defaults, whatever the machine's global config says
+            await run(["git", "config", "push.default", "simple"], repoDir);
+            await run(["git", "config", "push.autoSetupRemote", "false"], repoDir);
+            const upstreamOf = (cwd: string) =>
+                Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "@{upstream}"], { cwd })
+                    .stdout.toString()
+                    .trim();
+
+            await run(["git", "checkout", "-b", "task/first"], repoDir);
+            await git.push(repoDir);
+            expect(upstreamOf(repoDir)).toBe("origin/task/first");
+
+            await run(["git", "checkout", "-b", "task/second"], repoDir);
+            await writeFile(join(repoDir, "initial.txt"), "changed");
+            await git.commit(repoDir, "change", true);
+            expect(upstreamOf(repoDir)).toBe("origin/task/second");
+
+            // An existing upstream keeps plain push
+            await writeFile(join(repoDir, "initial.txt"), "changed again");
+            const { hash } = await git.commit(repoDir, "again", true);
+            const remoteHead = Bun.spawnSync(["git", "rev-parse", "--short", "task/second"], {
+                cwd: remote,
+            })
+                .stdout.toString()
+                .trim();
+            expect(remoteHead).toBe(hash);
+        } finally {
+            await rm(remote, { recursive: true, force: true });
+        }
     });
 });

@@ -27,6 +27,7 @@ import {
 import {
     type GitPrDeps,
     commit as commitImpl,
+    push as pushImpl,
     createPr as createPrImpl,
     checkBranchPr as checkBranchPrImpl,
     generateCommitMessage as generateCommitMessageImpl,
@@ -81,7 +82,24 @@ export class GitService {
             });
     }
 
-    async status(repoPath: string): Promise<GitStatusResult> {
+    /**
+     * The working tree root containing `path`. Status, diff and history paths
+     * are relative to it, so a project in a repository subfolder must address
+     * files from there. Falls back to `path` outside a repository.
+     */
+    async repoRoot(path: string): Promise<string> {
+        try {
+            const root = (
+                await git(["rev-parse", "--show-toplevel"], path, { readOnly: true })
+            ).trim();
+            return root || path;
+        } catch {
+            return path;
+        }
+    }
+
+    async status(path: string): Promise<GitStatusResult> {
+        const repoPath = await this.repoRoot(path);
         // Porcelain v2 with --branch returns branch name, ahead/behind counts, and file
         // statuses in a single git invocation. NUL delimiters keep paths machine-safe
         // even when rename targets contain spaces or other escaped characters.
@@ -440,11 +458,11 @@ export class GitService {
                 (file) => file.path === filePath && file.status === "renamed",
             )?.previousPath;
             const paths = previousPath ? [previousPath, filePath] : [filePath];
-            await git(["restore", "--staged", "--", ...paths], repoPath, {
-                literalPathspecs: true,
-            });
+            // `reset` rather than `restore --staged`: it also works before the
+            // first commit, when HEAD does not resolve.
+            await git(["reset", "-q", "--", ...paths], repoPath, { literalPathspecs: true });
         } else {
-            await git(["restore", "--staged", "."], repoPath);
+            await git(["reset", "-q"], repoPath);
         }
     }
 
@@ -482,7 +500,7 @@ export class GitService {
     }
 
     async push(repoPath: string): Promise<void> {
-        await git(["push"], repoPath);
+        return pushImpl(repoPath);
     }
 
     async commit(

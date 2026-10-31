@@ -20,9 +20,26 @@ async function commit(
     await git(["commit", "-m", message], repoPath);
     const hashOutput = await git(["rev-parse", "--short", "HEAD"], repoPath, { readOnly: true });
     if (push) {
-        await git(["push"], repoPath);
+        await pushBranch(repoPath);
     }
     return { hash: hashOutput.trim(), message };
+}
+
+/**
+ * Push the current branch. A branch with no upstream (every new task
+ * worktree branch) is published to origin and starts tracking it; a plain
+ * `git push` refuses such a branch under Git's default `push.default`.
+ */
+async function pushBranch(repoPath: string): Promise<void> {
+    const hasUpstream = await git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        repoPath,
+        { readOnly: true },
+    ).then(
+        () => true,
+        () => false,
+    );
+    await git(hasUpstream ? ["push"] : ["push", "--set-upstream", "origin", "HEAD"], repoPath);
 }
 
 export interface GitPrDeps {
@@ -374,4 +391,4 @@ async function generateCommitMessage(
     }
 }
 
-export { commit, createPr, checkBranchPr, generateCommitMessage };
+export { commit, pushBranch as push, createPr, checkBranchPr, generateCommitMessage };

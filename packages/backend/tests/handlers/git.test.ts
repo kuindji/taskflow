@@ -49,6 +49,16 @@ class FakeGitService {
     }> = [];
     commitMessageCalls: Array<{ repoPath: string; generated: string }> = [];
 
+    roots = new Map<string, string>();
+    async repoRoot(path: string): Promise<string> {
+        return this.roots.get(path) ?? path;
+    }
+
+    stageCalls: Array<{ repoPath: string; filePath?: string }> = [];
+    async stage(repoPath: string, filePath?: string): Promise<void> {
+        this.stageCalls.push({ repoPath, filePath });
+    }
+
     async status(repoPath: string) {
         this.statusCalls.push(repoPath);
         return { branch: "task/test-worktree", files: [], ahead: 0 };
@@ -304,6 +314,24 @@ describe("git handlers", () => {
                 path: "src/file.ts",
                 previousPath: "src/old.ts",
             },
+        ]);
+    });
+
+    it("addresses files from the working tree root for a project in a repo subfolder", async () => {
+        // Status, diff and history paths are relative to the repository root,
+        // which here sits one level above the project folder.
+        git.roots.set(projectPath, tempDir);
+
+        await router.handle(MSG.GIT_STAGE, { repoPath: projectPath, filePath: "project/a.ts" });
+        await router.handle(MSG.GIT_COMMIT_DIFF_FILE, {
+            repoPath: projectPath,
+            hash: validHash,
+            path: "project/a.ts",
+        });
+
+        expect(git.stageCalls).toEqual([{ repoPath: tempDir, filePath: "project/a.ts" }]);
+        expect(git.commitDiffFileCalls).toEqual([
+            { repoPath: tempDir, hash: validHash, path: "project/a.ts", previousPath: undefined },
         ]);
     });
 

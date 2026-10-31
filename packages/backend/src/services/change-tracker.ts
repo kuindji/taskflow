@@ -270,7 +270,9 @@ export class ChangeTracker {
         let untrackedAdditions = 0;
         const untrackedFiles = status.unstagedFiles.filter((f) => f.status === "untracked");
         for (const file of untrackedFiles) {
-            untrackedAdditions += await this.countFileLines(join(repoPath, file.path));
+            untrackedAdditions += await this.countFileLines(
+                file.absolutePath ?? join(repoPath, file.path),
+            );
         }
 
         const additions =

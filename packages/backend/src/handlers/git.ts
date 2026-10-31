@@ -54,6 +54,13 @@ function assertCommitHash(hash: string): string {
 export function registerGitHandlers(deps: GitHandlerDeps): void {
     const { router, git, taskStore, broadcast, builtinActionRunner, changeTracker } = deps;
 
+    /**
+     * File paths in status, diffs and history are relative to the working
+     * tree root, which sits above a project opened from a repository subfolder.
+     */
+    const resolveRepoRoot = async (path: string) =>
+        git.repoRoot(await assertWorkspaceRepo(taskStore, path));
+
     router.register(MSG.GIT_STATUS, async (payload) => {
         const { path } = payload as GitStatusPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
@@ -62,20 +69,20 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
 
     router.register(MSG.GIT_DIFF, async (payload) => {
         const { path } = payload as GitDiffPayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, path);
+        const repoPath = await resolveRepoRoot(path);
         return { diff: await git.diff(repoPath) };
     });
 
     router.register(MSG.GIT_DIFF_FILE, async (payload) => {
         const { repoPath: rawRepoPath, filePath } = payload as GitDiffFilePayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await resolveRepoRoot(rawRepoPath);
         assertRepoFilePath(repoPath, filePath);
         return await git.diffFile(repoPath, filePath);
     });
 
     router.register(MSG.GIT_DIFF_FILE_CONTENT, async (payload) => {
         const { repoPath: rawRepoPath, filePath } = payload as GitDiffFileContentPayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await resolveRepoRoot(rawRepoPath);
         assertRepoFilePath(repoPath, filePath);
         return await git.getFileContentsForDiff(repoPath, filePath);
     });
@@ -90,7 +97,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
 
     router.register(MSG.GIT_COMMIT_FILES, async (payload) => {
         const { repoPath: rawRepoPath, hash } = payload as GitCommitFilesPayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await resolveRepoRoot(rawRepoPath);
         return await git.commitFiles(repoPath, assertCommitHash(hash));
     });
 
@@ -101,7 +108,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
             path,
             previousPath,
         } = payload as GitCommitDiffFilePayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await resolveRepoRoot(rawRepoPath);
         assertRepoFilePath(repoPath, path);
         if (previousPath) {
             assertRepoFilePath(repoPath, previousPath);
@@ -116,31 +123,34 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
             status,
             previousPath,
         } = payload as GitRevertFilePayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const workspacePath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await git.repoRoot(workspacePath);
         assertRepoFilePath(repoPath, filePath);
         if (previousPath) {
             assertRepoFilePath(repoPath, previousPath);
         }
         await git.revertFile(repoPath, { path: filePath, status, previousPath });
-        changeTracker?.invalidate(repoPath);
+        changeTracker?.invalidate(workspacePath);
         return { success: true };
     });
 
     router.register(MSG.GIT_STAGE, async (payload) => {
         const { repoPath: rawRepoPath, filePath } = payload as GitStagePayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const workspacePath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await git.repoRoot(workspacePath);
         if (filePath) assertRepoFilePath(repoPath, filePath);
         await git.stage(repoPath, filePath);
-        changeTracker?.invalidate(repoPath);
+        changeTracker?.invalidate(workspacePath);
         return { success: true };
     });
 
     router.register(MSG.GIT_UNSTAGE, async (payload) => {
         const { repoPath: rawRepoPath, filePath } = payload as GitUnstagePayload;
-        const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const workspacePath = await assertWorkspaceRepo(taskStore, rawRepoPath);
+        const repoPath = await git.repoRoot(workspacePath);
         if (filePath) assertRepoFilePath(repoPath, filePath);
         await git.unstage(repoPath, filePath);
-        changeTracker?.invalidate(repoPath);
+        changeTracker?.invalidate(workspacePath);
         return { success: true };
     });
 
@@ -188,7 +198,8 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
         const { path, includeUnstaged } = payload as GitGenerateCommitMsgPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, path);
         const project = await findProjectForPath(taskStore, repoPath);
-        const message = await git.generateCommitMessage(repoPath, includeUnstaged ?? true, (diff) =>
+        const repoRoot = await git.repoRoot(repoPath);
+        const message = await git.generateCommitMessage(repoRoot, includeUnstaged ?? true, (diff) =>
             builtinActionRunner.runHeadless(
                 "builtin:commit-message",
                 { diff },
