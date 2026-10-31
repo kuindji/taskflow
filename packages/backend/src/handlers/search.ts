@@ -123,30 +123,53 @@ function parseRgOutput(stdout: string): { files: SearchFileResult[]; totalMatche
     return { files, totalMatches };
 }
 
-function buildSearchRegex(
-    query: string,
-    caseSensitive: boolean,
-    wholeWord: boolean,
-    useRegex: boolean,
-): RegExp {
-    let pattern = useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (wholeWord) {
-        // Group it: `\bfoo|bar\b` would match "foo" inside "foobar".
-        pattern = `\\b(?:${pattern})\\b`;
+/**
+ * Builds the regex that expands `$1`, `$&` and the like in a regex-mode
+ * replacement at a match rg reported. Sticky, so it only tries the match's own
+ * column, and without whole-word anchors: rg already decided the boundaries
+ * (its `--word-regexp` is Unicode-aware and differs from JS `\b`). Null when
+ * the pattern is PCRE2-only syntax JS cannot compile; the replacement is then
+ * inserted as typed.
+ */
+function buildReplaceRegex(query: string, caseSensitive: boolean): RegExp | null {
+    try {
+        return new RegExp(query, caseSensitive ? "y" : "iy");
+    } catch {
+        return null;
     }
-    return new RegExp(pattern, caseSensitive ? "g" : "gi");
+}
+
+/** The text that replaces one match, or null when JS does not see rg's match there. */
+function replacementAt(
+    line: string,
+    column: number,
+    length: number,
+    replacement: string,
+    regex: RegExp | null,
+): string | null {
+    if (!regex) return replacement;
+    regex.lastIndex = column;
+    const found = regex.exec(line);
+    if (!found || found[0].length !== length) return null;
+    // A non-global sticky regex replaces exactly the occurrence at lastIndex,
+    // with full `$` expansion; cut the replaced span back out of the line.
+    regex.lastIndex = column;
+    const replaced = line.replace(regex, replacement);
+    return replaced.slice(column, replaced.length - (line.length - column - length));
 }
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
+/**
+ * Replaces the given rg matches. Replace all passes the matches its own rg run
+ * just found, so it changes exactly what the search lists; re-matching with a
+ * JS regex would disagree with rg on word boundaries and Unicode.
+ */
 async function replaceInFile(
     filePath: string,
-    query: string,
     replacement: string,
-    caseSensitive: boolean,
-    wholeWord: boolean,
-    useRegex: boolean,
-    matchFilter?: SearchMatch[],
+    matches: SearchMatch[],
+    regex: RegExp | null,
 ): Promise<number> {
     const bytes = await readFile(filePath);
     let content: string;
@@ -164,32 +187,25 @@ async function replaceInFile(
     const originalLines = [...lines];
     let replacedCount = 0;
 
-    if (matchFilter && matchFilter.length > 0) {
-        const sorted = [...matchFilter].sort((a, b) =>
-            a.line !== b.line ? b.line - a.line : b.column - a.column,
-        );
-        for (const match of sorted) {
-            const lineIdx = match.line - 1;
-            if (lineIdx < 0 || lineIdx >= lines.length) continue;
-            // Coordinates are only valid for the line the search saw; once the
-            // file changed they would overwrite unrelated text.
-            if (originalLines[lineIdx].replace(/\r$/, "") !== match.lineContent) continue;
-            const line = lines[lineIdx];
-            const colIdx = match.column - 1;
-            if (colIdx < 0 || colIdx > line.length) continue;
-            lines[lineIdx] =
-                line.slice(0, colIdx) + replacement + line.slice(colIdx + match.matchLength);
-            replacedCount++;
-        }
-    } else {
-        const regex = buildSearchRegex(query, caseSensitive, wholeWord, useRegex);
-        for (let i = 0; i < lines.length; i++) {
-            const original = lines[i];
-            lines[i] = original.replace(regex, replacement);
-            regex.lastIndex = 0;
-            const matches = original.match(regex);
-            if (matches) replacedCount += matches.length;
-        }
+    // Right to left, so each splice leaves the columns of the ones still to come.
+    const sorted = [...matches].sort((a, b) =>
+        a.line !== b.line ? b.line - a.line : b.column - a.column,
+    );
+    for (const match of sorted) {
+        const lineIdx = match.line - 1;
+        if (lineIdx < 0 || lineIdx >= lines.length) continue;
+        const original = originalLines[lineIdx];
+        // Coordinates are only valid for the line the search saw; once the
+        // file changed they would overwrite unrelated text.
+        if (original.replace(/\r$/, "") !== match.lineContent) continue;
+        const colIdx = match.column - 1;
+        if (colIdx < 0 || colIdx > original.length) continue;
+        // Expanded against the untouched line, so lookarounds see the original text.
+        const text = replacementAt(original, colIdx, match.matchLength, replacement, regex);
+        if (text === null) continue;
+        const line = lines[lineIdx];
+        lines[lineIdx] = line.slice(0, colIdx) + text + line.slice(colIdx + match.matchLength);
+        replacedCount++;
     }
 
     if (replacedCount > 0) {
@@ -250,15 +266,9 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
         await assertWorkspacePath(taskStore, p.path);
         await assertMutableWorkspacePath(taskStore, p.filePath);
 
-        const replacedCount = await replaceInFile(
-            p.filePath,
-            p.query,
-            p.replacement,
-            p.caseSensitive,
-            p.wholeWord,
-            p.useRegex,
-            p.matches,
-        );
+        // Inserted as typed: the UI shifts the line's later matches by the
+        // typed replacement's length, which `$` expansion would change.
+        const replacedCount = await replaceInFile(p.filePath, p.replacement, p.matches, null);
         return { replacedCount } satisfies SearchReplaceResponse;
     });
 
@@ -297,19 +307,13 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
             ? searchResult.files.filter((f) => f.path === p.filePath)
             : searchResult.files;
 
+        const regex = p.useRegex ? buildReplaceRegex(p.query, p.caseSensitive) : null;
         let totalReplaced = 0;
         let filesModified = 0;
 
         for (const file of filesToProcess) {
             await assertMutableWorkspacePath(taskStore, file.path);
-            const count = await replaceInFile(
-                file.path,
-                p.query,
-                p.replacement,
-                p.caseSensitive,
-                p.wholeWord,
-                p.useRegex,
-            );
+            const count = await replaceInFile(file.path, p.replacement, file.matches, regex);
             if (count > 0) {
                 totalReplaced += count;
                 filesModified++;

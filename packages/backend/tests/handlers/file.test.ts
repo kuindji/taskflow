@@ -198,6 +198,39 @@ describe("file handlers", () => {
         });
     });
 
+    describe("FILE_WRITE", () => {
+        it("refuses to overwrite a file that is not UTF-8", async () => {
+            const filePath = join(projectDir, "latin1.txt");
+            const original = Buffer.from("caf\xe9 foo\n", "latin1");
+            await writeFile(filePath, original);
+            // What the editor got from FILE_READ, with one word edited.
+            const read = (await router.handle(MSG.FILE_READ, { path: filePath })) as {
+                content: string;
+            };
+
+            await expectRejects(
+                () =>
+                    router.handle(MSG.FILE_WRITE, {
+                        path: filePath,
+                        content: read.content.replace("foo", "bar"),
+                    }),
+                "not UTF-8",
+            );
+            expect(Buffer.compare(await readFile(filePath), original)).toBe(0);
+        });
+
+        it("writes UTF-8 files and creates new ones", async () => {
+            const existing = join(projectDir, "utf8.txt");
+            await writeFile(existing, "café foo\n");
+            await router.handle(MSG.FILE_WRITE, { path: existing, content: "café bar\n" });
+            expect(await readFile(existing, "utf-8")).toBe("café bar\n");
+
+            const created = join(projectDir, "new.txt");
+            await router.handle(MSG.FILE_WRITE, { path: created, content: "" });
+            expect(await readFile(created, "utf-8")).toBe("");
+        });
+    });
+
     describe("FILE_RENAME", () => {
         it("renames a file", async () => {
             const filePath = join(projectDir, "old.txt");

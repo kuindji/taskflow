@@ -150,4 +150,49 @@ describe("search handlers", () => {
         expect(await replaceMatch(file, "foo", match)).toBe(1);
         expect(await readFile(file, "utf-8")).toBe("﻿x bar\r\nfoo\r\n");
     });
+
+    async function replaceAll(
+        query: string,
+        replacement: string,
+        overrides: Partial<typeof options> = {},
+    ): Promise<number> {
+        const response = (await router.handle(MSG.SEARCH_REPLACE_ALL, {
+            path: projectDir,
+            query,
+            replacement,
+            ...options,
+            ...overrides,
+            includePattern: "",
+            excludePattern: "",
+        })) as SearchReplaceAllResponse;
+        return response.replacedCount;
+    }
+
+    it("replaces all whole-word matches exactly where rg found them", async () => {
+        const file = join(projectDir, "words.txt");
+        await writeFile(file, "C++ C++x\nfoo fooé éfoo\n");
+
+        expect((await search("C++", { wholeWord: true })).totalMatches).toBe(1);
+        expect((await search("foo", { wholeWord: true })).totalMatches).toBe(1);
+
+        expect(await replaceAll("C++", "X", { wholeWord: true })).toBe(1);
+        expect(await replaceAll("foo", "X", { wholeWord: true })).toBe(1);
+        expect(await readFile(file, "utf-8")).toBe("X C++x\nX fooé éfoo\n");
+    });
+
+    it("inserts a literal replacement as typed", async () => {
+        const file = join(projectDir, "dollar.txt");
+        await writeFile(file, "foo foo\n");
+
+        expect(await replaceAll("foo", "$&$1")).toBe(2);
+        expect(await readFile(file, "utf-8")).toBe("$&$1 $&$1\n");
+    });
+
+    it("expands capture groups in a regex replace all", async () => {
+        const file = join(projectDir, "groups.txt");
+        await writeFile(file, "a=1 b=2\nc=3\n");
+
+        expect(await replaceAll("(\\w)=(\\d)", "$2:$1", { useRegex: true })).toBe(3);
+        expect(await readFile(file, "utf-8")).toBe("1:a 2:b\n3:c\n");
+    });
 });

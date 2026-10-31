@@ -16,7 +16,8 @@ import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
-import { writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
+import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
+import { isUtf8 } from "buffer";
 import {
     assertMutableWorkspaceEntry,
     assertMutableWorkspacePath,
@@ -25,6 +26,15 @@ import {
 import { readFilePreview } from "../services/file-preview";
 import { getKnownEditor } from "../services/editor-detector";
 import { resolveEditorCommand } from "../services/editor-resolver";
+
+async function readExisting(path: string): Promise<Buffer> {
+    try {
+        return await readFile(path);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return Buffer.alloc(0);
+        throw error;
+    }
+}
 
 interface FileHandlerDeps {
     router: Router;
@@ -68,6 +78,11 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     router.register(MSG.FILE_WRITE, async (payload) => {
         const { path, content } = payload as FileWritePayload;
         const workspacePath = await assertMutableWorkspacePath(taskStore, path);
+        // The editor received this file decoded as UTF-8 with every invalid
+        // byte turned into U+FFFD; writing that back would destroy them all.
+        if (!isUtf8(await readExisting(workspacePath))) {
+            throw new Error("The file is not UTF-8 text; saving it here would corrupt it");
+        }
         await writeFile(workspacePath, content, "utf-8");
         return { success: true };
     });
