@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import * as fsPromises from "fs/promises";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -677,5 +678,37 @@ describe("agent accounts settings", () => {
         const settings = await store.get();
         expect(settings.general.confirmBeforeExit).toBe(true);
         expect(settings.layout.panels.sidebarWidth).toBe(333);
+    });
+
+    it("does not let a migrating read overwrite an update that finished meanwhile", async () => {
+        await writeFile(join(dir, "settings.json"), JSON.stringify({ codex: { fullAuto: true } }));
+
+        // Hold the first read's result until the update below has finished,
+        // so that read migrates a snapshot taken before the update.
+        const realReadFile = fsPromises.readFile;
+        let releaseFirstRead!: () => void;
+        const firstReadHeld = new Promise<void>((resolve) => {
+            releaseFirstRead = resolve;
+        });
+        let calls = 0;
+        const readSpy = spyOn(fsPromises, "readFile").mockImplementation(((
+            ...args: Parameters<typeof realReadFile>
+        ) => {
+            const content = realReadFile(...args);
+            calls += 1;
+            return calls === 1 ? content.then((c) => firstReadHeld.then(() => c)) : content;
+        }) as typeof realReadFile);
+
+        try {
+            const staleRead = store.get();
+            await store.update({ general: { confirmBeforeExit: true } });
+            releaseFirstRead();
+            await staleRead;
+        } finally {
+            readSpy.mockRestore();
+        }
+
+        const settings = await store.get();
+        expect(settings.general.confirmBeforeExit).toBe(true);
     });
 });

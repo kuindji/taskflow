@@ -362,6 +362,25 @@ export class SettingsStore {
     }
 
     async get(): Promise<AppSettings> {
+        const { settings, needsMigration } = await this.read();
+        if (!needsMigration) return settings;
+        // Persist the migration on the update queue and from a fresh read, so
+        // an older snapshot can never land after (and erase) a saved update.
+        return this.updates.run(this.filePath, async () => {
+            const fresh = await this.read();
+            if (fresh.needsMigration) {
+                try {
+                    await writeJsonAtomic(this.filePath, fresh.settings);
+                } catch (error) {
+                    console.error("Failed to persist settings migration:", error);
+                }
+            }
+            return fresh.settings;
+        });
+    }
+
+    /** Reads and normalizes the file; `needsMigration` says the file is stale. */
+    private async read(): Promise<{ settings: AppSettings; needsMigration: boolean }> {
         try {
             const raw = await readFile(this.filePath, "utf-8");
             const parsed = JSON.parse(raw) as Partial<AppSettings> & {
@@ -425,14 +444,9 @@ export class SettingsStore {
             needsMigration =
                 normalizeNetworkSettings(result.network, defaults.network) || needsMigration;
 
-            // Persist migration so it only runs once
-            if (needsMigration) {
-                await writeJsonAtomic(this.filePath, result);
-            }
-
-            return result;
+            return { settings: result, needsMigration };
         } catch {
-            return createDefaultSettings();
+            return { settings: createDefaultSettings(), needsMigration: false };
         }
     }
 
@@ -441,7 +455,10 @@ export class SettingsStore {
     }
 
     private async applyUpdate(partial: SettingsUpdatePayload): Promise<AppSettings> {
-        const current = await this.get();
+        // Runs on the update queue, so it must not call get(): a migration
+        // would queue behind this step and wait forever. The write below
+        // persists any migration anyway.
+        const { settings: current } = await this.read();
         if (partial.general) {
             applyNullable(current.general, partial.general);
         }
@@ -489,7 +506,7 @@ export class SettingsStore {
         // Persist without null keys so defaults fill in on next get()
         await writeJsonAtomic(this.filePath, current);
         // Re-read to apply defaults for any deleted keys
-        const settings = await this.get();
+        const { settings } = await this.read();
         for (const listener of this.updateListeners) listener(settings);
         return settings;
     }
