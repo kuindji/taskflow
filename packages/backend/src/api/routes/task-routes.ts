@@ -145,6 +145,9 @@ function registerTaskRoutes(deps: TaskRouteDeps): void {
             if (!task) {
                 return errorResponse(`Task not found: ${params.taskId}`, 404);
             }
+            if (task.parentId) {
+                return errorResponse("A subtask shares its parent's worktree", 400);
+            }
 
             if (!body.enabled) {
                 if (!task.worktree.enabled) {

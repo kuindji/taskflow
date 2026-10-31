@@ -112,6 +112,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
             archiveDir: config.archiveDir,
             sessionLogsDir: config.sessionLogsDir,
             taskLogsDir: config.taskLogsDir,
+            masterSessionsFile: config.masterSessionsFile,
         });
 
         return {

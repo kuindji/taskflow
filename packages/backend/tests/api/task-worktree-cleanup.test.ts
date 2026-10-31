@@ -38,6 +38,9 @@ describe("HTTP task worktree cleanup", () => {
         removeError = undefined;
         branchError = undefined;
         const gitService = {
+            async isBranchMerged() {
+                return true;
+            },
             async removeWorktree(_repo: string, path: string) {
                 removed.push(path);
                 await hold;
@@ -154,5 +157,19 @@ describe("HTTP task worktree cleanup", () => {
         expect(removed).toEqual([]);
         expect(branches).toEqual([]);
         expect(await store.getTask(parent.id)).not.toBeNull();
+    });
+    it("disabling a subtask's worktree never removes the shared worktree", async () => {
+        const parent = await task();
+        const child = await task(parent.id);
+        const response = await router.handle(
+            new Request(`http://localhost/api/tasks/${child.id}/worktree`, {
+                method: "PATCH",
+                body: JSON.stringify({ enabled: false }),
+            }),
+        );
+        expect(response?.status).toBe(400);
+        expect(removed).toEqual([]);
+        expect(branches).toEqual([]);
+        expect((await store.getTask(child.id))?.worktree.enabled).toBe(true);
     });
 });

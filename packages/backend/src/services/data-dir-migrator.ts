@@ -2,8 +2,20 @@ import { access, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } fro
 import { constants } from "fs";
 import { join } from "path";
 
-/** Items that live in the data directory (moved when location changes) */
-const DATA_ITEMS = ["projects.json", "tasks", "archive", "task-logs", "agent-skills", "themes"];
+/**
+ * Items that live in the data directory and move with it: everything
+ * TaskStore reads (it is re-pointed live after the move) plus themes. Agent
+ * skills live in the base directory, not here.
+ */
+const DATA_ITEMS = [
+    "projects.json",
+    "tasks",
+    "archive",
+    "task-logs",
+    "session-logs",
+    "sessions",
+    "themes",
+];
 
 export async function readDataLocation(baseDir: string): Promise<string | null> {
     try {
