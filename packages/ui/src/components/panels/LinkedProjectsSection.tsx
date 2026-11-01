@@ -27,8 +27,8 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
         [project.id, updateProject],
     );
 
-    // Keep a ref to avoid stale closures in debounced callbacks. Add and remove
-    // move it ahead of the reply, so a note save sent meanwhile keeps their change.
+    // Keep a ref to avoid stale closures in debounced callbacks. Every save
+    // moves it ahead of the reply, so the next save sent meanwhile keeps its change.
     const linkedProjectsRef = useRef<LinkedProject[]>(linkedProjects);
     useEffect(() => {
         linkedProjectsRef.current = linkedProjects;
@@ -124,6 +124,8 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             for (const lp of updated) {
                 lastSavedNotes.current[lp.projectId] = lp.note;
             }
+            // An add or remove sent before this save's reply keeps the notes.
+            linkedProjectsRef.current = updated;
             saveLinkedProjects(updated);
         },
         [saveLinkedProjects],

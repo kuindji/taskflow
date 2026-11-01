@@ -82,6 +82,7 @@ export function NewTaskDialog({
     const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const submission = useRef(0);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -102,6 +103,12 @@ export function NewTaskDialog({
         if (open && !wasOpen.current) {
             if (prefill?.title !== undefined) setTitle(prefill.title);
             if (prefill?.description !== undefined) setDescription(prefill.description);
+        }
+        if (!open && wasOpen.current) {
+            // A create still in flight now belongs to a closed form: its
+            // reply must not close or clear the next draft.
+            submission.current += 1;
+            setSubmitting(false);
         }
         wasOpen.current = open;
     }, [open, prefill]);
@@ -180,6 +187,7 @@ export function NewTaskDialog({
 
     const handleSubmit = useCallback(async () => {
         if (!canSubmit) return;
+        const current = ++submission.current;
         setSubmitting(true);
         setSubmitError(null);
         try {
@@ -196,11 +204,14 @@ export function NewTaskDialog({
             });
         } catch (err) {
             // The draft stays for a retry once the machine answers again.
-            setSubmitError(err instanceof Error ? err.message : "Failed to create task");
+            if (current === submission.current) {
+                setSubmitError(err instanceof Error ? err.message : "Failed to create task");
+                setSubmitting(false);
+            }
             return;
-        } finally {
-            setSubmitting(false);
         }
+        if (current !== submission.current) return;
+        setSubmitting(false);
         resetForm();
         onOpenChange(false);
     }, [

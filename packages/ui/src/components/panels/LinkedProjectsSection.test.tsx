@@ -164,3 +164,33 @@ test("a note changed elsewhere is shown and not overwritten by the next note edi
         { projectId: "beta", note: "B new" },
     ]);
 });
+
+test("removing a link while a note save is in flight keeps the saved note", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [
+            { projectId: "alpha", note: "old" },
+            { projectId: "beta", note: "" },
+        ],
+    };
+    useProjectStore.setState({
+        projects: [owner, project("alpha", "machine-a"), project("beta", "machine-a")],
+    });
+    const { container, sent } = await mountPending(owner);
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("note input missing");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+        setValue?.call(input, "new");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+
+    const removeButtons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Remove linked project"]',
+    );
+    await act(async () => removeButtons[1]?.click());
+
+    expect(sent.at(-1)).toEqual([{ projectId: "alpha", note: "new" }]);
+});

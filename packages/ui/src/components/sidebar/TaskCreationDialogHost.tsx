@@ -142,8 +142,10 @@ export function TaskCreationDialogHost() {
             try {
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
+                // A worktree task, or a subtask of one, waits for the worktree
+                // to be set up; otherwise the agent runs in the main checkout.
+                const deferred = task.worktree.enabled && !task.worktree.path;
                 if (data.startWithFlowId) {
-                    const deferred = data.worktree && !data.parentId;
                     const flow = useFlowStore
                         .getState()
                         .flows.find(
@@ -155,8 +157,7 @@ export function TaskCreationDialogHost() {
                         startTaskFlow(task, data.startWithFlowId, deferred);
                     }
                 } else if (data.startWith) {
-                    if (data.worktree && !data.parentId) {
-                        // Defer session start until worktree is ready
+                    if (deferred) {
                         pendingStartsRef.current.set(task.id, {
                             kind: "session",
                             type: data.startWith,
@@ -174,6 +175,8 @@ export function TaskCreationDialogHost() {
                         );
                     }
                 }
+                // The worktree may have become ready before the create reply.
+                if (deferred) runReadyStarts(useTaskStore.getState().tasks);
             } catch (err) {
                 console.error("Failed to start the new task:", err);
             }
@@ -183,6 +186,7 @@ export function TaskCreationDialogHost() {
             createTask,
             projects,
             tasks,
+            runReadyStarts,
             setActiveProject,
             setActiveTask,
             startTaskFlow,
