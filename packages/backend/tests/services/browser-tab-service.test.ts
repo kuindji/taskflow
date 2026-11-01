@@ -457,8 +457,37 @@ describe("BrowserTabService", () => {
         await service.ensureLoaded("root");
         expect(host.ensured).toHaveLength(1);
     });
+    it("a heartbeat built before an ensure does not unload the freshly loaded tab", async () => {
+        await seed(saved("root"));
+        heartbeat();
+        const gone: string[] = [];
+        service.subscribeTabGone((id) => gone.push(id));
+        await service.ensureLoaded("root");
+        // Snapshotted by the host before the view existed, delivered after the ensure.
+        heartbeat();
+        expect(gone).toEqual([]);
+        expect(service.get("root")?.loaded).toBe(true);
+        expect(service.tabIdForTarget("target:root")).toBe("root");
+        // The view really is gone once a later heartbeat still lacks it.
+        heartbeat();
+        expect(gone).toEqual(["root"]);
+        expect(service.get("root")?.loaded).toBe(false);
+        expect(service.tabIdForTarget("target:root")).toBeNull();
+    });
+    it("a heartbeat that lists an ensured tab confirms it", async () => {
+        await seed(saved("root"));
+        heartbeat();
+        const gone: string[] = [];
+        service.subscribeTabGone((id) => gone.push(id));
+        await service.ensureLoaded("root");
+        heartbeat([{ tabId: "root", targetId: "target:root", url: "https://example.com" }]);
+        heartbeat();
+        expect(gone).toEqual(["root"]);
+    });
     it("ensureLoaded on an unloaded child closes it and throws not found", async () => {
         const [root, child] = await family();
+        // The first heartbeat after an ensure may predate the view, so it takes two.
+        heartbeat([{ tabId: root, targetId: "root-target", url: "https://example.com/path" }]);
         heartbeat([{ tabId: root, targetId: "root-target", url: "https://example.com/path" }]);
         await rejectsAs(
             service.ensureLoaded(child),

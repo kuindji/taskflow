@@ -70,6 +70,9 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
     const tabTargets = new Map<string, string>();
     // Families being closed: close works from a snapshot, so no child may join one.
     const closing = new Set<string>();
+    // Loaded by an ensure and not yet listed by a heartbeat. The heartbeat in flight during
+    // an ensure was built before the view existed, so one miss is not proof the view is gone.
+    const unconfirmed = new Set<string>();
     const goneListeners = new Set<(tabId: string) => void>();
     const targetWaiters = new Map<string, Set<(tabId: string | null) => void>>();
     let host: { controlUrl: string; debugPort: number; lastSeen: number } | null = null;
@@ -156,6 +159,7 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
             }
             tabs.delete(tabId);
             closing.delete(tabId);
+            unconfirmed.delete(tabId);
             forgetTarget(tabId);
             tabGone(tabId);
         }
@@ -177,6 +181,7 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
         }
         tab.loaded = true;
         setTarget(tab.id, targetId);
+        unconfirmed.add(tab.id);
         return { targetId, debugPort: liveHost.debugPort };
     }
     function checkStaleness(): void {
@@ -189,6 +194,7 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
         host = null;
         targets.clear();
         tabTargets.clear();
+        unconfirmed.clear();
         for (const tab of tabs.values()) {
             if (!tab.loaded) continue;
             tab.loaded = false;
@@ -341,10 +347,19 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
                 unknown = remaining;
             }
             const loaded = new Map(hb.loaded.map((entry) => [entry.tabId, entry]));
+            const ensuredTargets = new Map(
+                [...unconfirmed].map((tabId) => [tabId, tabTargets.get(tabId)]),
+            );
             targets.clear();
             tabTargets.clear();
             for (const tab of tabs.values()) {
                 const entry = loaded.get(tab.id);
+                const ensuredTarget = ensuredTargets.get(tab.id);
+                unconfirmed.delete(tab.id);
+                if (!entry && ensuredTarget) {
+                    setTarget(tab.id, ensuredTarget);
+                    continue;
+                }
                 if (!entry) {
                     const wasLoaded = tab.loaded;
                     tab.loaded = false;
