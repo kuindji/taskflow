@@ -509,3 +509,32 @@ test("REGRESSION (Finding 1): mid-typing text survives an unrelated parent re-re
 
     expect(valueOf("task-info-attr-name-a1")).toBe("env");
 });
+
+test("changing a value back while its save is in flight saves the value typed last", async () => {
+    mount([{ id: "a1", name: "env", value: "prod" }]);
+    gateNext = true;
+    typeInto("task-info-attr-value-a1", "staging");
+    blur("task-info-attr-value-a1");
+    typeInto("task-info-attr-value-a1", "prod");
+    blur("task-info-attr-value-a1");
+    await act(async () => {});
+
+    expect(calls.map((c) => c.updates)).toEqual([{ value: "staging" }, { value: "prod" }]);
+});
+
+test("changing a value back just before its save's reply saves the value typed last", async () => {
+    mount([{ id: "a1", name: "env", value: "prod" }]);
+    gateNext = true;
+    typeInto("task-info-attr-value-a1", "staging");
+    blur("task-info-attr-value-a1");
+    typeInto("task-info-attr-value-a1", "prod");
+    await act(async () => {
+        gate?.resolve();
+        await Promise.resolve();
+    });
+    act(() => setStoreAttributes([{ id: "a1", name: "env", value: "staging" }]));
+    blur("task-info-attr-value-a1");
+    await act(async () => {});
+
+    expect(calls.map((c) => c.updates)).toEqual([{ value: "staging" }, { value: "prod" }]);
+});

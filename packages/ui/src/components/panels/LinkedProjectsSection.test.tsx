@@ -194,3 +194,41 @@ test("removing a link while a note save is in flight keeps the saved note", asyn
 
     expect(sent.at(-1)).toEqual([{ projectId: "alpha", note: "new" }]);
 });
+
+test("a note save that failed is sent again when the panel closes", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [{ projectId: "alpha", note: "old" }],
+    };
+    useProjectStore.setState({ projects: [owner, project("alpha", "machine-a")] });
+    const sent: LinkedProject[][] = [];
+    const original = useProjectStore.getState().updateProject;
+    useProjectStore.setState({
+        updateProject: (_target, updates) => {
+            if (updates.linkedProjects) sent.push(updates.linkedProjects);
+            return Promise.reject(new Error("Machine offline"));
+        },
+    });
+    restoreUpdate = () => useProjectStore.setState({ updateProject: original });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(<LinkedProjectsSection project={owner} />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("note input missing");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+        setValue?.call(input, "new");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+    act(() => root?.unmount());
+    root = null;
+
+    expect(sent).toEqual([
+        [{ projectId: "alpha", note: "new" }],
+        [{ projectId: "alpha", note: "new" }],
+    ]);
+});

@@ -48,6 +48,17 @@ function AttributesSection({
         new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>(),
     );
 
+    // The text of each field's latest save still awaiting its reply, keyed
+    // `${attrId}:${field}`, and the attributes last rendered. An edit is a
+    // no-op only against these: the attribute captured with the keystroke
+    // predates a save sent or answered since, so changing a value back while
+    // its save is in flight would otherwise be skipped and the save would win.
+    const inFlight = useRef(new Map<string, string>());
+    const latestAttributes = useRef(attributes);
+    useEffect(() => {
+        latestAttributes.current = attributes;
+    }, [attributes]);
+
     // The component's own layer is always shadowed out of `inherited` below
     // (it's filtered by id), so this scope label never actually renders — but
     // keep it honest for the owner kind rather than hardcoding "task", since
@@ -143,16 +154,30 @@ function AttributesSection({
             const targetBackend = backendId;
             const targetOwner = owner;
             const siblings = attributes;
+            const key = `${attribute.id}:${field}`;
             const settle = () => clearDraftIfUnchanged(attribute.id, field, text);
+            const current = () =>
+                inFlight.current.get(key) ??
+                latestAttributes.current.find((a) => a.id === attribute.id)?.[field] ??
+                attribute[field];
+            const send = (sent: string, updates: { name?: string; value?: string }) => {
+                inFlight.current.set(key, sent);
+                const settled = () => {
+                    if (inFlight.current.get(key) === sent) inFlight.current.delete(key);
+                };
+                return updateAttribute(targetBackend, targetOwner, attribute.id, updates).finally(
+                    settled,
+                );
+            };
 
             return () => {
                 if (field === "value") {
-                    if (text === attribute.value) {
+                    if (text === current()) {
                         settle();
                         return;
                     }
                     setError(null);
-                    void updateAttribute(targetBackend, targetOwner, attribute.id, { value: text })
+                    void send(text, { value: text })
                         .then(settle)
                         .catch((err: unknown) => {
                             setError(
@@ -164,7 +189,7 @@ function AttributesSection({
                 }
 
                 const name = normalizeAttributeName(text);
-                if (name === attribute.name) {
+                if (name === current()) {
                     settle();
                     return;
                 }
@@ -182,7 +207,7 @@ function AttributesSection({
                     return;
                 }
                 setError(null);
-                void updateAttribute(targetBackend, targetOwner, attribute.id, { name })
+                void send(name, { name })
                     .then(settle)
                     .catch((err: unknown) => {
                         setError(err instanceof Error ? err.message : "Failed to rename attribute");

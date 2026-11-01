@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LinkedProject, Project } from "@taskflow/shared";
 import { Plus, X } from "lucide-react";
 import type { Scoped } from "@/lib/backend-scope";
+import { restoreFailedBaseline } from "@/lib/draft-baseline";
 import { useProjectStore } from "@/stores/project-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +21,9 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
     // it, and depending on the record itself would re-arm that flush on every
     // project update.
     const saveLinkedProjects = useCallback(
-        (linked: LinkedProject[]) => {
+        (linked: LinkedProject[]): Promise<unknown> => {
             const target = useProjectStore.getState().projects.find((p) => p.id === project.id);
-            if (target) void updateProject(target, { linkedProjects: linked });
+            return target ? updateProject(target, { linkedProjects: linked }) : Promise.resolve();
         },
         [project.id, updateProject],
     );
@@ -121,12 +122,18 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
                 (lp) => lp.note !== (lastSavedNotes.current[lp.projectId] ?? ""),
             );
             if (!hasChanges) return;
-            for (const lp of updated) {
-                lastSavedNotes.current[lp.projectId] = lp.note;
-            }
+            const previous = { ...lastSavedNotes.current };
+            const attempted = Object.fromEntries(updated.map((lp) => [lp.projectId, lp.note]));
+            lastSavedNotes.current = { ...previous, ...attempted };
             // An add or remove sent before this save's reply keeps the notes.
             linkedProjectsRef.current = updated;
-            saveLinkedProjects(updated);
+            const savedProjectId = syncedProjectId.current;
+            saveLinkedProjects(updated).catch((err: unknown) => {
+                console.error("Failed to save linked project notes:", err);
+                if (syncedProjectId.current === savedProjectId) {
+                    restoreFailedBaseline(lastSavedNotes, previous, attempted);
+                }
+            });
         },
         [saveLinkedProjects],
     );
@@ -160,7 +167,7 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             linkedProjectsRef.current = updated;
             setNoteDrafts((prev) => ({ ...prev, [targetProjectId]: "" }));
             lastSavedNotes.current[targetProjectId] = "";
-            saveLinkedProjects(updated);
+            void saveLinkedProjects(updated);
             setAddPopoverOpen(false);
         },
         [saveLinkedProjects],
@@ -178,7 +185,7 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             });
             const { [targetProjectId]: _, ...restSaved } = lastSavedNotes.current;
             lastSavedNotes.current = restSaved;
-            saveLinkedProjects(updated);
+            void saveLinkedProjects(updated);
         },
         [saveLinkedProjects],
     );
