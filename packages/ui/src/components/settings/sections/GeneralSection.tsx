@@ -21,6 +21,8 @@ interface GeneralSectionProps {
     migrationError: string | null;
     /** Why the data folder cannot be changed from here; null when it can. */
     dataDirDisabledReason: string | null;
+    /** This machine's own token: only offered while these are this machine's settings. */
+    showAccessToken: boolean;
     confirmBeforeExit: boolean;
     discoverable: boolean;
     displayName: string;
@@ -37,6 +39,7 @@ function GeneralSection({
     migrating,
     migrationError,
     dataDirDisabledReason,
+    showAccessToken,
     confirmBeforeExit,
     discoverable,
     displayName,
@@ -123,7 +126,7 @@ function GeneralSection({
                 />
             </SettingRow>
 
-            <AccessTokenRow />
+            {showAccessToken && <AccessTokenRow />}
             <SettingRow
                 label="Name on the network"
                 hint="How this machine appears in other clients' backend menu. Blank uses the hostname."

@@ -78,13 +78,17 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     async fetchThemes(options) {
         try {
             const primary = getPrimary();
+            const requestedWith = get().activeThemeId;
             const { themes } = await sendToPrimary<ThemeListResponse>(MSG.THEMES_LIST);
             themesBackendId = primary;
 
+            // A theme picked while the list was on its way wins over the
+            // choice this request started from.
+            const pickedMeanwhile =
+                get().activeThemeId !== requestedWith ? get().activeThemeId : undefined;
+            const preferred = pickedMeanwhile ?? options?.preferredThemeId;
             const preferredThemeId =
-                options?.preferredThemeId && themes.some((t) => t.id === options.preferredThemeId)
-                    ? options.preferredThemeId
-                    : null;
+                preferred && themes.some((t) => t.id === preferred) ? preferred : null;
             const activeThemeId =
                 preferredThemeId ??
                 useSettingsStore.getState().settings?.appearance?.theme ??

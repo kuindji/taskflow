@@ -502,6 +502,7 @@ function SettingsModal() {
                                 migrating={migrating}
                                 migrationError={migrationError}
                                 dataDirDisabledReason={primaryIsLocal ? null : REMOTE_DATA_DIR_HINT}
+                                showAccessToken={primaryIsLocal}
                                 confirmBeforeExit={settings.general.confirmBeforeExit}
                                 discoverable={settings.network.discoverable}
                                 displayName={settings.network.displayName}

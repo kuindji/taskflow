@@ -5,6 +5,8 @@ import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 import { useUIStore } from "./ui-store";
 import { useMarkdownInputStore } from "./markdown-input-store";
+import { useProjectStore } from "./project-store";
+import { useTaskStore } from "./task-store";
 
 interface DataDirInfo {
     dataDir: string;
@@ -85,13 +87,21 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
         set({ dataDirInfo });
     },
     async updateDataDir(path: string, mode?: "overwrite" | "adopt") {
-        const dataDirInfo = await sendRequest<DataDirInfo>(
-            primaryOrThrow(),
-            MSG.SETTINGS_UPDATE_DATA_DIR,
-            { path, mode },
-        );
+        const primary = primaryOrThrow();
+        const dataDirInfo = await sendRequest<DataDirInfo>(primary, MSG.SETTINGS_UPDATE_DATA_DIR, {
+            path,
+            mode,
+        });
         if (!dataDirInfo.conflict) {
             set({ dataDirInfo });
+        }
+        // Adopting switches primary to another dataset, and the backend
+        // broadcasts no new lists: the old projects and tasks would stay shown.
+        if (mode === "adopt" && !dataDirInfo.conflict) {
+            await Promise.allSettled([
+                useProjectStore.getState().fetchProjects(primary),
+                useTaskStore.getState().fetchTasks(primary),
+            ]);
         }
         return dataDirInfo;
     },
