@@ -43,6 +43,8 @@ interface TerminalPaneProps {
     sessionState?: Tab["sessionState"];
     resumeAvailable?: boolean;
     visible: boolean;
+    /** False for the split pane that is not the active one: its terminal must not take focus. */
+    paneFocused?: boolean;
 }
 
 function TerminalPane({
@@ -54,6 +56,7 @@ function TerminalPane({
     sessionState,
     resumeAvailable = false,
     visible,
+    paneFocused = true,
 }: TerminalPaneProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
@@ -62,6 +65,10 @@ function TerminalPane({
     const interrupted = sessionState === "interrupted" || sessionState === "resuming";
     const interruptedRef = useRef(interrupted);
     interruptedRef.current = interrupted;
+    // Read by the focus paths without re-running them: activating a split pane
+    // by pointer must not pull focus off whatever the pointer opened there.
+    const paneFocusedRef = useRef(paneFocused);
+    paneFocusedRef.current = paneFocused;
     const sessionStatus = useSessionStore((s) => s.sessionStatus[sessionId]);
     const isInitializing = sessionStatus === "initializing";
     const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -180,7 +187,7 @@ function TerminalPane({
         if (visible) {
             // Preserve viewport on tab restore; initial history restore owns
             // its bottom position instead of fit forcing it.
-            scheduleFit(true, focusedPanel === "workspace", false);
+            scheduleFit(true, focusedPanel === "workspace" && paneFocusedRef.current, false);
         }
 
         // Shift+Enter → send the same escape sequence as Alt+Enter (\x1b\r)
@@ -275,7 +282,10 @@ function TerminalPane({
         // current dimensions even if xterm's own size did not change.
         // Don't force scrollToBottom — preserve the user's scroll position.
         // Skip focus during navigation mode — usePanelActivation handles that.
-        const shouldFocus = focusedPanel === "workspace" && !useUIStore.getState().navigationMode;
+        const shouldFocus =
+            focusedPanel === "workspace" &&
+            paneFocusedRef.current &&
+            !useUIStore.getState().navigationMode;
         scheduleFit(true, shouldFocus, false);
     }, [focusedPanel, interrupted, visible, sessionId, scheduleFit]);
 
@@ -283,7 +293,7 @@ function TerminalPane({
     // Uses rAF for fast path + bounded retry loop as fallback for cases
     // where the terminal element isn't ready yet (freshly mounted, layout pending).
     useEffect(() => {
-        if (!visible || focusedPanel !== "workspace") return;
+        if (!visible || !paneFocusedRef.current || focusedPanel !== "workspace") return;
         // Skip during navigation mode — usePanelActivation handles deferred focus.
         if (useUIStore.getState().navigationMode) return;
 
@@ -319,7 +329,7 @@ function TerminalPane({
     usePanelActivation(
         "workspace",
         useCallback(() => {
-            if (!visible) return;
+            if (!visible || !paneFocusedRef.current) return;
             const editorOpen = getEditor(useMarkdownInputStore.getState(), sessionId).isOpen;
             if (editorOpen) return; // markdown editor keeps its own focus
             termRef.current?.focus();

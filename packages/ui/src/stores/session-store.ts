@@ -73,13 +73,22 @@ function claimWorkspaceKeys(backendId: string, keyPrefix: string, keys: string[]
 
 /**
  * A session change touches the records of the machine it ran on. A failed
- * refetch leaves the previous records in place, as before.
+ * refetch leaves the previous records in place, as before. The master
+ * workspace is primary's alone, whichever machine the change ran on.
  */
 function refetchRecords(
     backendId: string,
-    which: { tasks: boolean; projects: boolean },
+    which: { tasks: boolean; projects: boolean; master?: boolean },
 ): Promise<unknown> {
+    const primary = which.master ? getPrimary() : null;
     return Promise.all([
+        primary
+            ? sendRequest<{ sessions: SessionRef[] }>(primary, MSG.MASTER_SESSIONS_LIST)
+                  .then(({ sessions }) =>
+                      useSessionStore.getState().syncWithMasterSessions(primary, sessions),
+                  )
+                  .catch(() => {})
+            : null,
         which.tasks
             ? useTaskStore
                   .getState()
@@ -236,7 +245,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         };
         noteSessionBackend(sessionId, backendId);
         get().addTab(targetWorkspaceKey ?? ownerWorkspaceKey, tab);
-        await refetchRecords(backendId, { tasks: !!owner.taskId, projects: !!owner.projectId });
+        // A create aimed at a pane holds off the broadcast that carries the
+        // session's cwd, so the owner's records are fetched again for it.
+        await refetchRecords(backendId, {
+            tasks: !!owner.taskId,
+            projects: !!owner.projectId,
+            master: !!owner.master,
+        });
         return sessionId;
     },
     async closeSession(sessionId) {
@@ -267,17 +282,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 rows,
             });
         } finally {
-            // The master workspace is primary's alone.
-            const primary = getPrimary();
-            await Promise.all([
-                refetchRecords(backendId, { tasks: true, projects: true }),
-                primary
-                    ? sendRequest<{ sessions: SessionRef[] }>(
-                          primary,
-                          MSG.MASTER_SESSIONS_LIST,
-                      ).then(({ sessions }) => get().syncWithMasterSessions(primary, sessions))
-                    : null,
-            ]);
+            await refetchRecords(backendId, { tasks: true, projects: true, master: true });
         }
     },
     sendInput(sessionId, data) {

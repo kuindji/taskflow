@@ -15,6 +15,8 @@ interface TabContentProps {
     tabs: Tab[];
     activeTabId: string;
     workspaceKey: string;
+    /** Whether this is the active split pane (always true when not split). */
+    paneFocused: boolean;
 }
 
 /** Tab types that stay mounted when inactive (never display:none) */
@@ -32,7 +34,7 @@ function isAlwaysMounted(tab: Tab): boolean {
     );
 }
 
-function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
+function TabContent({ tabs, activeTabId, workspaceKey, paneFocused }: TabContentProps) {
     const workspace = useActiveWorkspace();
     const { setNodeRef: setDropRef } = useDroppable({
         id: `pane-drop:${workspaceKey}`,
@@ -78,6 +80,7 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                                 sessionState={tab.sessionState}
                                 resumeAvailable={tab.resumeAvailable}
                                 visible={isActive}
+                                paneFocused={paneFocused}
                             />
                         ) : (
                             <div className="text-muted-foreground p-3">Session not found</div>
@@ -98,6 +101,7 @@ function TabContent({ tabs, activeTabId, workspaceKey }: TabContentProps) {
                                     sessionState={tab.sessionState}
                                     resumeAvailable={tab.resumeAvailable}
                                     visible={isActive}
+                                    paneFocused={paneFocused}
                                 />
                             );
                             break;

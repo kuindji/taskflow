@@ -83,6 +83,7 @@ test("a registry tab renders HostedBrowserPane and a legacy tab renders LegacyBr
                 ]}
                 activeTabId="browser:a"
                 workspaceKey="master"
+                paneFocused
             />,
         ),
     );
@@ -97,6 +98,7 @@ test("a registry tab renders HostedBrowserPane and a legacy tab renders LegacyBr
                 tabs={[{ id: "legacy", type: "browser", label: "Legacy", url: "about:blank" }]}
                 activeTabId="legacy"
                 workspaceKey="master"
+                paneFocused
             />,
         ),
     );

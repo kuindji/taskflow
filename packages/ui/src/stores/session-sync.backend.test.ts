@@ -154,6 +154,40 @@ describe("session store across two backends", () => {
         expect(useSessionStore.getState().sessionStatus).toEqual({});
     }, 10_000);
 
+    test("a shell created in a master pane gets its cwd", async () => {
+        const created: SessionRef = { ...makeSession("m-new"), type: "shell", cwd: "/home/me" };
+        let server: TestServer | null = null;
+        server = startTestServer("A", (type) => {
+            if (type === MSG.SESSION_CREATE) {
+                // The backend announces the session before it answers the create.
+                server?.broadcast(MSG.MASTER_SESSIONS_LIST, { sessions: [created] });
+                return { sessionId: created.id };
+            }
+            if (type === MSG.MASTER_SESSIONS_LIST) return { sessions: [created] };
+            return {};
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+        setPrimary("a");
+
+        await useSessionStore
+            .getState()
+            .createSession(
+                { master: true },
+                "shell",
+                "zsh",
+                undefined,
+                "/bin/zsh",
+                undefined,
+                undefined,
+                undefined,
+                "master",
+            );
+
+        const tabs = useSessionStore.getState().tabsByWorkspace.master ?? [];
+        expect(tabs.map((tab) => [tab.sessionId, tab.cwd])).toEqual([["m-new", "/home/me"]]);
+    });
+
     test("another machine's master sessions do not show in primary's master workspace", async () => {
         const serverA = startTestServer("A");
         const serverB = startTestServer("B");
