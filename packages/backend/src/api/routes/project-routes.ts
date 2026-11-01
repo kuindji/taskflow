@@ -9,6 +9,7 @@ import { MSG } from "@taskflow/shared";
 import { filterProjectSessions } from "../../services/instance-filter";
 import { computeMovedOrder } from "../../services/project-move";
 import { config } from "../../config";
+import { expandHomePath } from "../../services/platform";
 import { jsonResponse, errorResponse } from "./response-helpers";
 import {
     InvalidAgentAccountsError,
@@ -59,10 +60,11 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
-        const { path, name } = body;
-        if (typeof path !== "string" || !path.trim()) {
+        const { path: rawPath, name } = body;
+        if (typeof rawPath !== "string" || !rawPath.trim()) {
             return errorResponse('Field "path" is required and must be a non-empty string', 400);
         }
+        const path = expandHomePath(rawPath.trim());
 
         let resolvedName = typeof name === "string" && name.trim() ? name.trim() : undefined;
         if (!resolvedName) {
@@ -72,7 +74,7 @@ function registerProjectRoutes(deps: ProjectRouteDeps): void {
         }
 
         try {
-            const project = await taskStore.addProject({ name: resolvedName, path: path.trim() });
+            const project = await taskStore.addProject({ name: resolvedName, path });
             changeTracker?.track(project.id, project.path);
             broadcast({
                 type: MSG.PROJECT_CREATED,

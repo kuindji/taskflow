@@ -98,4 +98,27 @@ describe("GitCommit", () => {
         view.handleKey(key("return", "\r"));
         expect(submitted).toEqual(["Fix Git"]);
     });
+
+    test("keeps a generated message's body and trailer lines", async () => {
+        const test = await createTestRenderer({ width: 80, height: 20 });
+        const submitted: string[] = [];
+        const view = new GitCommit({
+            renderer: test.renderer,
+            onCancel: () => undefined,
+            onGenerate: () => undefined,
+            onSubmit: (message) => submitted.push(message),
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        view.handleKey(key("g", "\x07", true));
+        view.setGenerated("fix: keep values\n\nKeep the full text.\n\nRefs: #42\n");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Refs: #42");
+        view.handleKey(key("s"));
+        view.handleKey(key("return", "\r"));
+        expect(submitted).toEqual(["fix: keep valuess\n\nKeep the full text.\n\nRefs: #42"]);
+    });
 });

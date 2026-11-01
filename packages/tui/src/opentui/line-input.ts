@@ -18,4 +18,15 @@ function editLine(input: InputRenderable, event: KeyEvent): LineKey {
     return "edit";
 }
 
-export { editLine, isChorded };
+/** OpenTUI's `InputRenderable` default: longer values are cut on load. */
+const LINE_INPUT_MAX_LENGTH = 1000;
+
+/**
+ * Whether a stored value survives a round trip through a single-line input,
+ * which drops line breaks and cuts the value at `LINE_INPUT_MAX_LENGTH`.
+ */
+function fitsLineInput(value: string): boolean {
+    return value.length <= LINE_INPUT_MAX_LENGTH && !/[\n\r]/.test(value);
+}
+
+export { editLine, fitsLineInput, isChorded };

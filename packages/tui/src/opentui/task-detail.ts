@@ -7,6 +7,7 @@ import {
 } from "@opentui/core";
 import type { Project, ResolvedAttribute, Task, TaskLogEntry } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
+import { fitsLineInput } from "./line-input";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface TaskDetailDeps {
@@ -155,7 +156,7 @@ class TaskDetail {
         if (event.name === "pagedown") return this.renderable.scrollBy(8);
         if (event.name === "pageup") return this.renderable.scrollBy(-8);
         if (this.deps.readOnly) return;
-        if (event.sequence === "r") return this.beginEdit("title", this.task.title);
+        if (event.sequence === "r") return this.beginLineEdit("title", this.task.title);
         if (event.sequence === "e") return this.deps.onEditDescription();
         if (event.sequence === "o") return this.deps.onEditNotes();
         if (event.sequence === "n") return this.beginEdit("attribute-name", "");
@@ -165,7 +166,7 @@ class TaskDetail {
                 this.setError("Inherited attributes are read-only.");
                 return;
             }
-            return this.beginEdit("attribute-update", attribute.value);
+            return this.beginLineEdit("attribute-update", attribute.value);
         }
         if (event.sequence === "d") {
             const attribute = this.attributes[this.selectedAttribute];
@@ -190,6 +191,17 @@ class TaskDetail {
         );
         this.error = null;
         this.rebuild();
+    }
+
+    /** Opens the editor on a stored value, unless the single-line input would mangle it. */
+    private beginLineEdit(kind: "title" | "attribute-update", value: string): void {
+        if (!fitsLineInput(value)) {
+            this.setError(
+                "This value has line breaks or is too long to edit here; use the desktop app or taskflow-cli.",
+            );
+            return;
+        }
+        this.beginEdit(kind, value);
     }
 
     private beginEdit(

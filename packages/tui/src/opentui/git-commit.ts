@@ -19,6 +19,8 @@ class GitCommit {
     private readonly dialog: BoxRenderable;
     private input!: InputRenderable;
     private message = "";
+    /** A generated message's lines after the subject: the single-line input cannot hold them. */
+    private body = "";
     private pending: "generate" | "commit" | null = null;
     private error: string | null = null;
 
@@ -58,7 +60,9 @@ class GitCommit {
     }
 
     setGenerated(message: string): void {
-        this.message = message;
+        const [subject = "", ...rest] = message.trim().split(/\r?\n/);
+        this.message = subject.trim();
+        this.body = rest.join("\n").trim();
         this.pending = null;
         this.error = null;
         this.rebuild();
@@ -104,7 +108,7 @@ class GitCommit {
             this.pending = "commit";
             this.error = null;
             this.rebuild();
-            this.deps.onSubmit(this.message);
+            this.deps.onSubmit(this.body ? `${this.message}\n\n${this.body}` : this.message);
             return;
         }
         this.input.handleKeyPress(event);
@@ -126,6 +130,15 @@ class GitCommit {
             width: "100%",
         });
         this.dialog.add(this.input);
+        if (this.body) {
+            this.dialog.add(
+                new TextRenderable(this.deps.renderer, {
+                    content: this.body,
+                    minHeight: 1,
+                    wrapMode: "word",
+                }),
+            );
+        }
         if (this.pending) {
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, {

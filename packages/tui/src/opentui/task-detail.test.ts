@@ -177,6 +177,47 @@ describe("TaskDetail", () => {
         expect(calls[2]).toEqual(["delete", "a2"]);
     });
 
+    test("refuses to edit a value the single-line editor would mangle", async () => {
+        const test = await createTestRenderer({ width: 90, height: 50 });
+        const calls: unknown[] = [];
+        const longValue = "x".repeat(1200);
+        const view = new TaskDetail({
+            renderer: test.renderer,
+            task: { ...task, title: "first\nsecond" },
+            project,
+            attributes: [
+                { id: "a2", name: "notes", value: "first line\nsecond line", scope: "task" },
+                { id: "a3", name: "blob", value: longValue, scope: "task" },
+            ],
+            logs,
+            onEditTitle: (value) => calls.push(["title", value]),
+            onEditDescription: () => undefined,
+            onEditNotes: () => undefined,
+            onCreateAttribute: () => undefined,
+            onUpdateAttribute: (attribute, value) => calls.push(["update", attribute.id, value]),
+            onDeleteAttribute: (attribute) => calls.push(["delete", attribute.id]),
+            onTogglePin: () => undefined,
+            onArchive: () => undefined,
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+
+        view.handleKey(key("u"));
+        view.handleKey(key("return", "\r"));
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("line breaks or is too long");
+        view.handleKey(key("down"));
+        view.handleKey(key("u"));
+        view.handleKey(key("return", "\r"));
+        view.handleKey(key("r"));
+        view.handleKey(key("return", "\r"));
+        expect(calls).toEqual([]);
+    });
+
     test("keeps an open editor and its draft across an unrelated update", async () => {
         const test = await createTestRenderer({ width: 90, height: 24 });
         const calls: unknown[] = [];

@@ -17,6 +17,7 @@ import { stat, rm } from "fs/promises";
 import { dirname, join } from "path";
 import { filterProjectSessions } from "../services/instance-filter";
 import { config } from "../config";
+import { expandHomePath } from "../services/platform";
 import { mergeProjectAgentAccounts } from "../services/agent-accounts";
 
 function slugify(branch: string): string {
@@ -41,7 +42,8 @@ export function registerProjectHandlers(
     });
 
     router.register(MSG.PROJECT_ADD, async (payload) => {
-        const { name, path } = payload as ProjectAddPayload;
+        const { name, path: rawPath } = payload as ProjectAddPayload;
+        const path = expandHomePath(rawPath);
         let resolvedName = name;
         if (!resolvedName) {
             const segments = path.split("/").filter(Boolean).slice(-2).join("/");

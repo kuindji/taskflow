@@ -8,6 +8,7 @@ import {
     getConfigBaseDir,
     getDefaultShell,
     getDefaultShellEnvVar,
+    expandHomePath,
     getEnsurePaths,
     getHomeDir,
     getNullDevice,
@@ -17,6 +18,14 @@ import {
 } from "../../src/services/platform";
 
 describe("platform utilities", () => {
+    it("expands a leading ~ against the home directory only", () => {
+        const home = join(tmpdir(), "home");
+        expect(expandHomePath("~", home)).toBe(home);
+        expect(expandHomePath("~/Projects/app", home)).toBe(join(home, "Projects", "app"));
+        expect(expandHomePath("/abs/~/x", home)).toBe("/abs/~/x");
+        expect(expandHomePath("~other/x", home)).toBe("~other/x");
+    });
+
     it("keeps the existing runtime utility contracts", () => {
         expect(typeof isWindows()).toBe("boolean");
         expect(getHomeDir().length).toBeGreaterThan(0);

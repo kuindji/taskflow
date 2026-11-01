@@ -32,6 +32,16 @@ export function getHomeDir(): string {
     return homedir();
 }
 
+/**
+ * Expands a leading `~` the way a shell would, against this machine's home:
+ * paths typed in a client (the TUI suggests `~/…`) reach the backend unexpanded.
+ */
+export function expandHomePath(input: string, home = homedir()): string {
+    if (input === "~") return home;
+    const separator = isWindows() ? /^~[\\/]/ : /^~\//;
+    return separator.test(input) ? join(home, input.slice(2)) : input;
+}
+
 export function getConfigBaseDir(): string {
     return resolveConfigBaseDir({
         platform: process.platform,
