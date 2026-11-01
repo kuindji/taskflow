@@ -5,7 +5,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
-import { restoreFailedBaseline } from "@/lib/draft-baseline";
+import { isStaleReply, restoreFailedBaseline, trackSave } from "@/lib/draft-baseline";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,20 +46,23 @@ function formatLogTime(timestamp: string): string {
 /**
  * Moves the shown record's fields that changed since `received` into the
  * baseline and returns them for the drafts, except a field whose draft holds
- * an unsaved edit. A value changed elsewhere (an agent's `taskflow-cli task
- * update`, the TUI, another client) then replaces a clean draft instead of
- * being written back by the next edit.
+ * an unsaved edit or that an older save's reply carries (see `isStaleReply`).
+ * A value changed elsewhere (an agent's `taskflow-cli task update`, the TUI,
+ * another client) then replaces a clean draft instead of being written back
+ * by the next edit.
  */
 function adoptChangedFields<T extends Record<string, string>>(
     received: T,
     incoming: T,
     drafts: T,
     baseline: RefObject<T>,
+    pending: readonly T[],
 ): Partial<T> {
     const adopted: Partial<T> = {};
     const next = { ...baseline.current };
     for (const key of Object.keys(incoming) as (keyof T)[]) {
         if (received[key] === incoming[key] || drafts[key] !== baseline.current[key]) continue;
+        if (isStaleReply(pending, (sent) => sent[key] === incoming[key])) continue;
         adopted[key] = incoming[key];
         next[key] = incoming[key];
     }
@@ -127,6 +130,9 @@ function TaskInfoPanel() {
     // The fields last received from the shown records.
     const receivedTaskRef = useRef<typeof lastSavedRef.current | null>(null);
     const receivedProjectRef = useRef<typeof lastSavedProjectRef.current | null>(null);
+    // The fields sent by saves whose replies are pending.
+    const pendingTaskSavesRef = useRef<(typeof lastSavedRef.current)[]>([]);
+    const pendingProjectSavesRef = useRef<(typeof lastSavedProjectRef.current)[]>([]);
     const taskTitle = task?.title;
     const taskDescription = task?.description;
     const taskNotes = task?.notes;
@@ -172,12 +178,14 @@ function TaskInfoPanel() {
             // Looked up now: the unmount flush can outlive the record.
             const target = useTaskStore.getState().tasks.find((t) => t.id === targetTaskId);
             if (!target) return;
-            void updateTask(target, updates).catch((err: unknown) => {
-                console.error("Failed to update task:", err);
-                if (shownTaskIdRef.current === targetTaskId) {
-                    restoreFailedBaseline(lastSavedRef, previous, attempted);
-                }
-            });
+            void trackSave(pendingTaskSavesRef, attempted, updateTask(target, updates)).catch(
+                (err: unknown) => {
+                    console.error("Failed to update task:", err);
+                    if (shownTaskIdRef.current === targetTaskId) {
+                        restoreFailedBaseline(lastSavedRef, previous, attempted);
+                    }
+                },
+            );
         },
         [updateTask],
     );
@@ -204,12 +212,14 @@ function TaskInfoPanel() {
                 .getState()
                 .projects.find((p) => p.id === targetProjectId);
             if (!target) return;
-            void updateProject(target, updates).catch((err: unknown) => {
-                console.error("Failed to update project:", err);
-                if (shownProjectIdRef.current === targetProjectId) {
-                    restoreFailedBaseline(lastSavedProjectRef, previous, attempted);
-                }
-            });
+            void trackSave(pendingProjectSavesRef, attempted, updateProject(target, updates)).catch(
+                (err: unknown) => {
+                    console.error("Failed to update project:", err);
+                    if (shownProjectIdRef.current === targetProjectId) {
+                        restoreFailedBaseline(lastSavedProjectRef, previous, attempted);
+                    }
+                },
+            );
         },
         [updateProject],
     );
@@ -225,13 +235,20 @@ function TaskInfoPanel() {
         const received = receivedTaskRef.current;
         receivedTaskRef.current = incoming;
         if (received && shownTaskIdRef.current === taskId) {
-            const adopted = adoptChangedFields(received, incoming, draftRef.current, lastSavedRef);
+            const adopted = adoptChangedFields(
+                received,
+                incoming,
+                draftRef.current,
+                lastSavedRef,
+                pendingTaskSavesRef.current,
+            );
             if (adopted.title !== undefined) setTitleDraft(adopted.title);
             if (adopted.description !== undefined) setDescriptionDraft(adopted.description);
             if (adopted.notes !== undefined) setNotesDraft(adopted.notes);
             return;
         }
         shownTaskIdRef.current = taskId;
+        pendingTaskSavesRef.current = [];
         setTitleDraft(incoming.title);
         setDescriptionDraft(incoming.description);
         setNotesDraft(incoming.notes);
@@ -252,6 +269,7 @@ function TaskInfoPanel() {
                 incoming,
                 projectDraftRef.current,
                 lastSavedProjectRef,
+                pendingProjectSavesRef.current,
             );
             if (adopted.name !== undefined) setProjectTitleDraft(adopted.name);
             if (adopted.defaultInitCommand !== undefined) {
@@ -261,6 +279,7 @@ function TaskInfoPanel() {
             return;
         }
         shownProjectIdRef.current = projectId;
+        pendingProjectSavesRef.current = [];
         setProjectTitleDraft(incoming.name);
         setProjectInitCommandDraft(incoming.defaultInitCommand);
         setProjectPromptDraft(incoming.prompt);

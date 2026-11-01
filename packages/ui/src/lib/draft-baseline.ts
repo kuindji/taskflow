@@ -17,3 +17,24 @@ export function restoreFailedBaseline<T extends Record<string, string>>(
     }
     baseline.current = restored;
 }
+
+/**
+ * Records `sent` as the latest of the saves whose replies are pending, oldest
+ * first. The list empties when the latest one settles.
+ */
+export function trackSave<T, R>(pending: RefObject<T[]>, sent: T, save: Promise<R>): Promise<R> {
+    pending.current = [...pending.current, sent];
+    return save.finally(() => {
+        if (pending.current.at(-1) === sent) pending.current = [];
+    });
+}
+
+/**
+ * A record that matches an older pending save but not the latest one is that
+ * older save's reply, landing while a newer save is in flight. Adopting it
+ * would revert the newer edit on screen and in the next save.
+ */
+export function isStaleReply<T>(pending: readonly T[], matches: (sent: T) => boolean): boolean {
+    const latest = pending.at(-1);
+    return latest !== undefined && !matches(latest) && pending.slice(0, -1).some(matches);
+}

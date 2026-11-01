@@ -232,3 +232,45 @@ test("a note save that failed is sent again when the panel closes", async () => 
         [{ projectId: "alpha", note: "new" }],
     ]);
 });
+
+test("an older note save's reply does not replace a newer note still in flight", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [
+            { projectId: "alpha", note: "A0" },
+            { projectId: "beta", note: "B0" },
+        ],
+    };
+    useProjectStore.setState({
+        projects: [owner, project("alpha", "machine-a"), project("beta", "machine-a")],
+    });
+    const { container, sent } = await mountPending(owner);
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    const type = async (index: number, text: string) => {
+        const input = container.querySelectorAll<HTMLInputElement>("input")[index];
+        await act(async () => {
+            setValue?.call(input, text);
+            input?.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+    };
+
+    await type(0, "A1");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+    await type(0, "A2");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+    expect(sent).toHaveLength(2);
+
+    // The first save's reply lands while the second is still pending.
+    const first = { ...owner, linkedProjects: sent[0] };
+    await act(async () => root?.render(<LinkedProjectsSection project={first} />));
+    expect(container.querySelectorAll<HTMLInputElement>("input")[0]?.value).toBe("A2");
+
+    await type(1, "B1");
+    act(() => root?.unmount());
+    root = null;
+
+    expect(sent.at(-1)).toEqual([
+        { projectId: "alpha", note: "A2" },
+        { projectId: "beta", note: "B1" },
+    ]);
+});

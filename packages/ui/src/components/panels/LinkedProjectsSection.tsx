@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LinkedProject, Project } from "@taskflow/shared";
 import { Plus, X } from "lucide-react";
 import type { Scoped } from "@/lib/backend-scope";
-import { restoreFailedBaseline } from "@/lib/draft-baseline";
+import { isStaleReply, restoreFailedBaseline, trackSave } from "@/lib/draft-baseline";
 import { useProjectStore } from "@/stores/project-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +12,20 @@ interface LinkedProjectsSectionProps {
     project: Scoped<Project>;
 }
 
+function sameLinks(a: readonly LinkedProject[], b: readonly LinkedProject[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every((lp, i) => lp.projectId === b[i]?.projectId && lp.note === b[i]?.note)
+    );
+}
+
 function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
     const projects = useProjectStore((s) => s.projects);
     const updateProject = useProjectStore((s) => s.updateProject);
     const linkedProjects = useMemo(() => project.linkedProjects ?? [], [project.linkedProjects]);
+
+    // The lists sent by saves whose replies are pending.
+    const pendingSaves = useRef<LinkedProject[][]>([]);
 
     // The record is looked up when the save runs: the unmount flush can outlive
     // it, and depending on the record itself would re-arm that flush on every
@@ -23,17 +33,20 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
     const saveLinkedProjects = useCallback(
         (linked: LinkedProject[]): Promise<unknown> => {
             const target = useProjectStore.getState().projects.find((p) => p.id === project.id);
-            return target ? updateProject(target, { linkedProjects: linked }) : Promise.resolve();
+            if (!target) return Promise.resolve();
+            return trackSave(
+                pendingSaves,
+                linked,
+                updateProject(target, { linkedProjects: linked }),
+            );
         },
         [project.id, updateProject],
     );
 
     // Keep a ref to avoid stale closures in debounced callbacks. Every save
-    // moves it ahead of the reply, so the next save sent meanwhile keeps its change.
+    // moves it ahead of the reply, so the next save sent meanwhile keeps its
+    // change; the record replaces it below unless it is an older save's reply.
     const linkedProjectsRef = useRef<LinkedProject[]>(linkedProjects);
-    useEffect(() => {
-        linkedProjectsRef.current = linkedProjects;
-    }, [linkedProjects]);
 
     const linkedIds = useMemo(
         () => new Set(linkedProjects.map((lp) => lp.projectId)),
@@ -81,7 +94,8 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
 
     // A new project resets every draft. A note changed elsewhere (another
     // client, the TUI, the HTTP API) replaces its draft unless that draft has
-    // an unsaved edit, so a later save does not write the old note back.
+    // an unsaved edit, so a later save does not write the old note back. An
+    // older save's reply landing while a newer save is in flight is skipped.
     useEffect(() => {
         const fresh = syncedProjectId.current !== project.id;
         syncedProjectId.current = project.id;
@@ -90,10 +104,14 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
             linkedProjects.map((lp) => [lp.projectId, lp.note]),
         );
         if (fresh) {
+            pendingSaves.current = [];
+            linkedProjectsRef.current = linkedProjects;
             setNoteDrafts({ ...receivedNotes.current });
             lastSavedNotes.current = { ...receivedNotes.current };
             return;
         }
+        if (isStaleReply(pendingSaves.current, (sent) => sameLinks(sent, linkedProjects))) return;
+        linkedProjectsRef.current = linkedProjects;
         const drafts = noteDraftsRef.current;
         const incoming: Record<string, string> = {};
         for (const lp of linkedProjects) {

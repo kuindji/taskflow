@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { FileCode } from "lucide-react";
+import { isAbsolutePath } from "@taskflow/shared";
 import type { Task, TaskLogEntry } from "@taskflow/shared";
 import { openFileInApp } from "@/lib/open-file";
 
@@ -23,7 +24,10 @@ function EditedFilesList({ files, workingDir, workspaceKey, task }: EditedFilesL
             <span className="text-muted-foreground text-xs font-medium">Edited Files</span>
             <div className="mt-2 space-y-0.5">
                 {sorted.map((entry) => {
-                    const absolutePath = `${workingDir}/${entry.message}`;
+                    // A file outside the project (a linked project's) is logged absolute.
+                    const absolutePath = isAbsolutePath(entry.message)
+                        ? entry.message
+                        : `${workingDir}/${entry.message}`;
                     const filename = entry.message.split("/").pop() ?? entry.message;
                     const dir = entry.message.includes("/")
                         ? entry.message.slice(0, entry.message.lastIndexOf("/"))

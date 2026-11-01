@@ -46,6 +46,7 @@ const project: Scoped<Project> = {
 
 const saved: Partial<Task>[] = [];
 let failNext = 0;
+let holdReplies = false;
 const originalTaskState = useTaskStore.getState();
 const originalProjectState = useProjectStore.getState();
 
@@ -55,6 +56,7 @@ let root: Root;
 beforeEach(() => {
     saved.length = 0;
     failNext = 0;
+    holdReplies = false;
     useProjectStore.setState({ projects: [project] });
     useUIStore.setState({ masterWorkspaceActive: false, activeProjectId: project.id });
     useTaskStore.setState({
@@ -67,7 +69,7 @@ beforeEach(() => {
                 failNext--;
                 return Promise.reject(new Error("Not connected"));
             }
-            return Promise.resolve();
+            return holdReplies ? new Promise(() => {}) : Promise.resolve();
         },
     });
     container = document.createElement("div");
@@ -176,4 +178,17 @@ test("a title changed elsewhere is not sent back by an edit of another field", a
     await settle(800);
 
     expect(saved).toEqual([{ notes: "Note" }]);
+});
+
+test("an older save's reply does not replace a newer note still in flight", async () => {
+    holdReplies = true;
+    typeNotes("First");
+    await settle(800);
+    typeNotes("Second");
+    await settle(800);
+    expect(saved).toEqual([{ notes: "First" }, { notes: "Second" }]);
+
+    // The first save's reply lands while the second is still pending.
+    receiveTask({ notes: "First" });
+    expect(notesField().value).toBe("Second");
 });
