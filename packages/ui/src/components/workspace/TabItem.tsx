@@ -119,6 +119,8 @@ function TabItem({
             tabIndex={0}
             onClick={() => onTabClick(tab.id)}
             onKeyDown={(e) => {
+                // Keys bubbling from the close button belong to the button.
+                if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onTabClick(tab.id);
