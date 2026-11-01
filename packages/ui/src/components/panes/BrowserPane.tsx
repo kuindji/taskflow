@@ -7,6 +7,7 @@ import useIsElectron from "@/hooks/useIsElectron";
 import { toChromeUserAgent } from "@taskflow/shared";
 import { useBrowserTabStore, backendHostsBrowser } from "@/stores/browser-tab-store";
 import { useBackendStore } from "@/stores/backend-store";
+import { useSessionStore } from "@/stores/session-store";
 import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
 import { HostedBrowserPane } from "./HostedBrowserPane";
 import { normalizeUrl } from "@/utils/url";
@@ -17,16 +18,21 @@ const chromeUserAgent = toChromeUserAgent(navigator.userAgent);
 
 interface BrowserPaneProps {
     initialUrl: string;
+    /** The workspace tab, which keeps a legacy pane's URL across remounts. */
+    tabId: string;
     browserTabId?: string;
     workspaceKey: string;
 }
 
-function BrowserPane({ initialUrl, browserTabId, workspaceKey }: BrowserPaneProps) {
+function BrowserPane({ initialUrl, tabId, browserTabId, workspaceKey }: BrowserPaneProps) {
     const electron = useIsElectron();
     const backendId = workspaceBackendId(workspaceKey);
     const machines = useBackendStore((s) => s.machines);
     const registry = useBrowserTabStore((s) => (backendId ? s.byBackend[backendId] : undefined));
-    if (!browserTabId) return <LegacyBrowserPane initialUrl={initialUrl} />;
+    if (!browserTabId)
+        return (
+            <LegacyBrowserPane initialUrl={initialUrl} tabId={tabId} workspaceKey={workspaceKey} />
+        );
     const tab = registry?.tabs.find((tab) => tab.id === browserTabId);
     if (tab && backendHostsBrowser(backendId, electron, machines, registry))
         return <HostedBrowserPane tab={tab} />;
@@ -42,7 +48,11 @@ function BrowserPane({ initialUrl, browserTabId, workspaceKey }: BrowserPaneProp
 
 type WebviewNavigationEvent = Event & { url?: string };
 
-function LegacyBrowserPane({ initialUrl }: Pick<BrowserPaneProps, "initialUrl">) {
+function LegacyBrowserPane({
+    initialUrl,
+    tabId,
+    workspaceKey,
+}: Pick<BrowserPaneProps, "initialUrl" | "tabId" | "workspaceKey">) {
     const isElectron = useIsElectron();
     const normalizedInitial = normalizeUrl(initialUrl);
     const hasInitialUrl = Boolean(normalizedInitial) && normalizedInitial !== "about:blank";
@@ -56,6 +66,12 @@ function LegacyBrowserPane({ initialUrl }: Pick<BrowserPaneProps, "initialUrl">)
     const webviewRef = useRef<WebviewElement | null>(null);
     const [webviewReady, setWebviewReady] = useState(false);
     const [canGoBack, setCanGoBack] = useState(false);
+
+    // The pane unmounts when another workspace is shown; the tab is what the
+    // next mount starts from, so it follows every navigation.
+    useEffect(() => {
+        useSessionStore.getState().setTabUrl(workspaceKey, tabId, url);
+    }, [tabId, url, workspaceKey]);
 
     useEffect(() => {
         const wv = webviewRef.current;

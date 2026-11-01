@@ -12,6 +12,7 @@ Object.defineProperty(window, "taskflow", {
     value: new Proxy({}, { get: () => noop }),
 });
 const { BrowserPane } = await import("./BrowserPane");
+const { useSessionStore } = await import("@/stores/session-store");
 
 const reload = mock(() => {});
 let guestAttached = false;
@@ -29,7 +30,7 @@ function render(visible: boolean) {
     act(() =>
         root.render(
             <Activity mode={visible ? "visible" : "hidden"}>
-                <BrowserPane initialUrl="https://example.com" workspaceKey="master" />
+                <BrowserPane initialUrl="https://example.com" tabId="b" workspaceKey="master" />
             </Activity>,
         ),
     );
@@ -48,6 +49,11 @@ function render(visible: boolean) {
 beforeEach(() => {
     reload.mockClear();
     guestAttached = false;
+    useSessionStore.setState({
+        tabsByWorkspace: {
+            master: [{ id: "b", type: "browser", label: "Browser", url: "https://example.com" }],
+        },
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -80,4 +86,18 @@ test("reload waits for the guest while the webview is still attaching", () => {
     const button = container.querySelector<HTMLButtonElement>('button[aria-label="Reload"]');
     act(() => button?.click());
     expect(reload).not.toHaveBeenCalled();
+});
+
+test("a navigation is kept on the tab, so a remount opens the page it was on", () => {
+    guestAttached = true;
+    const webview = render(true);
+    const navigation = Object.assign(new Event("did-navigate"), {
+        url: "https://example.com/docs",
+    });
+    act(() => {
+        webview.dispatchEvent(navigation);
+    });
+
+    const tab = useSessionStore.getState().tabsByWorkspace.master?.find((t) => t.id === "b");
+    expect(tab?.url).toBe("https://example.com/docs");
 });

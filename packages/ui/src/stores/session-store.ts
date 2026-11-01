@@ -151,6 +151,7 @@ interface SessionStore {
     renameTab(workspaceKey: string, tabId: string, newLabel: string): void;
     setTabMode(workspaceKey: string, tabId: string, mode: "preview" | "edit"): void;
     setTabScrollTop(workspaceKey: string, tabId: string, scrollTop: number): void;
+    setTabUrl(workspaceKey: string, tabId: string, url: string): void;
     navigateTab(workspaceKey: string, tabId: string, filePath: string): void;
     stepTabHistory(workspaceKey: string, tabId: string, delta: -1 | 1): void;
     reorderTabs(workspaceKey: string, activeId: string, overId: string): void;
@@ -447,6 +448,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
                 if (tab.id !== tabId || tab.previewScrollTop === scrollTop) return tab;
                 changed = true;
                 return { ...tab, previewScrollTop: scrollTop };
+            });
+            if (!changed) return s;
+            return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };
+        });
+    },
+    setTabUrl(workspaceKey, tabId, url) {
+        set((s) => {
+            const tabs = s.tabsByWorkspace[workspaceKey];
+            if (!tabs) return s;
+            let changed = false;
+            const next = tabs.map((tab) => {
+                if (tab.id !== tabId || tab.url === url) return tab;
+                changed = true;
+                return { ...tab, url };
             });
             if (!changed) return s;
             return { tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: next } };

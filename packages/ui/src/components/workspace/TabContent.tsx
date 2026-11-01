@@ -168,6 +168,7 @@ function TabContent({ tabs, activeTabId, workspaceKey, paneFocused }: TabContent
                         pane = (
                             <BrowserPane
                                 initialUrl={tab.url ?? "about:blank"}
+                                tabId={tab.id}
                                 browserTabId={tab.browserTabId}
                                 workspaceKey={workspaceKey}
                             />
