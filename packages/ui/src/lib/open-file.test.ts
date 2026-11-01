@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { MSG } from "@taskflow/shared";
-import type { AppSettings, SessionRef, Task } from "@taskflow/shared";
+import type { SessionRef, Task } from "@taskflow/shared";
 import type { ILink } from "@xterm/xterm";
 import { createFilePathLinkProvider } from "@/components/panes/terminal/terminal-link-provider";
 import { closeConnection, openConnection, setPrimary } from "@/lib/connection-registry";
 import { createTerminalWithText } from "@/lib/test-headless-terminal";
+import { settingsWith } from "@/lib/test-settings";
 import { startTestServer } from "@/lib/test-ws-server";
 import type { TestServer } from "@/lib/test-ws-server";
 import { useSessionStore } from "@/stores/session-store";
@@ -34,63 +35,6 @@ function editorRef(id: string): SessionRef {
         label: "nvim: a.ts",
         createdAt: "2026-10-03T00:00:00.000Z",
         state: "live",
-    };
-}
-
-function settingsWith(internalEditor: string): AppSettings {
-    return {
-        general: {
-            fontFamily: "",
-            fontSize: 13,
-            defaultAgent: "claude",
-            defaultRuntime: "bun",
-            favoriteAgents: [],
-            confirmBeforeExit: false,
-        },
-        terminal: { fontFamily: "", fontSize: 13, defaultShell: "" },
-        editor: {
-            fontFamily: "",
-            fontSize: 13,
-            wordWrap: false,
-            internalEditor,
-            externalEditor: "system",
-            markdownWidth: "medium",
-        },
-        layout: {
-            window: { width: 1400, height: 900, isMaximized: false },
-            panels: {
-                sidebarWidth: 220,
-                fileExplorerWidth: 220,
-                taskInfoWidth: 220,
-                flowPanelWidth: 220,
-                compactSidebar: false,
-                collapsedProjectIds: [],
-                wikiRailOpen: false,
-                wikiRailWidth: 220,
-            },
-        },
-        claude: {
-            defaultModel: "default",
-            defaultEffort: "default",
-            permissionMode: "default",
-            accounts: [],
-            defaultAccount: "default",
-        },
-        codex: {
-            defaultModel: "",
-            defaultReasoningEffort: "default",
-            sandbox: "workspace-write",
-            approvalPolicy: "on-request",
-            dangerouslyBypassApprovalsAndSandbox: false,
-            accounts: [],
-            defaultAccount: "default",
-        },
-        opencode: { defaultModel: "", autoApprove: false },
-        pi: { defaultModel: "", thinking: "off", tools: "" },
-        kimi: { defaultModel: "", permissionMode: "manual" },
-        appearance: { theme: "" },
-        remoteAgent: { autoStart: false, appName: "", headless: false, permissionMode: "default" },
-        network: { discoverable: false, displayName: "" },
     };
 }
 

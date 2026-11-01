@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useActiveWorkspace, workspaceBackendId } from "@/hooks/useActiveWorkspace";
+import { workspaceBackendId, workspaceOwner } from "@/hooks/useActiveWorkspace";
 import { EditorPane } from "@/components/panes/EditorPane";
 import { MarkdownToolbar } from "@/components/panes/markdown/MarkdownToolbar";
 import { persistWikiRail } from "@/components/panes/markdown/wiki-rail-settings";
@@ -23,7 +23,6 @@ interface MarkdownPaneProps {
 const LazyMarkdownPane = lazy(() => import("./MarkdownPaneImpl"));
 
 function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps) {
-    const workspace = useActiveWorkspace();
     const internalEditor = useSettingsStore((s) => s.settings?.editor.internalEditor ?? "monaco");
     const wikiRoot = useWikiRoot();
     const wikiRailOpen = useUIStore((s) => s.wikiRailOpen);
@@ -93,13 +92,9 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
             internalEditor,
         );
         if (cliEditorId) {
-            const owner =
-                workspace.scope === "task"
-                    ? { taskId: workspace.task.id }
-                    : workspace.scope === "project"
-                      ? { projectId: workspace.project.id }
-                      : undefined;
-            if (owner) {
+            // The tab's own workspace owns the session, Master included.
+            const owner = workspaceOwner(workspaceKey);
+            if (owner.taskId || owner.projectId || owner.master) {
                 const label = filePath.split("/").pop() ?? filePath;
                 void store.createSession(
                     owner,
@@ -114,7 +109,7 @@ function MarkdownPane({ filePath, mode, tabId, workspaceKey }: MarkdownPaneProps
             }
         }
         store.setTabMode(workspaceKey, tabId, "edit");
-    }, [filePath, internalEditor, mode, tabId, workspace, workspaceKey]);
+    }, [filePath, internalEditor, mode, tabId, workspaceKey]);
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
