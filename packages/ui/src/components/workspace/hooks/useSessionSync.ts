@@ -21,6 +21,13 @@ const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
 const emptyAgentCommands: AgentCommand[] = [];
 
+/** A default shell, tied to the machine and setting it was resolved for. */
+interface ResolvedShell {
+    backendId: string;
+    configuredShell: string;
+    path: string | null;
+}
+
 type Workspace = ReturnType<typeof useActiveWorkspace>;
 
 interface SessionSyncResult {
@@ -53,7 +60,7 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
 
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [agentCommands, setAgentCommands] = useState<AgentCommand[]>(emptyAgentCommands);
-    const [defaultShellPath, setDefaultShellPath] = useState<string | null>(null);
+    const [resolvedShell, setResolvedShell] = useState<ResolvedShell | null>(null);
     const [flowRunsHydratedOwnerId, setFlowRunsHydratedOwnerId] = useState<string | null>(null);
 
     const backendId =
@@ -176,28 +183,27 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
     }, [workspace.workingDir, workspace.scope, backendId]);
 
     // Resolve default shell. A list answered after the workspace moved to
-    // another machine names that machine's shells, so it is dropped.
+    // another machine names that machine's shells, so it is dropped; until the
+    // new machine answers, the old machine's shell is not offered either.
     useEffect(() => {
-        if (!backendId) {
-            setDefaultShellPath(null);
-            return;
-        }
+        if (!backendId) return;
         let cancelled = false;
+        const settle = (path: string | null) => {
+            if (!cancelled) setResolvedShell({ backendId, configuredShell, path });
+        };
         sendRequest<ShellListResponse>(backendId, MSG.SHELLS_LIST, {}).then(
-            (res) => {
-                if (cancelled) return;
-                setDefaultShellPath(
-                    resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell),
-                );
-            },
-            () => {
-                if (!cancelled) setDefaultShellPath(null);
-            },
+            (res) =>
+                settle(resolveTerminalShellPath(res.shells, res.systemShellPath, configuredShell)),
+            () => settle(null),
         );
         return () => {
             cancelled = true;
         };
     }, [configuredShell, backendId]);
+    const defaultShellPath =
+        resolvedShell?.backendId === backendId && resolvedShell.configuredShell === configuredShell
+            ? resolvedShell.path
+            : null;
 
     // Sync active tab when tabs change
     const visibleTabs = tabs;

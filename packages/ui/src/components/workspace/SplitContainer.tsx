@@ -191,26 +191,25 @@ export function SplitContainer({ workspaceKey, ...sharedProps }: SplitContainerP
         </div>
     );
 
-    if (isOpen) {
-        const draggedIsActive = draggedTab
-            ? draggedTab.id === leftActiveTabId || draggedTab.id === rightActiveTabId
-            : false;
+    const draggedIsActive = draggedTab
+        ? draggedTab.id === leftActiveTabId || draggedTab.id === rightActiveTabId
+        : false;
 
-        return (
-            <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragMove={sessionMove.onDragMove}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}>
-                {content}
-                <DragOverlay dropAnimation={null}>
-                    {draggedTab && <TabItemOverlay tab={draggedTab} isActive={draggedIsActive} />}
-                </DragOverlay>
-            </DndContext>
-        );
-    }
-
-    return content;
+    // Rendered whether or not the split is open: switching the root element
+    // would remount the left pane and lose its tabs' state (an embedded
+    // browser's page). While closed, the left tab bar runs its own DndContext.
+    return (
+        <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragMove={sessionMove.onDragMove}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}>
+            {content}
+            <DragOverlay dropAnimation={null}>
+                {draggedTab && <TabItemOverlay tab={draggedTab} isActive={draggedIsActive} />}
+            </DragOverlay>
+        </DndContext>
+    );
 }

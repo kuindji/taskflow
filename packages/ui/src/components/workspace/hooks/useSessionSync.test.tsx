@@ -95,3 +95,72 @@ test("a flow run that finished while the machine was away is cleared once it is 
         root.unmount();
     });
 });
+
+test("the default shell is never one resolved for the previously selected machine", async () => {
+    const held: { releaseLinux?: () => void } = {};
+    function shellServer(shell: string, hold: boolean) {
+        return Bun.serve({
+            port: 0,
+            hostname: "127.0.0.1",
+            fetch: (req, srv) => (srv.upgrade(req) ? undefined : new Response("ok")),
+            websocket: {
+                message(ws, raw) {
+                    const r = JSON.parse(String(raw)) as { correlationId?: string; type?: string };
+                    if (!r.correlationId) return;
+                    const payload =
+                        r.type === MSG.SHELLS_LIST
+                            ? { shells: [{ name: shell, path: shell }], systemShellPath: shell }
+                            : r.type === MSG.FLOW_RUNS_LIST
+                              ? { runs: [] }
+                              : r.type === MSG.FLOW_DEFINITIONS_LIST
+                                ? { flows: [] }
+                                : { actions: [] };
+                    const send = () =>
+                        ws.send(JSON.stringify({ correlationId: r.correlationId, payload }));
+                    if (hold && r.type === MSG.SHELLS_LIST) held.releaseLinux = send;
+                    else send();
+                },
+            },
+        });
+    }
+    const mac = shellServer("/bin/zsh", false);
+    const linux = shellServer("/bin/bash", true);
+    await openConnection("shell-mac", `http://127.0.0.1:${mac.port}`, "test-token");
+    await openConnection("shell-linux", `http://127.0.0.1:${linux.port}`, "test-token");
+    setPrimary("shell-mac");
+    const workspace = {
+        scope: "master" as const,
+        task: null,
+        project: null,
+        workingDir: null,
+        workspaceKey: MASTER_WORKSPACE_KEY,
+    };
+    function Probe() {
+        const { defaultShellPath, backendId } = useSessionSync(workspace);
+        return <>{`${backendId}:${defaultShellPath ?? "none"}`}</>;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+        root.render(<Probe />);
+    });
+    await waitUntil(() => container.textContent === "shell-mac:/bin/zsh");
+
+    // The workspace moves to the other machine; its shell list is still in flight.
+    setPrimary("shell-linux");
+    await act(async () => {
+        root.render(<Probe />);
+    });
+    await waitUntil(() => held.releaseLinux !== undefined);
+    expect(container.textContent).toBe("shell-linux:none");
+
+    held.releaseLinux?.();
+    await waitUntil(() => container.textContent === "shell-linux:/bin/bash");
+    await act(async () => {
+        root.unmount();
+    });
+    closeConnection("shell-mac", "detach");
+    closeConnection("shell-linux", "detach");
+    await mac.stop(true);
+    await linux.stop(true);
+});
