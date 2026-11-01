@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { ChevronDownIcon } from "lucide-react";
 import { loadPiModels } from "@/lib/agent-discovery";
 import type { PiModelInfo, PiModelsResponse } from "@taskflow/shared";
@@ -114,7 +115,7 @@ function PiModelSelect({
 
     if (fetchFailed) {
         return (
-            <Input
+            <SettingInput
                 value={value}
                 placeholder="e.g. anthropic/claude-sonnet-4.5"
                 onChange={(e) => onChange(e.target.value)}

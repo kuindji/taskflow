@@ -7,7 +7,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { SettingRow } from "./SettingRow";
 
 interface ModelOption {
@@ -76,11 +76,11 @@ function AgentSection({
                 <SettingRow
                     label="Default Model"
                     hint={`Pre-selected model when running ${agentKey} sessions`}>
-                    <Input
+                    <SettingInput
                         size="sm"
                         className="w-[180px] text-[13px]"
                         placeholder={modelInputPlaceholder ?? "default"}
-                        value={modelValue}
+                        value={modelValue ?? ""}
                         onChange={onModelInputChange}
                     />
                 </SettingRow>

@@ -1,7 +1,7 @@
 import { Info } from "lucide-react";
 import { DISCOVERY_MAX_DISPLAY_NAME } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { Switch } from "@/components/ui/switch";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -128,7 +128,7 @@ function GeneralSection({
                 label="Name on the network"
                 hint="How this machine appears in other clients' backend menu. Blank uses the hostname."
                 className="px-3 py-2">
-                <Input
+                <SettingInput
                     id="network-display-name"
                     value={displayName}
                     placeholder={hostname}

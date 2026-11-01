@@ -1,6 +1,6 @@
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { Button } from "@/components/ui/button";
 import type { RemoteAgentSettings } from "@taskflow/shared";
 import { SettingRow } from "./SettingRow";
@@ -45,7 +45,7 @@ function RemoteSection({ settings, remoteAgent, onUpdate }: RemoteSectionProps) 
                 </div>
             </SettingRow>
             <SettingRow label="App Name" hint="Display name for this instance on remote apps">
-                <Input
+                <SettingInput
                     size="sm"
                     className="w-[180px] text-[13px]"
                     placeholder="Auto-generated"

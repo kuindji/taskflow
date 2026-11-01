@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { RotateCcw } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/stores/settings-store";
 import { FontFamilySelect } from "@/components/settings/FontFamilySelect";
@@ -86,7 +86,7 @@ function FontsTab() {
                             onChange={handleGeneralFontFamily}
                         />
                     </div>
-                    <Input
+                    <SettingInput
                         type="number"
                         min={8}
                         max={32}
@@ -111,7 +111,7 @@ function FontsTab() {
                             onChange={handleTerminalFontFamily}
                         />
                     </div>
-                    <Input
+                    <SettingInput
                         type="number"
                         min={8}
                         max={32}
@@ -136,7 +136,7 @@ function FontsTab() {
                             onChange={handleEditorFontFamily}
                         />
                     </div>
-                    <Input
+                    <SettingInput
                         type="number"
                         min={8}
                         max={32}

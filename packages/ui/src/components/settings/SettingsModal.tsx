@@ -548,6 +548,7 @@ function SettingsModal() {
                                 />
                                 <AgentAccountsSection
                                     agent="claude"
+                                    backendId={primaryId}
                                     accounts={settings.claude.accounts}
                                     defaultAccount={settings.claude.defaultAccount}
                                     onUpdate={handleClaudeAccounts}

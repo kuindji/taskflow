@@ -4,6 +4,7 @@ import { INHERIT_AGENT_ACCOUNT } from "@taskflow/shared";
 import type { CodexModelInfo } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { loadCodexDiscovery } from "@/lib/agent-discovery";
 
@@ -131,7 +132,7 @@ function CodexModelSelectContext({
 
     if (fetchFailed || (models !== null && models.length === 0)) {
         return (
-            <Input
+            <SettingInput
                 value={value}
                 placeholder="Codex default"
                 onChange={(event) => onChange(event.target.value)}

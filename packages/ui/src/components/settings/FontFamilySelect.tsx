@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { ChevronDownIcon } from "lucide-react";
 
 interface FontFamilySelectProps {
@@ -69,7 +70,7 @@ function FontFamilySelect({ value, onChange }: FontFamilySelectProps) {
     // Fallback: plain text input when queryLocalFonts is not available
     if (!apiAvailable) {
         return (
-            <Input
+            <SettingInput
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 className="h-8 text-sm"

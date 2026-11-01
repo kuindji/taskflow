@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
+import { useLocalOnlyHint } from "@/hooks/useIsLocalBackend";
 
 interface AgentAccountsSectionProps {
     backendId?: string | null;
@@ -104,18 +105,24 @@ function AgentAccountsSection({
     }, [drafts]);
 
     // Works only on `next`, never on `drafts`: state may still be stale in the
-    // same tick as the change that triggered the commit.
+    // same tick as the change that triggered the commit. The list sent replaces
+    // the saved one, so a saved row the user has left half-cleared goes out as
+    // saved; only a row that was never saved can be left out.
     const commit = useCallback(
         (next: AgentAccount[]) => {
-            const complete = next
-                .filter((row) => row.name.trim() && row.homeDir.trim())
-                .map((row) => ({ ...row, name: row.name.trim(), homeDir: row.homeDir.trim() }));
+            const complete = next.flatMap((row) => {
+                const name = row.name.trim();
+                const homeDir = row.homeDir.trim();
+                if (name && homeDir) return [{ ...row, name, homeDir }];
+                const saved = accounts.find((account) => account.id === row.id);
+                return saved ? [saved] : [];
+            });
             setError(null);
             onUpdate({ accounts: complete }).catch((e: unknown) =>
                 setError(e instanceof Error ? e.message : String(e)),
             );
         },
-        [onUpdate],
+        [accounts, onUpdate],
     );
 
     const handleDefaultAccount = useCallback(
@@ -147,8 +154,13 @@ function AgentAccountsSection({
         [accounts, commit],
     );
 
+    // The picker is this machine's native dialog, so its path is only good for
+    // a backend on this machine.
+    const localOnlyHint = useLocalOnlyHint(backendId ?? null);
+
     const handleBrowse = useCallback(
         async (id: string) => {
+            if (localOnlyHint) return;
             const selected = await window.taskflow?.selectProjectDirectory();
             if (!selected) return;
             const next = draftsRef.current.map((row) =>
@@ -157,7 +169,7 @@ function AgentAccountsSection({
             setDrafts(next);
             commit(next);
         },
-        [commit],
+        [commit, localOnlyHint],
     );
 
     const handleAdd = useCallback(() => {
@@ -234,12 +246,16 @@ function AgentAccountsSection({
                             />
                         )}
                         {hasPicker && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleBrowse(account.id)}>
-                                Browse
-                            </Button>
+                            // A disabled button takes no pointer events, so the wrapper carries the tooltip.
+                            <span title={localOnlyHint ?? undefined}>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={localOnlyHint !== null}
+                                    onClick={() => void handleBrowse(account.id)}>
+                                    Browse
+                                </Button>
+                            </span>
                         )}
                         <Button
                             variant="ghost"

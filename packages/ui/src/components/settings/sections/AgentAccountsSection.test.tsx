@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AgentAccount } from "@taskflow/shared";
+import { useBackendStore } from "@/stores/backend-store";
 import { AgentAccountsSection } from "./AgentAccountsSection";
 
 // @ts-expect-error react act env flag, no upstream type for this global
@@ -350,4 +351,91 @@ test("changing a saved Codex home refetches its models and diagnostics", async (
     );
     expect(text()).toContain("signed in as new");
     expect(text()).not.toContain("signed in as old");
+});
+
+test("a saved account left incomplete keeps its saved value when another account is saved", () => {
+    mount([a1, a2]);
+
+    // Clearing a saved row's home dir sends nothing on its own...
+    typeInto("claude-account-home-a1", "");
+    blur("claude-account-home-a1");
+    expect(patches).toEqual([]);
+
+    // ...and saving a sibling must not drop it from the replacement list.
+    typeInto("claude-account-name-a2", "job");
+    blur("claude-account-name-a2");
+    expect(patches).toEqual([{ accounts: [a1, { ...a2, name: "job" }] }]);
+});
+
+function browseMount(machine: { id: string; isLocal: boolean }, picked: string) {
+    useBackendStore.setState({
+        machines: [
+            {
+                ...machine,
+                displayName: machine.isLocal ? "This machine" : "Linux box",
+                host: `${machine.id}.lan`,
+                instanceId: "main",
+                state: "attached",
+                keepAttached: true,
+            },
+        ],
+    });
+    window.taskflow = {
+        selectProjectDirectory: async () => picked,
+    } as NonNullable<Window["taskflow"]>;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const target = root;
+    act(() =>
+        target.render(
+            <AgentAccountsSection
+                agent="claude"
+                backendId={machine.id}
+                accounts={[a1]}
+                defaultAccount="default"
+                onUpdate={onUpdate}
+            />,
+        ),
+    );
+    const browse = [...container.querySelectorAll("button")].find(
+        (b) => b.textContent === "Browse",
+    );
+    if (!browse) throw new Error("no Browse button");
+    return browse;
+}
+
+test("Browse is disabled when the settings belong to another machine", async () => {
+    const original = window.taskflow;
+    try {
+        const browse = browseMount({ id: "remote", isLocal: false }, "/Users/me/.claude-work");
+        expect(browse.disabled).toBe(true);
+        expect(browse.parentElement?.getAttribute("title")).toBe(
+            "Not available: these files are on Linux box",
+        );
+        await act(async () => {
+            browse.click();
+            await Promise.resolve();
+        });
+        expect(patches).toEqual([]);
+    } finally {
+        window.taskflow = original;
+        useBackendStore.setState({ machines: [] });
+    }
+});
+
+test("Browse on this machine saves the picked home dir", async () => {
+    const original = window.taskflow;
+    try {
+        const browse = browseMount({ id: "local", isLocal: true }, "/Users/me/.claude-work");
+        expect(browse.disabled).toBe(false);
+        await act(async () => {
+            browse.click();
+            await Promise.resolve();
+        });
+        expect(patches).toEqual([{ accounts: [{ ...a1, homeDir: "/Users/me/.claude-work" }] }]);
+    } finally {
+        window.taskflow = original;
+        useBackendStore.setState({ machines: [] });
+    }
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
 import { ChevronDownIcon } from "lucide-react";
 import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
@@ -94,7 +95,7 @@ function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
 
     if (fetchFailed) {
         return (
-            <Input
+            <SettingInput
                 value={value}
                 placeholder="e.g. kimi-code/k3"
                 onChange={(e) => onChange(e.target.value)}
