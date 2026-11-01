@@ -458,6 +458,31 @@ describe("backend store refresh", () => {
         ]);
     });
 
+    test("local detached by a switch stays unticked across a refresh", async () => {
+        store.setState({
+            machines: [
+                {
+                    id: "local",
+                    displayName: "This machine",
+                    host: "127.0.0.1",
+                    instanceId: "main",
+                    state: "offline",
+                    isLocal: true,
+                    keepAttached: false,
+                },
+            ],
+        });
+        const original = bridge.getAttached;
+        // Main always lists the backend it started, attached or not.
+        bridge.getAttached = () =>
+            Promise.resolve([{ id: "local", origin: "http://127.0.0.1:1", isLocal: true }]);
+        cleanups.push(() => (bridge.getAttached = original));
+
+        await store.getState().refresh();
+
+        expect(row("local")?.keepAttached).toBe(false);
+    });
+
     test("a discovered machine that is not saved gets no row", async () => {
         store.setState({ machines: [] });
         const original = bridge.listBackends;

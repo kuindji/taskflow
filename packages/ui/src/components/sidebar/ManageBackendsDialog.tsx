@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useBackendStore } from "@/stores/backend-store";
-import { ipcErrorMessage, parsePort } from "./backend-fields";
+import { dirtyFilePathsOn } from "@/components/panes/editor-dirty-state";
+import { ipcErrorMessage, parsePort, unsavedChangesMessage } from "./backend-fields";
 
 interface ManageBackendsDialogProps {
     open: boolean;
@@ -83,6 +84,12 @@ function BackendRow({ entry, isPrimary, onError }: BackendRowProps) {
     async function handleRemove(): Promise<void> {
         const bridge = window.taskflow;
         if (!bridge) return;
+        // The detach below disposes the machine's editor models, unsaved edits included.
+        const unsaved = dirtyFilePathsOn(entry.id);
+        if (unsaved.length > 0) {
+            onError(unsavedChangesMessage(unsaved));
+            return;
+        }
         setBusy(true);
         try {
             const store = useBackendStore.getState();

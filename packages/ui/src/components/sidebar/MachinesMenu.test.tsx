@@ -5,6 +5,7 @@ import type { MenuEntry, TunnelFailure } from "@taskflow/shared";
 import { useBackendStore } from "@/stores/backend-store";
 import type { MachineState, SwitchResult } from "@/stores/backend-store";
 import { useDialogStore } from "@/stores/dialog-store";
+import { clearEditorDirty, setEditorDirty } from "@/components/panes/editor-dirty-state";
 import { MachinesMenu } from "./MachinesMenu";
 
 // @ts-expect-error react act env flag, no upstream type for this global
@@ -164,6 +165,25 @@ test("ticking an unticked machine attaches it and unticking a ticked one detache
 
     expect(calls.attached).toEqual(["desktop-uid"]);
     expect(calls.detached).toEqual(["laptop-uid"]);
+});
+
+test("unticking a machine with unsaved edits keeps it attached and names the files", async () => {
+    const calls = setup([local, laptop], []);
+    setEditorDirty("laptop-uid", "/repo/a.ts", true);
+    cleanups.push(() => {
+        clearEditorDirty("laptop-uid", "/repo/a.ts");
+        useDialogStore.getState().dismiss();
+    });
+    await render();
+    await openMenu();
+
+    await act(async () => checkboxNamed("Laptop")?.click());
+
+    expect(calls.detached).toEqual([]);
+    const dialog = useDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.title).toBe("Could not detach Laptop");
+    expect(dialog.description).toContain("/repo/a.ts");
 });
 
 test("a discovered, unsaved machine is offered to add and has no checkbox", async () => {

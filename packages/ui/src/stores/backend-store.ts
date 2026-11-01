@@ -576,7 +576,11 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                         displayName: live.isLocal ? "This machine" : live.id,
                         host: "127.0.0.1",
                         instanceId: "main",
-                        keepAttached: true,
+                        // Main lists local whenever it runs and keeps no intent
+                        // for it; the row's own intent is the only record of a
+                        // switch having detached it.
+                        keepAttached:
+                            state.machines.find((m) => m.id === live.id)?.keepAttached ?? true,
                     }),
                 );
             }

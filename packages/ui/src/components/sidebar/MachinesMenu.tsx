@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils";
 import { LOCAL_BACKEND_ID, useBackendStore } from "@/stores/backend-store";
 import { alert } from "@/stores/dialog-store";
 import type { MachineState, SwitchResult } from "@/stores/backend-store";
-import { ipcErrorMessage } from "./backend-fields";
+import { dirtyFilePathsOn } from "@/components/panes/editor-dirty-state";
+import { ipcErrorMessage, unsavedChangesMessage } from "./backend-fields";
 import { ConnectBackendDialog } from "./ConnectBackendDialog";
 import { ManageBackendsDialog } from "./ManageBackendsDialog";
 import { TrustHostKeyDialog } from "./TrustHostKeyDialog";
@@ -58,7 +59,7 @@ function labelOf(machine: MachineState): string {
 export function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
     switch (result.reason) {
         case "dirty":
-            return `Save or discard unsaved changes first: ${result.files.join(", ")}`;
+            return unsavedChangesMessage(result.files);
         case "unreachable":
             return result.failure.message;
         case "busy":
@@ -181,6 +182,16 @@ function MachinesMenu({ masterWorkspaceActive, onMasterWorkspace }: MachinesMenu
     function toggle(row: MachineRow): void {
         setNotice(null);
         const store = useBackendStore.getState();
+        // A detach disposes the machine's editor models, unsaved edits included.
+        // A dialog, as for a switch: a native menu has closed and shows no notice.
+        const unsaved = row.checked ? dirtyFilePathsOn(row.id) : [];
+        if (unsaved.length > 0) {
+            void alert({
+                title: `Could not detach ${row.label}`,
+                description: unsavedChangesMessage(unsaved),
+            });
+            return;
+        }
         const run =
             row.checked === null
                 ? addDiscovered(row)

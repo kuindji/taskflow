@@ -12,7 +12,7 @@ afterEach(() => {
     cleanups.splice(0).forEach((fn) => fn());
     useBackendStore.setState(original);
 });
-function mount(local: boolean) {
+function mount(local: boolean, failure = true) {
     const id = local ? "local" : "remote";
     useBackendStore.setState({
         primaryId: id,
@@ -25,11 +25,13 @@ function mount(local: boolean) {
                 state: "offline",
                 isLocal: local,
                 keepAttached: true,
-                failure: {
-                    kind: "unauthorized",
-                    message: "Remote backend rejected the access token",
-                    stderr: "",
-                },
+                failure: failure
+                    ? {
+                          kind: "unauthorized",
+                          message: "Remote backend rejected the access token",
+                          stderr: "",
+                      }
+                    : undefined,
             },
         ],
     });
@@ -67,4 +69,17 @@ test("a disconnected local primary shows no return button", () => {
     const container = mount(true);
     expect(container.querySelector("button")).toBeNull();
     expect(container.textContent).toContain("Connecting to backend...");
+});
+test("a remote primary whose socket dropped with no failure still offers return to local", async () => {
+    let calls = 0;
+    useBackendStore.setState({
+        returnToLocal: async () => {
+            calls++;
+            return { ok: true };
+        },
+    });
+    const container = mount(false, false);
+    expect(container.textContent).toContain("Connecting to backend...");
+    await act(async () => container.querySelector<HTMLButtonElement>("button")?.click());
+    expect(calls).toBe(1);
 });

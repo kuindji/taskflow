@@ -14,7 +14,10 @@ export function ConnectionOverlay() {
     const primary = useBackendStore((s) => s.machines.find((m) => m.id === primaryId));
     const switching = useBackendStore((s) => s.switching);
     const [refusal, setRefusal] = useState<string | null>(null);
-    const remoteFailure = primary && !primary.isLocal ? primary.failure : undefined;
+    // Remote, whatever the cause: a backend that stopped behind a live tunnel
+    // leaves no failure, and this overlay hides the menu that could leave it.
+    const remotePrimary = primary !== undefined && !primary.isLocal;
+    const remoteFailure = remotePrimary ? primary.failure : undefined;
     const message = remoteFailure?.message ?? error;
     async function returnToLocal() {
         const result = await useBackendStore.getState().returnToLocal();
@@ -31,7 +34,7 @@ export function ConnectionOverlay() {
                 </div>
                 {message && <div className="text-destructive text-xs">{message}</div>}
                 {!message && <div className="text-muted-foreground text-xs">Reconnecting...</div>}
-                {remoteFailure && (
+                {remotePrimary && (
                     <Button disabled={switching} onClick={() => void returnToLocal()}>
                         Return to local
                     </Button>

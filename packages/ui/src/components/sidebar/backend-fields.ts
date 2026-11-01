@@ -25,4 +25,9 @@ function ipcErrorMessage(error: unknown, fallback: string): string {
     return message.length > 0 ? message : fallback;
 }
 
-export { ipcErrorMessage, parsePort };
+/** Why a switch or detach waits: it would dispose these unsaved buffers. */
+function unsavedChangesMessage(files: string[]): string {
+    return `Save or discard unsaved changes first: ${files.join(", ")}`;
+}
+
+export { ipcErrorMessage, parsePort, unsavedChangesMessage };

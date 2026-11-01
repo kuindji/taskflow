@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { MenuEntry } from "@taskflow/shared";
 import { ManageBackendsDialog } from "./ManageBackendsDialog";
+import { clearEditorDirty, setEditorDirty } from "@/components/panes/editor-dirty-state";
 
 // @ts-expect-error react act env flag, no upstream type for this global
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -222,4 +223,37 @@ test("saving only a new name does not retry an unauthorized machine", async () =
     const input = document.querySelector<HTMLInputElement>('input[aria-label="Name"]');
     await saveTokenDialog(input, "Renamed");
     expect(retries).toBe(0);
+});
+test("removing a machine with unsaved edits is refused before anything is detached", async () => {
+    const removed: string[] = [];
+    let detached = 0;
+    const previous = useBackendStore.getState();
+    useBackendStore.setState({
+        machines: [{ ...desktop, state: "attached", isLocal: false, keepAttached: true }],
+        detach: async () => {
+            detached++;
+        },
+    });
+    setEditorDirty(desktop.id, "/repo/a.ts", true);
+    cleanups.push(() => {
+        clearEditorDirty(desktop.id, "/repo/a.ts");
+        useBackendStore.setState(previous);
+    });
+    window.taskflow = {
+        listBackends: async () => [desktop],
+        onBackendsChanged: () => () => {},
+        removeBackend: async (id: string) => {
+            removed.push(id);
+            return { ok: true };
+        },
+    } as unknown as Bridge;
+    await mountTokenDialog();
+    const remove = [...document.querySelectorAll("button")].find((b) => b.textContent === "Remove");
+    await act(async () => {
+        remove?.click();
+        await Bun.sleep(10);
+    });
+    expect(detached).toBe(0);
+    expect(removed).toEqual([]);
+    expect(document.body.textContent).toContain("/repo/a.ts");
 });
