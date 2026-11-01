@@ -9,6 +9,7 @@ import { downloadArtifact, isArtifactUrl } from "./artifact-download";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
 import { backendOrigin } from "./backend-url";
+import type { NotificationClickPayload } from "./notification-poller";
 import type { TrayState } from "./tray-manager";
 
 interface IpcHandlersDeps {
@@ -28,6 +29,7 @@ interface IpcHandlersDeps {
     setWordWrapChecked: (value: boolean) => void;
     setConfirmBeforeExit: (value: boolean) => void;
     updateController: UpdateController;
+    takePendingNotificationClick: () => NotificationClickPayload | null;
 }
 
 interface NativeMenuItem {
@@ -80,6 +82,7 @@ function buildNativeMenuTemplate(
 
 function registerIpcHandlers(deps: IpcHandlersDeps): void {
     ipcMain.handle("get-backend-port", () => deps.getBackendPort());
+    ipcMain.handle("take-pending-notification-click", () => deps.takePendingNotificationClick());
 
     ipcMain.handle("open-external-url", (_event, url: string) => {
         if (!url.startsWith("https://") && !url.startsWith("http://")) return;

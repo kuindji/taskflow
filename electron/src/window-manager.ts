@@ -21,6 +21,8 @@ interface WindowManagerDeps {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let windowCreation: Promise<void> | null = null;
+let lastNonMaximizedBounds: Electron.Rectangle | null = null;
 let windowSavePromise: Promise<Response | undefined> | null = null;
 let deps: WindowManagerDeps;
 
@@ -58,7 +60,19 @@ function validateBounds(
     return rect;
 }
 
-async function createWindow(): Promise<void> {
+/**
+ * Opens the main window unless it is open or opening. Callers overlapping the
+ * settings fetch share one window instead of each building their own.
+ */
+function createWindow(): Promise<void> {
+    if (mainWindow) return Promise.resolve();
+    windowCreation ??= buildWindow().finally(() => {
+        windowCreation = null;
+    });
+    return windowCreation;
+}
+
+async function buildWindow(): Promise<void> {
     const appPath = app.getAppPath();
     const saved = await fetchSavedLayout();
     const validBounds = saved ? validateBounds(saved) : null;
@@ -91,7 +105,8 @@ async function createWindow(): Promise<void> {
         },
     };
 
-    mainWindow = new BrowserWindow(windowOptions);
+    const window = new BrowserWindow(windowOptions);
+    mainWindow = window;
 
     mainWindow.webContents.on(
         "did-start-navigation",
@@ -115,7 +130,7 @@ async function createWindow(): Promise<void> {
         mainWindow.maximize();
     }
 
-    let lastNonMaximizedBounds = mainWindow.getBounds();
+    lastNonMaximizedBounds = mainWindow.getBounds();
     const broadcastFullscreenState = () => {
         mainWindow?.webContents.send("window-fullscreen-changed", {
             fullscreen: mainWindow.isFullScreen(),
@@ -143,28 +158,7 @@ async function createWindow(): Promise<void> {
 
     mainWindow.on("close", () => {
         browserHost.detachAll();
-        const port = deps.getBackendPort();
-        if (!mainWindow || !port) return;
-        const isMaximized = mainWindow.isMaximized();
-        const bounds = isMaximized ? lastNonMaximizedBounds : mainWindow.getBounds();
-        windowSavePromise = deps
-            .backendFetch(backendOrigin(port), "/api/settings", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    layout: {
-                        window: {
-                            x: bounds.x,
-                            y: bounds.y,
-                            width: bounds.width,
-                            height: bounds.height,
-                            isMaximized,
-                        },
-                    },
-                }),
-                signal: AbortSignal.timeout(1000),
-            })
-            .catch(() => undefined);
+        void saveWindowState();
     });
 
     // Prevent Electron from navigating to file:// URLs when files are
@@ -182,10 +176,41 @@ async function createWindow(): Promise<void> {
         void mainWindow.loadFile(deps.getUIPath());
     }
 
-    mainWindow.on("closed", () => {
-        mainWindow = null;
+    window.on("closed", () => {
+        if (mainWindow === window) mainWindow = null;
         deps.onWindowClosed();
     });
+}
+
+/**
+ * Sends the main window's bounds to the backend. Quit calls it before stopping
+ * the backend, because `before-quit` comes before the windows' `close`.
+ */
+function saveWindowState(): Promise<Response | undefined> | null {
+    const port = deps.getBackendPort();
+    if (!mainWindow || !port) return null;
+    const isMaximized = mainWindow.isMaximized();
+    const bounds =
+        isMaximized && lastNonMaximizedBounds ? lastNonMaximizedBounds : mainWindow.getBounds();
+    windowSavePromise = deps
+        .backendFetch(backendOrigin(port), "/api/settings", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                layout: {
+                    window: {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                        isMaximized,
+                    },
+                },
+            }),
+            signal: AbortSignal.timeout(1000),
+        })
+        .catch(() => undefined);
+    return windowSavePromise;
 }
 
 function showDockIcon(): void {
@@ -235,4 +260,5 @@ export {
     getMainWindow,
     getWindowSavePromise,
     clearWindowSavePromise,
+    saveWindowState,
 };

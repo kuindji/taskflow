@@ -151,5 +151,14 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
     };
 }
 
+/** What a desktop notification click tells the renderer to open. */
+interface NotificationClickPayload {
+    id: string;
+    backendId: string;
+    projectId: string;
+    sessionId: string;
+    taskId?: string;
+}
+
 export { createNotificationPoller, fetchBackendNotifications };
-export type { BackendNotification };
+export type { BackendNotification, NotificationClickPayload };

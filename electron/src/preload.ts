@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { BackendRecord, DesktopUpdateState, MenuEntry, TunnelFailure } from "@taskflow/shared";
 import type { Bounds, HostedView } from "./browser-host/tab-host";
+import type { NotificationClickPayload } from "./notification-poller";
 
 interface NativeMenuItem {
     id?: string;
@@ -257,26 +258,18 @@ contextBridge.exposeInMainWorld("taskflow", {
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     saveArtifact: (opts: { url?: string; text?: string; defaultName?: string }) =>
         ipcRenderer.invoke("save-artifact", opts) as Promise<{ success: boolean; error?: string }>,
-    onNotificationClicked: (
-        callback: (payload: {
-            id: string;
-            backendId: string;
-            projectId: string;
-            sessionId: string;
-            taskId?: string;
-        }) => void,
-    ) => {
-        const listener = (
-            _event: Electron.IpcRendererEvent,
-            payload: {
-                id: string;
-                backendId: string;
-                projectId: string;
-                sessionId: string;
-                taskId?: string;
-            },
-        ) => callback(payload);
+    onNotificationClicked: (callback: (payload: NotificationClickPayload) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, payload: NotificationClickPayload) =>
+            callback(payload);
         ipcRenderer.on("notification-clicked", listener);
+        // A click that reopened the window arrived before this page could listen.
+        void (
+            ipcRenderer.invoke(
+                "take-pending-notification-click",
+            ) as Promise<NotificationClickPayload | null>
+        ).then((pending) => {
+            if (pending) callback(pending);
+        });
         return () => {
             ipcRenderer.removeListener("notification-clicked", listener);
         };

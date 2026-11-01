@@ -24,6 +24,7 @@ import {
     getMainWindow,
     getWindowSavePromise,
     clearWindowSavePromise,
+    saveWindowState,
 } from "./window-manager";
 import {
     initTrayManager,
@@ -47,7 +48,11 @@ import {
 } from "./app-menu";
 import { initAutoUpdater, clearUpdaterCache, setupAutoUpdater } from "./auto-updater";
 import { installRemoteWakeup } from "./remote-wakeup";
-import { createNotificationPoller, fetchBackendNotifications } from "./notification-poller";
+import {
+    createNotificationPoller,
+    fetchBackendNotifications,
+    type NotificationClickPayload,
+} from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { createBackendFetch } from "./backend-fetch";
 import { listAttachedBackends } from "./attached-backends";
@@ -60,6 +65,8 @@ let quitting = false;
 let confirmBeforeExit = false;
 let exitConfirmed = false;
 let devBranch: string | null = null;
+/** A notification click that reopened the window; its renderer takes it once subscribed. */
+let pendingNotificationClick: NotificationClickPayload | null = null;
 
 nativeTheme.themeSource = "dark";
 app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
@@ -104,6 +111,7 @@ initWindowManager({
     getUIDevServerURL,
     getUIPath,
     onWindowClosed: () => {
+        pendingNotificationClick = null;
         resetRendererTraySync();
         trayOnWindowClosed();
         // The browser host's park window keeps "window-all-closed" from firing; with no
@@ -163,24 +171,34 @@ const notificationPoller = createNotificationPoller({
             body: notification.message,
         });
         desktopNotification.on("click", () => {
-            const mainWindow = getMainWindow();
-            if (!mainWindow) return;
-            if (!mainWindow.isVisible()) mainWindow.show();
-            mainWindow.focus();
             // Project, task and session ids do not say which machine to navigate on.
             const id = backendId();
-            if (id === null) return;
-            mainWindow.webContents.send("notification-clicked", {
-                id: notification.id,
-                backendId: id,
-                projectId: notification.projectId,
-                sessionId: notification.sessionId,
-                taskId: notification.taskId,
-            });
+            void openNotification(
+                id === null
+                    ? null
+                    : {
+                          id: notification.id,
+                          backendId: id,
+                          projectId: notification.projectId,
+                          sessionId: notification.sessionId,
+                          taskId: notification.taskId,
+                      },
+            );
         });
         desktopNotification.show();
     },
 });
+
+/** Brings the window back (macOS keeps running without one) and opens the notification. */
+async function openNotification(payload: NotificationClickPayload | null): Promise<void> {
+    const hadWindow = getMainWindow() !== null;
+    await showMainWindow();
+    const mainWindow = getMainWindow();
+    if (!payload || !mainWindow) return;
+    // A window opened just now has no renderer listening yet.
+    if (hadWindow) mainWindow.webContents.send("notification-clicked", payload);
+    else pendingNotificationClick = payload;
+}
 
 registerIpcHandlers({
     backendFetch,
@@ -201,6 +219,11 @@ registerIpcHandlers({
         confirmBeforeExit = value;
     },
     updateController,
+    takePendingNotificationClick: () => {
+        const payload = pendingNotificationClick;
+        pendingNotificationClick = null;
+        return payload;
+    },
 });
 
 // --- App lifecycle ---
@@ -248,6 +271,8 @@ function onAllAppWindowsClosed(): void {
 app.on("window-all-closed", onAllAppWindowsClosed);
 
 app.on("activate", () => {
+    // During startup `whenReady` opens the window once the backend is up.
+    if (getBackendPort() === null) return;
     void showMainWindow();
 });
 
@@ -282,7 +307,8 @@ app.on("before-quit", (e) => {
     disposeRemoteWakeup = undefined;
     stopTrayStatePolling();
     notificationPoller.stop();
-    const savePromise = getWindowSavePromise();
+    // Windows close after `before-quit`, so their own save would reach a stopped backend.
+    const savePromise = saveWindowState() ?? getWindowSavePromise();
     if (savePromise) {
         quitting = true;
         e.preventDefault();
