@@ -16,7 +16,9 @@ import type { Router } from "../ws/router";
 import type { FileWatcher } from "../services/file-watcher";
 import type { TaskStore } from "../services/task-store";
 import type { ChangeTracker } from "../services/change-tracker";
-import { readFile, writeFile, stat as fsStat, rename, rm, mkdir } from "fs/promises";
+import { readFile, writeFile, stat as fsStat, lstat, rename, rm, mkdir } from "fs/promises";
+import type { Stats } from "fs";
+import { basename, dirname } from "path";
 import { isUtf8 } from "buffer";
 import {
     assertMutableWorkspaceEntry,
@@ -34,6 +36,19 @@ async function readExisting(path: string): Promise<Buffer> {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return Buffer.alloc(0);
         throw error;
     }
+}
+
+/** `newPath` is `oldPath` spelled differently (case, Unicode form) on a volume that ignores it. */
+async function isSameEntryRespelled(oldPath: string, newPath: string, existing: Stats) {
+    const source = await lstat(oldPath).catch(() => null);
+    const foldName = (path: string) => basename(path).normalize("NFC").toLowerCase();
+    return (
+        source !== null &&
+        source.dev === existing.dev &&
+        source.ino === existing.ino &&
+        dirname(oldPath) === dirname(newPath) &&
+        foldName(oldPath) === foldName(newPath)
+    );
 }
 
 interface FileHandlerDeps {
@@ -118,17 +133,12 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
     router.register(MSG.FILE_RENAME, async (payload) => {
         const { oldPath, newPath } = payload as FileRenamePayload;
         const resolvedOld = await assertMutableWorkspaceEntry(taskStore, oldPath);
-        const resolvedNew = await assertWorkspacePath(taskStore, newPath);
-        try {
-            await fsStat(resolvedNew);
+        // The name as typed: resolving it would give back the existing spelling
+        // on a case-insensitive volume, and a case-only rename would do nothing.
+        const resolvedNew = await assertMutableWorkspaceEntry(taskStore, newPath);
+        const existing = await lstat(resolvedNew).catch(() => null);
+        if (existing && !(await isSameEntryRespelled(resolvedOld, resolvedNew, existing))) {
             throw new Error("A file or folder with that name already exists");
-        } catch (e) {
-            if (
-                e instanceof Error &&
-                e.message === "A file or folder with that name already exists"
-            )
-                throw e;
-            // ENOENT is expected — target doesn't exist, proceed
         }
         await rename(resolvedOld, resolvedNew);
         return { success: true };

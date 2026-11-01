@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { FileWatcher } from "../../src/services/file-watcher";
 import type { FileChangeEvent } from "@taskflow/shared";
-import { mkdtemp, rm, writeFile, mkdir } from "fs/promises";
+import { mkdtemp, rm, writeFile, mkdir, symlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -75,6 +75,27 @@ describe("FileWatcher", () => {
         expect(srcTreeNames).toContain("visible.ts");
         expect(listedNames).not.toContain(".DS_Store");
         expect(listedNames).toContain("visible.ts");
+    });
+
+    it("lists a symlink to a directory as a directory", async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "taskflow-fw-test-"));
+        await mkdir(join(tempDir, "docs"));
+        await writeFile(join(tempDir, "readme.md"), "x");
+        await symlink(join(tempDir, "docs"), join(tempDir, "docs-link"));
+        await symlink(join(tempDir, "readme.md"), join(tempDir, "readme-link"));
+        await symlink(join(tempDir, "missing"), join(tempDir, "dangling-link"));
+
+        watcher = new FileWatcher();
+        const { entries } = await watcher.listDir(tempDir);
+        const types = Object.fromEntries(entries.map((e) => [e.name, e.type]));
+
+        expect(types).toEqual({
+            docs: "directory",
+            "docs-link": "directory",
+            "dangling-link": "file",
+            "readme-link": "file",
+            "readme.md": "file",
+        });
     });
 
     it("watches for file changes", async () => {

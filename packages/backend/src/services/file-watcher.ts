@@ -1,5 +1,6 @@
 import type { FileNode, FileChangeEvent } from "@taskflow/shared";
 import { readdir, readFile, stat } from "fs/promises";
+import type { Dirent } from "fs";
 import { join, basename } from "path";
 import { watchRecursive, type WatchBatch, type RecursiveWatchHandle } from "./recursive-watcher";
 
@@ -58,6 +59,15 @@ interface ActiveWatcher {
 interface BuildTreeResult {
     tree: FileNode;
     gitignorePatterns: string[];
+}
+
+/** A symlink counts as what it points to, so a linked folder can be expanded. */
+async function isDirectoryEntry(entry: Dirent, fullPath: string): Promise<boolean> {
+    if (entry.isDirectory()) return true;
+    if (!entry.isSymbolicLink()) return false;
+    return stat(fullPath)
+        .then((target) => target.isDirectory())
+        .catch(() => false);
 }
 
 export class FileWatcher {
@@ -128,7 +138,7 @@ export class FileWatcher {
                 entries.push({
                     name: entry.name,
                     path: fullPath,
-                    type: entry.isDirectory() ? "directory" : "file",
+                    type: (await isDirectoryEntry(entry, fullPath)) ? "directory" : "file",
                 });
             }
             entries.sort((a, b) => {

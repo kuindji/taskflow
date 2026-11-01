@@ -4,10 +4,12 @@ import { TestRouter } from "../test-router";
 import { TaskStore } from "../../src/services/task-store";
 import { FileWatcher } from "../../src/services/file-watcher";
 import {
+    link,
     lstat,
     mkdtemp,
     mkdir,
     readFile,
+    readdir,
     readlink,
     realpath,
     rm,
@@ -253,6 +255,32 @@ describe("file handlers", () => {
 
             await expectRejects(
                 () => router.handle(MSG.FILE_RENAME, { oldPath: filePath, newPath: targetPath }),
+                "already exists",
+            );
+        });
+
+        it("changes only the case of a name", async () => {
+            const filePath = join(projectDir, "CLAUDE.md");
+            await writeFile(filePath, "hello");
+
+            const result = await router.handle(MSG.FILE_RENAME, {
+                oldPath: filePath,
+                newPath: join(projectDir, "claude.md"),
+            });
+
+            expect(result).toEqual({ success: true });
+            expect(await readdir(projectDir)).toEqual(["claude.md"]);
+            expect(await readFile(join(projectDir, "claude.md"), "utf-8")).toBe("hello");
+        });
+
+        it("rejects rename onto another name of the same file", async () => {
+            const filePath = join(projectDir, "a.txt");
+            const otherName = join(projectDir, "b.txt");
+            await writeFile(filePath, "a");
+            await link(filePath, otherName);
+
+            await expectRejects(
+                () => router.handle(MSG.FILE_RENAME, { oldPath: filePath, newPath: otherName }),
                 "already exists",
             );
         });
