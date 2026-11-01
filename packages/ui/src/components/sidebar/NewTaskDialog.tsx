@@ -148,16 +148,12 @@ export function NewTaskDialog({
 
     const handleStartWithChange = useCallback(
         (value: string) => {
-            if (value === "claude" && !claudeAvailable) return;
-            if (value === "codex" && !codexAvailable) return;
-            if (value === "opencode" && !opencodeAvailable) return;
-            if (value === "pi" && !piAvailable) return;
-            if (value === "kimi" && !kimiAvailable) return;
+            if (isAgentType(value) && !isAgentAvailable(agents, value)) return;
             setStartWith(value);
             if (!isAgentType(value)) setAgentOptions(undefined);
             if (value !== "flow") setStartWithFlowId("");
         },
-        [claudeAvailable, codexAvailable, opencodeAvailable, piAvailable, kimiAvailable],
+        [agents],
     );
 
     const handleOpenChange = useCallback(
@@ -174,9 +170,14 @@ export function NewTaskDialog({
     );
 
     const flows = useMemo(() => flowsFor(projectId), [flowsFor, projectId]);
-    // Changing the project can take the chosen flow, or every flow, out of reach.
+    // Changing the project can take the chosen flow, or every flow, out of
+    // reach, or move the task to a machine without the chosen agent.
     const flowId = flows.some((f) => f.id === startWithFlowId) ? startWithFlowId : "";
-    const startWithChoice = startWith === "flow" && flows.length === 0 ? "none" : startWith;
+    const startWithChoice =
+        (startWith === "flow" && flows.length === 0) ||
+        (isAgentType(startWith) && !isAgentAvailable(agents, startWith))
+            ? "none"
+            : startWith;
     const hasFlowSelection = startWithChoice !== "flow" || flowId !== "";
     const canSubmit =
         !submitting &&
@@ -197,8 +198,8 @@ export function NewTaskDialog({
                 description: description.trim(),
                 worktree: isSubtask ? false : worktree,
                 parentId: parentId ?? undefined,
-                startWith: isAgentType(startWith) ? startWith : undefined,
-                agentOptions,
+                startWith: isAgentType(startWithChoice) ? startWithChoice : undefined,
+                agentOptions: isAgentType(startWithChoice) ? agentOptions : undefined,
                 startWithFlowId: startWithChoice === "flow" && flowId ? flowId : undefined,
                 initCommand: worktree ? initCommand.trim() : undefined,
             });
@@ -222,7 +223,6 @@ export function NewTaskDialog({
         worktree,
         isSubtask,
         parentId,
-        startWith,
         agentOptions,
         startWithChoice,
         flowId,
@@ -404,7 +404,7 @@ export function NewTaskDialog({
                         </div>
                     )}
 
-                    {isAgentType(startWith) && (
+                    {isAgentType(startWithChoice) && (
                         <Collapsible open={agentOptionsOpen} onOpenChange={setAgentOptionsOpen}>
                             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 text-sm transition-colors">
                                 <ChevronRight
@@ -419,7 +419,8 @@ export function NewTaskDialog({
                                         backendId={
                                             projects.find((p) => p.id === projectId)?.backendId
                                         }
-                                        agentType={startWith}
+                                        agentType={startWithChoice}
+                                        value={agentOptions}
                                         onChange={setAgentOptions}
                                     />
                                 </div>
