@@ -115,6 +115,7 @@ export class GitService {
         let branch: string | null = null;
         let ahead = 0;
         let behind = 0;
+        let hasUpstream = false;
 
         const records = output.split("\0").filter((record) => record.length > 0);
 
@@ -129,6 +130,7 @@ export class GitService {
                 } else if (record.startsWith("# branch.ab ")) {
                     const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(record);
                     if (match) {
+                        hasUpstream = true;
                         ahead = parseInt(match[1], 10) || 0;
                         behind = parseInt(match[2], 10) || 0;
                     }
@@ -185,7 +187,7 @@ export class GitService {
             }
         }
 
-        return { branch, stagedFiles, unstagedFiles, ahead, behind };
+        return { branch, stagedFiles, unstagedFiles, ahead, behind, hasUpstream };
     }
 
     /** Split a porcelain v2 record into `count` space-separated fields plus the trailing path */

@@ -8,6 +8,7 @@ import type {
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
+import { useChangeStatsUpdates } from "@/stores/diff-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -108,10 +109,12 @@ function CommitRow({ entry, isSelected, onSelect }: CommitRowProps) {
 
 interface HistoryPaneProps {
     repoPath: string;
+    /** The change-stats target of `repoPath`; its updates refresh the log. */
+    changeTarget?: string;
     className?: string;
 }
 
-function HistoryPane({ repoPath, className }: HistoryPaneProps) {
+function HistoryPane({ repoPath, changeTarget, className }: HistoryPaneProps) {
     const [entries, setEntries] = useState<GitLogEntry[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const [logLoading, setLogLoading] = useState(true);
@@ -125,27 +128,33 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
     const [diffError, setDiffError] = useState(false);
     const repoVersionRef = useRef(0);
     const requestIdRef = useRef(0);
+    // Only the latest log read lands: a page read before a refresh would
+    // append at an offset the refreshed list no longer has.
+    const logRequestIdRef = useRef(0);
     const request = useWorkspaceRequest();
 
     const fetchLog = useCallback(
-        async (skip: number, repoVersion = repoVersionRef.current) => {
+        async (skip: number, repoVersion = repoVersionRef.current, limit = PAGE_SIZE) => {
+            const logRequestId = ++logRequestIdRef.current;
+            const isCurrent = () =>
+                repoVersion === repoVersionRef.current && logRequestId === logRequestIdRef.current;
             setLogLoading(true);
             try {
                 const result = await request<GitLogResult>(MSG.GIT_LOG, {
                     repoPath,
-                    limit: PAGE_SIZE,
+                    limit,
                     skip,
                 });
-                if (repoVersion !== repoVersionRef.current) return;
+                if (!isCurrent()) return;
                 setEntries((prev) => (skip === 0 ? result.entries : [...prev, ...result.entries]));
                 setHasMore(result.hasMore);
                 setLogError(false);
             } catch (err: unknown) {
-                if (repoVersion !== repoVersionRef.current) return;
+                if (!isCurrent()) return;
                 console.error("Failed to fetch git log:", err);
                 setLogError(true);
             } finally {
-                if (repoVersion === repoVersionRef.current) setLogLoading(false);
+                if (isCurrent()) setLogLoading(false);
             }
         },
         [repoPath, request],
@@ -166,6 +175,11 @@ function HistoryPane({ repoPath, className }: HistoryPaneProps) {
         setDiffError(false);
         void fetchLog(0, repoVersion);
     }, [repoPath, fetchLog]);
+
+    // New commits land while the pane is open; reread as many as are listed.
+    useChangeStatsUpdates(changeTarget, () => {
+        void fetchLog(0, repoVersionRef.current, Math.max(PAGE_SIZE, entries.length));
+    });
 
     async function selectCommit(hash: string) {
         const repoVersion = repoVersionRef.current;

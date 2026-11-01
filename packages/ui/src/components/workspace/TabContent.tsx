@@ -8,6 +8,7 @@ import { HistoryPane } from "@/components/panes/HistoryPane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { MarkdownPane } from "@/components/panes/MarkdownPane";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { changeTargetId } from "@/stores/diff-store";
 import { cn } from "@/lib/utils";
 import { useDroppable } from "@dnd-kit/core";
 
@@ -119,7 +120,10 @@ function TabContent({ tabs, activeTabId, workspaceKey, paneFocused }: TabContent
                         label = "Changes";
                         if (!isActive) return null;
                         pane = workspace.workingDir ? (
-                            <ChangesPane repoPath={workspace.workingDir} />
+                            <ChangesPane
+                                repoPath={workspace.workingDir}
+                                changeTarget={changeTargetId(workspace.task, workspace.project)}
+                            />
                         ) : (
                             <div className="text-muted-foreground p-3">
                                 Repository not available
@@ -131,7 +135,10 @@ function TabContent({ tabs, activeTabId, workspaceKey, paneFocused }: TabContent
                         label = "History";
                         if (!isActive) return null;
                         pane = workspace.workingDir ? (
-                            <HistoryPane repoPath={workspace.workingDir} />
+                            <HistoryPane
+                                repoPath={workspace.workingDir}
+                                changeTarget={changeTargetId(workspace.task, workspace.project)}
+                            />
                         ) : (
                             <div className="text-muted-foreground p-3">
                                 Repository not available

@@ -422,9 +422,16 @@ describe("GitService", () => {
         const remoteDir = await mkdtemp(join(tmpdir(), "taskflow-git-remote-"));
         await run(["git", "init", "--bare", "--initial-branch=main"], remoteDir);
         await run(["git", "remote", "add", "origin", remoteDir], repoDir);
+
+        // An unpublished branch has nothing to count against
+        let status = await git.status(repoDir);
+        expect(status.hasUpstream).toBe(false);
+        expect(status.ahead).toBe(0);
+
         await run(["git", "push", "-u", "origin", "HEAD"], repoDir);
 
-        let status = await git.status(repoDir);
+        status = await git.status(repoDir);
+        expect(status.hasUpstream).toBe(true);
         expect(status.ahead).toBe(0);
         expect(status.behind).toBe(0);
 

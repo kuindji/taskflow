@@ -1,5 +1,6 @@
+import { useEffect, useEffectEvent } from "react";
 import { create } from "zustand";
-import type { ChangeStatsEvent } from "@taskflow/shared";
+import type { ChangeStatsEvent, Project, Task } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { onEvent } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
@@ -28,6 +29,25 @@ export const useDiffStore = create<DiffStore>(() => ({
     aheadByProject: {},
     behindByProject: {},
 }));
+
+/** The target a workspace's repository reports changes under: a worktree task's own, else its project's. */
+export function changeTargetId(
+    task: Pick<Task, "id" | "worktree"> | null | undefined,
+    project: Pick<Project, "id"> | null | undefined,
+): string | undefined {
+    return task?.worktree.enabled && task.worktree.path ? task.id : project?.id;
+}
+
+/** Calls `onChange` each time the backend reports new change stats for `targetId`. */
+export function useChangeStatsUpdates(targetId: string | undefined, onChange: () => void): void {
+    const handleChange = useEffectEvent(onChange);
+    useEffect(() => {
+        if (!targetId) return;
+        return onEvent(MSG.GIT_CHANGE_STATS, (payload) => {
+            if ((payload as ChangeStatsEvent).targetId === targetId) handleChange();
+        });
+    }, [targetId]);
+}
 
 /**
  * The machine that reported each target. The maps stay flat — target ids are

@@ -8,6 +8,7 @@ import type {
 import { MSG } from "@taskflow/shared";
 import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { confirm } from "@/stores/dialog-store";
+import { useChangeStatsUpdates } from "@/stores/diff-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Undo2, Plus, Minus, ChevronDown, ChevronRight } from "lucide-react";
@@ -168,10 +169,12 @@ function SectionHeader({ label, count, collapsed, onToggle, action }: SectionHea
 
 interface ChangesPaneProps {
     repoPath: string;
+    /** The change-stats target of `repoPath`; its updates refresh the pane. */
+    changeTarget?: string;
     className?: string;
 }
 
-function ChangesPane({ repoPath, className }: ChangesPaneProps) {
+function ChangesPane({ repoPath, changeTarget, className }: ChangesPaneProps) {
     const [status, setStatus] = useState<GitStatusResult | null>(null);
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [diffContent, setDiffContent] = useState<GitDiffFileContentResult | null>(null);
@@ -213,12 +216,15 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
         void fetchStatus(repoVersion);
     }, [repoPath, fetchStatus]);
 
-    async function showDiff(filePath: string, fromStaged?: boolean) {
+    /** `quiet` refreshes the shown diff in place, without a loading state. */
+    async function showDiff(filePath: string, fromStaged?: boolean, quiet = false) {
         const repoVersion = repoVersionRef.current;
         const requestId = ++diffRequestIdRef.current;
-        setSelectedFile(filePath);
-        setDiffContent(null);
-        setDiffLoading(true);
+        if (!quiet) {
+            setSelectedFile(filePath);
+            setDiffContent(null);
+            setDiffLoading(true);
+        }
         if (fromStaged !== undefined) {
             setDiffTab(fromStaged ? "staged" : "unstaged");
         }
@@ -247,6 +253,12 @@ function ChangesPane({ repoPath, className }: ChangesPaneProps) {
             }
         }
     }
+
+    // Agents and the commit dialog change the repository while the pane is open.
+    useChangeStatsUpdates(changeTarget, () => {
+        void fetchStatus();
+        if (selectedFile) void showDiff(selectedFile, undefined, true);
+    });
 
     async function stageFile(file: GitFileStatus) {
         try {

@@ -12,7 +12,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
 
-import { useDiffStore } from "@/stores/diff-store";
+import { changeTargetId, useDiffStore } from "@/stores/diff-store";
 import { confirm } from "@/stores/dialog-store";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import {
@@ -116,7 +116,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
     const [forkOpen, setForkOpen] = useState(false);
     const isWorktreeTask = !!task?.worktree.enabled && !!task.worktree.path;
     const gitRepoPath = isWorktreeTask ? (task?.worktree.path ?? "") : (project?.path ?? "");
-    const diffKey = isWorktreeTask ? task.id : project?.id;
+    const diffKey = changeTargetId(task, project);
     const diffStats = useDiffStore((s) => (diffKey ? (s.statsByProject[diffKey] ?? null) : null));
     const diffDisabled = useDiffStore((s) =>
         diffKey ? (s.diffDisabledByProject[diffKey] ?? true) : true,

@@ -5,6 +5,7 @@ import type {
     BuiltinActionDefinition,
     BuiltinActionsListResponse,
     GitStatusResponse,
+    GitStatusResult,
     GitCreatePrResult,
     GitCommitResult,
 } from "@taskflow/shared";
@@ -60,6 +61,14 @@ async function loadCommitAction(
         }
         throw error;
     }
+}
+
+/**
+ * A branch with no remote branch yet (a new task branch committed locally):
+ * a request needs it pushed first. An older machine never reports upstreams.
+ */
+function isUnpublished(status: GitStatusResult): boolean {
+    return status.hasUpstream === false && status.branch !== null;
 }
 
 export function CommitDialog({ open, onOpenChange, repoPath, sessionOwner }: CommitDialogProps) {
@@ -119,6 +128,7 @@ export function CommitDialogBody({
     const [includeUnstaged, setIncludeUnstaged] = useState(true);
     const [ahead, setAhead] = useState<number | null>(null);
     const [behind, setBehind] = useState(0);
+    const [unpublished, setUnpublished] = useState(false);
 
     const [branch, setBranch] = useState<string | null>(null);
     const [lookup, setLookup] = useState<GitCheckPrResult | null>(null);
@@ -157,6 +167,7 @@ export function CommitDialogBody({
         setCreatePr(false);
         setHasChanges(null);
         setAhead(null);
+        setUnpublished(false);
         if (!open) return;
         let active = true;
         void request<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
@@ -168,6 +179,7 @@ export function CommitDialogBody({
                 setHasStagedChanges(res.status.stagedFiles.length > 0);
                 setAhead(res.status.ahead);
                 setBehind(res.status.behind);
+                setUnpublished(isUnpublished(res.status));
                 setPush(!changed);
                 setBranch(res.status.branch);
                 const result: GitCheckPrResult = res.status.branch
@@ -232,9 +244,10 @@ export function CommitDialogBody({
 
         try {
             if (prOnly) {
-                // PR-only mode — everything is committed and pushed
+                // PR-only mode — everything is committed; a branch never pushed is published first
                 const prTitle = message.trim() || null;
                 const title = prTitle ?? branch ?? "update";
+                if (unpublished) await request(MSG.GIT_PUSH, { path: repoPath });
                 await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
                     path: repoPath,
                     title,
@@ -322,6 +335,22 @@ export function CommitDialogBody({
             handleOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
+            // The failed step may follow ones that landed (the commit before
+            // its push, the push before the request): when the repository
+            // moved, read it again so a retry offers only what is left.
+            void request<GitStatusResponse>(MSG.GIT_STATUS, { path: repoPath }).then(
+                ({ status }) => {
+                    const changed =
+                        status.stagedFiles.length > 0 || status.unstagedFiles.length > 0;
+                    if (
+                        changed !== hasChanges ||
+                        status.ahead !== ahead ||
+                        isUnpublished(status) !== unpublished
+                    )
+                        setRetry((value) => value + 1);
+                },
+                () => {},
+            );
         } finally {
             setLoading(false);
         }
@@ -329,6 +358,7 @@ export function CommitDialogBody({
         commitButtonDisabled,
         hasChanges,
         ahead,
+        unpublished,
         canCreate,
         branch,
         labels.agentInstruction,

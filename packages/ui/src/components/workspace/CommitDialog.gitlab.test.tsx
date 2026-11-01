@@ -23,6 +23,9 @@ let container: HTMLDivElement | null = null;
 const none: GitCheckPrResult = { status: "none", provider: "gitlab", pr: null };
 function fixture(changes = false) {
     const requests: string[] = [];
+    // The repository the requests act on; commit and push move it.
+    const repo = { changes, ahead: 0, hasUpstream: true };
+    const failing = new Set<string>();
     const sessions: unknown[][] = [];
     let result: GitCheckPrResult = none;
     let hold: Promise<GitCheckPrResult> | null = null;
@@ -35,18 +38,22 @@ function fixture(changes = false) {
         sessionOwner: { taskId: "task" },
         request: async <T,>(type: string): Promise<T> => {
             requests.push(type);
+            if (failing.has(type)) throw new Error(`${type} failed`);
             if (type === MSG.GIT_STATUS)
                 return {
                     status: {
                         branch: "topic",
                         stagedFiles: [],
-                        unstagedFiles: changes
+                        unstagedFiles: repo.changes
                             ? [{ path: "file", status: "modified", staged: false }]
                             : [],
-                        ahead: 0,
+                        ahead: repo.ahead,
                         behind: 0,
+                        hasUpstream: repo.hasUpstream,
                     },
                 } as GitStatusResponse as T;
+            if (type === MSG.GIT_COMMIT) repo.changes = false;
+            if (type === MSG.GIT_PUSH) repo.hasUpstream = true;
             if (type === MSG.BUILTIN_ACTIONS_LIST) return { actions: [] } as T;
             return { message: "commit", hash: "a" } as T;
         },
@@ -60,6 +67,8 @@ function fixture(changes = false) {
         props,
         requests,
         sessions,
+        repo,
+        failing,
         setResult(value: GitCheckPrResult) {
             result = value;
         },
@@ -105,6 +114,39 @@ test("GitLab renders Create MR and MR Title", async () => {
     expect(button("Create MR").disabled).toBe(false);
     expect(document.body.textContent).toContain("Create Merge Request");
     expect(document.querySelector('label[for="pr-title"]')?.textContent).toContain("MR Title");
+});
+test("a branch never pushed is published before its merge request", async () => {
+    const f = fixture();
+    f.repo.hasUpstream = false;
+    await render(f.props);
+    await click(button("Create MR"));
+    expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([
+        MSG.GIT_PUSH,
+        MSG.GIT_CREATE_PR,
+    ]);
+});
+test("a failed merge request after commit and push offers only the request again", async () => {
+    const f = fixture(true);
+    f.failing.add(MSG.GIT_CREATE_PR);
+    await render(f.props);
+    await act(async () => {
+        const input = document.querySelector<HTMLTextAreaElement>("#commit-message");
+        if (!input) throw new Error("Missing message");
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+            input,
+            "change",
+        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(document.querySelector("#commit-push"));
+    await click(document.querySelector("#commit-create-pr"));
+    await click(button("Commit & Push"));
+    expect(document.body.textContent).toContain(`${MSG.GIT_CREATE_PR} failed`);
+    // The commit landed: the dialog now offers the merge request alone
+    f.failing.clear();
+    f.requests.length = 0;
+    await click(button("Create MR"));
+    expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([MSG.GIT_CREATE_PR]);
 });
 test("GitLab agent mode requests a merge request", async () => {
     const f = fixture(true);

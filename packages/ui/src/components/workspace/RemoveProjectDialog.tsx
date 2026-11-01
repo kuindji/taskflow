@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Project } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import {
@@ -29,6 +29,12 @@ export function RemoveProjectDialog({
     onArchive,
 }: RemoveProjectDialogProps) {
     const [keepData, setKeepData] = useState(true);
+
+    // The dialog stays mounted: a switch turned off and cancelled must not
+    // make the next open default to deleting.
+    useEffect(() => {
+        if (open) setKeepData(true);
+    }, [open]);
 
     const handleConfirm = useCallback(() => {
         if (keepData) {

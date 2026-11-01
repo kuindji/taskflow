@@ -34,8 +34,14 @@ export interface GitStatusResult {
     branch: string | null;
     stagedFiles: GitFileStatus[];
     unstagedFiles: GitFileStatus[];
+    /** Counted against the upstream; both 0 when there is none. */
     ahead: number;
     behind: number;
+    /**
+     * The branch tracks a remote branch that exists. A new task branch has
+     * none until its first push publishes it. Absent from older machines.
+     */
+    hasUpstream?: boolean;
 }
 
 export interface GitDiffResult {
