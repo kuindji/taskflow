@@ -249,6 +249,12 @@ function getOrCreateTerminal(
             ),
         onReady: onBackendReady,
         resync: () => attachment.resync(),
+        resize: () => {
+            // A hidden terminal sends its size when it is shown again.
+            if (writer.visible) {
+                useSessionStore.getState().resizeTerminal(sessionId, term.cols, term.rows);
+            }
+        },
     });
 
     /** Session ids are unique across machines; its history lives where it runs. */

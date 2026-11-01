@@ -5,6 +5,7 @@ import { subscribeTerminalRecovery } from "./terminal-attachment";
 function fixture() {
     let backendId = "provisional";
     let calls = 0;
+    let resizes = 0;
     const resyncHandlers = new Set<(event: TerminalResyncEvent, backendId: string) => void>();
     const readyHandlers = new Set<(backendId: string) => void>();
     const dispose = subscribeTerminalRecovery({
@@ -26,12 +27,16 @@ function fixture() {
             calls++;
             return Promise.reject(new Error("offline"));
         },
+        resize() {
+            resizes++;
+        },
     });
     return {
         dispose,
         resyncHandlers,
         readyHandlers,
         calls: () => calls,
+        resizes: () => resizes,
         rename() {
             backendId = "canonical";
         },
@@ -63,6 +68,18 @@ describe("terminal recovery subscriptions", () => {
         expect(f.calls()).toBe(1);
         f.dispose();
     });
+    it("backend ready resends the terminal size a resize made while offline never delivered", () => {
+        const f = fixture();
+        f.rename();
+        f.ready("provisional");
+        expect(f.resizes()).toBe(0);
+        f.ready("canonical");
+        expect(f.resizes()).toBe(1);
+        // An output gap on a live connection leaves the PTY size as it was.
+        f.resync(["s1"], "canonical");
+        expect(f.resizes()).toBe(1);
+        f.dispose();
+    });
     it("disposing a cached terminal removes resync and ready subscriptions", () => {
         const f = fixture();
         f.dispose();
@@ -71,5 +88,6 @@ describe("terminal recovery subscriptions", () => {
         f.ready("provisional");
         f.resync(["s1"], "provisional");
         expect(f.calls()).toBe(0);
+        expect(f.resizes()).toBe(0);
     });
 });

@@ -15,6 +15,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
 import { resolveTerminalShellPath } from "@/lib/terminal-shells";
 import { getPrimary, sendRequest } from "@/lib/connection-registry";
+import { onBackendReady } from "@/lib/backend-ready";
 
 const emptyTabs: Tab[] = [];
 const emptyScripts: Record<string, string> = {};
@@ -105,20 +106,27 @@ function useSessionSync(workspace: Workspace): SessionSyncResult {
 
         let cancelled = false;
         setFlowRunsHydratedOwnerId(null);
-        void useFlowStore
-            .getState()
-            .fetchFlowRuns(backendId, ownerId)
-            .then(() => {
-                if (!cancelled) {
-                    setFlowRunsHydratedOwnerId(ownerId);
-                }
-            })
-            .catch(() => {
-                // Keep the start control hidden until we can confirm the current owner state.
-            });
+        const hydrate = () =>
+            useFlowStore
+                .getState()
+                .fetchFlowRuns(backendId, ownerId)
+                .then(() => {
+                    if (!cancelled) {
+                        setFlowRunsHydratedOwnerId(ownerId);
+                    }
+                })
+                .catch(() => {
+                    // Keep the start control hidden until we can confirm the current owner state.
+                });
+        void hydrate();
+        // Run updates broadcast while the connection was down never arrived.
+        const offReady = onBackendReady((readyId) => {
+            if (readyId === backendId) void hydrate();
+        });
 
         return () => {
             cancelled = true;
+            offReady();
         };
     }, [ownerId, backendId]);
 

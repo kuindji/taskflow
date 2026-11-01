@@ -12,6 +12,8 @@ export function subscribeTerminalRecovery(deps: {
     onResync(handler: (payload: TerminalResyncEvent, backendId: string) => void): () => void;
     onReady(handler: (backendId: string) => void): () => void;
     resync(): Promise<void>;
+    /** Resizes made while the connection was down never reached the PTY. */
+    resize(): void;
 }): () => void {
     const recover = () => {
         void deps.resync().catch(() => undefined);
@@ -21,7 +23,9 @@ export function subscribeTerminalRecovery(deps: {
             recover();
     });
     const offReady = deps.onReady((backendId) => {
-        if (backendId === deps.backendId()) recover();
+        if (backendId !== deps.backendId()) return;
+        deps.resize();
+        recover();
     });
     return () => {
         offResync();
