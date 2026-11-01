@@ -177,6 +177,42 @@ describe("TaskDetail", () => {
         expect(calls[2]).toEqual(["delete", "a2"]);
     });
 
+    test("keeps an open editor and its draft across an unrelated update", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24 });
+        const calls: unknown[] = [];
+        const view = new TaskDetail({
+            renderer: test.renderer,
+            task,
+            project,
+            attributes,
+            logs,
+            onEditTitle: (value) => calls.push(["title", value]),
+            onEditDescription: () => undefined,
+            onEditNotes: () => undefined,
+            onCreateAttribute: () => undefined,
+            onUpdateAttribute: () => undefined,
+            onDeleteAttribute: (attribute) => calls.push(["delete", attribute.id]),
+            onTogglePin: () => undefined,
+            onArchive: () => undefined,
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        view.handleKey(key("down"));
+        view.handleKey(key("r"));
+        view.handleKey(key("z"));
+        view.update(task, project, attributes, [
+            ...logs,
+            { ...logs[0], id: "l2", message: "Progress" },
+        ]);
+        view.handleKey(key("d"));
+        view.handleKey(key("return", "\r"));
+        expect(calls).toEqual([["title", "Workspace operationszd"]]);
+    });
+
     test("read-only mode ignores edit, pin and archive keys and omits their hints", async () => {
         const test = await createTestRenderer({ width: 90, height: 24 });
         const calls: string[] = [];

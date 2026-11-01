@@ -1,6 +1,12 @@
-import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+    ScrollBoxRenderable,
+    TextRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import type { ActionDefinition, FlowDefinition } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 type LibraryTab = "flows" | "actions";
@@ -24,7 +30,8 @@ function scopeLabel(projectId?: string): string {
 }
 
 class FlowLibrary {
-    readonly renderable: BoxRenderable;
+    readonly renderable: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private tab: LibraryTab = "flows";
     private flows: FlowDefinition[];
     private actions: ActionDefinition[];
@@ -35,12 +42,12 @@ class FlowLibrary {
     constructor(private readonly deps: FlowLibraryDeps) {
         this.flows = [...deps.flows];
         this.actions = [...deps.actions];
-        this.renderable = new BoxRenderable(deps.renderer, {
+        this.renderable = new ScrollBoxRenderable(deps.renderer, {
             id: "flow-library",
             width: "100%",
             height: "100%",
-            flexDirection: "column",
-            overflow: "hidden",
+            scrollY: true,
+            scrollX: false,
             onMouseScroll: (event) => {
                 const direction = event.scroll?.direction;
                 if (direction !== "up" && direction !== "down") return;
@@ -49,6 +56,7 @@ class FlowLibrary {
                 this.move(direction === "up" ? -1 : 1);
             },
         });
+        this.revealSelection = followSelection(this.renderable, "flow-library-selected");
         this.rebuild();
     }
 
@@ -145,12 +153,14 @@ class FlowLibrary {
                     : "";
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
+                    ...(index === this.selected ? { id: "flow-library-selected" } : {}),
                     content: ` ${item.name}  ${scopeLabel(item.projectId)}${standalone}`,
                     height: 1,
                     ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (this.pending) return;
                         this.selected = index;
                         this.rebuild();
                         this.activate(item);
@@ -171,6 +181,7 @@ class FlowLibrary {
                 }),
             );
         }
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

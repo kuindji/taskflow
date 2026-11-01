@@ -15,6 +15,7 @@ import {
     type SettingsUpdatePayload,
 } from "@taskflow/shared";
 import type { Choice, SettingsChoices } from "../settings/store";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface SettingsItem {
@@ -37,7 +38,8 @@ interface SettingsDeps {
 
 function optionsWithCurrent(options: readonly Choice[], current: string): Choice[] {
     const unique = options.filter(
-        (option, index) => options.findIndex((candidate) => candidate.value === option.value) === index,
+        (option, index) =>
+            options.findIndex((candidate) => candidate.value === option.value) === index,
     );
     if (!current || unique.some((option) => option.value === current)) return [...unique];
     return [{ value: current, label: `${current} (unavailable)` }, ...unique];
@@ -72,15 +74,27 @@ function settingsItems(
         item("agent", "Default agent", settings.general.defaultAgent, choices.agents, (value) => ({
             general: { defaultAgent: value as AppSettings["general"]["defaultAgent"] },
         })),
-        item("runtime", "Default runtime", settings.general.defaultRuntime, choices.runtimes, (value) => ({
-            general: { defaultRuntime: value },
-        })),
+        item(
+            "runtime",
+            "Default runtime",
+            settings.general.defaultRuntime,
+            choices.runtimes,
+            (value) => ({
+                general: { defaultRuntime: value },
+            }),
+        ),
         item("shell", "Default shell", settings.terminal.defaultShell, choices.shells, (value) => ({
             terminal: { defaultShell: value },
         })),
-        item("editor", "Terminal editor", settings.editor.internalEditor, choices.editors, (value) => ({
-            editor: { internalEditor: value },
-        })),
+        item(
+            "editor",
+            "Terminal editor",
+            settings.editor.internalEditor,
+            choices.editors,
+            (value) => ({
+                editor: { internalEditor: value },
+            }),
+        ),
         item(
             "sidebar-width",
             "Sidebar width",
@@ -118,8 +132,7 @@ function settingsItems(
             textOptions(["default", ...CODEX_REASONING_EFFORTS]),
             (value) => ({
                 codex: {
-                    defaultReasoningEffort:
-                        value as AppSettings["codex"]["defaultReasoningEffort"],
+                    defaultReasoningEffort: value as AppSettings["codex"]["defaultReasoningEffort"],
                 },
             }),
         ),
@@ -206,6 +219,7 @@ function settingsItems(
 
 class Settings {
     readonly renderable: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private items: SettingsItem[];
     private selected = 0;
     private draftValue: string | null = null;
@@ -228,6 +242,7 @@ class Settings {
                 this.move(direction === "up" ? -1 : 1);
             },
         });
+        this.revealSelection = followSelection(this.renderable, "settings-selected");
         this.rebuild();
     }
 
@@ -236,20 +251,24 @@ class Settings {
     }
 
     get keyHints(): string {
-        return this.pending
-            ? " Saving..."
-            : " ↑↓ Setting  ←→ Choice  Enter Save  Esc/q Sessions";
+        return this.pending ? " Saving..." : " ↑↓ Setting  ←→ Choice  Enter Save  Esc/q Sessions";
     }
 
-    update(settings: AppSettings | null, choices: SettingsChoices, projects: readonly Project[]): void {
+    update(
+        settings: AppSettings | null,
+        choices: SettingsChoices,
+        projects: readonly Project[],
+    ): void {
         const selectedId = this.selectedId;
         const previous = this.selected;
         this.items = settingsItems(settings, choices, projects);
         const retained = selectedId
             ? this.items.findIndex((candidate) => candidate.id === selectedId)
             : -1;
-        this.selected = retained >= 0 ? retained : Math.min(previous, Math.max(0, this.items.length - 1));
-        this.draftValue = null;
+        this.selected =
+            retained >= 0 ? retained : Math.min(previous, Math.max(0, this.items.length - 1));
+        // Only a save (or losing the selected setting) ends the draft; unrelated refreshes keep it.
+        if (this.pending || retained < 0) this.draftValue = null;
         this.pending = false;
         this.rebuild();
     }
@@ -284,7 +303,10 @@ class Settings {
         const item = this.items[this.selected];
         if (!item || item.options.length === 0) return;
         const current = this.draftValue ?? item.value;
-        const index = Math.max(0, item.options.findIndex((option) => option.value === current));
+        const index = Math.max(
+            0,
+            item.options.findIndex((option) => option.value === current),
+        );
         const next = (index + delta + item.options.length) % item.options.length;
         this.draftValue = item.options[next].value;
         this.error = null;
@@ -308,14 +330,19 @@ class Settings {
         );
         if (this.items.length === 0) {
             this.renderable.add(
-                new TextRenderable(this.deps.renderer, { content: " Loading settings...", height: 1 }),
+                new TextRenderable(this.deps.renderer, {
+                    content: " Loading settings...",
+                    height: 1,
+                }),
             );
         }
         for (const [index, item] of this.items.entries()) {
-            const value = index === this.selected && this.draftValue !== null ? this.draftValue : item.value;
+            const value =
+                index === this.selected && this.draftValue !== null ? this.draftValue : item.value;
             const label = item.options.find((option) => option.value === value)?.label ?? value;
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
+                    ...(index === this.selected ? { id: "settings-selected" } : {}),
                     content: ` ${item.label}: ${label}`,
                     height: 1,
                     truncate: true,
@@ -325,7 +352,9 @@ class Settings {
             );
         }
         if (this.pending) {
-            this.renderable.add(new TextRenderable(this.deps.renderer, { content: " Saving...", height: 1 }));
+            this.renderable.add(
+                new TextRenderable(this.deps.renderer, { content: " Saving...", height: 1 }),
+            );
         } else if (this.error) {
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
@@ -335,6 +364,7 @@ class Settings {
                 }),
             );
         }
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

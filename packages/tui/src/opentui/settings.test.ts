@@ -88,11 +88,37 @@ describe("Settings", () => {
             onClose: () => undefined,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("down"));
         view.handleKey(key("right"));
         view.handleKey(key("return", "\r"));
         expect(saves).toEqual([{ general: { defaultRuntime: "bun" } }]);
         expect(view.keyHints).toBe(" Saving...");
+    });
+
+    test("keeps an unsaved choice across an unrelated refresh", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24 });
+        const saves: unknown[] = [];
+        const view = new Settings({
+            renderer: test.renderer,
+            settings,
+            choices,
+            projects: [project],
+            onSave: (item, value) => saves.push(item.payload(value)),
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        view.handleKey(key("down"));
+        view.handleKey(key("right"));
+        view.update(settings, choices, [project]);
+        view.handleKey(key("return", "\r"));
+        expect(saves).toEqual([{ general: { defaultRuntime: "bun" } }]);
     });
 });

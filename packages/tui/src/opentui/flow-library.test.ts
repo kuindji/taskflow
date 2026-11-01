@@ -30,12 +30,12 @@ describe("FlowLibrary", () => {
     const cleanup: Array<() => void> = [];
     afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
 
-    async function setup() {
-        const renderer = await createTestRenderer({ width: 80, height: 15 });
+    async function setup(flows = [flow("f1"), flow("f2")], height = 15) {
+        const renderer = await createTestRenderer({ width: 80, height });
         const calls: string[] = [];
         const view = new FlowLibrary({
             renderer: renderer.renderer,
-            flows: [flow("f1"), flow("f2")],
+            flows,
             actions: [action("a1", false), action("a2")],
             onStartFlow: (item) => calls.push(`flow:${item.id}`),
             onRunAction: (item) => calls.push(`action:${item.id}`),
@@ -50,7 +50,7 @@ describe("FlowLibrary", () => {
             () => view.destroy(),
             () => renderer.renderer.destroy(),
         );
-        return { calls, view };
+        return { calls, view, renderer };
     }
 
     it("switches tabs, moves selection, and blocks non-standalone actions", async () => {
@@ -73,5 +73,26 @@ describe("FlowLibrary", () => {
         expect(test.view.selectedId).toBe("f2");
         test.view.handleKey(key("enter"));
         expect(test.calls).toEqual(["flow:f2"]);
+    });
+
+    it("scrolls a selection past the bottom row into view", async () => {
+        const flows = Array.from({ length: 30 }, (_, index) => flow(`flow-${index}`));
+        const test = await setup(flows, 12);
+        await test.renderer.renderOnce();
+        for (let step = 0; step < 20; step++) test.view.handleKey(key("down", "j"));
+        await test.renderer.renderOnce();
+        await test.renderer.renderOnce();
+        expect(test.renderer.captureCharFrame()).toContain("flow-20  global");
+    });
+
+    it("ignores a row click while a run is pending", async () => {
+        const test = await setup();
+        await test.renderer.renderOnce();
+        await test.renderer.mockMouse.click(3, 1);
+        expect(test.calls).toEqual(["flow:f1"]);
+        test.view.setPending(true);
+        await test.renderer.mockMouse.click(3, 1);
+        await test.renderer.mockMouse.click(3, 2);
+        expect(test.calls).toEqual(["flow:f1"]);
     });
 });

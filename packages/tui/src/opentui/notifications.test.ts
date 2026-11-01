@@ -45,16 +45,47 @@ describe("Notifications", () => {
             onClose: () => undefined,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("down"));
         expect(view.selectedId).toBe("old");
-        view.update([
-            notification("latest", "2026-08-25T12:00:00.000Z"),
-            ...items,
-        ]);
+        view.update([notification("latest", "2026-08-25T12:00:00.000Z"), ...items]);
         expect(view.selectedId).toBe("old");
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("●");
+    });
+
+    test("scrolls a selection below wrapped rows into view", async () => {
+        const test = await createTestRenderer({ width: 40, height: 10 });
+        const items = Array.from({ length: 12 }, (_, index) => ({
+            ...notification(
+                `n${index}`,
+                `2026-08-25T${String(10 + index).padStart(2, "0")}:00:00.000Z`,
+            ),
+            message: `item-${index} finished its long running agent session`,
+        }));
+        const view = new Notifications({
+            renderer: test.renderer,
+            notifications: items,
+            onOpen: () => undefined,
+            onMarkRead: () => undefined,
+            onMarkAllRead: () => undefined,
+            onClearRead: () => undefined,
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        for (let step = 0; step < 11; step++) view.handleKey(key("down"));
+        expect(view.selectedId).toBe("n0");
+        await test.renderOnce();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("item-0");
     });
 
     test("routes read, bulk, clear, open, and close commands once while pending", async () => {
@@ -71,7 +102,10 @@ describe("Notifications", () => {
             onClose: () => calls.push("close"),
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("r"));
         view.handleKey(key("a"));
         view.handleKey(key("x"));

@@ -1,5 +1,11 @@
-import { ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+    ScrollBoxRenderable,
+    TextRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import type { Notification } from "@taskflow/shared";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface NotificationsDeps {
@@ -15,12 +21,14 @@ interface NotificationsDeps {
 
 function sortedNotifications(notifications: readonly Notification[]): Notification[] {
     return [...notifications].sort(
-        (left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+        (left, right) =>
+            right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
     );
 }
 
 class Notifications {
     readonly renderable: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private notifications: Notification[];
     private selected = 0;
     private pending = false;
@@ -42,6 +50,7 @@ class Notifications {
                 this.move(direction === "up" ? -1 : 1);
             },
         });
+        this.revealSelection = followSelection(this.renderable, "notifications-selected");
         this.rebuild();
     }
 
@@ -99,10 +108,7 @@ class Notifications {
 
     private move(delta: number): void {
         if (this.notifications.length === 0) return;
-        this.selected = Math.min(
-            this.notifications.length - 1,
-            Math.max(0, this.selected + delta),
-        );
+        this.selected = Math.min(this.notifications.length - 1, Math.max(0, this.selected + delta));
         this.error = null;
         this.rebuild();
     }
@@ -119,6 +125,7 @@ class Notifications {
                 : new Date(notification.createdAt).toISOString().replace("T", " ").slice(0, 16);
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
+                    ...(index === this.selected ? { id: "notifications-selected" } : {}),
                     content: ` ${state} ${timestamp}  ${notification.message}`,
                     minHeight: 1,
                     wrapMode: "word",
@@ -128,11 +135,16 @@ class Notifications {
         }
         if (this.notifications.length === 0) {
             this.renderable.add(
-                new TextRenderable(this.deps.renderer, { content: " No notifications.", height: 1 }),
+                new TextRenderable(this.deps.renderer, {
+                    content: " No notifications.",
+                    height: 1,
+                }),
             );
         }
         if (this.pending) {
-            this.renderable.add(new TextRenderable(this.deps.renderer, { content: " Working...", height: 1 }));
+            this.renderable.add(
+                new TextRenderable(this.deps.renderer, { content: " Working...", height: 1 }),
+            );
         } else if (this.error) {
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
@@ -142,6 +154,7 @@ class Notifications {
                 }),
             );
         }
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

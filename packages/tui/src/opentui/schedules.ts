@@ -1,7 +1,13 @@
-import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+    ScrollBoxRenderable,
+    TextRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import type { Project, Schedule } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
 import { scheduleStatusText } from "../schedules/model";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 const READ_ONLY_BANNER =
@@ -23,7 +29,8 @@ interface SchedulesDeps {
 }
 
 class Schedules {
-    readonly renderable: BoxRenderable;
+    readonly renderable: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private schedules: Schedule[];
     private selected = 0;
     private pending = false;
@@ -31,12 +38,12 @@ class Schedules {
 
     constructor(private readonly deps: SchedulesDeps) {
         this.schedules = [...deps.schedules];
-        this.renderable = new BoxRenderable(deps.renderer, {
+        this.renderable = new ScrollBoxRenderable(deps.renderer, {
             id: "schedules",
             width: "100%",
             height: "100%",
-            flexDirection: "column",
-            overflow: "hidden",
+            scrollY: true,
+            scrollX: false,
             onMouseScroll: (event) => {
                 const direction = event.scroll?.direction;
                 if (direction !== "up" && direction !== "down") return;
@@ -45,6 +52,7 @@ class Schedules {
                 this.move(direction === "up" ? -1 : 1);
             },
         });
+        this.revealSelection = followSelection(this.renderable, "schedules-selected");
         this.rebuild();
     }
 
@@ -147,6 +155,7 @@ class Schedules {
             ].filter(Boolean);
             this.renderable.add(
                 new TextRenderable(this.deps.renderer, {
+                    ...(index === this.selected ? { id: "schedules-selected" } : {}),
                     content: ` ${schedule.name}  ${details.join("  ")}`,
                     height: 1,
                     ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
@@ -172,6 +181,7 @@ class Schedules {
                 }),
             );
         }
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

@@ -6,6 +6,7 @@ import {
     type KeyEvent,
 } from "@opentui/core";
 import type { Project, ResolvedAttribute, Task, TaskLogEntry } from "@taskflow/shared";
+import { stableSelectionIndex } from "../flows/model";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface TaskDetailDeps {
@@ -108,18 +109,27 @@ class TaskDetail {
         attributes: readonly ResolvedAttribute[],
         logs: readonly TaskLogEntry[],
     ): void {
+        const selectedId = this.attributes[this.selectedAttribute]?.id ?? null;
         this.task = task;
         this.project = project;
         this.attributes = [...attributes];
         this.logs = [...logs];
-        this.pending = false;
-        this.editKind = null;
-        this.editInput = null;
-        this.selectedAttribute = Math.min(
-            this.selectedAttribute,
-            Math.max(0, this.attributes.length - 1),
+        this.selectedAttribute = Math.max(
+            0,
+            stableSelectionIndex(this.attributes, selectedId, this.selectedAttribute),
         );
+        // A submitted edit ends with this update; an unrelated one (a task log line)
+        // must keep the open editor and its draft, or typing turns into commands.
+        const editedAttributeGone =
+            this.editKind === "attribute-update" &&
+            this.attributes[this.selectedAttribute]?.id !== selectedId;
+        if (this.pending || editedAttributeGone) {
+            this.editKind = null;
+            this.editInput = null;
+        }
+        this.pending = false;
         this.rebuild();
+        if (this.editKind) this.editInput?.focus();
     }
 
     setPending(pending: boolean): void {

@@ -54,7 +54,7 @@ class GitCommit {
     get keyHints(): string {
         if (this.pending === "generate") return " Generating message...";
         if (this.pending === "commit") return " Committing...";
-        return " Enter Commit  G Generate  Esc Cancel";
+        return " Enter Commit  Ctrl+G Generate  Esc Cancel";
     }
 
     setGenerated(message: string): void {
@@ -76,8 +76,15 @@ class GitCommit {
         if (event.eventType !== "press" || this.pending) return;
         const chorded = event.ctrl || event.meta || event.option || event.super || event.hyper;
         if (event.name === "escape" && !chorded) return this.deps.onCancel();
-        if (chorded) return;
-        if (event.sequence === "G") {
+        // Ctrl+G only: a printable key would be unreachable in the message itself.
+        const generate =
+            event.ctrl &&
+            event.name === "g" &&
+            !event.meta &&
+            !event.option &&
+            !event.super &&
+            !event.hyper;
+        if (generate) {
             this.message = this.input.value;
             this.pending = "generate";
             this.error = null;
@@ -85,6 +92,7 @@ class GitCommit {
             this.deps.onGenerate();
             return;
         }
+        if (chorded) return;
         if (event.name === "return" || event.name === "enter") {
             this.message = this.input.value.trim();
             if (!this.message) {
