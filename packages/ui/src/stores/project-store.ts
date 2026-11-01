@@ -192,10 +192,10 @@ function isProject(payload: unknown): payload is Project {
     return !!payload && typeof payload === "object" && "id" in payload;
 }
 
-// Listen for new projects broadcast by the backend (e.g., added via CLI).
+// Listen for new projects broadcast by the backend (e.g., added via CLI). Adding
+// an archived project's path restores that record, so a known id is replaced.
 const _unsubProjectCreated = onEvent(MSG.PROJECT_CREATED, (payload, backendId) => {
     if (!isProject(payload)) return;
-    if (slices.read().some((p) => p.backendId === backendId && p.id === payload.id)) return;
     upsert(backendId, payload);
 });
 

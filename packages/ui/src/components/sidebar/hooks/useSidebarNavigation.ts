@@ -1,13 +1,34 @@
 import { useEffect, useRef } from "react";
-import type { Project } from "@taskflow/shared";
+import type { Project, Task } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import { useUIStore } from "@/stores/ui-store";
 import { useTaskStore } from "@/stores/task-store";
 import { isDialogOpen, isEditableElement } from "@/lib/global-shortcuts";
+import { groupTasksByParent } from "../task-groups";
 
 const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
-function handleSidebarNumber(n: number, visibleProjects: readonly Scoped<Project>[]) {
+/** The sidebar's listed tasks (live or archived) per project id. */
+type ShownTasks = ReadonlyMap<string, Scoped<Task>[]>;
+
+function findShownTask(shownTasks: ShownTasks, id: string): Scoped<Task> | undefined {
+    for (const list of shownTasks.values()) {
+        const task = list.find((t) => t.id === id);
+        if (task) return task;
+    }
+    return undefined;
+}
+
+/** A project's task rows, in the order ProjectGroup renders them. */
+function taskRows(shownTasks: ShownTasks, projectId: string): Scoped<Task>[] {
+    return groupTasksByParent(shownTasks.get(projectId) ?? []).topLevelTasks;
+}
+
+function handleSidebarNumber(
+    n: number,
+    visibleProjects: readonly Scoped<Project>[],
+    shownTasks: ShownTasks,
+) {
     const { sidebarFocusedItem } = useUIStore.getState();
     if (!sidebarFocusedItem) return;
 
@@ -18,13 +39,11 @@ function handleSidebarNumber(n: number, visibleProjects: readonly Scoped<Project
         useTaskStore.getState().setActiveTask(null);
         useUIStore.getState().setSidebarFocusedItem({ type: "project", id: target.id });
     } else {
-        const task = useTaskStore.getState().tasks.find((t) => t.id === sidebarFocusedItem.id);
+        const task = findShownTask(shownTasks, sidebarFocusedItem.id);
         if (!task) return;
         // Bail if task's project is collapsed (no visible badges)
         if (useUIStore.getState().collapsedProjectIds.includes(task.projectId)) return;
-        const projectTasks = useTaskStore
-            .getState()
-            .tasks.filter((t) => t.projectId === task.projectId && !t.parentId);
+        const projectTasks = taskRows(shownTasks, task.projectId);
         if (n > projectTasks.length) return;
         const target = projectTasks[n - 1];
         useTaskStore.getState().setActiveTask(target.id);
@@ -33,14 +52,17 @@ function handleSidebarNumber(n: number, visibleProjects: readonly Scoped<Project
     }
 }
 
-function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Project>[]) {
+function handleSidebarArrow(
+    key: string,
+    visibleProjects: readonly Scoped<Project>[],
+    shownTasks: ShownTasks,
+) {
     const { sidebarFocusedItem, collapsedProjectIds } = useUIStore.getState();
-    const { tasks } = useTaskStore.getState();
 
     if (key === "ArrowLeft") {
         if (!sidebarFocusedItem) return;
         if (sidebarFocusedItem.type === "task") {
-            const task = tasks.find((t) => t.id === sidebarFocusedItem.id);
+            const task = findShownTask(shownTasks, sidebarFocusedItem.id);
             if (task) {
                 useUIStore
                     .getState()
@@ -65,8 +87,7 @@ function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Projec
     for (const project of visibleProjects) {
         visibleItems.push({ type: "project", id: project.id });
         if (!collapsedProjectIds.includes(project.id)) {
-            const projectTasks = tasks.filter((t) => t.projectId === project.id && !t.parentId);
-            for (const task of projectTasks) {
+            for (const task of taskRows(shownTasks, project.id)) {
                 visibleItems.push({ type: "task", id: task.id });
             }
         }
@@ -80,7 +101,7 @@ function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Projec
                 useUIStore.getState().setActiveProject(item.id);
                 useTaskStore.getState().setActiveTask(null);
             } else {
-                const task = tasks.find((t) => t.id === item.id);
+                const task = findShownTask(shownTasks, item.id);
                 useTaskStore.getState().setActiveTask(item.id);
                 useUIStore.getState().setActiveProject(task?.projectId ?? null);
             }
@@ -103,7 +124,7 @@ function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Projec
         useUIStore.getState().setActiveProject(nextItem.id);
         useTaskStore.getState().setActiveTask(null);
     } else {
-        const task = tasks.find((t) => t.id === nextItem.id);
+        const task = findShownTask(shownTasks, nextItem.id);
         useTaskStore.getState().setActiveTask(nextItem.id);
         useUIStore.getState().setActiveProject(task?.projectId ?? null);
     }
@@ -116,12 +137,15 @@ function handleSidebarArrow(key: string, visibleProjects: readonly Scoped<Projec
  *
  * `shownProjects` is the sidebar's own top-to-bottom list, so navigation and
  * number badges follow the machine sections rather than the store's load order.
+ * `shownTasks` is what those projects list: the archived tasks in the archive view.
  */
-function useSidebarNavigation(shownProjects: readonly Scoped<Project>[]) {
+function useSidebarNavigation(shownProjects: readonly Scoped<Project>[], shownTasks: ShownTasks) {
     const shownRef = useRef(shownProjects);
+    const shownTasksRef = useRef(shownTasks);
     useEffect(() => {
         shownRef.current = shownProjects;
-    }, [shownProjects]);
+        shownTasksRef.current = shownTasks;
+    }, [shownProjects, shownTasks]);
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -133,7 +157,7 @@ function useSidebarNavigation(shownProjects: readonly Scoped<Project>[]) {
 
             if (ARROW_KEYS.includes(e.key)) {
                 e.preventDefault();
-                handleSidebarArrow(e.key, shownRef.current);
+                handleSidebarArrow(e.key, shownRef.current, shownTasksRef.current);
                 return;
             }
 
@@ -150,7 +174,7 @@ function useSidebarNavigation(shownProjects: readonly Scoped<Project>[]) {
             const digit = parseInt(e.key, 10);
             if (digit >= 1 && digit <= 9 && !e.altKey) {
                 e.preventDefault();
-                handleSidebarNumber(digit, shownRef.current);
+                handleSidebarNumber(digit, shownRef.current, shownTasksRef.current);
             }
         };
 

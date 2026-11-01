@@ -97,6 +97,15 @@ describe("project store across two backends", () => {
         expect(recordOn("b", "same")?.name).toBe("Repo");
     });
 
+    test("re-adding an archived project (PROJECT_CREATED for a known id) restores it", async () => {
+        // `taskflow-cli project add` on an archived project's path unhides the
+        // existing record and broadcasts it as created.
+        const [serverA] = await attachTwo([{ ...project("1", "Alpha"), hidden: true }], []);
+
+        serverA.broadcast(MSG.PROJECT_CREATED, { ...project("1", "Alpha"), hidden: false });
+        await until(() => recordOn("a", "1")?.hidden === false);
+    });
+
     test("detaching one backend leaves the other's records intact", async () => {
         await attachTwo([project("1", "Alpha")], [project("2", "Beta")]);
 

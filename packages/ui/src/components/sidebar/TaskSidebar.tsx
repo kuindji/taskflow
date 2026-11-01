@@ -25,6 +25,7 @@ import { NewTaskControl } from "./NewTaskControl";
 import NotificationPopover from "./NotificationPopover";
 import { DevServerButton } from "./DevServerPopover";
 import { useSidebarData } from "./hooks/useSidebarData";
+import { groupTasksByParent } from "./task-groups";
 import { UpdateDialog } from "./UpdateDialog";
 import { OfflineIndicator } from "./OfflineIndicator";
 import { SidebarToolbar } from "./SidebarToolbar";
@@ -107,7 +108,7 @@ export function TaskSidebar() {
     );
     const badgeIndexById = useMemo(() => new Map(shown.map((p, i) => [p.id, i])), [shown]);
 
-    useSidebarNavigation(shown);
+    useSidebarNavigation(shown, tasksByProject);
 
     const reorderProjects = useProjectStore((s) => s.reorderProjects);
     const allProjects = useProjectStore((s) => s.projects);
@@ -383,13 +384,12 @@ export function TaskSidebar() {
                                 if (focusedTask && focusedTask.projectId === project.id) {
                                     taskKeyBadges = {};
                                     let badgeIndex = 0;
-                                    for (const task of projectTasks) {
-                                        if (!task.parentId) {
-                                            if (badgeIndex < 9) {
-                                                taskKeyBadges[task.id] = badgeIndex + 1;
-                                            }
-                                            badgeIndex++;
+                                    for (const task of groupTasksByParent(projectTasks)
+                                        .topLevelTasks) {
+                                        if (badgeIndex < 9) {
+                                            taskKeyBadges[task.id] = badgeIndex + 1;
                                         }
+                                        badgeIndex++;
                                     }
                                 }
                             }

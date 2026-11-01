@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { Project } from "@taskflow/shared";
+import type { LinkedProject, Project } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import { useProjectStore } from "@/stores/project-store";
 import { LinkedProjectsSection } from "./LinkedProjectsSection";
@@ -50,4 +50,80 @@ test("a project on the same machine is offered as a link", async () => {
         projects: [owner, project("elsewhere", "machine-b"), project("sibling", "machine-a")],
     });
     expect((await linkButton(owner)).disabled).toBe(false);
+});
+
+/** Mounts the section with `updateProject` recorded and never answered. */
+async function mountPending(owner: Scoped<Project>) {
+    const sent: LinkedProject[][] = [];
+    const original = useProjectStore.getState().updateProject;
+    useProjectStore.setState({
+        updateProject: (_target, updates) => {
+            if (updates.linkedProjects) sent.push(updates.linkedProjects);
+            return new Promise(() => {});
+        },
+    });
+    restoreUpdate = () => useProjectStore.setState({ updateProject: original });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(<LinkedProjectsSection project={owner} />));
+    return { container, sent };
+}
+
+let restoreUpdate: (() => void) | null = null;
+afterEach(() => {
+    restoreUpdate?.();
+    restoreUpdate = null;
+});
+
+test("closing the panel while a removal is in flight does not restore the link", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [{ projectId: "linked", note: "Shared API" }],
+    };
+    useProjectStore.setState({ projects: [owner, project("linked", "machine-a")] });
+    const { container, sent } = await mountPending(owner);
+
+    const remove = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove linked project"]',
+    );
+    await act(async () => remove?.click());
+    act(() => root?.unmount());
+    root = null;
+
+    expect(sent).toEqual([[]]);
+});
+
+test("a note edit while an added link is in flight keeps the added link", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [{ projectId: "linked", note: "" }],
+    };
+    useProjectStore.setState({
+        projects: [owner, project("linked", "machine-a"), project("sibling", "machine-a")],
+    });
+    const { container, sent } = await mountPending(owner);
+
+    await act(async () =>
+        container.querySelector<HTMLButtonElement>('[aria-label="Link a project"]')?.click(),
+    );
+    const option = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "sibling",
+    );
+    await act(async () => option?.click());
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("note input missing");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+        setValue?.call(input, "Shared API");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+
+    expect(sent.at(-1)).toEqual([
+        { projectId: "linked", note: "Shared API" },
+        { projectId: "sibling", note: "" },
+    ]);
 });
