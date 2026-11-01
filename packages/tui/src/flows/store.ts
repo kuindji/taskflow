@@ -92,16 +92,15 @@ class FlowStore {
     async loadRun(owner: SessionOwner): Promise<void> {
         const token = ++this.runLoadToken;
         const ownerId = flowOwnerId(owner);
-        const eventRevision = this.runEventRevisionByOwner.get(ownerId) ?? 0;
-        const response = await this.net.request<FlowRunsListResponse>(MSG.FLOW_RUNS_LIST, {
-            ownerId,
-        });
-        if (
-            this.disposed ||
-            token !== this.runLoadToken ||
-            eventRevision !== (this.runEventRevisionByOwner.get(ownerId) ?? 0)
-        ) {
-            return;
+        let response: FlowRunsListResponse;
+        for (;;) {
+            const eventRevision = this.runEventRevisionByOwner.get(ownerId) ?? 0;
+            response = await this.net.request<FlowRunsListResponse>(MSG.FLOW_RUNS_LIST, {
+                ownerId,
+            });
+            if (this.disposed || token !== this.runLoadToken) return;
+            if (eventRevision === (this.runEventRevisionByOwner.get(ownerId) ?? 0)) break;
+            // A run update landed while the list was in flight, so the list may predate it.
         }
         const dismissed = this.dismissedByOwner.get(ownerId) ?? new Set<string>();
         const run = retainedRun(response.runs, dismissed);
@@ -177,6 +176,11 @@ class FlowStore {
     private applyRunUpdate(run: FlowRun): void {
         const ownerId = getFlowRunOwnerId(run);
         const tracked = this.runByOwner.get(ownerId);
+        // Bumped for every update of the owner, so an in-flight load relists.
+        this.runEventRevisionByOwner.set(
+            ownerId,
+            (this.runEventRevisionByOwner.get(ownerId) ?? 0) + 1,
+        );
         if (run.status === "running" || run.status === "paused") {
             this.dismissedByOwner.delete(ownerId);
             this.runByOwner.set(ownerId, run);
@@ -185,10 +189,6 @@ class FlowStore {
         } else {
             return;
         }
-        this.runEventRevisionByOwner.set(
-            ownerId,
-            (this.runEventRevisionByOwner.get(ownerId) ?? 0) + 1,
-        );
         this.notify();
     }
 

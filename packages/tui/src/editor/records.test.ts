@@ -135,6 +135,20 @@ describe("record YAML", () => {
         ).toThrow("projectId is required");
     });
 
+    it("keeps an edited schedule's own action after it stops being standalone", () => {
+        const hidden = { ...visibleAction, id: "hidden", standalone: false };
+        const source =
+            "name: Nightly\nactionId: hidden\nexpression: '0 2 * * *'\nexpressionType: cron\ntimeout: 30\nenabled: false\n";
+        const hiddenContext = { ...context, visibleActions: [visibleAction, hidden] };
+        expect(
+            parseScheduleDraft(source, { ...hiddenContext, savedActionId: "hidden" }, false)
+                .actionId,
+        ).toBe("hidden");
+        expect(() =>
+            parseScheduleDraft(source, { ...hiddenContext, savedActionId: "action-1" }, false),
+        ).toThrow("visible standalone action");
+    });
+
     it("keeps the account on a schedule's agent options", () => {
         const draft = parseScheduleDraft(
             "projectId: p1\nname: Nightly\nprompt: echo ok\nagentType: codex\nagentOptions:\n  type: codex\n  account: work\nexpression: '0 2 * * *'\nexpressionType: cron\ntimeout: 30\nenabled: false\n",

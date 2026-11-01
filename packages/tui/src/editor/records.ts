@@ -70,6 +70,8 @@ interface RecordValidationContext {
     projectId: string | null;
     projectIds?: readonly string[];
     visibleActions: readonly ActionDefinition[];
+    /** The edited schedule's saved action, still valid after it stops being standalone. */
+    savedActionId?: string;
 }
 
 interface MetadataFactory {
@@ -254,7 +256,7 @@ function parseScheduleDraft(
     if (
         actionId &&
         (!selectedAction ||
-            !selectedAction.standalone ||
+            (!selectedAction.standalone && actionId !== context.savedActionId) ||
             (selectedAction.projectId !== undefined &&
                 selectedAction.projectId !== scheduleProjectId))
     ) {

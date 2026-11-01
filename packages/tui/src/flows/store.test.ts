@@ -194,4 +194,24 @@ describe("FlowStore", () => {
         expect(store.runFor("p1")?.flowId).toBe("other");
         expect(store.runFor("p2")?.flowId).toBe("selected");
     });
+
+    it("relists when a run finishes while its owner's first load is in flight", async () => {
+        const net = fakeNet();
+        const resolvers: Array<(value: { runs: FlowRun[] }) => void> = [];
+        net.request = (<T>(type: string): Promise<T> => {
+            if (type !== MSG.FLOW_RUNS_LIST) throw new Error(`unexpected ${type}`);
+            return new Promise((resolve) => resolvers.push(resolve as never));
+        }) as NetLike["request"];
+        const store = new FlowStore(net);
+
+        const loading = store.loadRun({ kind: "project", projectId: "p1" });
+        net.emit(MSG.FLOW_RUN_UPDATED, run("f1", "completed"));
+        resolvers[0]?.({ runs: [run("f1", "running")] });
+        await Promise.resolve();
+        resolvers[1]?.({ runs: [run("f1", "completed")] });
+        await loading;
+
+        expect(resolvers).toHaveLength(2);
+        expect(store.runFor("p1")?.status).toBe("completed");
+    });
 });

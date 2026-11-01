@@ -247,6 +247,7 @@ async function openWorkspace(net: NetLike, context: WorkspaceContext): Promise<W
             const scheduleContext = {
                 ...editorContext,
                 projectId: existing?.projectId ?? projectId,
+                savedActionId: existing?.actionId,
             };
             await editRecord({
                 filename: "schedule.yaml",
