@@ -87,4 +87,28 @@ describe("resolveWikiRoot", () => {
             }),
         ).toBe("/w/repo/docs/wiki");
     });
+
+    it("keeps a literal percent sequence in the folder name", () => {
+        expect(
+            resolveWikiRoot({
+                layers: layers(["project", "wiki", "/srv/release%20notes"]),
+                workingDir: "/w/repo",
+            }),
+        ).toBe("/srv/release%20notes");
+        expect(
+            resolveWikiRoot({
+                layers: layers(["project", "wiki", "docs/100%25"]),
+                workingDir: "/w/my%20repo",
+            }),
+        ).toBe("/w/my%20repo/docs/100%25");
+    });
+
+    it("resolves against a UNC working dir", () => {
+        expect(
+            resolveWikiRoot({
+                layers: layers(["project", "wiki", "docs/wiki"]),
+                workingDir: "//server/share/repo",
+            }),
+        ).toBe("//server/share/repo/docs/wiki");
+    });
 });

@@ -45,4 +45,30 @@ describe("joinRelative", () => {
     it("decodes percent-encoded segments", () => {
         expect(joinRelative("/w/docs", "my%20page.md")).toBe("/w/docs/my page.md");
     });
+
+    it("keeps the share root of a UNC base", () => {
+        expect(joinRelative("\\\\server\\share\\repo", "docs/wiki")).toBe(
+            "//server/share/repo/docs/wiki",
+        );
+    });
+
+    it("does not climb above a UNC share", () => {
+        expect(joinRelative("//server/share/repo", "../../../x.md")).toBe("//server/share/x.md");
+    });
+
+    it("keeps an absolute UNC target", () => {
+        expect(joinRelative("C:/w", "//server/share/a.md")).toBe("//server/share/a.md");
+    });
+
+    it("does not decode a literal percent sequence in the base directory", () => {
+        expect(joinRelative("/repo/release%20notes", "./other%20page.md")).toBe(
+            "/repo/release%20notes/other page.md",
+        );
+    });
+
+    it("leaves the target encoded when decoding is off", () => {
+        expect(joinRelative("/repo", "release%20notes", { decode: false })).toBe(
+            "/repo/release%20notes",
+        );
+    });
 });

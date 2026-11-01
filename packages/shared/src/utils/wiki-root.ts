@@ -32,10 +32,10 @@ function resolveWikiRoot({ layers, workingDir }: ResolveWikiRootArgs): string | 
     if (withoutTrailingSlash === "") return null;
 
     if (isAbsolutePath(withoutTrailingSlash)) {
-        return joinRelative("", withoutTrailingSlash);
+        return joinRelative("", withoutTrailingSlash, { decode: false });
     }
     if (workingDir === null) return null;
-    return joinRelative(workingDir, withoutTrailingSlash);
+    return joinRelative(workingDir, withoutTrailingSlash, { decode: false });
 }
 
 export { WIKI_ATTRIBUTE_NAME, resolveWikiRoot };
