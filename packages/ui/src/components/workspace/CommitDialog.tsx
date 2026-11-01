@@ -129,6 +129,9 @@ export function CommitDialogBody({
     const [ahead, setAhead] = useState<number | null>(null);
     const [behind, setBehind] = useState(0);
     const [unpublished, setUnpublished] = useState(false);
+    // The commit (and push) landed but the request did not; status alone
+    // cannot tell when changes left out of the commit remain.
+    const [requestPending, setRequestPending] = useState(false);
 
     const [branch, setBranch] = useState<string | null>(null);
     const [lookup, setLookup] = useState<GitCheckPrResult | null>(null);
@@ -149,6 +152,7 @@ export function CommitDialogBody({
         setIncludeUnstaged(true);
         setAhead(null);
         setBehind(0);
+        setRequestPending(false);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -226,8 +230,8 @@ export function CommitDialogBody({
     }, []);
 
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
-    const pushOnly = hasChanges === false && (ahead ?? 0) > 0;
-    const prOnly = hasChanges === false && ahead === 0;
+    const prOnly = requestPending || (hasChanges === false && ahead === 0);
+    const pushOnly = !prOnly && hasChanges === false && (ahead ?? 0) > 0;
     const commitButtonDisabled =
         (prOnly && !canCreate) || (!pushOnly && !prOnly && !includeUnstaged && !hasStagedChanges);
 
@@ -325,11 +329,17 @@ export function CommitDialogBody({
             });
 
             if (createPr) {
-                await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
-                    path: repoPath,
-                    title: commitResult.message,
-                    taskId,
-                });
+                try {
+                    await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
+                        path: repoPath,
+                        title: commitResult.message,
+                        taskId,
+                    });
+                } catch (err) {
+                    setRequestPending(true);
+                    setMessage(commitResult.message);
+                    throw err;
+                }
             }
 
             handleOpenChange(false);

@@ -48,6 +48,7 @@ export function RenameProjectDialog({
         onOpenChange(false);
     }, [canSubmit, name, onSubmit, onOpenChange]);
 
+    // Enter in a field submits; on a focused button it keeps its own meaning (Cancel).
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
             if (e.key === "Enter" && canSubmit) {
@@ -60,7 +61,7 @@ export function RenameProjectDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
+            <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Rename Project</DialogTitle>
                 </DialogHeader>
@@ -72,6 +73,7 @@ export function RenameProjectDialog({
                         id="rename-project-name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
+                        onKeyDown={handleKeyDown}
                     />
                 </div>
 

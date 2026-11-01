@@ -24,7 +24,7 @@ const none: GitCheckPrResult = { status: "none", provider: "gitlab", pr: null };
 function fixture(changes = false) {
     const requests: string[] = [];
     // The repository the requests act on; commit and push move it.
-    const repo = { changes, ahead: 0, hasUpstream: true };
+    const repo = { changes, staged: false, ahead: 0, hasUpstream: true };
     const failing = new Set<string>();
     const sessions: unknown[][] = [];
     let result: GitCheckPrResult = none;
@@ -36,14 +36,16 @@ function fixture(changes = false) {
         backendId: "gitlab",
         defaultAgent: "claude",
         sessionOwner: { taskId: "task" },
-        request: async <T,>(type: string): Promise<T> => {
+        request: async <T,>(type: string, payload?: unknown): Promise<T> => {
             requests.push(type);
             if (failing.has(type)) throw new Error(`${type} failed`);
             if (type === MSG.GIT_STATUS)
                 return {
                     status: {
                         branch: "topic",
-                        stagedFiles: [],
+                        stagedFiles: repo.staged
+                            ? [{ path: "ready", status: "modified", staged: true }]
+                            : [],
                         unstagedFiles: repo.changes
                             ? [{ path: "file", status: "modified", staged: false }]
                             : [],
@@ -52,7 +54,16 @@ function fixture(changes = false) {
                         hasUpstream: repo.hasUpstream,
                     },
                 } as GitStatusResponse as T;
-            if (type === MSG.GIT_COMMIT) repo.changes = false;
+            if (type === MSG.GIT_COMMIT) {
+                if (!repo.staged && !repo.changes) throw new Error("nothing to commit");
+                const all =
+                    typeof payload === "object" &&
+                    payload !== null &&
+                    "includeUnstaged" in payload &&
+                    payload.includeUnstaged === true;
+                repo.staged = false;
+                if (all) repo.changes = false;
+            }
             if (type === MSG.GIT_PUSH) repo.hasUpstream = true;
             if (type === MSG.BUILTIN_ACTIONS_LIST) return { actions: [] } as T;
             return { message: "commit", hash: "a" } as T;
@@ -94,6 +105,17 @@ function button(label: string) {
     if (!result) throw new Error(`No button ${label}: ${document.body.textContent}`);
     return result;
 }
+async function typeMessage(text: string) {
+    await act(async () => {
+        const input = document.querySelector<HTMLTextAreaElement>("#commit-message");
+        if (!input) throw new Error("Missing message");
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+            input,
+            text,
+        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+}
 async function click(element: Element | null) {
     if (!element) throw new Error("Missing control");
     await act(async () => {
@@ -129,15 +151,7 @@ test("a failed merge request after commit and push offers only the request again
     const f = fixture(true);
     f.failing.add(MSG.GIT_CREATE_PR);
     await render(f.props);
-    await act(async () => {
-        const input = document.querySelector<HTMLTextAreaElement>("#commit-message");
-        if (!input) throw new Error("Missing message");
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
-            input,
-            "change",
-        );
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await typeMessage("change");
     await click(document.querySelector("#commit-push"));
     await click(document.querySelector("#commit-create-pr"));
     await click(button("Commit & Push"));
@@ -147,6 +161,25 @@ test("a failed merge request after commit and push offers only the request again
     f.requests.length = 0;
     await click(button("Create MR"));
     expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([MSG.GIT_CREATE_PR]);
+});
+test("a failed request after a staged-only commit offers only the request again", async () => {
+    const f = fixture(true);
+    f.repo.staged = true;
+    f.failing.add(MSG.GIT_CREATE_PR);
+    await render(f.props);
+    await typeMessage("ready");
+    await click(document.querySelector("#commit-include-unstaged"));
+    await click(document.querySelector("#commit-push"));
+    await click(document.querySelector("#commit-create-pr"));
+    await click(button("Commit & Push"));
+    expect(document.body.textContent).toContain(`${MSG.GIT_CREATE_PR} failed`);
+    // The unstaged change stays, so status looks as before; the commit landed all the same
+    expect(f.repo.changes).toBe(true);
+    f.failing.clear();
+    f.requests.length = 0;
+    await click(button("Create MR"));
+    expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([MSG.GIT_CREATE_PR]);
+    expect(f.repo.changes).toBe(true);
 });
 test("GitLab agent mode requests a merge request", async () => {
     const f = fixture(true);

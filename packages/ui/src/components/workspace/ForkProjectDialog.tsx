@@ -91,6 +91,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
         }
     }, [canSubmit, forkProject, project, branch, folder, onOpenChange]);
 
+    // Enter in a field submits; on a focused button it keeps its own meaning (Cancel).
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
             if (e.key === "Enter" && canSubmit) {
@@ -103,7 +104,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md" onKeyDown={handleKeyDown}>
+            <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Fork Project</DialogTitle>
                 </DialogHeader>
@@ -116,6 +117,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
                             id="fork-branch-name"
                             value={branch}
                             onChange={(e) => handleBranchChange(e.target.value)}
+                            onKeyDown={handleKeyDown}
                             placeholder="feature/my-branch"
                         />
                     </div>
@@ -129,6 +131,7 @@ export function ForkProjectDialog({ open, onOpenChange, project }: ForkProjectDi
                             id="fork-folder-name"
                             value={folder}
                             onChange={(e) => handleFolderChange(e.target.value)}
+                            onKeyDown={handleKeyDown}
                             placeholder={slugify(branch) || "derived-from-branch"}
                         />
                         {targetPath && (
