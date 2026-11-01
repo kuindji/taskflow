@@ -123,6 +123,15 @@ function CodexOptionsContext({
         return supported?.length ? supported : [...CODEX_REASONING_EFFORTS];
     }, [selectedModel]);
 
+    // A session's omitted effort is filled from the machine default (possibly
+    // the very level just rejected), so there the fallback is the model's own
+    // default, spelled out. The machine default itself may stay "default".
+    const fallbackEffort = useCallback(
+        (model: CodexModelInfo): CodexReasoningEffort | "default" =>
+            mode === "defaults" ? "default" : model.defaultReasoningEffort,
+        [mode],
+    );
+
     useEffect(() => {
         if (
             reasoningEffort !== "default" &&
@@ -131,9 +140,9 @@ function CodexOptionsContext({
                 (effort) => effort.reasoningEffort === reasoningEffort,
             )
         ) {
-            onReasoningEffortChange("default");
+            onReasoningEffortChange(fallbackEffort(selectedModel));
         }
-    }, [onReasoningEffortChange, reasoningEffort, selectedModel]);
+    }, [fallbackEffort, onReasoningEffortChange, reasoningEffort, selectedModel]);
 
     const handleModelChange = useCallback(
         (nextModel: string) => {
@@ -149,11 +158,11 @@ function CodexOptionsContext({
                     (effort) => effort.reasoningEffort === reasoningEffort,
                 )
             ) {
-                onReasoningEffortChange("default");
+                onReasoningEffortChange(fallbackEffort(model));
             }
             onModelChange(nextModel);
         },
-        [models, onModelChange, onReasoningEffortChange, reasoningEffort],
+        [fallbackEffort, models, onModelChange, onReasoningEffortChange, reasoningEffort],
     );
 
     return (

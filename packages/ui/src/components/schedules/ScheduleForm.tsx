@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type {
     Schedule,
     ScheduleCreatePayload,
@@ -58,7 +58,7 @@ function ScheduleForm({
         schedule?.projectId ?? selectableProjectId(projects, defaultProjectId) ?? "";
 
     const [projectId, setProjectId] = useState<string>(initialProjectId);
-    const [actionId, setActionId] = useState<string>(schedule?.actionId ?? "");
+    const [pickedActionId, setActionId] = useState<string>(schedule?.actionId ?? "");
     const [name, setName] = useState(schedule?.name ?? "");
     const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
     const [expressionType, setExpressionType] = useState<"cron" | "rate">(
@@ -80,16 +80,13 @@ function ScheduleForm({
         () => scheduleActionOptions(actions, projectId, projectBackendId, savedActionId),
         [actions, projectId, projectBackendId, savedActionId],
     );
+    // Derived, not cleared: the list is empty until projects and actions
+    // load, and clearing then would drop the schedule's saved action.
     const selectedAction = useMemo(
-        () => (actionId ? actions.find((a) => a.id === actionId) : undefined),
-        [actionId, actions],
+        () => (pickedActionId ? availableActions.find((a) => a.id === pickedActionId) : undefined),
+        [pickedActionId, availableActions],
     );
-
-    useEffect(() => {
-        if (!actionId) return;
-        if (availableActions.some((action) => action.id === actionId)) return;
-        setActionId("");
-    }, [actionId, availableActions]);
+    const actionId = selectedAction?.id ?? "";
 
     const useAction = !!selectedAction;
 

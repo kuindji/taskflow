@@ -79,7 +79,8 @@ test("a selected account's supported reasoning levels drive Codex options", asyn
         />,
     );
     await flush();
-    expect(changed).toEqual(["default"]);
+    // Spelled out: an omitted effort would launch with the machine default.
+    expect(changed).toEqual(["high"]);
     const trigger = container.querySelector<HTMLButtonElement>('[role="combobox"]');
     if (!trigger) throw new Error("missing reasoning picker");
     await act(() =>
@@ -92,6 +93,22 @@ test("a selected account's supported reasoning levels drive Codex options", asyn
     expect(options).toContain("Low");
     expect(options).toContain("High");
     expect(options).not.toContain("Xhigh");
+});
+
+test("the machine default falls back to the model default, left unset", async () => {
+    const changed: string[] = [];
+    render(
+        <CodexOptions
+            {...props}
+            mode="defaults"
+            backendId="remote"
+            account="work"
+            loadDiscovery={async () => response([model("same", ["low", "high"])])}
+            onReasoningEffortChange={(value) => changed.push(value)}
+        />,
+    );
+    await flush();
+    expect(changed).toEqual(["default"]);
 });
 
 test("a backend switch never retains the previous account's model capabilities", async () => {
