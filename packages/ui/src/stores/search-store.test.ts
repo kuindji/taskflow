@@ -250,3 +250,67 @@ describe("search-store single-match replace", () => {
         expect(useSearchStore.getState().error).toContain("Not replaced");
     });
 });
+
+describe("search-store bulk replace", () => {
+    const fileA = {
+        path: "/repo/a.ts",
+        matches: [
+            { line: 1, column: 1, matchLength: 3, lineContent: "foo foo" },
+            { line: 1, column: 5, matchLength: 3, lineContent: "foo foo" },
+        ],
+    };
+    const fileB = {
+        path: "/repo/b.ts",
+        matches: [{ line: 2, column: 1, matchLength: 3, lineContent: "foo" }],
+    };
+
+    async function searchReplacing(replacedCount: number): Promise<void> {
+        const server = startTestServer("a", (type) => {
+            if (type === MSG.SEARCH_QUERY) {
+                return { result: { searchId: "s", totalMatches: 3, files: [fileA, fileB] } };
+            }
+            if (type === MSG.SEARCH_REPLACE_ALL) return { replacedCount, filesModified: 0 };
+            return {};
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+        useSearchStore.getState().setQuery("foo");
+        await useSearchStore.getState().search("a", "/repo");
+    }
+
+    test("replace all that the backend refused keeps the results and says why", async () => {
+        await searchReplacing(0);
+
+        await useSearchStore.getState().replaceAll();
+
+        expect(useSearchStore.getState().results).toEqual([fileA, fileB]);
+        expect(useSearchStore.getState().error).toContain("Not replaced");
+    });
+
+    test("a file's replace all that the backend refused keeps that file", async () => {
+        await searchReplacing(0);
+
+        await useSearchStore.getState().replaceInFile(fileA.path);
+
+        expect(useSearchStore.getState().results).toEqual([fileA, fileB]);
+        expect(useSearchStore.getState().error).toContain("Not replaced");
+    });
+
+    test("a partial replace all says how many matches were left", async () => {
+        await searchReplacing(2);
+
+        await useSearchStore.getState().replaceAll();
+
+        expect(useSearchStore.getState().results).toEqual([]);
+        expect(useSearchStore.getState().error).toContain("Replaced 2 of 3");
+    });
+
+    test("a complete replace all clears the results without an error", async () => {
+        await searchReplacing(3);
+
+        await useSearchStore.getState().replaceAll();
+
+        expect(useSearchStore.getState().results).toEqual([]);
+        expect(useSearchStore.getState().error).toBeNull();
+    });
+});

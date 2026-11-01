@@ -183,4 +183,12 @@ describe("openFileInApp with a CLI editor", () => {
             expect.objectContaining({ master: true, type: "editor", filePath: "/repo/a.ts" }),
         ]);
     });
+
+    it("opens a file from Master's Files or Search, which pass no owner, in a Master editor session", async () => {
+        await openFileInApp("/repo/src/b.ts", "master", undefined, 2);
+
+        expect(sessionCreates()).toEqual([
+            expect.objectContaining({ master: true, type: "editor", filePath: "/repo/src/b.ts" }),
+        ]);
+    });
 });

@@ -133,6 +133,11 @@ let fileChangeSubscriptionReady = false;
 let fileChangeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingRecursiveDirs = new Set<string>();
 const pendingChangedDirs = new Set<string>();
+/**
+ * Directories asked for again while their listing was still being answered:
+ * that listing may predate the change, so they are listed once more after it.
+ */
+const relistDirs = new Set<string>();
 let diffStoreUnsubscribe: (() => void) | null = null;
 let treeRequestId = 0;
 /** Bumped by every watch, unwatch and detach: a watch that lands late is not recorded. */
@@ -226,7 +231,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async fetchDir(dirPath) {
         const backendId = get().treeBackendId;
-        if (!backendId || get().loadingDirs.has(dirPath)) return;
+        if (!backendId) return;
+        if (get().loadingDirs.has(dirPath)) {
+            relistDirs.add(dirPath);
+            return;
+        }
         const newLoading = new Set(get().loadingDirs);
         newLoading.add(dirPath);
         set({ loadingDirs: newLoading });
@@ -253,7 +262,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
                     loadingDirs: updatedLoading,
                 };
             });
+            if (relistDirs.delete(dirPath) && get().treeBackendId === backendId) {
+                await get().fetchDir(dirPath);
+            }
         } catch {
+            relistDirs.delete(dirPath);
             set((state) => {
                 const updatedLoading = new Set(state.loadingDirs);
                 updatedLoading.delete(dirPath);

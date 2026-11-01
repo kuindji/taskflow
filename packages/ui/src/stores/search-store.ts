@@ -84,6 +84,34 @@ function shiftAfterReplace(
     });
 }
 
+const SKIPPED_REASON = "changed since the search or is not UTF-8 text. Search again.";
+
+/**
+ * After a bulk replace of the shown results (one file's, or all of them):
+ * the backend skips a file that changed or is not UTF-8 text, so fewer
+ * replacements than shown means some are still on disk. With none replaced
+ * the results stay; otherwise which ones remain is unknown and they go.
+ */
+function settleBulkReplace(replacedCount: number, filePath?: string): void {
+    const { results, removeFile } = useSearchStore.getState();
+    const scope = filePath ? results.filter((f) => f.path === filePath) : results;
+    const shown = scope.reduce((sum, f) => sum + f.matches.length, 0);
+    if (replacedCount === 0 && shown > 0) {
+        useSearchStore.setState({ error: `Not replaced: the text ${SKIPPED_REASON}` });
+        return;
+    }
+    if (filePath) {
+        removeFile(filePath);
+    } else {
+        useSearchStore.setState({ results: [], totalMatches: 0 });
+    }
+    if (replacedCount < shown) {
+        useSearchStore.setState({
+            error: `Replaced ${replacedCount} of ${shown} matches: the rest ${SKIPPED_REASON}`,
+        });
+    }
+}
+
 /** Bumped by every search and by a detach of the searched machine: a late answer is dropped. */
 let searchGeneration = 0;
 /** The machine the running search asked, until its answer lands. */
@@ -229,7 +257,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
             if (replacedCount === 0) {
                 set({
-                    error: "Not replaced: the file changed since the search or is not UTF-8 text. Search again.",
+                    error: `Not replaced: the file ${SKIPPED_REASON}`,
                 });
                 return;
             }
@@ -253,15 +281,19 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         const { searchBackendId, searchRoot, searchedWith, replacement, results } = get();
         if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
-            await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
-                path: searchRoot,
-                ...searchedWith,
-                replacement,
-                filePath,
-                shown: results,
-            } satisfies SearchReplaceAllPayload);
+            const { replacedCount } = await sendRequest<SearchReplaceAllResponse>(
+                searchBackendId,
+                MSG.SEARCH_REPLACE_ALL,
+                {
+                    path: searchRoot,
+                    ...searchedWith,
+                    replacement,
+                    filePath,
+                    shown: results,
+                } satisfies SearchReplaceAllPayload,
+            );
 
-            get().removeFile(filePath);
+            settleBulkReplace(replacedCount, filePath);
         } catch (err) {
             set({ error: err instanceof Error ? err.message : "Replace failed" });
         }
@@ -272,19 +304,19 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
             // Only what is still listed: a dismissed file or match stays as it is.
-            await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
-                path: searchRoot,
-                ...searchedWith,
-                replacement,
-                filePath,
-                shown: results,
-            } satisfies SearchReplaceAllPayload);
+            const { replacedCount } = await sendRequest<SearchReplaceAllResponse>(
+                searchBackendId,
+                MSG.SEARCH_REPLACE_ALL,
+                {
+                    path: searchRoot,
+                    ...searchedWith,
+                    replacement,
+                    filePath,
+                    shown: results,
+                } satisfies SearchReplaceAllPayload,
+            );
 
-            if (filePath) {
-                get().removeFile(filePath);
-            } else {
-                set({ results: [], totalMatches: 0 });
-            }
+            settleBulkReplace(replacedCount, filePath);
         } catch (err) {
             set({ error: err instanceof Error ? err.message : "Replace all failed" });
         }

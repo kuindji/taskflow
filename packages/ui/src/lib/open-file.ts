@@ -6,7 +6,7 @@ import type { EditorInfo, SessionOwnerRef, SystemInfoResponse } from "@taskflow/
 import { setPendingLine } from "@/components/panes/editor-dirty-state";
 import { planFileOpen } from "@/lib/open-file-plan";
 import { createPerBackendCache } from "@/lib/per-backend-cache";
-import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
+import { workspaceBackendId, workspaceOwner } from "@/hooks/useActiveWorkspace";
 
 /** Each machine's detected editors: a CLI editor runs on the machine that owns the file. */
 const editorCache = createPerBackendCache(
@@ -59,9 +59,12 @@ async function openFileInApp(
     const label = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
 
     if (plan.kind === "cli-editor") {
-        if (!owner) return;
+        // Callers without a task or project (Master, the wiki) open in the
+        // workspace the file is opened from.
+        const sessionOwner = owner ?? workspaceOwner(workspaceKey);
+        if (!sessionOwner.taskId && !sessionOwner.projectId && !sessionOwner.master) return;
         await store.createSession(
-            owner,
+            sessionOwner,
             "editor",
             `${internalEditor}: ${label}`,
             undefined,

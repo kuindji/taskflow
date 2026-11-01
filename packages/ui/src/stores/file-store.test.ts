@@ -42,11 +42,16 @@ let desktopNextUnwatchHold: Promise<void> | null = null;
 let readResponse: FileReadResponse = { content: "" };
 /** Desktop's shallow listings by directory; any other directory lists empty. */
 let desktopListings: Record<string, FileNode[]> = {};
+/** While set, desktop's next listing is taken at once but answered only when it resolves. */
+let desktopNextListingHold: Promise<void> | null = null;
 const desktop = startTestServer("desktop", (type, payload) => {
     if (type === MSG.FILE_READ) return readResponse;
     if (type === MSG.FILE_LIST_DIR) {
         const entries = desktopListings[(payload as { path: string }).path];
-        return entries ? { entries, gitignorePatterns: [] } : EMPTY_LISTING;
+        const listing = entries ? { entries, gitignorePatterns: [] } : EMPTY_LISTING;
+        const hold = desktopNextListingHold;
+        desktopNextListingHold = null;
+        return hold ? hold.then(() => listing) : listing;
     }
     if (type !== MSG.FILE_UNWATCH || !desktopNextUnwatchHold) return { from: "desktop" };
     const hold = desktopNextUnwatchHold;
@@ -174,6 +179,29 @@ describe("file-store recursive change events", () => {
             `${root}/src/deep`,
             `${root}/src/closed`,
         ]);
+    });
+
+    test("a change while its directory's listing is answered lists that directory again", async () => {
+        const first = { name: "first.ts", path: `${root}/docs/first.ts`, type: "file" as const };
+        const second = { name: "second.ts", path: `${root}/docs/second.ts`, type: "file" as const };
+        let release = () => {};
+        desktopNextListingHold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        desktopListings = { [`${root}/docs`]: [first] };
+        desktop.broadcast(MSG.FILE_CHANGED, { type: "add", path: first.path });
+        await until(() => listedDirs(desktop).length === 1);
+
+        // The first listing was taken before second.ts existed.
+        desktopListings = { [`${root}/docs`]: [first, second] };
+        desktop.broadcast(MSG.FILE_CHANGED, { type: "add", path: second.path });
+        await settle();
+        release();
+        await until(() => listedDirs(desktop).length === 2);
+        await settle();
+
+        const docs = useFileStore.getState().tree?.children?.find((c) => c.name === "docs");
+        expect(docs?.children?.map((c) => c.name)).toEqual(["first.ts", "second.ts"]);
     });
 
     test("an event for a sibling path that merely shares the root's prefix is ignored", async () => {
