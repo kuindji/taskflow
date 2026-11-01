@@ -48,6 +48,10 @@ class FlowRun {
         this.rebuild();
     }
 
+    get flowId(): string {
+        return this.run.flowId;
+    }
+
     get keyHints(): string {
         if (this.pending) return " Working...";
         const hints = ["↑↓ Move"];

@@ -2254,8 +2254,10 @@ class OpenTuiApp {
             );
         } else if (this.productView instanceof FlowRun && flowStore) {
             const run = flowStore.runFor(this.selectedOwnerState);
-            if (run) this.productView.update(run);
-            else this.openFlowLibrary();
+            if (!run) this.openFlowLibrary();
+            // The view's title and controls are bound to the flow it was opened for.
+            else if (this.productView.flowId !== run.flowId) this.openFlowRun();
+            else this.productView.update(run);
         } else if (this.productView instanceof Schedules && this.deps.scheduleStore) {
             this.productView.update(this.deps.scheduleStore.schedules);
         }

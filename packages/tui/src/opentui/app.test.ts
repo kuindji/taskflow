@@ -475,6 +475,59 @@ describe("OpenTuiApp", () => {
         ]);
     });
 
+    it("sends flow controls to the flow the open run view shows", async () => {
+        const test = await createTestRenderer({ width: 100, height: 20, kittyKeyboard: true });
+        const net = new FakeNet();
+        const flow = (id: string, name: string) => ({
+            id,
+            name,
+            actions: [{ id: `${id}-entry`, actionId: "build" }],
+            createdAt: "now",
+            updatedAt: "now",
+        });
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, {
+            flows: [flow("a", "Flow A"), flow("b", "Flow B")],
+        });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        net.responses.set(MSG.FLOW_PAUSE, {});
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "Task")];
+        const flowStore = new FlowStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, flowStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => flowStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        app.selectOwner({ kind: "task", taskId: "t1", projectId: "p1" });
+        await Bun.sleep(0);
+        const run = (flowId: string, status: "running" | "completed", startedAt: string) => ({
+            taskId: "t1",
+            flowId,
+            status,
+            currentActionIndex: 0,
+            actions: [{ actionEntryId: `${flowId}-entry`, status: "running" }],
+            artifacts: [],
+            startedAt,
+        });
+        net.emit(MSG.FLOW_RUN_UPDATED, run("a", "running", "1"));
+        test.mockInput.pressKey("f");
+        net.emit(MSG.FLOW_RUN_UPDATED, run("a", "completed", "1"));
+        net.emit(MSG.FLOW_RUN_UPDATED, run("b", "running", "2"));
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("Flow B");
+
+        net.requests.length = 0;
+        test.mockInput.pressKey("p");
+        await Bun.sleep(0);
+        expect(net.requests.filter((request) => request.type === MSG.FLOW_PAUSE)).toEqual([
+            { type: MSG.FLOW_PAUSE, payload: { ownerId: "t1", flowId: "b" } },
+        ]);
+    });
+
     it("refreshes scheduler ownership after reconnect", async () => {
         const test = await createTestRenderer({ width: 80, height: 18, kittyKeyboard: true });
         const net = new FakeNet();

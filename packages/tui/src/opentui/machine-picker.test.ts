@@ -239,6 +239,17 @@ describe("MachinePicker", () => {
         picker.handleKey(key("return", "\r"));
         expect(picked).toEqual([{ kind: "machine", entry: unseen }]);
     });
+
+    it("keeps pasted Add machine text when entries refresh", async () => {
+        const { test, picker, frame, added } = await setup();
+        picker.handleKey(key("a", "a"));
+        await test.mockInput.pasteBracketedText("build.example.com");
+        expect(await frame()).toContain("build.example.com");
+        picker.setEntries([discovered, unseen, saved]);
+        expect(await frame()).toContain("build.example.com");
+        picker.handleKey(key("return", "\r"));
+        expect(added).toEqual([{ host: "build.example.com" }]);
+    });
 });
 
 describe("askTrust", () => {

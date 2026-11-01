@@ -153,19 +153,25 @@ class MachinePicker {
         this.rows = buildPickerRows(entries);
         const index = current ? this.rows.findIndex((row) => rowKey(row) === rowKey(current)) : -1;
         this.selected = index === -1 ? Math.min(this.selected, this.rows.length - 1) : index;
-        this.rebuild();
+        this.refresh();
     }
 
     /** Shown under the rows until the next key press. Ends any pending state. */
     showFailure(message: string): void {
         this.pending = null;
         this.failure = singleLine(message);
-        this.rebuild();
+        this.refresh();
     }
 
     /** While a message is set the picker shows it and ignores keys. */
     setPending(message: string | null): void {
         this.pending = message;
+        this.refresh();
+    }
+
+    /** Rebuild from outside a key press: text pasted into the open form is not synced yet. */
+    private refresh(): void {
+        if (this.form) this.syncInput(this.form);
         this.rebuild();
     }
 
