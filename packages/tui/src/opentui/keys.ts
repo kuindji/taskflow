@@ -373,6 +373,11 @@ function isRawBareEscape(event: KeyEvent): boolean {
     );
 }
 
+/** Two Escapes in one read, which OpenTUI's legacy parser reports as Alt+Escape. */
+function isRawDoubleEscape(event: KeyEvent): boolean {
+    return event.source === "raw" && event.name === "escape" && event.raw === "\x1b\x1b";
+}
+
 class KeyRouter {
     private heldEscape: KeyEvent | null = null;
 
@@ -387,6 +392,9 @@ class KeyRouter {
 
         const before = this.heldEscape ?? undefined;
         this.heldEscape = null;
+        if (isRawDoubleEscape(event)) {
+            return event.eventType === "press" ? { kind: "switch-focus" } : { kind: "consume" };
+        }
         if (isRawBareEscape(event) && event.eventType === "press") {
             if (before !== undefined) return { kind: "switch-focus" };
             this.heldEscape = event;
@@ -432,6 +440,12 @@ function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
     else if (/^f([1-9]|1[0-2])$/i.test(event.name)) event.code = event.name.toUpperCase();
     else event.code = undefined;
 
+    // OpenTUI's parser reports Alt as `meta` (with `option` only for some
+    // encodings), while its encoder reads `meta` as Super.
+    if (event.meta) {
+        event.option = true;
+        event.meta = false;
+    }
     if (event.source === "kitty") event.sequence = "";
     return event;
 }

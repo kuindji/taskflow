@@ -184,7 +184,10 @@ interface SidebarRow {
     missing: boolean;
 }
 
-const ESCAPE_IDLE_MS = 25;
+// How long a legacy terminal's Escape waits for a second one (the double
+// Escape that returns to app controls) before it goes to the session. It must
+// cover a human double tap; Kitty terminals use Ctrl+Escape and never wait.
+const ESCAPE_IDLE_MS = 300;
 
 function cleanLabel(label: string): string {
     let result = "";

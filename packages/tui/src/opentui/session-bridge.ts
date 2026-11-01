@@ -1,4 +1,9 @@
-import { ClipboardTarget, EmbeddedTerminalRenderable, type CliRenderer } from "@opentui/core";
+import {
+    ClipboardTarget,
+    EmbeddedTerminalRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import { MSG, assertCompatibleSnapshot, supplementalSnapshotSequence } from "@taskflow/shared";
 import type {
     SessionExitedEvent,
@@ -39,6 +44,26 @@ const RECENT_LIMIT = 128 * 1024;
 // 200-column ASCII fixture needs about 11 MiB to retain 5,000 complete rows.
 const MAX_SCROLLBACK_BYTES = 16 * 1024 * 1024;
 
+const ESC = 0x1b;
+
+/**
+ * On macOS the native legacy key encoder treats Option as a text modifier and
+ * drops Alt, so Alt+B reaches a non-Kitty child as a bare "b". The outer
+ * terminal already reported Alt (Option-as-Meta), so restore the ESC prefix.
+ * Kitty encodings and modified CSI keys already start with ESC.
+ */
+class SessionTerminalRenderable extends EmbeddedTerminalRenderable {
+    override encodeKey(key: KeyEvent): Uint8Array {
+        const bytes = super.encodeKey(key);
+        if (!key.option || key.super || key.hyper) return bytes;
+        if (bytes.length === 0 || bytes[0] === ESC) return bytes;
+        const prefixed = new Uint8Array(bytes.length + 1);
+        prefixed[0] = ESC;
+        prefixed.set(bytes, 1);
+        return prefixed;
+    }
+}
+
 class SessionBridge {
     readonly renderable: EmbeddedTerminalRenderable;
     private loaded = false;
@@ -66,7 +91,7 @@ class SessionBridge {
     constructor(private readonly deps: SessionBridgeDeps) {
         this.appliedSize = { cols: deps.cols, rows: deps.rows };
         this.osc52 = new Osc52Scanner(deps.clipboard ?? rendererClipboardSink(deps.renderer));
-        this.renderable = new EmbeddedTerminalRenderable(deps.renderer, {
+        this.renderable = new SessionTerminalRenderable(deps.renderer, {
             id: `session-${deps.sessionId}`,
             cols: deps.cols,
             rows: deps.rows,

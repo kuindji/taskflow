@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { KeyEvent, PasteEvent } from "@opentui/core";
+import { KeyEvent, PasteEvent, parseKeypress } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { MSG } from "@taskflow/shared";
 import type { SessionSnapshotResponse } from "@taskflow/shared";
@@ -613,6 +613,36 @@ describe("SessionBridge", () => {
         }
 
         expect(sessionInputs(net)).toEqual(["\x1bOP", "\x1b[15~", "\x1b[21~"]);
+    });
+
+    it("forwards Alt shortcuts parsed from legacy and Kitty terminals as Alt", async () => {
+        const parsed = (sequence: string, useKittyKeyboard: boolean): KeyEvent => {
+            const event = parseKeypress(sequence, { useKittyKeyboard });
+            if (!event) throw new Error(`unparsed ${JSON.stringify(sequence)}`);
+            return prepareForEmbeddedTerminal(new KeyEvent(event));
+        };
+        for (const kittyStack of [[], [null, 1]]) {
+            const { net, bridge } = await setup();
+            net.responses.set(MSG.SESSION_SNAPSHOT, {
+                snapshot: "",
+                lastSequence: 0,
+                cursorHidden: false,
+                kittyStack,
+                mouseEncoding: "x10",
+            });
+            await bridge.attach();
+            net.requests.length = 0;
+            bridge.renderable.handleKeyPress(parsed("\x1bb", false));
+            bridge.renderable.handleKeyPress(parsed("\x1b[98;3u", true));
+            bridge.renderable.handleKeyPress(parsed("\x1b[1;3D", false));
+            bridge.renderable.handleKeyPress(parsed("\x1b\x7f", false));
+            bridge.renderable.handleKeyPress(parsed("\x1b\x02", false));
+            const expected =
+                kittyStack.length === 0
+                    ? ["\x1bb", "\x1bb", "\x1b[1;3D", "\x1b\x7f", "\x1b\x02"]
+                    : ["\x1b[98;3u", "\x1b[98;3u", "\x1b[1;3D", "\x1b[127;3u", "\x1b[98;7u"];
+            expect(sessionInputs(net)).toEqual(expected);
+        }
     });
 
     it("lets OpenTUI encode press, repeat, release, and paste from real events", async () => {

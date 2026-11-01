@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { BoxRenderable, type CliRenderer } from "@opentui/core";
+import { BoxRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import type {
     AppSettings,
@@ -1021,6 +1021,40 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame().split("\n")[23]).toContain("q Close");
         test.mockInput.pressKey("l");
         expect(app.focus).toBe("session");
+    });
+
+    it("returns to app controls on a legacy double Escape at typing speed", async () => {
+        const { test, app, sessions } = await setup(80, 24, true);
+        const forwarded: string[] = [];
+        for (const session of sessions) {
+            Object.assign(session.bridge.renderable, {
+                handleKeyPress: (event: KeyEvent) => forwarded.push(event.name),
+            });
+        }
+        const raw = (bytes: string) => test.renderer.stdin.emit("data", Buffer.from(bytes));
+        test.mockInput.pressEnter();
+        expect(app.focus).toBe("session");
+
+        raw("\x1b");
+        await Bun.sleep(120);
+        raw("\x1b");
+        await Bun.sleep(60);
+        expect(app.focus).toBe("ui");
+
+        test.mockInput.pressKey("l");
+        expect(app.focus).toBe("session");
+        // Both bytes in one read reach the parser as one Escape with Alt.
+        raw("\x1b\x1b");
+        await Bun.sleep(60);
+        expect(app.focus).toBe("ui");
+        expect(forwarded).toEqual([]);
+
+        // A lone Escape still reaches the session once the wait runs out.
+        test.mockInput.pressKey("l");
+        raw("\x1b");
+        await Bun.sleep(400);
+        expect(app.focus).toBe("session");
+        expect(forwarded).toEqual(["escape"]);
     });
 
     it("creates a clean task agent with the captured owner and visible pane size", async () => {
