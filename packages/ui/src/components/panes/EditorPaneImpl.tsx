@@ -111,11 +111,16 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     );
 
     const save = useCallback(async () => {
-        const editor = editorRef.current;
-        if (!editor || backendId === null) return;
+        const model = editorRef.current?.getModel();
+        if (!model || backendId === null) return;
         try {
             await previewAccess.current.save(async () => {
-                await writeFile(backendId, filePath, editor.getValue());
+                const savedVersion = model.getAlternativeVersionId();
+                await writeFile(backendId, filePath, model.getValue());
+                // Text typed while the write was answered is not on disk.
+                if (model.isDisposed() || model.getAlternativeVersionId() !== savedVersion) {
+                    return;
+                }
                 setEditorDirty(backendId, filePath, false);
                 setDirty(false);
             });

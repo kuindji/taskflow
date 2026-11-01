@@ -15,7 +15,18 @@ import { registerBackendReset } from "./store-reset";
 
 function setChildrenAtPath(root: FileNode, targetPath: string, children: FileNode[]): FileNode {
     if (root.path === targetPath) {
-        return { ...root, children, loaded: true };
+        // A listing is one level deep: a directory still listed keeps what was loaded below it.
+        const previous = new Map(root.children?.map((child) => [child.path, child]));
+        return {
+            ...root,
+            loaded: true,
+            children: children.map((child) => {
+                const old = previous.get(child.path);
+                return child.type === "directory" && old?.type === "directory" && old.loaded
+                    ? { ...child, children: old.children, loaded: true }
+                    : child;
+            }),
+        };
     }
     if (!root.children) return root;
     return {
@@ -405,7 +416,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         await sendRequest(backendId, MSG.FILE_DELETE_FILE, { path });
     },
     async createFile(backendId, path) {
-        await sendRequest(backendId, MSG.FILE_WRITE, { path, content: "" });
+        await sendRequest(backendId, MSG.FILE_CREATE, { path });
     },
     async createDirectory(backendId, path) {
         await sendRequest(backendId, MSG.FILE_MKDIR, { path });

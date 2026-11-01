@@ -40,9 +40,14 @@ const EMPTY_LISTING = { entries: [], gitignorePatterns: [] };
 /** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
 let desktopNextUnwatchHold: Promise<void> | null = null;
 let readResponse: FileReadResponse = { content: "" };
-const desktop = startTestServer("desktop", (type) => {
+/** Desktop's shallow listings by directory; any other directory lists empty. */
+let desktopListings: Record<string, FileNode[]> = {};
+const desktop = startTestServer("desktop", (type, payload) => {
     if (type === MSG.FILE_READ) return readResponse;
-    if (type === MSG.FILE_LIST_DIR) return EMPTY_LISTING;
+    if (type === MSG.FILE_LIST_DIR) {
+        const entries = desktopListings[(payload as { path: string }).path];
+        return entries ? { entries, gitignorePatterns: [] } : EMPTY_LISTING;
+    }
     if (type !== MSG.FILE_UNWATCH || !desktopNextUnwatchHold) return { from: "desktop" };
     const hold = desktopNextUnwatchHold;
     desktopNextUnwatchHold = null;
@@ -103,6 +108,7 @@ beforeEach(() => {
         loadingDirs: new Set<string>(),
         watched: { backendId: "desktop", path: root },
     });
+    desktopListings = {};
     desktop.received.length = 0;
     laptop.received.length = 0;
 });
@@ -146,6 +152,28 @@ describe("file-store recursive change events", () => {
         await settle();
 
         expect(listedDirs(desktop)).toEqual([`${root}/docs`]);
+    });
+
+    test("refreshing a directory keeps the listings already loaded below it", async () => {
+        // The backend lists one level: its directories come back without children.
+        desktopListings = {
+            [root]: [
+                { name: "src", path: `${root}/src`, type: "directory" },
+                { name: "docs", path: `${root}/docs`, type: "directory" },
+                { name: "README.md", path: `${root}/README.md`, type: "file" },
+            ],
+        };
+        desktop.broadcast(MSG.FILE_CHANGED, { type: "modify", path: `${root}/README.md` });
+        await settle();
+
+        const refreshed = useFileStore.getState().tree;
+        expect(refreshed?.children?.map((c) => c.name)).toEqual(["src", "docs", "README.md"]);
+        const src = refreshed?.children?.find((c) => c.name === "src");
+        expect(src?.loaded).toBe(true);
+        expect(src?.children?.map((c) => c.path)).toEqual([
+            `${root}/src/deep`,
+            `${root}/src/closed`,
+        ]);
     });
 
     test("an event for a sibling path that merely shares the root's prefix is ignored", async () => {

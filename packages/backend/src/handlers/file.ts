@@ -29,6 +29,8 @@ import { readFilePreview } from "../services/file-preview";
 import { getKnownEditor } from "../services/editor-detector";
 import { resolveEditorCommand } from "../services/editor-resolver";
 
+const NAME_TAKEN = "A file or folder with that name already exists";
+
 async function readExisting(path: string): Promise<Buffer> {
     try {
         return await readFile(path);
@@ -102,6 +104,20 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         return { success: true };
     });
 
+    router.register(MSG.FILE_CREATE, async (payload) => {
+        const { path } = payload as FilePathPayload;
+        const workspacePath = await assertMutableWorkspacePath(taskStore, path);
+        try {
+            // Exclusive: the name may have been taken by the time this lands.
+            await writeFile(workspacePath, "", { flag: "wx" });
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "EEXIST")
+                throw new Error(NAME_TAKEN, { cause: error });
+            throw error;
+        }
+        return { success: true };
+    });
+
     router.register(MSG.FILE_WATCH, async (payload, ctx) => {
         const { path } = payload as FileWatchPayload;
         const workspacePath = await assertWorkspacePath(taskStore, path);
@@ -138,7 +154,7 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const resolvedNew = await assertMutableWorkspaceEntry(taskStore, newPath);
         const existing = await lstat(resolvedNew).catch(() => null);
         if (existing && !(await isSameEntryRespelled(resolvedOld, resolvedNew, existing))) {
-            throw new Error("A file or folder with that name already exists");
+            throw new Error(NAME_TAKEN);
         }
         await rename(resolvedOld, resolvedNew);
         return { success: true };
@@ -179,13 +195,9 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         const resolvedPath = await assertWorkspacePath(taskStore, path);
         try {
             await fsStat(resolvedPath);
-            throw new Error("A file or folder with that name already exists");
+            throw new Error(NAME_TAKEN);
         } catch (e) {
-            if (
-                e instanceof Error &&
-                e.message === "A file or folder with that name already exists"
-            )
-                throw e;
+            if (e instanceof Error && e.message === NAME_TAKEN) throw e;
         }
         await mkdir(resolvedPath, { recursive: true });
         return { success: true };

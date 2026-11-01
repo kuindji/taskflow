@@ -233,6 +233,27 @@ describe("file handlers", () => {
         });
     });
 
+    describe("FILE_CREATE", () => {
+        it("creates an empty file", async () => {
+            const created = join(projectDir, "created.txt");
+            expect(await router.handle(MSG.FILE_CREATE, { path: created })).toEqual({
+                success: true,
+            });
+            expect(await readFile(created, "utf-8")).toBe("");
+        });
+
+        it("refuses a name that is taken and leaves that file as it was", async () => {
+            const existing = join(projectDir, "config.json");
+            await writeFile(existing, '{"keep":true}');
+
+            await expectRejects(
+                () => router.handle(MSG.FILE_CREATE, { path: existing }),
+                "already exists",
+            );
+            expect(await readFile(existing, "utf-8")).toBe('{"keep":true}');
+        });
+    });
+
     describe("FILE_RENAME", () => {
         it("renames a file", async () => {
             const filePath = join(projectDir, "old.txt");

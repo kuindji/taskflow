@@ -110,6 +110,8 @@ export const MSG = {
     FILE_LIST_DIR: "file:list-dir",
     FILE_READ: "file:read",
     FILE_WRITE: "file:write",
+    /** Creates an empty file; refuses a name that is taken, where FILE_WRITE would overwrite it. */
+    FILE_CREATE: "file:create",
     FILE_CHANGED: "file:changed",
     FILE_WATCH: "file:watch",
     FILE_UNWATCH: "file:unwatch",

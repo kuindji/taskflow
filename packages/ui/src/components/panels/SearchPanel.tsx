@@ -30,6 +30,7 @@ function SearchPanel() {
     const results = useSearchStore((s) => s.results);
     const totalMatches = useSearchStore((s) => s.totalMatches);
     const searchRoot = useSearchStore((s) => s.searchRoot);
+    const searchBackendId = useSearchStore((s) => s.searchBackendId);
     const searching = useSearchStore((s) => s.searching);
     const error = useSearchStore((s) => s.error);
 
@@ -119,10 +120,12 @@ function SearchPanel() {
 
     const handleFileClick = useCallback(
         (path: string, line: number) => {
+            // A result's path means that file only on the machine it was found on.
+            if (searchBackendId !== backendId) return;
             const owner = taskId ? { taskId } : projectId ? { projectId } : undefined;
             void openFileInApp(path, workspaceKey, owner, line);
         },
-        [taskId, projectId, workspaceKey],
+        [searchBackendId, backendId, taskId, projectId, workspaceKey],
     );
 
     return (
