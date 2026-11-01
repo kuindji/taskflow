@@ -41,8 +41,9 @@ function normalizeAgentOptions(
                 reasoningEffort: agentOptions.reasoningEffort,
                 sandbox: agentOptions.sandbox,
                 approvalPolicy: agentOptions.approvalPolicy,
+                // An explicit false must survive: omitted falls back to the machine default.
                 dangerouslyBypassApprovalsAndSandbox:
-                    agentOptions.dangerouslyBypassApprovalsAndSandbox || undefined,
+                    agentOptions.dangerouslyBypassApprovalsAndSandbox,
                 account: agentOptions.account,
             };
         case "opencode":
@@ -50,7 +51,7 @@ function normalizeAgentOptions(
             return {
                 type: "opencode",
                 model: agentOptions.model,
-                autoApprove: agentOptions.autoApprove || undefined,
+                autoApprove: agentOptions.autoApprove,
             };
         case "pi":
             if (agentOptions.type !== "pi") return undefined;

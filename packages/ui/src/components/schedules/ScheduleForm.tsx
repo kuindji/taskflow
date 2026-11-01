@@ -23,11 +23,11 @@ import {
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
-import { filterByProject } from "@/stores/flow-store";
 import type { Scoped } from "@/lib/backend-scope";
 import {
     computeNextRunPreview,
     normalizeTimeout,
+    scheduleActionOptions,
     serializeScheduleState,
 } from "./schedule-helpers";
 import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
@@ -75,14 +75,10 @@ function ScheduleForm({
 
     // A schedule runs on its project's machine, so only that machine's actions apply.
     const projectBackendId = projects.find((p) => p.id === projectId)?.backendId;
+    const savedActionId = schedule?.actionId;
     const availableActions = useMemo(
-        () =>
-            projectBackendId
-                ? filterByProject(actions, projectId, projectBackendId).filter(
-                      (action) => action.standalone,
-                  )
-                : [],
-        [actions, projectId, projectBackendId],
+        () => scheduleActionOptions(actions, projectId, projectBackendId, savedActionId),
+        [actions, projectId, projectBackendId, savedActionId],
     );
     const selectedAction = useMemo(
         () => (actionId ? actions.find((a) => a.id === actionId) : undefined),

@@ -1,5 +1,7 @@
-import type { ScheduleSessionType, AgentLaunchOptions } from "@taskflow/shared";
+import type { ScheduleSessionType, AgentLaunchOptions, ActionDefinition } from "@taskflow/shared";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
+import { filterByProject } from "@/stores/flow-store";
+import type { Scoped } from "@/lib/backend-scope";
 
 function computeNextRunPreview(expression: string, expressionType: "cron" | "rate"): string | null {
     try {
@@ -66,4 +68,21 @@ function serializeScheduleState({
     });
 }
 
-export { computeNextRunPreview, normalizeTimeout, serializeScheduleState };
+/**
+ * Actions a schedule may use: standalone ones on its project's machine. The
+ * schedule's own action stays offered after it stops being standalone (a
+ * Run-menu setting the scheduler does not check), so editing keeps it.
+ */
+function scheduleActionOptions(
+    actions: Scoped<ActionDefinition>[],
+    projectId: string,
+    projectBackendId: string | undefined,
+    savedActionId: string | undefined,
+): Scoped<ActionDefinition>[] {
+    if (!projectBackendId) return [];
+    return filterByProject(actions, projectId, projectBackendId).filter(
+        (action) => action.standalone || action.id === savedActionId,
+    );
+}
+
+export { computeNextRunPreview, normalizeTimeout, scheduleActionOptions, serializeScheduleState };

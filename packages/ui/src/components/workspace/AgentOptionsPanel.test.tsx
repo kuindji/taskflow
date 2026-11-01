@@ -12,6 +12,7 @@ interface MockAgentSettings {
     defaultModel?: string;
     permissionMode?: string;
     sandbox?: string;
+    dangerouslyBypassApprovalsAndSandbox?: boolean;
 }
 
 interface MockSettings {
@@ -227,4 +228,35 @@ test("headless codex drops sandbox, approval and bypass", () => {
     expect(options.sandbox).toBeUndefined();
     expect(options.approvalPolicy).toBeUndefined();
     expect(options.dangerouslyBypassApprovalsAndSandbox).toBeUndefined();
+});
+
+test("session mode sends an explicit off so the machine default cannot override it", () => {
+    // The backend merges run options over the machine defaults, so an omitted
+    // field would bring back the default's bypass.
+    settings.codex.dangerouslyBypassApprovalsAndSandbox = true;
+    mountWith("codex", {
+        value: { type: "codex", dangerouslyBypassApprovalsAndSandbox: false },
+    });
+    const codex = lastEmitted();
+    if (codex.type !== "codex") throw new Error("expected codex options");
+    expect(codex.dangerouslyBypassApprovalsAndSandbox).toBe(false);
+    unmount();
+
+    mountWith("opencode", { value: { type: "opencode", autoApprove: false } });
+    expect(lastEmitted()).toMatchObject({ type: "opencode", autoApprove: false });
+    unmount();
+
+    mountWith("pi", { value: { type: "pi", thinking: "off", tools: "" } });
+    expect(lastEmitted()).toMatchObject({ type: "pi", thinking: "off", tools: "" });
+    unmount();
+
+    mountWith("kimi", { value: { type: "kimi", permissionMode: "manual" } });
+    expect(lastEmitted()).toMatchObject({ type: "kimi", permissionMode: "manual" });
+});
+
+test("headless pi leaves thinking off unset", () => {
+    mountWith("pi", { headless: true, value: { type: "pi", thinking: "off" } });
+    const options = lastEmitted();
+    if (options.type !== "pi") throw new Error("expected pi options");
+    expect(options.thinking).toBeUndefined();
 });

@@ -270,9 +270,10 @@ function AgentOptionsPanel({
             reasoningEffort: codexReasoningEffort === "default" ? undefined : codexReasoningEffort,
             sandbox: headless ? undefined : codexSandbox || undefined,
             approvalPolicy: headless ? undefined : approvalPolicy || undefined,
+            // Explicit false: an omitted field falls back to the machine default.
             dangerouslyBypassApprovalsAndSandbox: headless
                 ? undefined
-                : dangerouslyBypassApprovalsAndSandbox || undefined,
+                : dangerouslyBypassApprovalsAndSandbox,
             account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
         [
@@ -290,7 +291,7 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "opencode",
             model: model || undefined,
-            autoApprove: headless ? undefined : ocAutoApprove || undefined,
+            autoApprove: headless ? undefined : ocAutoApprove,
         }),
         [model, ocAutoApprove, headless],
     );
@@ -299,8 +300,9 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "pi",
             model: model || undefined,
-            thinking: piThinking === "off" ? undefined : piThinking,
-            tools: headless ? undefined : piTools.trim() || undefined,
+            // Headless leaves "off" unset: an unset field means the CLI's own default.
+            thinking: headless && piThinking === "off" ? undefined : piThinking,
+            tools: headless ? undefined : piTools.trim(),
         }),
         [model, piThinking, piTools, headless],
     );
@@ -309,8 +311,7 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "kimi",
             model: model || undefined,
-            permissionMode:
-                headless || kimiPermissionMode === "manual" ? undefined : kimiPermissionMode,
+            permissionMode: headless ? undefined : kimiPermissionMode,
         }),
         [model, kimiPermissionMode, headless],
     );

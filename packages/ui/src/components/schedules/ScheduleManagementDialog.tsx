@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
-import { Plus, Play, MoreHorizontal, CalendarClock } from "lucide-react";
+import { Plus, Play, MoreHorizontal, CalendarClock, X } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { useScheduleStore } from "@/stores/schedule-store";
 import { useConnectivity } from "@/hooks/useConnectivity";
@@ -90,6 +90,7 @@ function ScheduleManagementDialog() {
     const [creating, setCreating] = useState(false);
     const [projectFilter, setProjectFilter] = useState<string>(activeProjectId ?? "all");
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+    const [triggerError, setTriggerError] = useState<string | null>(null);
     const nativeMenus = supportsNativeMenus();
     const online = useConnectivity();
 
@@ -172,7 +173,15 @@ function ScheduleManagementDialog() {
     const handleTrigger = useCallback(async (id: string) => {
         const store = useScheduleStore.getState();
         const schedule = store.schedules.find((sc) => sc.id === id);
-        if (schedule) await store.triggerSchedule(schedule);
+        if (!schedule) return;
+        setTriggerError(null);
+        try {
+            await store.triggerSchedule(schedule);
+        } catch (err) {
+            const name = schedule.name || schedule.prompt.slice(0, 40);
+            const reason = err instanceof Error ? err.message : String(err);
+            setTriggerError(`Run now failed for "${name}": ${reason}`);
+        }
     }, []);
 
     const startCreating = useCallback(() => {
@@ -198,6 +207,20 @@ function ScheduleManagementDialog() {
                 <DialogHeader className="px-2 py-2">
                     <DialogTitle className="text-[15px]">Schedules</DialogTitle>
                 </DialogHeader>
+
+                {triggerError && (
+                    <div
+                        role="alert"
+                        className="mx-2 mb-1.5 flex items-start justify-between gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                        <span>{triggerError}</span>
+                        <button
+                            className="shrink-0 hover:text-red-300"
+                            title="Dismiss"
+                            onClick={() => setTriggerError(null)}>
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                )}
 
                 <div className="flex h-[60vh] gap-1.5">
                     {/* Left list column */}

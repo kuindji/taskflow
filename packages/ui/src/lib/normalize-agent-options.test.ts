@@ -54,6 +54,18 @@ describe("normalizeAgentOptions legacy data tolerance", () => {
             autoApprove: undefined,
         });
     });
+
+    it("keeps an explicit false so it overrides the machine default", () => {
+        expect(
+            normalizeAgentOptions("codex", {
+                type: "codex",
+                dangerouslyBypassApprovalsAndSandbox: false,
+            }),
+        ).toMatchObject({ dangerouslyBypassApprovalsAndSandbox: false });
+        expect(normalizeAgentOptions("opencode", { type: "opencode", autoApprove: false })).toEqual(
+            { type: "opencode", model: undefined, autoApprove: false },
+        );
+    });
 });
 
 describe("normalizeAgentOptions accounts", () => {
