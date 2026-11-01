@@ -119,3 +119,25 @@ test("Pi picker ignores a late backend reply and preserves custom entry and badg
     });
     expect(changed).toEqual(["custom/new"]);
 });
+test("Pi picker can clear a saved model back to the CLI default", async () => {
+    const changed: string[] = [];
+    render(
+        <PiModelSelect
+            backendId="remote"
+            value="custom/same"
+            onChange={(v) => changed.push(v)}
+            loadModels={async () => inventory()}
+        />,
+    );
+    await flush();
+    const trigger = container.querySelector("button");
+    if (!trigger) throw new Error("missing picker");
+    act(() => trigger.click());
+    await flush();
+    const reset = [...document.body.querySelectorAll("button")].find((b) =>
+        b.textContent?.startsWith("Pi default"),
+    );
+    if (!reset) throw new Error("no default option");
+    act(() => reset.click());
+    expect(changed).toEqual([""]);
+});

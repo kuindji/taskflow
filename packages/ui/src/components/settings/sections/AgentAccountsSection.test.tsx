@@ -478,3 +478,50 @@ test("a saved value changed elsewhere replaces a field the user has not touched"
     rerender([{ ...a1, homeDir: "/home/moved" }]);
     expect(input("claude-account-home-a1").value).toBe("/home/moved");
 });
+
+test("a field put back to its saved value while its save is in flight is saved again and kept", () => {
+    mount([a1]);
+    typeInto("claude-account-home-a1", "/home/job");
+    blur("claude-account-home-a1");
+    expect(patches).toEqual([{ accounts: [{ ...a1, homeDir: "/home/job" }] }]);
+
+    // Changed back before the backend answers: that is a new save.
+    typeInto("claude-account-home-a1", "/home/personal");
+    blur("claude-account-home-a1");
+    expect(patches[1]).toEqual({ accounts: [a1] });
+
+    // The first answer does not overwrite the value the user went back to...
+    rerender([{ ...a1, homeDir: "/home/job" }]);
+    expect(input("claude-account-home-a1").value).toBe("/home/personal");
+
+    // ...and the second one settles it.
+    rerender([a1]);
+    expect(input("claude-account-home-a1").value).toBe("/home/personal");
+});
+
+test("a filled-in new account survives the answer to an earlier save that does not have it", () => {
+    mount([a1]);
+    typeInto("claude-account-name-a1", "job");
+    blur("claude-account-name-a1");
+
+    click(addButton());
+    typeInto("claude-account-home-new-id", "/home/new");
+
+    rerender([{ ...a1, name: "job" }]);
+    expect(input("claude-account-name-new-id").value).toBe("account 2");
+    expect(input("claude-account-home-new-id").value).toBe("/home/new");
+
+    blur("claude-account-home-new-id");
+    expect(patches[1]).toEqual({
+        accounts: [
+            { ...a1, name: "job" },
+            { id: "new-id", name: "account 2", homeDir: "/home/new" },
+        ],
+    });
+});
+
+test("a saved account removed elsewhere leaves the list", () => {
+    mount([a1, a2]);
+    rerender([a1]);
+    expect(container.querySelector("#claude-account-name-a2")).toBeNull();
+});

@@ -17,7 +17,7 @@ interface AgentAccountsSectionProps {
     backendId?: string | null;
     loadDiscovery?: typeof loadCodexDiscovery;
     agent: AccountAgentType;
-    /** Saved accounts; local draft rows are kept until they are complete. */
+    /** Saved accounts; local draft rows are kept until they are saved. */
     accounts: AgentAccount[];
     defaultAccount: string;
     onUpdate: (patch: { accounts?: AgentAccount[]; defaultAccount?: string }) => Promise<void>;
@@ -83,18 +83,35 @@ function AgentAccountsSection({
     // Every save (including one from another settings section) republishes the
     // whole settings object and so hands this section a fresh `accounts`
     // array. Saved values replace the rows, except fields the user has edited
-    // since the value they were last saved or sent with: a save answers with
+    // since the value they were last saved or sent with (a save answers with
     // what was sent, and the user may have typed into the next field while it
-    // was in flight. Rows that are not saved yet and are still incomplete are
-    // kept as they are.
+    // was in flight), and fields still waiting for this section's latest save,
+    // which an earlier save's answer must not undo. Rows that were never saved
+    // are kept as they are; a saved row that is gone was deleted.
     const savedRef = useRef<AgentAccount[]>(accounts);
     const sentRef = useRef<AgentAccount[]>([]);
+    // The latest list sent, until its save settles.
+    const pendingRef = useRef<AgentAccount[] | null>(null);
     useEffect(() => {
         const previous = savedRef.current;
         savedRef.current = accounts;
         const sent = sentRef.current;
+        const pending = pendingRef.current;
         setDrafts((prev) => {
             const savedIds = new Set(accounts.map((account) => account.id));
+            const keep = (
+                field: "name" | "homeDir",
+                draft: AgentAccount,
+                base: AgentAccount,
+                account: AgentAccount,
+            ): boolean => {
+                const value = draft[field].trim();
+                if (value !== base[field]) return true;
+                const waiting = pending?.find((row) => row.id === account.id);
+                return (
+                    waiting !== undefined && waiting[field] === value && value !== account[field]
+                );
+            };
             const merged = accounts.map((account) => {
                 const draft = prev.find((row) => row.id === account.id);
                 const base =
@@ -103,15 +120,16 @@ function AgentAccountsSection({
                 if (!draft || !base) return account;
                 return {
                     ...account,
-                    name: draft.name.trim() !== base.name ? draft.name : account.name,
-                    homeDir:
-                        draft.homeDir.trim() !== base.homeDir ? draft.homeDir : account.homeDir,
+                    name: keep("name", draft, base, account) ? draft.name : account.name,
+                    homeDir: keep("homeDir", draft, base, account)
+                        ? draft.homeDir
+                        : account.homeDir,
                 };
             });
-            const pending = prev.filter(
-                (row) => !savedIds.has(row.id) && !(row.name.trim() && row.homeDir.trim()),
+            const unsaved = prev.filter(
+                (row) => !savedIds.has(row.id) && !previous.some((saved) => saved.id === row.id),
             );
-            return [...merged, ...pending];
+            return [...merged, ...unsaved];
         });
     }, [accounts]);
 
@@ -137,10 +155,15 @@ function AgentAccountsSection({
                 return saved ? [saved] : [];
             });
             sentRef.current = complete;
+            pendingRef.current = complete;
+            const settle = () => {
+                if (pendingRef.current === complete) pendingRef.current = null;
+            };
             setError(null);
-            onUpdate({ accounts: complete }).catch((e: unknown) =>
-                setError(e instanceof Error ? e.message : String(e)),
-            );
+            onUpdate({ accounts: complete }).then(settle, (e: unknown) => {
+                settle();
+                setError(e instanceof Error ? e.message : String(e));
+            });
         },
         [accounts, onUpdate],
     );
@@ -167,8 +190,12 @@ function AgentAccountsSection({
             const name = row.name.trim();
             const homeDir = row.homeDir.trim();
             if (!name || !homeDir) return;
-            const saved = accounts.find((account) => account.id === id);
-            if (saved && saved.name === name && saved.homeDir === homeDir) return;
+            // While a save is in flight its values are what the account is
+            // about to become, so going back to the saved value is a change.
+            const expected =
+                pendingRef.current?.find((account) => account.id === id) ??
+                accounts.find((account) => account.id === id);
+            if (expected && expected.name === name && expected.homeDir === homeDir) return;
             commit(next);
         },
         [accounts, commit],

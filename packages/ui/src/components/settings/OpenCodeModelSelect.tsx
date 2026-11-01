@@ -3,6 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingInput } from "@/components/settings/SettingInput";
+import { ModelDefaultOption } from "@/components/settings/ModelDefaultOption";
 import { ChevronDownIcon } from "lucide-react";
 import { sendRequest } from "@/lib/connection-registry";
 import { MSG } from "@taskflow/shared";
@@ -131,6 +132,13 @@ function OpenCodeModelSelect({ backendId, value, onChange }: OpenCodeModelSelect
                         />
                     </div>
                     <div className="max-h-60 overflow-y-auto p-1">
+                        {models !== null && !search && (
+                            <ModelDefaultOption
+                                agent="OpenCode"
+                                selected={!value}
+                                onSelect={() => handleSelect("")}
+                            />
+                        )}
                         {models === null ? (
                             <div className="text-muted-foreground px-2 py-4 text-center text-sm">
                                 Loading models...

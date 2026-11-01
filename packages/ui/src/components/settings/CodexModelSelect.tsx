@@ -5,6 +5,7 @@ import type { CodexModelInfo } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingInput } from "@/components/settings/SettingInput";
+import { ModelDefaultOption } from "@/components/settings/ModelDefaultOption";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { loadCodexDiscovery } from "@/lib/agent-discovery";
 
@@ -180,17 +181,11 @@ function CodexModelSelectContext({
                         ) : (
                             <>
                                 {!search && (
-                                    <button
-                                        type="button"
-                                        className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
-                                            !value ? "bg-accent text-accent-foreground" : ""
-                                        }`}
-                                        onClick={() => handleSelect("")}>
-                                        <span>Codex default</span>
-                                        <span className="text-muted-foreground text-[11px]">
-                                            Follow the installed CLI default
-                                        </span>
-                                    </button>
+                                    <ModelDefaultOption
+                                        agent="Codex"
+                                        selected={!value}
+                                        onSelect={() => handleSelect("")}
+                                    />
                                 )}
                                 {filtered.map((model) => (
                                     <button
