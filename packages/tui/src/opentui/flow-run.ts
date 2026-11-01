@@ -1,6 +1,12 @@
-import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+    ScrollBoxRenderable,
+    TextRenderable,
+    type CliRenderer,
+    type KeyEvent,
+} from "@opentui/core";
 import type { ActionDefinition, FlowDefinition, FlowRun as FlowRunRecord } from "@taskflow/shared";
 import { actionLabel, latestArtifactsByType } from "../flows/model";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface FlowRunDeps {
@@ -23,7 +29,8 @@ interface FlowRunDeps {
 }
 
 class FlowRun {
-    readonly renderable: BoxRenderable;
+    readonly renderable: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private run: FlowRunRecord;
     private selected = 0;
     private pending = false;
@@ -31,12 +38,12 @@ class FlowRun {
 
     constructor(private readonly deps: FlowRunDeps) {
         this.run = deps.run;
-        this.renderable = new BoxRenderable(deps.renderer, {
+        this.renderable = new ScrollBoxRenderable(deps.renderer, {
             id: "flow-run",
             width: "100%",
             height: "100%",
-            flexDirection: "column",
-            overflow: "hidden",
+            scrollY: true,
+            scrollX: false,
             onMouseScroll: (event) => {
                 const direction = event.scroll?.direction;
                 if (direction !== "up" && direction !== "down") return;
@@ -45,6 +52,7 @@ class FlowRun {
                 this.move(direction === "up" ? -1 : 1);
             },
         });
+        this.revealSelection = followSelection(this.renderable, "flow-run-selected");
         this.rebuild();
     }
 
@@ -196,7 +204,9 @@ class FlowRun {
                 new TextRenderable(this.deps.renderer, {
                     content: ` ${label}  ${state.status}${state.sessionId ? `  ${state.sessionId}` : ""}`,
                     height: 1,
-                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
+                    ...(index === this.selected
+                        ? { id: "flow-run-selected", ...SELECTED_TEXT_STYLE }
+                        : {}),
                     onMouseDown: (event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -222,6 +232,7 @@ class FlowRun {
                 }),
             );
         }
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

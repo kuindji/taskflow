@@ -47,13 +47,14 @@ describe("FlowRun", () => {
         initial = run("running"),
         sessionState: "live" | "interrupted" = "live",
         confirm: (message: string) => Promise<boolean> = async () => true,
+        definition: FlowDefinition = flow,
     ) {
         const renderer = await createTestRenderer({ width: 80, height: 12 });
         const calls: string[] = [];
         const view = new FlowRun({
             renderer: renderer.renderer,
             run: initial,
-            flow,
+            flow: definition,
             actions: [action],
             sessionState: () => sessionState,
             pause: async () => {
@@ -85,7 +86,7 @@ describe("FlowRun", () => {
             () => view.destroy(),
             () => renderer.renderer.destroy(),
         );
-        return { calls, view };
+        return { calls, view, renderer };
     }
 
     it("focuses a session and sends one pending control", async () => {
@@ -133,5 +134,26 @@ describe("FlowRun", () => {
         expect(test.view.keyHints).not.toContain("Working");
         test.view.handleKey(key("q"));
         expect(test.calls).toContain("close");
+    });
+
+    it("scrolls the selected action into view", async () => {
+        const entries = Array.from({ length: 20 }, (_, index) => ({
+            id: `entry-${String(index + 1).padStart(2, "0")}`,
+            actionId: "action",
+        }));
+        const long: FlowRunRecord = {
+            ...run("running"),
+            actions: entries.map((entry) => ({
+                actionEntryId: entry.id,
+                status: "pending",
+                sessionId: `session-${entry.id}`,
+            })),
+        };
+        const test = await setup(long, "live", async () => true, { ...flow, actions: entries });
+        await test.renderer.renderOnce();
+        for (let step = 0; step < 19; step++) test.view.handleKey(key("down"));
+        await test.renderer.renderOnce();
+        await test.renderer.renderOnce();
+        expect(test.renderer.captureCharFrame()).toContain("session-entry-20");
     });
 });

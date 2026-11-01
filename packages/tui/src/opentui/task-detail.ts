@@ -271,6 +271,8 @@ class TaskDetail {
 
     private rebuild(editValue?: string): void {
         const retainedEditValue = editValue ?? this.editInput?.value ?? "";
+        // A fresh input puts the cursor at the end; an update keeps it where it was.
+        const retainedCursor = editValue === undefined ? this.editInput?.cursorOffset : undefined;
         for (const child of [...this.renderable.getChildren()]) child.destroy();
         this.addLine(
             ` ${cleanMultiline(this.task.title)}${this.task.pinned ? "  [pinned]" : ""}`,
@@ -319,6 +321,7 @@ class TaskDetail {
                 value: retainedEditValue,
                 width: "100%",
             });
+            if (retainedCursor !== undefined) this.editInput.cursorOffset = retainedCursor;
             this.renderable.add(this.editInput);
         }
         if (this.pending) this.addLine(" Working...");
