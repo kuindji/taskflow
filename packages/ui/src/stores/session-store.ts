@@ -9,7 +9,12 @@ import type {
     SessionResumeResponse,
 } from "@taskflow/shared";
 import { isAgentType, MSG } from "@taskflow/shared";
-import { getPrimary, sendFireAndForget, sendRequest } from "@/lib/connection-registry";
+import {
+    BackendDetachedError,
+    getPrimary,
+    sendFireAndForget,
+    sendRequest,
+} from "@/lib/connection-registry";
 import { useTaskStore } from "./task-store";
 import { useProjectStore } from "./project-store";
 import {
@@ -126,7 +131,8 @@ interface SessionStore {
     ): Promise<string>;
     closeSession(sessionId: string): Promise<void>;
     resumeSession(sessionId: string, cols?: number, rows?: number): Promise<void>;
-    sendInput(sessionId: string, data: string): void;
+    /** False when the session's machine could not be reached, so nothing was sent. */
+    sendInput(sessionId: string, data: string): boolean;
     resizeTerminal(sessionId: string, cols: number, rows: number): void;
     addTab(workspaceKey: string, tab: Tab): void;
     closeTab(workspaceKey: string, tabId: string): Promise<void>;
@@ -277,7 +283,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     sendInput(sessionId, data) {
         markInteraction(sessionId);
         const backendId = sessionBackend(sessionId);
-        if (backendId) sendFireAndForget(backendId, MSG.SESSION_INPUT, { sessionId, data });
+        if (!backendId) return false;
+        return sendFireAndForget(backendId, MSG.SESSION_INPUT, { sessionId, data });
     },
     resizeTerminal(sessionId, cols, rows) {
         markInteraction(sessionId);
@@ -337,26 +344,32 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             await sendRequest(backendId, MSG.BROWSER_TAB_CLOSE, { id: tab.browserTabId });
             return;
         }
-        try {
-            if (tab?.sessionId) {
-                exitedSessions.delete(tab.sessionId);
+        if (tab?.sessionId) {
+            try {
                 await get().closeSession(tab.sessionId);
+            } catch (error) {
+                // A tab whose machine is gone is stale and goes. One whose
+                // machine is attached but did not take the close stays: its
+                // process may live on, and the next sync settles it.
+                const detached =
+                    error instanceof BackendDetachedError || !sessionBackend(tab.sessionId);
+                if (!detached) throw error;
             }
-        } finally {
-            set((s) => {
-                const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
-                const activeId =
-                    s.activeTabByWorkspace[workspaceKey] === tabId
-                        ? (tabs[tabs.length - 1]?.id ?? "")
-                        : s.activeTabByWorkspace[workspaceKey];
-                const { [tab?.sessionId ?? ""]: _, ...remainingStatus } = s.sessionStatus;
-                return {
-                    tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: tabs },
-                    activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: activeId },
-                    sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
-                };
-            });
+            exitedSessions.delete(tab.sessionId);
         }
+        set((s) => {
+            const tabs = (s.tabsByWorkspace[workspaceKey] ?? []).filter((t) => t.id !== tabId);
+            const activeId =
+                s.activeTabByWorkspace[workspaceKey] === tabId
+                    ? (tabs[tabs.length - 1]?.id ?? "")
+                    : s.activeTabByWorkspace[workspaceKey];
+            const { [tab?.sessionId ?? ""]: _, ...remainingStatus } = s.sessionStatus;
+            return {
+                tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceKey]: tabs },
+                activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceKey]: activeId },
+                sessionStatus: tab?.sessionId ? remainingStatus : s.sessionStatus,
+            };
+        });
     },
     setActiveTab(workspaceKey, tabId) {
         set((s) => {

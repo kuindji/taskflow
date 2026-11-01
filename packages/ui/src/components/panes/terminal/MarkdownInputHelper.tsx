@@ -363,8 +363,8 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
 
     const handleSend = useCallback(() => {
         const buffer = getEditor(useMarkdownInputStore.getState(), sessionId).buffer;
-        if (!buffer.trim()) return;
-        sendInput(sessionId, buffer);
+        // An undelivered prompt stays in the editor rather than vanishing.
+        if (!buffer.trim() || !sendInput(sessionId, buffer)) return;
         setTimeout(() => sendInput(sessionId, "\r"), 500);
         clearBuffer(sessionId);
         toggle(sessionId);
@@ -372,8 +372,7 @@ function MarkdownInputHelper({ sessionId, sessionType }: MarkdownInputHelperProp
 
     const handleInsert = useCallback(() => {
         const buffer = getEditor(useMarkdownInputStore.getState(), sessionId).buffer;
-        if (!buffer.trim()) return;
-        sendInput(sessionId, buffer);
+        if (!buffer.trim() || !sendInput(sessionId, buffer)) return;
         clearBuffer(sessionId);
         toggle(sessionId);
     }, [sessionId, sendInput, clearBuffer, toggle]);

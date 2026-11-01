@@ -152,8 +152,9 @@ export function sendRequest<T = unknown>(
     return connection.sendRequest<T>(type, payload, timeoutMs);
 }
 
-export function sendFireAndForget(backendId: string, type: string, payload: unknown = {}): void {
-    connections.get(backendId)?.sendFireAndForget(type, payload);
+/** False when the backend has no open socket, so nothing was sent. */
+export function sendFireAndForget(backendId: string, type: string, payload: unknown = {}): boolean {
+    return connections.get(backendId)?.sendFireAndForget(type, payload) ?? false;
 }
 
 /**

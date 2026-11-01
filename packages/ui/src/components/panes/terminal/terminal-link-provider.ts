@@ -21,11 +21,11 @@ const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+
 const REL_PATH_RE =
     /(?<![/\w.@+-])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
 
-// Bare filenames: dotfiles (.gitignore, .env.local) or files with extensions (package.json, CLAUDE.md).
-// Bounded by whitespace, sentence punctuation, or line edges to avoid false positives on embedded substrings.
+// Bare filenames: dotfiles (.gitignore, .env.local) or files with extensions (package.json, CLAUDE.md),
+// with optional :line:col (app.ts:42:3). Bounded by whitespace, sentence punctuation, or line edges to avoid false positives on embedded substrings.
 // Does NOT match extensionless names (src, LICENSE) — too many false positives.
 const BARE_NAME_RE =
-    /(?<=^|\s)(\.[\w.@+-]+|[\w@+-][\w.@+-]*\.[\w@+-]{1,15})(?=[\s.,;:!?)\]}'"]|$)/g;
+    /(?<=^|\s)((?:\.[\w.@+-]+|[\w@+-][\w.@+-]*\.[\w@+-]{1,15})(?::\d+(?::\d+)?)?)(?=[\s.,;:!?)\]}'"]|$)/g;
 
 // Sentence-ending punctuation that should be stripped off the right edge of a
 // matched path so the path itself stays clickable (e.g. "file.md." → "file.md").
@@ -197,9 +197,9 @@ function createFilePathLinkProvider(
                 if (seen.has(key)) continue;
                 seen.add(key);
 
-                const resolved = normalizePath(workingDir + "/" + trimmed);
-                // Reject paths that escape workingDir
-                if (resolved !== workingDir && !resolved.startsWith(workingDir + "/")) continue;
+                // Without the :line:col suffix; null when it escapes workingDir.
+                const resolved = resolvePath(trimmed, workingDir);
+                if (!resolved) continue;
 
                 const range = getWrappedRangeForMatch(
                     term,

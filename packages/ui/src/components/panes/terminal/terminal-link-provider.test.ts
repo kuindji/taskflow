@@ -98,3 +98,20 @@ describe("a directory link outside the explorer's tree", () => {
         expect(useUIStore.getState().fileExplorerOpen).toBe(false);
     });
 });
+
+describe("a bare filename with a line and column", () => {
+    it("links the whole location and stats the file alone", async () => {
+        const term = await createTerminalWithText("app.ts:42:3: error TS2322", 60);
+        const provider = createFilePathLinkProvider(term, "s1", undefined, undefined, true);
+        const links = await new Promise<ILink[] | undefined>((resolve) =>
+            provider.provideLinks(1, resolve),
+        );
+
+        expect(links?.map((l) => l.text)).toEqual(["app.ts:42:3"]);
+        expect(
+            server.received
+                .filter((r) => r.type === MSG.FILE_STAT)
+                .map((r) => (r.payload as { path: string }).path),
+        ).toEqual(["/repo/app.ts"]);
+    });
+});

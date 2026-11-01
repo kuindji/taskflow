@@ -217,9 +217,11 @@ export class Connection {
         });
     }
 
-    sendFireAndForget(type: string, payload: unknown): void {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    /** False when there is no open socket to send on. */
+    sendFireAndForget(type: string, payload: unknown): boolean {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
         this.socket.send(JSON.stringify({ type, payload }));
+        return true;
     }
 
     /** Close for good. Pending requests reject with `reason` rather than timing out. */
