@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { WikiIndexData } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
+import { notifyBackendReady } from "@/lib/backend-ready";
 import { closeConnection, openConnection } from "@/lib/connection-registry";
 import { startTestServer, type TestServer } from "@/lib/test-ws-server";
 import { resetBackend } from "./store-reset";
@@ -32,8 +33,13 @@ function index(root: string, pageIds: string[]): WikiIndexData {
 const servers: TestServer[] = [];
 
 /** A machine whose backend answers every WIKI_INDEX with `answer`. */
-async function attach(backendId: string, answer: WikiIndexData): Promise<TestServer> {
-    const server = startTestServer(backendId, () => answer);
+async function attach(
+    backendId: string,
+    answer: WikiIndexData | (() => WikiIndexData),
+): Promise<TestServer> {
+    const server = startTestServer(backendId, () =>
+        typeof answer === "function" ? answer() : answer,
+    );
     servers.push(server);
     await openConnection(backendId, server.origin);
     return server;
@@ -116,5 +122,33 @@ describe("wiki-store", () => {
 
         expect(pageIds("a", SHARED)).toBeUndefined();
         expect(pageIds("b", SHARED)).toEqual(["laptop-page"]);
+    });
+
+    // A restarted backend has no wiki watcher until something asks for the
+    // index again, and pushes sent while the socket was down are gone: the
+    // store must re-read what it holds once the machine is ready again.
+    it("re-reads a held wiki index when its machine is ready again", async () => {
+        let answer = index(SHARED, ["before"]);
+        const server = await attach("a", () => answer);
+        await useWikiStore.getState().fetchIndex("a", SHARED);
+        expect(pageIds("a", SHARED)).toEqual(["before"]);
+
+        answer = index(SHARED, ["before", "while-down"]);
+        notifyBackendReady("a");
+
+        await until(() => pageIds("a", SHARED)?.length === 2);
+        expect(server.received.filter((r) => r.type === MSG.WIKI_INDEX)).toHaveLength(2);
+    });
+
+    it("leaves other machines' indexes alone when one machine is ready again", async () => {
+        await attach("a", index(SHARED, ["desktop-page"]));
+        const laptop = await attach("b", index(SHARED, ["laptop-page"]));
+        await useWikiStore.getState().fetchIndex("a", SHARED);
+        await useWikiStore.getState().fetchIndex("b", SHARED);
+
+        notifyBackendReady("a");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(laptop.received.filter((r) => r.type === MSG.WIKI_INDEX)).toHaveLength(1);
     });
 });

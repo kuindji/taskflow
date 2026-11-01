@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { MSG } from "@taskflow/shared";
 import type { WikiIndexData, WikiIndexPayload } from "@taskflow/shared";
+import { onBackendReady } from "@/lib/backend-ready";
 import { onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 
@@ -59,6 +60,22 @@ export const useWikiStore = create<WikiStore>((set) => ({
         }
     },
 }));
+
+/**
+ * The backend watches a wiki only after a `WIKI_INDEX` request for it, and
+ * pushes sent while the socket was down are lost. When a machine comes back
+ * (reconnect, or a restarted backend with no watchers), re-read every root
+ * held for it — including ones that failed — so the index is current and the
+ * watcher exists again.
+ */
+const _unsubBackendReady = onBackendReady((backendId) => {
+    const { indexByBackend, errorByBackend, fetchIndex } = useWikiStore.getState();
+    const roots = new Set([
+        ...Object.keys(indexByBackend[backendId] ?? {}),
+        ...Object.keys(errorByBackend[backendId] ?? {}),
+    ]);
+    for (const root of roots) void fetchIndex(backendId, root);
+});
 
 registerBackendReset("wiki-store", (backendId) => {
     inFlight.delete(backendId);
