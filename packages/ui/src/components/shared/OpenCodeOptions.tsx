@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { OpenCodeModelSelect } from "@/components/settings/OpenCodeModelSelect";
@@ -41,6 +42,7 @@ function OpenCodeOptions({
     headless = false,
 }: OpenCodeOptionsProps) {
     const l = LABELS[mode];
+    const autoApproveId = useId();
 
     return (
         <>
@@ -55,12 +57,12 @@ function OpenCodeOptions({
                 <SettingRow label={l.autoApprove} hint={l.autoApproveHint} className="h-8">
                     <div className="flex items-center gap-2.5">
                         <Switch
-                            id="opencode-auto-approve"
+                            id={autoApproveId}
                             checked={autoApprove}
                             onCheckedChange={onAutoApproveChange}
                         />
                         <Label
-                            htmlFor="opencode-auto-approve"
+                            htmlFor={autoApproveId}
                             className="text-muted-foreground cursor-pointer text-[13px] font-normal normal-case">
                             {autoApprove ? "Enabled" : "Disabled"}
                         </Label>

@@ -6,6 +6,8 @@ import type { ShellListResponse } from "@taskflow/shared";
 import { closeConnection, openConnection, setPrimary } from "@/lib/connection-registry";
 import { startTestServer, type TestServer } from "@/lib/test-ws-server";
 import { resetBackend } from "@/stores/store-reset";
+import { useTaskStore } from "@/stores/task-store";
+import { useUIStore } from "@/stores/ui-store";
 import { useRunMenu } from "./useRunMenu";
 
 // @ts-expect-error react act env flag, no upstream type for this global
@@ -101,6 +103,16 @@ test("a script run from that menu starts its shell on the project's machine", as
     expect(typesAt(b)).toContain(MSG.SHELLS_LIST);
     expect(typesAt(b)).toContain(MSG.SESSION_CREATE);
     expect(typesAt(a)).toEqual([]);
+});
+
+test("a run from a project's menu shows that project, not the task left open", async () => {
+    useTaskStore.getState().setActiveTask("t1");
+    useUIStore.getState().setActiveProject("other");
+
+    await act(async () => menu?.callbacks.onRunScript("dev"));
+
+    expect(useTaskStore.getState().activeTaskId).toBeNull();
+    expect(useUIStore.getState().activeProjectId).toBe("p");
 });
 
 test("a native menu's data carries the scripts on its first opening", async () => {

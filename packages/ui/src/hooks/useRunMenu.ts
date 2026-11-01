@@ -177,9 +177,8 @@ function useRunMenu({
 
     const navigate = useCallback(
         (focusWorkspace: boolean) => {
-            if (taskId) {
-                useTaskStore.getState().setActiveTask(taskId);
-            }
+            // A project row's run shows that project, not a task left open before.
+            useTaskStore.getState().setActiveTask(taskId ?? null);
             useUIStore.getState().setActiveProject(projectId);
             if (focusWorkspace) {
                 useUIStore.getState().setFocusedPanel("workspace");
