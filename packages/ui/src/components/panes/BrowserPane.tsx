@@ -82,6 +82,16 @@ function LegacyBrowserPane({ initialUrl }: Pick<BrowserPaneProps, "initialUrl">)
         wv.addEventListener("dom-ready", onReady);
         wv.addEventListener("did-navigate", onNavigate);
         wv.addEventListener("did-navigate-in-page", onNavigate);
+        // A hidden tab (<Activity>) has no listeners, so a page that finished
+        // loading meanwhile never reports dom-ready. Electron's webview methods
+        // throw until the guest is attached; one that answers means the guest
+        // is there and can be driven.
+        try {
+            wv.getURL();
+            onReady();
+        } catch {
+            // Still attaching: dom-ready will arrive.
+        }
         return () => {
             wv.removeEventListener("dom-ready", onReady);
             wv.removeEventListener("did-navigate", onNavigate);
