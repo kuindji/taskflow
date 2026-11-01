@@ -164,6 +164,19 @@ function parseRgOutput(stdout: string): { files: RgFileResult[]; totalMatches: n
     return { files, totalMatches };
 }
 
+/** rg's matches that the user still sees, by file and position. */
+function keepShown(files: RgFileResult[], shown: SearchFileResult[]): RgFileResult[] {
+    const positions = new Map(
+        shown.map((file) => [file.path, new Set(file.matches.map((m) => `${m.line}:${m.column}`))]),
+    );
+    return files.flatMap((file) => {
+        const kept = positions.get(file.path);
+        if (!kept) return [];
+        const matches = file.matches.filter((m) => kept.has(`${m.line}:${m.column}`));
+        return matches.length > 0 ? [{ ...file, matches }] : [];
+    });
+}
+
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 /**
@@ -310,9 +323,8 @@ export function registerSearchHandlers(deps: SearchHandlerDeps): void {
             child.on("error", () => resolve({ files: [], totalMatches: 0 }));
         });
 
-        const filesToProcess = p.filePath
-            ? searchResult.files.filter((f) => f.path === p.filePath)
-            : searchResult.files;
+        const found = p.shown ? keepShown(searchResult.files, p.shown) : searchResult.files;
+        const filesToProcess = p.filePath ? found.filter((f) => f.path === p.filePath) : found;
 
         let totalReplaced = 0;
         let filesModified = 0;

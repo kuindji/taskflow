@@ -264,3 +264,34 @@ test("closing one of two panes on the same file keeps the other's buffer", async
     expect(right.getModel().isDisposed()).toBe(false);
     expect(right.getValue()).toBe("v1");
 });
+
+test("a second pane's read answered after typing in the first keeps the typed text", async () => {
+    await act(async () => {
+        root.render(<EditorPaneImpl key="left" filePath="/repo/a.ts" />);
+    });
+    await act(async () => {
+        resolveRead("v1");
+    });
+    await act(async () => {
+        root.render(
+            <>
+                <EditorPaneImpl key="left" filePath="/repo/a.ts" />
+                <EditorPaneImpl key="right" filePath="/repo/a.ts" />
+            </>,
+        );
+    });
+    // Typed in the left pane on the shared model while the right one's read is out.
+    await act(async () => {
+        [...editors][0].getModel().change("unsaved edit", false);
+    });
+    await act(async () => {
+        resolveRead("v1");
+    });
+
+    const [left, right] = [...editors];
+    expect(left.getValue()).toBe("unsaved edit");
+    expect(isEditorDirty("desktop", "/repo/a.ts")).toBe(true);
+    // Both panes offer to save it.
+    expect(right.getModel()).toBe(left.getModel());
+    expect(container.textContent?.match(/Save/g)?.length).toBe(2);
+});

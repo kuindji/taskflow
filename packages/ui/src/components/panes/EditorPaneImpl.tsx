@@ -207,12 +207,15 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             void readFile(backendId, filePath)
                 .then((content) => {
                     if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
-                    editor.setValue(content);
+                    // A split pane on this model may have been typed in while
+                    // this read was answered: its text is newer than the disk's.
+                    const editedMeanwhile = isEditorDirty(backendId, filePath);
+                    if (!editedMeanwhile) editor.setValue(content);
                     access.allow();
                     editor.updateOptions({ readOnly: false });
                     restoreViewState();
                     navigateToPendingLine();
-                    setDirty(false);
+                    setDirty(editedMeanwhile);
                     setLoading(false);
                 })
                 .catch((err: unknown) => {

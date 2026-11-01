@@ -221,6 +221,22 @@ describe("search-store single-match replace", () => {
         useSearchStore.getState().toggleUseRegex();
     });
 
+    test("replace all sends only the results still listed", async () => {
+        const server = await attachReplacing(1);
+        const store = useSearchStore.getState();
+        store.setQuery("foo");
+        await store.search("a", "/repo");
+        useSearchStore.getState().removeMatch(file.path, file.matches[1]);
+
+        await useSearchStore.getState().replaceAll();
+
+        expect(requests(server, MSG.SEARCH_REPLACE_ALL)).toEqual([
+            expect.objectContaining({
+                shown: [{ path: file.path, matches: [file.matches[0]] }],
+            }),
+        ]);
+    });
+
     test("keeps a match the backend refused and says why", async () => {
         await attachReplacing(0);
         const store = useSearchStore.getState();

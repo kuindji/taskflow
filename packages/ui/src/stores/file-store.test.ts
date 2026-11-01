@@ -262,6 +262,30 @@ describe("file-store across machines", () => {
         expect(useFileStore.getState().watched).toEqual({ backendId: "laptop", path: root });
     });
 
+    test("reopening the explorer before its unwatch is answered watches again once released", async () => {
+        let release = () => {};
+        desktopNextUnwatchHold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        const close = useFileStore.getState().unwatchPath("desktop", root);
+        await until(() => watchRequests(desktop, MSG.FILE_UNWATCH).length === 1);
+        const reopen = useFileStore.getState().watchPath("desktop", root);
+        await Bun.sleep(20);
+        // Sent before the release is answered, the backend could drop it with the old watch.
+        expect(watchRequests(desktop, MSG.FILE_WATCH)).toEqual([]);
+        release();
+        await close;
+        await reopen;
+
+        expect(
+            desktop.received
+                .filter((m) => m.type === MSG.FILE_WATCH || m.type === MSG.FILE_UNWATCH)
+                .map((m) => m.type),
+        ).toEqual([MSG.FILE_UNWATCH, MSG.FILE_WATCH]);
+        expect(useFileStore.getState().watched).toEqual({ backendId: "desktop", path: root });
+    });
+
     test("a move to another machine cancelled while the old watch is released forgets the old watch", async () => {
         let release = () => {};
         desktopNextUnwatchHold = new Promise<void>((resolve) => {

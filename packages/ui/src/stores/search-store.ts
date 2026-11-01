@@ -7,6 +7,7 @@ import type {
     SearchQueryPayload,
     SearchQueryResponse,
     SearchReplaceResponse,
+    SearchReplaceAllPayload,
     SearchReplaceAllResponse,
 } from "@taskflow/shared";
 
@@ -249,7 +250,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async replaceInFile(filePath) {
-        const { searchBackendId, searchRoot, searchedWith, replacement } = get();
+        const { searchBackendId, searchRoot, searchedWith, replacement, results } = get();
         if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
             await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
@@ -257,7 +258,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 ...searchedWith,
                 replacement,
                 filePath,
-            });
+                shown: results,
+            } satisfies SearchReplaceAllPayload);
 
             get().removeFile(filePath);
         } catch (err) {
@@ -266,15 +268,17 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async replaceAll(filePath) {
-        const { searchBackendId, searchRoot, searchedWith, replacement } = get();
+        const { searchBackendId, searchRoot, searchedWith, replacement, results } = get();
         if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
+            // Only what is still listed: a dismissed file or match stays as it is.
             await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
                 path: searchRoot,
                 ...searchedWith,
                 replacement,
                 filePath,
-            });
+                shown: results,
+            } satisfies SearchReplaceAllPayload);
 
             if (filePath) {
                 get().removeFile(filePath);

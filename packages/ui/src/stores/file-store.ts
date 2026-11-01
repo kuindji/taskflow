@@ -143,6 +143,30 @@ let requestedWatch: WatchedPath | null = null;
 function isWatchOf(watch: WatchedPath | null, backendId: string, path: string): boolean {
     return watch?.backendId === backendId && watch.path === path;
 }
+/**
+ * Unwatches still being answered. The backend may handle a watch sent meanwhile
+ * before the unwatch, which would then drop it, so a watch of the same path waits.
+ */
+const releasingWatches = new Map<string, Promise<void>>();
+
+function releasingKey(backendId: string, path: string): string {
+    return JSON.stringify([backendId, path]);
+}
+
+async function releaseWatch(backendId: string, path: string): Promise<void> {
+    const key = releasingKey(backendId, path);
+    const request = sendRequest(backendId, MSG.FILE_UNWATCH, { path });
+    const settled = request.then(
+        () => {},
+        () => {},
+    );
+    releasingWatches.set(key, settled);
+    try {
+        await request;
+    } finally {
+        if (releasingWatches.get(key) === settled) releasingWatches.delete(key);
+    }
+}
 let gitStatusRequestId = 0;
 /** The machine `gitStatus` came from: the same path on another machine is another repo. */
 let gitStatusBackendId: string | null = null;
@@ -298,9 +322,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
             set({ watched: null });
             // Released on the machine that holds it, which may not be the new one.
             // A machine that cannot be reached has no watch left to release.
-            await sendRequest(previous.backendId, MSG.FILE_UNWATCH, {
-                path: previous.path,
-            }).catch(() => {});
+            await releaseWatch(previous.backendId, previous.path).catch(() => {});
+            if (generation !== watchGeneration) return;
+        }
+        const releasing = releasingWatches.get(releasingKey(backendId, path));
+        if (releasing) {
+            await releasing;
             if (generation !== watchGeneration) return;
         }
         if (diffStoreUnsubscribe) {
@@ -320,7 +347,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             // The backend holds this watch for us now. Release it unless a newer
             // request wants the same one: the backend keeps one per client and path.
             if (!isWatchOf(requestedWatch, backendId, path)) {
-                await sendRequest(backendId, MSG.FILE_UNWATCH, { path }).catch(() => {});
+                await releaseWatch(backendId, path).catch(() => {});
             }
             return;
         }
@@ -342,9 +369,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
             diffStoreUnsubscribe();
             diffStoreUnsubscribe = null;
         }
-        await sendRequest(backendId, MSG.FILE_UNWATCH, { path });
-        // A watch that landed while this was answered is the newer one: keep it.
-        if (isWatchOf(get().watched, backendId, path)) set({ watched: null });
+        // Forgotten before it is released, so reopening meanwhile watches again.
+        set({ watched: null });
+        await releaseWatch(backendId, path);
     },
     clearExplorerState() {
         treeRequestId += 1;

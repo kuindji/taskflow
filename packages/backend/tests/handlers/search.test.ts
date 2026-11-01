@@ -168,6 +168,32 @@ describe("search handlers", () => {
         return response.replacedCount;
     }
 
+    it("replace all leaves the files and matches the user dismissed", async () => {
+        const kept = join(projectDir, "kept.txt");
+        const dismissed = join(projectDir, "dismissed.txt");
+        await writeFile(kept, "foo foo\n");
+        await writeFile(dismissed, "foo\n");
+        const found = await search("foo");
+        // The dismissed file is gone from the list, and so is the kept file's second match.
+        const shown = found.files
+            .filter((f) => f.path === kept)
+            .map((f) => ({ ...f, matches: f.matches.slice(0, 1) }));
+
+        const response = (await router.handle(MSG.SEARCH_REPLACE_ALL, {
+            path: projectDir,
+            query: "foo",
+            replacement: "X",
+            ...options,
+            includePattern: "",
+            excludePattern: "",
+            shown,
+        })) as SearchReplaceAllResponse;
+
+        expect(response.replacedCount).toBe(1);
+        expect(await readFile(kept, "utf-8")).toBe("X foo\n");
+        expect(await readFile(dismissed, "utf-8")).toBe("foo\n");
+    });
+
     it("replaces all whole-word matches exactly where rg found them", async () => {
         const file = join(projectDir, "words.txt");
         await writeFile(file, "C++ C++x\nfoo fooé éfoo\n");

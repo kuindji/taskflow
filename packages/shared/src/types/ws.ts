@@ -22,7 +22,7 @@ import type {
     KimiModelInfo,
 } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
-import type { SearchMatch, SearchResult } from "./search";
+import type { SearchFileResult, SearchMatch, SearchResult } from "./search";
 import type { Schedule } from "./schedule";
 import type { ActionDefinition, FlowDefinition, FlowRun } from "./flow";
 import type { BuiltinActionDefinition } from "./builtin-action";
@@ -436,6 +436,11 @@ export interface SearchReplaceAllPayload {
     includePattern: string;
     excludePattern: string;
     filePath?: string;
+    /**
+     * The results the user still sees. When set, only these files and matches
+     * are replaced: dismissed ones, and matches found since, are left alone.
+     */
+    shown?: SearchFileResult[];
 }
 
 export interface SearchReplaceAllResponse {
