@@ -22,8 +22,9 @@ interface NotificationPollerDeps {
     fetchNotifications: (origin: string) => Promise<NotificationsResponse>;
     /**
      * Shows one notification. `backendId` names its machine when called, not when
-     * shown: a record renamed at its first handshake keeps its origin, so the id is
-     * looked up from the origin at click time. Null once that machine is gone.
+     * shown: the id it was shown under while that is still attached (a reconnect
+     * gives the tunnel a new origin), else whatever now holds its origin (a record
+     * renamed at its first handshake keeps its origin). Null once that machine is gone.
      */
     notify: (notification: BackendNotification, backendId: () => string | null) => void;
     /** This machine's clock in ms; injectable for tests. */
@@ -71,6 +72,13 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
         return deps.getAttachedBackends().find((entry) => entry.origin === origin)?.id ?? null;
     }
 
+    function clickBackendId(shownId: string | null, origin: string): string | null {
+        if (shownId !== null && deps.getAttachedBackends().some((entry) => entry.id === shownId)) {
+            return shownId;
+        }
+        return backendIdFor(origin);
+    }
+
     async function pollOrigin(origin: string): Promise<void> {
         const startedAt = now();
         let response: NotificationsResponse;
@@ -111,8 +119,9 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
         const fresh = notifications.filter(
             (n) => !n.read && (!watermark || n.createdAt > watermark),
         );
+        const shownId = backendIdFor(origin);
         for (const n of fresh) {
-            deps.notify(n, () => backendIdFor(origin));
+            deps.notify(n, () => clickBackendId(shownId, origin));
         }
         watermarks.set(origin, newest(fresh, watermark));
     }

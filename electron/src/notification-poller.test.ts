@@ -173,3 +173,17 @@ test("a machine detached after showing a notification names no machine on click"
 
     expect(delivered[0].backendId()).toBeNull();
 });
+
+test("a machine reconnected on a new tunnel port still names itself on click", async () => {
+    const poller = makePoller();
+    await poller.poll();
+    emit(B, notification("b-1", "10:00:01"));
+    await poller.poll();
+
+    backends = [
+        backends[0],
+        { id: "desktop.local:main", origin: "http://127.0.0.1:4199", token: null, isLocal: false },
+    ];
+
+    expect(delivered[0].backendId()).toBe("desktop.local:main");
+});
