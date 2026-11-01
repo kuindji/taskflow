@@ -284,6 +284,26 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         });
     }, [backendId, filePath, loadContent]);
 
+    // FILE_CHANGED only arrives while something (the file explorer) watches the
+    // folder, and opening the Wiki panel closes the explorer. The wiki index is
+    // watched on its own, so a wiki page also reloads when its indexed mtime
+    // moves. Keyed by path: a navigation is loaded by the effect above.
+    const wikiPageMtime = useMemo(
+        () =>
+            wikiPageId === null
+                ? undefined
+                : wikiIndex?.pages.find((page) => page.id === wikiPageId)?.mtimeMs,
+        [wikiIndex, wikiPageId],
+    );
+    const seenWikiPageRef = useRef({ filePath, mtimeMs: wikiPageMtime });
+    useEffect(() => {
+        const seen = seenWikiPageRef.current;
+        seenWikiPageRef.current = { filePath, mtimeMs: wikiPageMtime };
+        if (seen.filePath !== filePath || seen.mtimeMs === undefined) return;
+        if (wikiPageMtime === undefined || wikiPageMtime === seen.mtimeMs) return;
+        void loadContent();
+    }, [filePath, loadContent, wikiPageMtime]);
+
     // Restore once *this file's* content has rendered. Gating on `loadedPath`
     // rather than `loading` matters: on an in-tab navigation `filePath` changes
     // in the same commit that `loading` is still false from the previous file,
