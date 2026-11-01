@@ -1,8 +1,16 @@
 import { useEffect } from "react";
 import { isDialogOpen } from "@/lib/global-shortcuts";
-import { useUIStore } from "@/stores/ui-store";
+import { focusedPaneKey, useUIStore } from "@/stores/ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useMarkdownInputStore } from "@/stores/markdown-input-store";
+
+/** Toggle the Markdown Input editor of the focused pane's active session. */
+function toggleMarkdownInput(workspaceKey: string): void {
+    const activeTab = useSessionStore.getState().getActiveTab(focusedPaneKey(workspaceKey));
+    if (activeTab?.sessionId) {
+        useMarkdownInputStore.getState().toggle(activeTab.sessionId);
+    }
+}
 
 interface KeyboardShortcutHandlers {
     handleCloseActiveTab: () => void;
@@ -95,11 +103,7 @@ function useWorkspaceKeyboardShortcuts({
             cleanupFns.push(
                 onToggleMarkdownInput(
                     runIfNoDialogOpen(() => {
-                        if (!workspaceKey) return;
-                        const activeTab = useSessionStore.getState().getActiveTab(workspaceKey);
-                        if (activeTab?.sessionId) {
-                            useMarkdownInputStore.getState().toggle(activeTab.sessionId);
-                        }
+                        if (workspaceKey) toggleMarkdownInput(workspaceKey);
                     }),
                 ),
             );
@@ -172,12 +176,7 @@ function useWorkspaceKeyboardShortcuts({
 
             if (e.shiftKey && needsMarkdownInputFallback && e.code === "KeyE") {
                 e.preventDefault();
-                if (workspaceKey) {
-                    const activeTab = useSessionStore.getState().getActiveTab(workspaceKey);
-                    if (activeTab?.sessionId) {
-                        useMarkdownInputStore.getState().toggle(activeTab.sessionId);
-                    }
-                }
+                if (workspaceKey) toggleMarkdownInput(workspaceKey);
                 return;
             }
 
@@ -224,11 +223,7 @@ function useWorkspaceKeyboardShortcuts({
                         workspaceKey
                     ) {
                         e.preventDefault();
-                        const split = state.splitByWorkspace[workspaceKey];
-                        const targetKey =
-                            split?.open && split.activePane === "right"
-                                ? `${workspaceKey}:right`
-                                : workspaceKey;
+                        const targetKey = focusedPaneKey(workspaceKey);
                         const tabs = useSessionStore.getState().tabsByWorkspace[targetKey];
                         if (tabs && digit <= tabs.length) {
                             useSessionStore.getState().setActiveTab(targetKey, tabs[digit - 1].id);

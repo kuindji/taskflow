@@ -8,13 +8,10 @@ import type {
     FlowRun,
     AgentType,
 } from "@taskflow/shared";
-import { useSessionStore, isSessionExited } from "@/stores/session-store";
+import { useSessionStore } from "@/stores/session-store";
 import { TabBar } from "./TabBar";
 import { TabContent } from "./TabContent";
-import { destroyTerminal } from "@/components/panes/TerminalPane";
-import { isEditorDirty, clearEditorDirty } from "@/components/panes/editor-dirty-state";
-import { workspaceBackendId } from "@/hooks/useActiveWorkspace";
-import { confirm } from "@/stores/dialog-store";
+import { requestCloseTab } from "./close-tab";
 import { cn } from "@/lib/utils";
 
 interface WorkspacePaneProps {
@@ -83,51 +80,12 @@ export function WorkspacePane({
     className,
 }: WorkspacePaneProps) {
     const setActiveTab = useSessionStore((s) => s.setActiveTab);
-    const closeTab = useSessionStore((s) => s.closeTab);
     const renameTab = useSessionStore((s) => s.renameTab);
     const reorderTabs = useSessionStore((s) => s.reorderTabs);
 
     const handleTabClose = (id: string) => {
         const tab = tabs.find((t) => t.id === id);
-
-        const backendId = workspaceBackendId(workspaceKey);
-
-        const doClose = () => {
-            if (tab?.filePath && backendId !== null) clearEditorDirty(backendId, tab.filePath);
-            if (tab?.sessionId) destroyTerminal(tab.sessionId);
-            void closeTab(workspaceKey, id);
-        };
-
-        if (
-            (tab?.type === "editor" || tab?.type === "markdown") &&
-            tab.filePath &&
-            backendId !== null &&
-            isEditorDirty(backendId, tab.filePath)
-        ) {
-            void confirm({
-                title: "Unsaved Changes",
-                description: `"${tab.filePath.split("/").pop()}" has unsaved changes that will be lost.`,
-                confirmLabel: "Close Without Saving",
-                cancelLabel: "Cancel",
-                variant: "destructive",
-                onConfirm: async () => doClose(),
-            });
-            return;
-        }
-
-        if (tab?.type === "editor" && tab.sessionId && !isSessionExited(tab.sessionId)) {
-            void confirm({
-                title: "Editor Still Running",
-                description: `"${tab.label}" is still running. Unsaved changes will be lost.`,
-                confirmLabel: "Close Editor",
-                cancelLabel: "Cancel",
-                variant: "destructive",
-                onConfirm: async () => doClose(),
-            });
-            return;
-        }
-
-        doClose();
+        if (tab) requestCloseTab(workspaceKey, tab);
     };
 
     const tabBarClassName = cn(

@@ -384,3 +384,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
         }));
     },
 }));
+
+/**
+ * The tab-list key of a workspace's focused pane: `<key>:right` while its
+ * split is open with the right pane active, the base key otherwise.
+ */
+export function focusedPaneKey(workspaceKey: string): string {
+    const split = useUIStore.getState().splitByWorkspace[workspaceKey];
+    return split?.open && split.activePane === "right" ? `${workspaceKey}:right` : workspaceKey;
+}

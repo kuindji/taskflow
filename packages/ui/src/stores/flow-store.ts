@@ -339,3 +339,4 @@ if (import.meta.hot) {
 }
 
 export { useFlowStore, filterByProject, definitionBackend };
+export type { FlowStartParams };

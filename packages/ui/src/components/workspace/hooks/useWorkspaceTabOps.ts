@@ -5,22 +5,14 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useTaskCreationStore } from "@/stores/task-creation-store";
-import { useUIStore } from "@/stores/ui-store";
+import { focusedPaneKey, useUIStore } from "@/stores/ui-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
 import { sendRequest } from "@/lib/connection-registry";
-import { destroyTerminal } from "@/components/panes/TerminalPane";
+import { requestCloseTab } from "../close-tab";
 import { getShellSessionLabel, resolveTerminalShellPath } from "@/lib/terminal-shells";
 import type { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 
 type Workspace = ReturnType<typeof useActiveWorkspace>;
-
-function getFocusedKey(baseKey: string): string {
-    const split = useUIStore.getState().splitByWorkspace[baseKey];
-    if (split?.open && split.activePane === "right") {
-        return `${baseKey}:right`;
-    }
-    return baseKey;
-}
 
 interface TabOpsParams {
     workspace: Workspace;
@@ -40,7 +32,6 @@ function useWorkspaceTabOps({
     defaultShellPath,
     configuredShell,
 }: TabOpsParams): TabOpsResult {
-    const closeTab = useSessionStore((s) => s.closeTab);
     const createSession = useSessionStore((s) => s.createSession);
     const backendId = useWorkspaceBackend();
     const defaultAgent = useSettingsStore(
@@ -58,22 +49,17 @@ function useWorkspaceTabOps({
             return;
         }
 
-        const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
-        const targetKey =
-            split?.open && split.activePane === "right"
-                ? `${workspace.workspaceKey}:right`
-                : workspace.workspaceKey;
+        const targetKey = focusedPaneKey(workspace.workspaceKey);
         const targetActiveTab = useSessionStore.getState().getActiveTab(targetKey);
 
         if (targetActiveTab) {
-            if (targetActiveTab.sessionId) destroyTerminal(targetActiveTab.sessionId);
-            void closeTab(targetKey, targetActiveTab.id);
+            requestCloseTab(targetKey, targetActiveTab);
         } else if (workspace.scope === "task") {
             setActiveTask(null);
         } else if (workspace.scope === "project") {
             setActiveProject(null);
         }
-    }, [workspace.workspaceKey, workspace.scope, closeTab, setActiveTask, setActiveProject]);
+    }, [workspace.workspaceKey, workspace.scope, setActiveTask, setActiveProject]);
 
     const handleOpenNewTask = useCallback(() => {
         requestNewTask();
@@ -98,7 +84,7 @@ function useWorkspaceTabOps({
                   : { master: true as const };
         setFocusedPanel("workspace");
         const targetKey = workspace.workspaceKey
-            ? getFocusedKey(workspace.workspaceKey)
+            ? focusedPaneKey(workspace.workspaceKey)
             : undefined;
         await createSession(
             owner,
@@ -134,7 +120,7 @@ function useWorkspaceTabOps({
                   : { master: true as const };
         setFocusedPanel("workspace");
         const targetKey = workspace.workspaceKey
-            ? getFocusedKey(workspace.workspaceKey)
+            ? focusedPaneKey(workspace.workspaceKey)
             : undefined;
         await createSession(
             owner,

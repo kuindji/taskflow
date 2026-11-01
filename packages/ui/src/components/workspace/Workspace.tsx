@@ -10,7 +10,7 @@ import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
-import { useUIStore } from "@/stores/ui-store";
+import { focusedPaneKey, useUIStore } from "@/stores/ui-store";
 import { sendRequest } from "@/lib/connection-registry";
 import { openHostedBrowserTab } from "@/lib/hosted-browser";
 import { TaskHeader } from "./TaskHeader";
@@ -19,6 +19,7 @@ import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 import { getShellSessionLabel } from "@/lib/terminal-shells";
 import { runInShell } from "@/lib/run-in-shell";
 import { useFlowStore } from "@/stores/flow-store";
+import type { FlowStartParams } from "@/stores/flow-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import useIsElectron from "@/hooks/useIsElectron";
 import {
@@ -37,14 +38,6 @@ import { useSessionSync } from "./hooks/useSessionSync";
 import { useWorkspaceKeyboardShortcuts } from "./hooks/useWorkspaceKeyboardShortcuts";
 import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 
-function getFocusedWorkspaceKey(baseKey: string): string {
-    const split = useUIStore.getState().splitByWorkspace[baseKey];
-    if (split?.open && split.activePane === "right") {
-        return `${baseKey}:right`;
-    }
-    return baseKey;
-}
-
 export function Workspace() {
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
@@ -59,7 +52,7 @@ export function Workspace() {
         flowId: string;
         flowName: string;
         inputs: FlowInputDefinition[];
-        owner: { taskId?: string; projectId?: string; flowId: string };
+        owner: Omit<FlowStartParams, "inputValues">;
         backendId: string;
     } | null>(null);
 
@@ -191,7 +184,7 @@ export function Workspace() {
                 await hosted;
                 return;
             }
-            addTab(getFocusedWorkspaceKey(workspace.workspaceKey), {
+            addTab(focusedPaneKey(workspace.workspaceKey), {
                 id: crypto.randomUUID(),
                 type: "browser",
                 label: "New Tab",
@@ -212,7 +205,7 @@ export function Workspace() {
                 undefined,
                 undefined,
                 undefined,
-                getFocusedWorkspaceKey(workspace.workspaceKey),
+                focusedPaneKey(workspace.workspaceKey),
             );
         } else {
             setFocusedPanel("workspace");
@@ -229,7 +222,7 @@ export function Workspace() {
                 agentOptions,
                 undefined,
                 undefined,
-                getFocusedWorkspaceKey(workspace.workspaceKey),
+                focusedPaneKey(workspace.workspaceKey),
             );
         }
     };
@@ -252,7 +245,7 @@ export function Workspace() {
             undefined,
             undefined,
             undefined,
-            getFocusedWorkspaceKey(workspace.workspaceKey),
+            focusedPaneKey(workspace.workspaceKey),
         );
     };
 
@@ -273,7 +266,7 @@ export function Workspace() {
                 configuredShell,
                 label: action.name,
                 command: action.prompt ? `${action.prompt}\r` : undefined,
-                targetWorkspaceKey: getFocusedWorkspaceKey(workspace.workspaceKey),
+                targetWorkspaceKey: focusedPaneKey(workspace.workspaceKey),
             });
         } else {
             await createSession(
@@ -285,7 +278,7 @@ export function Workspace() {
                 action.agentOptions,
                 undefined,
                 undefined,
-                getFocusedWorkspaceKey(workspace.workspaceKey),
+                focusedPaneKey(workspace.workspaceKey),
             );
         }
     };
@@ -317,6 +310,29 @@ export function Workspace() {
         void useFlowStore.getState().startFlow(backendId, owner);
     };
 
+    const handleFlowInputSubmit = (values: Record<string, string>) => {
+        if (!flowInputState) return;
+        void useFlowStore.getState().startFlow(flowInputState.backendId, {
+            ...flowInputState.owner,
+            inputValues: values,
+        });
+        setFlowInputState(null);
+    };
+
+    // Rendered by both the master and the task/project layouts: a flow with
+    // inputs only starts once this dialog submits.
+    const flowInputDialog = flowInputState && (
+        <FlowInputDialog
+            key={flowInputState.flowId}
+            open
+            backendId={flowInputState.backendId}
+            flowName={flowInputState.flowName}
+            inputs={flowInputState.inputs}
+            onSubmit={handleFlowInputSubmit}
+            onCancel={() => setFlowInputState(null)}
+        />
+    );
+
     if (workspace.scope === "master") {
         return (
             <>
@@ -345,6 +361,7 @@ export function Workspace() {
                     allowSessionTabs={true}
                     isElectron={isElectron}
                 />
+                {flowInputDialog}
             </>
         );
     }
@@ -367,10 +384,11 @@ export function Workspace() {
             }
             return;
         }
-        const split = useUIStore.getState().splitByWorkspace[workspace.workspaceKey];
-        const targetKey =
-            split?.open && split.activePane === "right" ? rightKey : workspace.workspaceKey;
-        store.addTab(targetKey, { id: crypto.randomUUID(), type, label });
+        store.addTab(focusedPaneKey(workspace.workspaceKey), {
+            id: crypto.randomUUID(),
+            type,
+            label,
+        });
     };
 
     const handleDiffTab = () => openSingletonTab("changes", "Changes");
@@ -391,17 +409,8 @@ export function Workspace() {
             agentOptions,
             undefined,
             undefined,
-            getFocusedWorkspaceKey(workspace.workspaceKey),
+            focusedPaneKey(workspace.workspaceKey),
         );
-    };
-
-    const handleFlowInputSubmit = (values: Record<string, string>) => {
-        if (!flowInputState) return;
-        void useFlowStore.getState().startFlow(flowInputState.backendId, {
-            ...flowInputState.owner,
-            inputValues: values,
-        });
-        setFlowInputState(null);
     };
 
     const handleRunScript = async (scriptName: string) => {
@@ -417,7 +426,7 @@ export function Workspace() {
             configuredShell,
             label: scriptName,
             command: `${defaultRuntime} run ${scriptName}\r`,
-            targetWorkspaceKey: getFocusedWorkspaceKey(workspace.workspaceKey),
+            targetWorkspaceKey: focusedPaneKey(workspace.workspaceKey),
         });
     };
 
@@ -463,17 +472,7 @@ export function Workspace() {
                     isElectron={isElectron}
                 />
             )}
-            {flowInputState && (
-                <FlowInputDialog
-                    key={flowInputState.flowId}
-                    open
-                    backendId={flowInputState.backendId}
-                    flowName={flowInputState.flowName}
-                    inputs={flowInputState.inputs}
-                    onSubmit={handleFlowInputSubmit}
-                    onCancel={() => setFlowInputState(null)}
-                />
-            )}
+            {flowInputDialog}
             <AlertDialog
                 open={worktreeMissingDialogOpen}
                 onOpenChange={setWorktreeMissingDialogOpen}>
