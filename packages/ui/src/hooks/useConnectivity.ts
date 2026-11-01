@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { MSG } from "@taskflow/shared";
 import type { ConnectivityStatusPayload } from "@taskflow/shared";
+import { onBackendReady } from "@/lib/backend-ready";
 import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "@/stores/store-reset";
 
@@ -41,10 +42,7 @@ const _unsubConnectivityChanged = onEvent(MSG.CONNECTIVITY_STATUS_CHANGED, (payl
     setOnline((payload as ConnectivityStatusPayload).online);
 });
 
-function initConnectivity(backendId: string): void {
-    if (initialized.has(backendId)) return;
-    initialized.add(backendId);
-
+function fetchConnectivity(backendId: string): void {
     sendRequest<ConnectivityStatusPayload>(backendId, MSG.CONNECTIVITY_STATUS).then(
         (payload) => {
             if (backendId === getPrimary()) setOnline(payload.online);
@@ -54,6 +52,18 @@ function initConnectivity(backendId: string): void {
         },
     );
 }
+
+function initConnectivity(backendId: string): void {
+    if (initialized.has(backendId)) return;
+    initialized.add(backendId);
+    fetchConnectivity(backendId);
+}
+
+// The backend broadcasts only changes, so one made while primary's socket was
+// down is never seen: ask again whenever primary is ready again.
+const _unsubBackendReady = onBackendReady((backendId) => {
+    if (backendId === getPrimary()) fetchConnectivity(backendId);
+});
 
 async function recheckConnectivity(): Promise<boolean> {
     const primary = getPrimary();
