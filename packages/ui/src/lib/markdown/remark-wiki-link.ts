@@ -37,12 +37,16 @@ function remarkWikiLink({ resolve }: RemarkWikiLinkOptions) {
                     replacement.push({ type: "text", value: node.value.slice(cursor, span.start) });
                 }
                 const { href, exists } = resolve(span.target);
+                // `href` is a filesystem path, and the click handler reads the
+                // url back as a URL: a `#` in a folder name ("C# notes") would
+                // start the fragment and a `%` would be decoded. Escape both.
+                const path = href.replace(/[%#]/g, encodeURIComponent);
                 // `[[page#Exchange Rates]]` must land on the id rehype-slug
                 // emitted ("exchange-rates"), so slug the fragment here.
                 const url =
                     span.hash === undefined
-                        ? href
-                        : `${href}#${new GithubSlugger().slug(span.hash)}`;
+                        ? path
+                        : `${path}#${new GithubSlugger().slug(span.hash)}`;
                 const link: Link = {
                     type: "link",
                     url,

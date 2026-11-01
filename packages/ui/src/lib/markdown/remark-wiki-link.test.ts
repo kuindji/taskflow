@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Paragraph, Root, Text } from "mdast";
+import { resolveLinkTarget } from "./link-target";
 import { remarkWikiLink } from "./remark-wiki-link";
 
 function paragraph(value: string): Root {
@@ -45,6 +46,20 @@ describe("remarkWikiLink", () => {
         const link = run("[[a/b#Exchange Rates]]").children[0];
         if (link.type !== "link") throw new Error("expected a link node");
         expect(link.url).toBe("/root/a/b.md#exchange-rates");
+    });
+
+    it("keeps a # or % in the page path out of the url's fragment and escapes", () => {
+        const tree = paragraph("[[other#Rates]]");
+        remarkWikiLink({
+            resolve: () => ({ href: "/work/C# notes/100%41/other.md", exists: true }),
+        })(tree);
+        const link = (tree.children[0] as Paragraph).children[0];
+        if (link.type !== "link") throw new Error("expected a link node");
+        expect(resolveLinkTarget(link.url, "/work/C# notes/100%41/index.md")).toEqual({
+            kind: "markdown",
+            path: "/work/C# notes/100%41/other.md",
+            hash: "rates",
+        });
     });
 
     it("marks an unresolvable target as broken", () => {
