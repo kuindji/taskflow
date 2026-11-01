@@ -44,7 +44,7 @@ describe("buildTunnelArgs", () => {
             "-o",
             "StrictHostKeyChecking=yes",
             "-o",
-            `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
+            `UserKnownHostsFile="${KNOWN_HOSTS_FILE}"`,
             "-o",
             "GlobalKnownHostsFile=/dev/null",
             "-o",
@@ -85,7 +85,7 @@ describe("buildTunnelArgs", () => {
     // wrote an approved key to.
     test("does not let the user's ssh config decide where host keys are looked up", () => {
         const args = buildTunnelArgs(record, 7777, 54892);
-        expect(args).toContain(`UserKnownHostsFile=${KNOWN_HOSTS_FILE}`);
+        expect(args).toContain(`UserKnownHostsFile="${KNOWN_HOSTS_FILE}"`);
         expect(args).toContain("GlobalKnownHostsFile=/dev/null");
         expect(args).toContain(`HostKeyAlias=${hostKeyAlias(record)}`);
     });
@@ -167,6 +167,13 @@ describe("known hosts helpers", () => {
         );
     });
 
+    // ssh splits an option value on whitespace and reads UserKnownHostsFile as
+    // a list, so a home folder like "Jane Doe" would name two files.
+    test("a known-hosts path with a space, quote or backslash stays one quoted value", () => {
+        const args = buildHostKeyScanArgs(record, '/Users/Jane Doe/we"ird\\dir/known_hosts');
+        expect(args).toContain('UserKnownHostsFile="/Users/Jane Doe/we\\"ird\\\\dir/known_hosts"');
+    });
+
     test("the host-key scan goes through ssh's own route into a scratch file", () => {
         expect(
             buildHostKeyScanArgs({ ...record, host: "workbox" }, "/scratch/known_hosts"),
@@ -180,7 +187,7 @@ describe("known hosts helpers", () => {
             "-o",
             "StrictHostKeyChecking=accept-new",
             "-o",
-            "UserKnownHostsFile=/scratch/known_hosts",
+            'UserKnownHostsFile="/scratch/known_hosts"',
             "-o",
             "GlobalKnownHostsFile=/dev/null",
             "-o",
@@ -299,7 +306,7 @@ test("remote file reads preserve the SSH user port host-key policy and quoted pa
         "-o",
         "StrictHostKeyChecking=yes",
         "-o",
-        `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
+        `UserKnownHostsFile="${KNOWN_HOSTS_FILE}"`,
         "-o",
         "GlobalKnownHostsFile=/dev/null",
         "-o",

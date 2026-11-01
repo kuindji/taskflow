@@ -182,15 +182,52 @@ function discoveryFailureHandler(
     };
 }
 
-function sendToGroup(socket: dgram.Socket, bytes: Uint8Array): void {
-    for (const address of localIPv4Addresses()) {
-        try {
-            socket.setMulticastInterface(address);
-            socket.send(bytes, DISCOVERY_PORT, DISCOVERY_GROUP);
-        } catch {
-            // Interface disappeared between enumeration and send.
-        }
-    }
+/** The two calls `sendToGroup` makes on a `dgram.Socket`. */
+interface GroupSocket {
+    setMulticastInterface(address: string): void;
+    send(bytes: Uint8Array, port: number, address: string, callback: () => void): void;
+}
+
+/** Each socket's last queued `sendToGroup`, so the next one waits for it. */
+const groupSends = new WeakMap<GroupSocket, Promise<void>>();
+
+/**
+ * Sends `bytes` to the group once per interface, one datagram at a time.
+ *
+ * `send` queues the datagram behind an asynchronous address lookup (even for a
+ * numeric address), so the outgoing interface is whichever one is set when the
+ * lookup finishes. Setting the interface and calling `send` in a plain loop
+ * therefore sends every copy out of the last interface, and a peer reachable
+ * only through another one never hears this machine. Each send waits for the
+ * previous one's callback, and calls queue behind each other for the same
+ * reason: an announcement answering a probe can overlap the interval one.
+ */
+function sendToGroup(
+    socket: GroupSocket,
+    bytes: Uint8Array,
+    addresses: readonly string[] = localIPv4Addresses(),
+): void {
+    const previous = groupSends.get(socket) ?? Promise.resolve();
+    groupSends.set(
+        socket,
+        previous.then(async () => {
+            for (const address of addresses) {
+                await new Promise<void>((resolve) => {
+                    try {
+                        socket.setMulticastInterface(address);
+                        // The callback also takes a send error, which without
+                        // one would be emitted as the socket's `error` event
+                        // and shut discovery down over one unreachable interface.
+                        socket.send(bytes, DISCOVERY_PORT, DISCOVERY_GROUP, () => resolve());
+                    } catch {
+                        // Interface disappeared between enumeration and send,
+                        // or the socket was closed.
+                        resolve();
+                    }
+                });
+            }
+        }),
+    );
 }
 
 function createAdvertiser(opts: { payload: () => BeaconAnnounce }): DiscoveryHandle {
@@ -421,5 +458,5 @@ function createListener(opts: {
     };
 }
 
-export { createAdvertiser, createListener, membershipDelta };
+export { createAdvertiser, createListener, membershipDelta, sendToGroup };
 export type { DiscoveryHandle, DiscoveryListener };

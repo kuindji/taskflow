@@ -17,7 +17,8 @@ if (args.includes("StrictHostKeyChecking=accept-new") && knownHosts) {
     // key exchange, then authentication is refused.
     appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify({ event: "scan", args }) + "\\n");
     const alias = args.find((arg) => arg.startsWith("HostKeyAlias=")).slice("HostKeyAlias=".length);
-    appendFileSync(knownHosts.slice("UserKnownHostsFile=".length), alias + " " + process.env.FAKE_SSH_HOST_KEY + "\\n");
+    // The path arrives quoted, backslash and quote escaped, which reads as JSON.
+    appendFileSync(JSON.parse(knownHosts.slice("UserKnownHostsFile=".length)), alias + " " + process.env.FAKE_SSH_HOST_KEY + "\\n");
     process.stderr.write("Permission denied (publickey).\\n");
     process.exit(255);
 }

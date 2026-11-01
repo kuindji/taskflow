@@ -124,12 +124,26 @@ function hostKeyLookupOptions(
         "-o",
         `StrictHostKeyChecking=${checking}`,
         "-o",
-        `UserKnownHostsFile=${knownHostsFile}`,
+        `UserKnownHostsFile=${quotedOptionPath(knownHostsFile)}`,
         "-o",
         "GlobalKnownHostsFile=/dev/null",
         "-o",
         `HostKeyAlias=${hostKeyAlias(record)}`,
     ];
+}
+
+/**
+ * A file path as one `-o` value. ssh splits an option value on whitespace, and
+ * `UserKnownHostsFile` takes a whitespace-separated list, so an unquoted
+ * `C:\Users\Jane Doe\...` names two files, ssh writes the key to the first one
+ * (`C:\Users\Jane`), and the trust store never sees it. Inside
+ * double quotes, OpenSSH reads `\\` and `\"` as escapes; Windows paths switch
+ * to forward slashes, which Windows OpenSSH accepts, so they need no escaping
+ * even from an ssh too old to read the escapes.
+ */
+function quotedOptionPath(path: string): string {
+    const portable = process.platform === "win32" ? path.replaceAll("\\", "/") : path;
+    return `"${portable.replace(/["\\]/g, "\\$&")}"`;
 }
 
 function connectionOptions(

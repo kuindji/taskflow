@@ -9,7 +9,7 @@ import {
 } from "../constants";
 import type { BeaconAnnounce } from "../types/backend";
 import { encodeAnnounce } from "./beacon";
-import { createAdvertiser, createListener, membershipDelta } from "./socket";
+import { createAdvertiser, createListener, membershipDelta, sendToGroup } from "./socket";
 
 const stops: Array<() => void> = [];
 
@@ -84,6 +84,34 @@ describe("membershipDelta", () => {
             add: ["10.0.0.9"],
             drop: [],
         });
+    });
+});
+
+// `dgram.send` queues the datagram behind an asynchronous address lookup, even
+// for a numeric group address, so the interface in effect is the one set when
+// the lookup finishes, not when `send` was called. This fake socket does the
+// same, which a real socket cannot show without two real interfaces.
+describe("sendToGroup", () => {
+    test("each interface's datagram leaves on that interface", async () => {
+        let current = "";
+        const sentOn: string[] = [];
+        const socket = {
+            setMulticastInterface(address: string) {
+                current = address;
+            },
+            send(_bytes: Uint8Array, _port: number, _address: string, callback: () => void) {
+                setTimeout(() => {
+                    sentOn.push(current);
+                    callback();
+                }, 0);
+            },
+        };
+
+        sendToGroup(socket, new Uint8Array([1]), ["192.168.1.20", "10.10.0.20"]);
+        sendToGroup(socket, new Uint8Array([2]), ["192.168.1.20", "10.10.0.20"]);
+
+        await waitFor(() => sentOn.length === 4);
+        expect(sentOn).toEqual(["192.168.1.20", "10.10.0.20", "192.168.1.20", "10.10.0.20"]);
     });
 });
 
