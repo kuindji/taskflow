@@ -4,10 +4,13 @@ import { MSG } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 import type {
+    SearchQueryPayload,
     SearchQueryResponse,
     SearchReplaceResponse,
     SearchReplaceAllResponse,
 } from "@taskflow/shared";
+
+type SearchedWith = Omit<SearchQueryPayload, "path">;
 
 interface SearchStore {
     query: string;
@@ -27,6 +30,11 @@ interface SearchStore {
      */
     searchBackendId: string | null;
     searchRoot: string | null;
+    /**
+     * The query and options the shown results were found with. A replace acts
+     * on those results, not on whatever the inputs say by now.
+     */
+    searchedWith: SearchedWith | null;
     searching: boolean;
     expandedFiles: Set<string>;
     error: string | null;
@@ -93,6 +101,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     searchId: null,
     searchBackendId: null,
     searchRoot: null,
+    searchedWith: null,
     searching: false,
     expandedFiles: new Set<string>(),
     error: null,
@@ -128,6 +137,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 searchId: null,
                 searchBackendId: null,
                 searchRoot: null,
+                searchedWith: null,
                 error: null,
             });
             return;
@@ -140,16 +150,19 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         const generation = ++searchGeneration;
         pendingSearchBackendId = backendId;
         set({ searching: true, error: null });
+        const searchedWith: SearchedWith = {
+            query: state.query,
+            caseSensitive: state.caseSensitive,
+            wholeWord: state.wholeWord,
+            useRegex: state.useRegex,
+            includePattern: state.includePattern,
+            excludePattern: state.excludePattern,
+        };
 
         try {
             const response = await sendRequest<SearchQueryResponse>(backendId, MSG.SEARCH_QUERY, {
                 path: rootPath,
-                query: state.query,
-                caseSensitive: state.caseSensitive,
-                wholeWord: state.wholeWord,
-                useRegex: state.useRegex,
-                includePattern: state.includePattern,
-                excludePattern: state.excludePattern,
+                ...searchedWith,
             });
 
             if (generation !== searchGeneration) return;
@@ -165,6 +178,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 searchId: response.result.searchId,
                 searchBackendId: backendId,
                 searchRoot: rootPath,
+                searchedWith,
                 searching: false,
                 expandedFiles: expanded,
             });
@@ -194,20 +208,20 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async replaceMatch(filePath, match) {
-        const state = get();
-        if (!state.searchBackendId || !state.searchRoot) return;
+        const { searchBackendId, searchRoot, searchedWith, replacement } = get();
+        if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
             const { replacedCount } = await sendRequest<SearchReplaceResponse>(
-                state.searchBackendId,
+                searchBackendId,
                 MSG.SEARCH_REPLACE,
                 {
-                    path: state.searchRoot,
+                    path: searchRoot,
                     filePath,
-                    query: state.query,
-                    replacement: state.replacement,
-                    caseSensitive: state.caseSensitive,
-                    wholeWord: state.wholeWord,
-                    useRegex: state.useRegex,
+                    query: searchedWith.query,
+                    replacement,
+                    caseSensitive: searchedWith.caseSensitive,
+                    wholeWord: searchedWith.wholeWord,
+                    useRegex: searchedWith.useRegex,
                     matches: [match],
                 },
             );
@@ -218,7 +232,9 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 });
                 return;
             }
-            const replacement = state.replacement;
+            // Removed before the shift: a match right after an emptied one
+            // moves onto its coordinates.
+            get().removeMatch(filePath, match);
             set((s) => {
                 const results = s.results.map((file) =>
                     file.path === filePath
@@ -227,31 +243,21 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
                 );
                 return { results };
             });
-            get().removeMatch(filePath, match);
         } catch (err) {
             set({ error: err instanceof Error ? err.message : "Replace failed" });
         }
     },
 
     async replaceInFile(filePath) {
-        const state = get();
-        if (!state.searchBackendId || !state.searchRoot) return;
+        const { searchBackendId, searchRoot, searchedWith, replacement } = get();
+        if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
-            await sendRequest<SearchReplaceAllResponse>(
-                state.searchBackendId,
-                MSG.SEARCH_REPLACE_ALL,
-                {
-                    path: state.searchRoot,
-                    query: state.query,
-                    replacement: state.replacement,
-                    caseSensitive: state.caseSensitive,
-                    wholeWord: state.wholeWord,
-                    useRegex: state.useRegex,
-                    includePattern: state.includePattern,
-                    excludePattern: state.excludePattern,
-                    filePath,
-                },
-            );
+            await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
+                path: searchRoot,
+                ...searchedWith,
+                replacement,
+                filePath,
+            });
 
             get().removeFile(filePath);
         } catch (err) {
@@ -260,24 +266,15 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     },
 
     async replaceAll(filePath) {
-        const state = get();
-        if (!state.searchBackendId || !state.searchRoot) return;
+        const { searchBackendId, searchRoot, searchedWith, replacement } = get();
+        if (!searchBackendId || !searchRoot || !searchedWith) return;
         try {
-            await sendRequest<SearchReplaceAllResponse>(
-                state.searchBackendId,
-                MSG.SEARCH_REPLACE_ALL,
-                {
-                    path: state.searchRoot,
-                    query: state.query,
-                    replacement: state.replacement,
-                    caseSensitive: state.caseSensitive,
-                    wholeWord: state.wholeWord,
-                    useRegex: state.useRegex,
-                    includePattern: state.includePattern,
-                    excludePattern: state.excludePattern,
-                    filePath,
-                },
-            );
+            await sendRequest<SearchReplaceAllResponse>(searchBackendId, MSG.SEARCH_REPLACE_ALL, {
+                path: searchRoot,
+                ...searchedWith,
+                replacement,
+                filePath,
+            });
 
             if (filePath) {
                 get().removeFile(filePath);
@@ -336,6 +333,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
             searchId: null,
             searchBackendId: null,
             searchRoot: null,
+            searchedWith: null,
             searching: false,
             expandedFiles: new Set<string>(),
             error: null,
@@ -358,6 +356,7 @@ registerBackendReset("search-store", (backendId) => {
         searchId: null,
         searchBackendId: null,
         searchRoot: null,
+        searchedWith: null,
         expandedFiles: new Set<string>(),
         error: null,
     });

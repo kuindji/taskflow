@@ -167,6 +167,60 @@ describe("search-store single-match replace", () => {
         ]);
     });
 
+    test("an emptied match keeps the adjacent one that moved onto its column", async () => {
+        const adjacent = {
+            path: "/repo/b.ts",
+            matches: [
+                { line: 1, column: 1, matchLength: 3, lineContent: "foofoo" },
+                { line: 1, column: 4, matchLength: 3, lineContent: "foofoo" },
+            ],
+        };
+        const server = startTestServer("a", (type) => {
+            if (type === MSG.SEARCH_QUERY) {
+                return { result: { searchId: "s", totalMatches: 2, files: [adjacent] } };
+            }
+            if (type === MSG.SEARCH_REPLACE) return { replacedCount: 1 };
+            return {};
+        });
+        servers.push(server);
+        await openConnection("a", server.origin);
+        const store = useSearchStore.getState();
+        store.setQuery("foo");
+        await store.search("a", "/repo");
+
+        await useSearchStore.getState().replaceMatch(adjacent.path, adjacent.matches[0]);
+
+        expect(useSearchStore.getState().results).toEqual([
+            {
+                path: adjacent.path,
+                matches: [{ line: 1, column: 1, matchLength: 3, lineContent: "foo" }],
+            },
+        ]);
+        expect(useSearchStore.getState().totalMatches).toBe(1);
+    });
+
+    test("a replace uses the query the shown results were found with", async () => {
+        const server = await attachReplacing(1);
+        const store = useSearchStore.getState();
+        store.setQuery("foo");
+        store.setReplacement("x");
+        await store.search("a", "/repo");
+        // Cleared or shortened inputs do not search again; the results stay.
+        useSearchStore.getState().setQuery("");
+        useSearchStore.getState().toggleUseRegex();
+
+        await useSearchStore.getState().replaceMatch(file.path, file.matches[0]);
+        await useSearchStore.getState().replaceAll();
+
+        expect(requests(server, MSG.SEARCH_REPLACE)).toEqual([
+            expect.objectContaining({ query: "foo", useRegex: false, replacement: "x" }),
+        ]);
+        expect(requests(server, MSG.SEARCH_REPLACE_ALL)).toEqual([
+            expect.objectContaining({ query: "foo", useRegex: false, replacement: "x" }),
+        ]);
+        useSearchStore.getState().toggleUseRegex();
+    });
+
     test("keeps a match the backend refused and says why", async () => {
         await attachReplacing(0);
         const store = useSearchStore.getState();

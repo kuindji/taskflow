@@ -225,8 +225,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 });
         }
 
-        const changeDisposable = editor.onDidChangeModelContent(() => {
-            if (!access.canEdit()) return;
+        const changeDisposable = editor.onDidChangeModelContent((e) => {
+            // A flush is a reload from disk, perhaps by another pane on this model.
+            if (!access.canEdit() || e.isFlush) return;
             setEditorDirty(backendId, filePath, true);
             setDirty(true);
         });
@@ -247,7 +248,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             }
             changeDisposable.dispose();
             editor.dispose();
-            if (!isEditorDirty(backendId, filePath)) {
+            // A split pane may still show this file on the same model.
+            const inUse = monaco.editor.getEditors().some((other) => other.getModel() === model);
+            if (!inUse && !isEditorDirty(backendId, filePath)) {
                 // The machine's reset may already have disposed it.
                 if (!model.isDisposed()) model.dispose();
                 clearEditorDirty(backendId, filePath);
