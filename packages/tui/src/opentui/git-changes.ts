@@ -8,6 +8,7 @@ import {
 import type { GitStatusResult } from "@taskflow/shared";
 import { changeLabel, gitChanges, stableChangeIndex, type GitChange } from "../git/model";
 import type { GitDiffState } from "../git/store";
+import { followSelection } from "./follow-selection";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface GitChangesDeps {
@@ -28,6 +29,7 @@ class GitChanges {
     readonly renderable: BoxRenderable;
     private readonly filesPane: ScrollBoxRenderable;
     private readonly diffPane: ScrollBoxRenderable;
+    private readonly revealSelection: () => void;
     private status: GitStatusResult | null;
     private diff: GitDiffState | null;
     private changes: GitChange[];
@@ -70,6 +72,7 @@ class GitChanges {
             scrollY: true,
             scrollX: false,
         });
+        this.revealSelection = followSelection(this.filesPane, "git-changes-selected");
         this.renderable.add(this.filesPane);
         this.renderable.add(this.diffPane);
         this.rebuild();
@@ -170,17 +173,24 @@ class GitChanges {
                     height: 1,
                     truncate: true,
                     wrapMode: "none",
-                    ...(index === this.selected ? SELECTED_TEXT_STYLE : {}),
+                    ...(index === this.selected
+                        ? { id: "git-changes-selected", ...SELECTED_TEXT_STYLE }
+                        : {}),
                 }),
             );
         }
         if (this.changes.length === 0) {
             this.filesPane.add(
-                new TextRenderable(this.deps.renderer, { content: " Working tree clean.", height: 1 }),
+                new TextRenderable(this.deps.renderer, {
+                    content: " Working tree clean.",
+                    height: 1,
+                }),
             );
         }
         if (this.pending) {
-            this.filesPane.add(new TextRenderable(this.deps.renderer, { content: " Working...", height: 1 }));
+            this.filesPane.add(
+                new TextRenderable(this.deps.renderer, { content: " Working...", height: 1 }),
+            );
         } else if (this.error) {
             this.filesPane.add(
                 new TextRenderable(this.deps.renderer, {
@@ -196,8 +206,8 @@ class GitChanges {
         if (selected) {
             content =
                 this.diff?.key === selected.key
-                    ? this.diff.text ??
-                      " No text diff is available. The file may be binary or unchanged."
+                    ? (this.diff.text ??
+                      " No text diff is available. The file may be binary or unchanged.")
                     : " Loading diff...";
         }
         this.diffPane.add(
@@ -209,6 +219,7 @@ class GitChanges {
                 selectable: true,
             }),
         );
+        this.revealSelection();
         this.deps.onStateChange?.();
     }
 

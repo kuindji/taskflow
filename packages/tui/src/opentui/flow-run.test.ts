@@ -43,7 +43,11 @@ describe("FlowRun", () => {
     const cleanup: Array<() => void> = [];
     afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
 
-    async function setup(initial = run("running"), sessionState: "live" | "interrupted" = "live") {
+    async function setup(
+        initial = run("running"),
+        sessionState: "live" | "interrupted" = "live",
+        confirm: (message: string) => Promise<boolean> = async () => true,
+    ) {
         const renderer = await createTestRenderer({ width: 80, height: 12 });
         const calls: string[] = [];
         const view = new FlowRun({
@@ -67,9 +71,9 @@ describe("FlowRun", () => {
             jump: async (index) => {
                 calls.push(`jump:${String(index)}`);
             },
-            confirm: async (message) => {
+            confirm: (message) => {
                 calls.push(`confirm:${message}`);
-                return true;
+                return confirm(message);
             },
             onFocusSession: (id) => calls.push(`focus:${id}`),
             onLibrary: () => calls.push("library"),
@@ -111,5 +115,23 @@ describe("FlowRun", () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(test.calls).toEqual(["confirm:Restart from this action?", "jump:0"]);
+    });
+
+    it("drops a confirmed stop when the flow ended while the confirmation was open", async () => {
+        let answer: (confirmed: boolean) => void = () => undefined;
+        const test = await setup(
+            run("running"),
+            "live",
+            () => new Promise((resolve) => (answer = resolve)),
+        );
+        test.view.handleKey(key("x"));
+        test.view.update({ ...run("completed"), completedAt: "now" });
+        answer(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(test.calls).toEqual(["confirm:Stop this flow?"]);
+        expect(test.view.keyHints).not.toContain("Working");
+        test.view.handleKey(key("q"));
+        expect(test.calls).toContain("close");
     });
 });

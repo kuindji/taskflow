@@ -120,4 +120,21 @@ describe("LinkedProjects", () => {
         await test.renderOnce();
         expect(test.captureCharFrame()).toContain("No linked projects.");
     });
+
+    test("refuses to edit a note the single-line input would cut", async () => {
+        const long = "x".repeat(1200);
+        const { test, view, saved } = await setup([
+            { projectId: "p2", note: long },
+            { projectId: "p4", note: "first line\nsecond line" },
+        ]);
+        view.handleKey(key("e"));
+        view.handleKey(key("return", "\r"));
+        view.handleKey(key("down"));
+        view.handleKey(key("e"));
+        view.handleKey(key("return", "\r"));
+        expect(saved).toEqual([]);
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("too long to edit");
+        expect(view.keyHints).toContain("e Edit note");
+    });
 });

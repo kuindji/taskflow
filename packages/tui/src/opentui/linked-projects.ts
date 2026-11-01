@@ -6,7 +6,7 @@ import {
     type KeyEvent,
 } from "@opentui/core";
 import type { LinkedProject, Project } from "@taskflow/shared";
-import { editLine, isChorded } from "./line-input";
+import { editLine, fitsLineInput, isChorded } from "./line-input";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
 interface LinkedProjectsDeps {
@@ -125,7 +125,12 @@ class LinkedProjects {
             }
             this.rebuild();
         } else if ((event.sequence === "e" || enter) && link) {
-            this.editNote(link.projectId, link.note, false);
+            if (fitsLineInput(link.note)) this.editNote(link.projectId, link.note, false);
+            else {
+                this.error =
+                    "This note has line breaks or is too long to edit here; use the desktop app.";
+                this.rebuild();
+            }
         } else if (event.sequence === "d" && link) {
             this.save(this.links.filter((candidate) => candidate !== link));
         }

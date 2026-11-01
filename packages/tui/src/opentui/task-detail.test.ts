@@ -303,4 +303,51 @@ describe("TaskDetail", () => {
         view.handleKey(key("escape", "\x1b"));
         expect(calls).toEqual(["close"]);
     });
+
+    test("scrolls an editor opened under long activity into view", async () => {
+        const test = await createTestRenderer({ width: 90, height: 16 });
+        const longLogs: TaskLogEntry[] = Array.from({ length: 30 }, (_, index) => ({
+            ...logs[0],
+            id: `l${String(index)}`,
+            message: `step ${String(index)}`,
+        }));
+        const view = new TaskDetail({
+            renderer: test.renderer,
+            task,
+            project,
+            attributes,
+            logs: longLogs,
+            onEditTitle: () => undefined,
+            onEditDescription: () => undefined,
+            onEditNotes: () => undefined,
+            onCreateAttribute: () => undefined,
+            onUpdateAttribute: () => undefined,
+            onDeleteAttribute: () => undefined,
+            onTogglePin: () => undefined,
+            onArchive: () => undefined,
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        view.handleKey(key("r"));
+        await test.renderOnce();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("New title");
+
+        view.update(task, project, attributes, [
+            ...longLogs,
+            ...Array.from({ length: 10 }, (_, index) => ({
+                ...logs[0],
+                id: `m${String(index)}`,
+                message: `more ${String(index)}`,
+            })),
+        ]);
+        await test.renderOnce();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("New title");
+    });
 });

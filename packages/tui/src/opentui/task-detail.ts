@@ -7,6 +7,7 @@ import {
 } from "@opentui/core";
 import type { Project, ResolvedAttribute, Task, TaskLogEntry } from "@taskflow/shared";
 import { stableSelectionIndex } from "../flows/model";
+import { followSelection } from "./follow-selection";
 import { fitsLineInput } from "./line-input";
 import { SELECTED_TEXT_STYLE } from "./selection-style";
 
@@ -69,6 +70,8 @@ class TaskDetail {
         null;
     private editInput: InputRenderable | null = null;
     private attributeNameDraft = "";
+    /** The editor sits under all activity, so opening it must scroll to it. */
+    private readonly revealEditor: () => void;
 
     constructor(private readonly deps: TaskDetailDeps) {
         this.task = deps.task;
@@ -89,6 +92,7 @@ class TaskDetail {
                 this.renderable.scrollBy(direction === "up" ? -3 : 3);
             },
         });
+        this.revealEditor = followSelection(this.renderable, "task-detail-edit-input");
         this.rebuild();
     }
 
@@ -130,7 +134,10 @@ class TaskDetail {
         }
         this.pending = false;
         this.rebuild();
-        if (this.editKind) this.editInput?.focus();
+        if (this.editKind) {
+            this.editInput?.focus();
+            this.revealEditor();
+        }
     }
 
     setPending(pending: boolean): void {
@@ -212,6 +219,7 @@ class TaskDetail {
         this.error = null;
         this.rebuild(value);
         this.editInput?.focus();
+        this.revealEditor();
     }
 
     private handleEditKey(event: KeyEvent): void {

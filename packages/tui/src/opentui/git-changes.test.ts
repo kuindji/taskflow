@@ -42,7 +42,12 @@ describe("GitChanges", () => {
         const view = new GitChanges({
             renderer: test.renderer,
             status,
-            diff: { key: "staged:partial.ts", path: "partial.ts", staged: true, text: "@@ -1 +1 @@\n-old line\n+new line" },
+            diff: {
+                key: "staged:partial.ts",
+                path: "partial.ts",
+                staged: true,
+                text: "@@ -1 +1 @@\n-old line\n+new line",
+            },
             onSelect: (change) => selected.push(change.key),
             onStage: () => undefined,
             onUnstage: () => undefined,
@@ -52,7 +57,10 @@ describe("GitChanges", () => {
             onClose: () => undefined,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         await test.renderOnce();
         const frame = test.captureCharFrame();
         expect(frame).toContain("Staged");
@@ -97,7 +105,10 @@ describe("GitChanges", () => {
             onClose: () => calls.push("close"),
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("u"));
         view.handleKey(key("u"));
         expect(calls).toEqual(["unstage"]);
@@ -107,5 +118,43 @@ describe("GitChanges", () => {
         view.handleKey(key("c"));
         view.handleKey(key("escape", "\x1b"));
         expect(calls).toEqual(["unstage", "stage-all", "unstage-all", "commit", "close"]);
+    });
+
+    test("scrolls the selected file into view", async () => {
+        const test = await createTestRenderer({ width: 120, height: 12 });
+        const many: GitStatusResult = {
+            branch: "main",
+            ahead: 0,
+            behind: 0,
+            stagedFiles: [],
+            unstagedFiles: Array.from({ length: 30 }, (_, index) => ({
+                path: `file-${String(index).padStart(2, "0")}.ts`,
+                status: "modified" as const,
+                staged: false,
+            })),
+        };
+        const view = new GitChanges({
+            renderer: test.renderer,
+            status: many,
+            diff: null,
+            onSelect: () => undefined,
+            onStage: () => undefined,
+            onUnstage: () => undefined,
+            onStageAll: () => undefined,
+            onUnstageAll: () => undefined,
+            onCommit: () => undefined,
+            onClose: () => undefined,
+        });
+        test.renderer.root.add(view.renderable);
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
+        await test.renderOnce();
+        for (let step = 0; step < 20; step++) view.handleKey(key("down"));
+        expect(view.selectedChange?.path).toBe("file-20.ts");
+        await test.renderOnce();
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("file-20.ts");
     });
 });

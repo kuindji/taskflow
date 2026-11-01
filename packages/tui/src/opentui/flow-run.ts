@@ -112,20 +112,21 @@ class FlowRun {
             void this.runControl(() => this.deps.skip());
             return;
         }
-        if (
-            event.sequence === "x" &&
-            (this.run.status === "running" || this.run.status === "paused")
-        ) {
-            void this.runConfirmed(this.run.loop ? "Finish this loop?" : "Stop this flow?", () =>
-                this.deps.stop(),
+        if (event.sequence === "x" && this.canStop()) {
+            void this.runConfirmed(
+                this.run.loop ? "Finish this loop?" : "Stop this flow?",
+                () => this.canStop(),
+                () => this.deps.stop(),
             );
             return;
         }
         if (event.sequence === "R") {
-            const selected = this.run.actions[this.selected];
-            if (selected?.status === "completed" || selected?.status === "failed") {
-                void this.runConfirmed("Restart from this action?", () =>
-                    this.deps.jump(this.selected),
+            const index = this.selected;
+            if (this.canRestart(index)) {
+                void this.runConfirmed(
+                    "Restart from this action?",
+                    () => this.canRestart(index),
+                    () => this.deps.jump(index),
                 );
             }
             return;
@@ -151,8 +152,26 @@ class FlowRun {
         }
     }
 
-    private async runConfirmed(message: string, control: () => Promise<void>): Promise<void> {
-        if (!(await this.deps.confirm(message))) return;
+    private canStop(): boolean {
+        return this.run.status === "running" || this.run.status === "paused";
+    }
+
+    private canRestart(index: number): boolean {
+        const action = this.run.actions[index];
+        return action?.status === "completed" || action?.status === "failed";
+    }
+
+    /**
+     * Runs updates keep arriving while the confirmation is open. A control the
+     * run no longer allows is dropped: the backend answers it without an
+     * update, which would leave the view pending.
+     */
+    private async runConfirmed(
+        message: string,
+        allowed: () => boolean,
+        control: () => Promise<void>,
+    ): Promise<void> {
+        if (!(await this.deps.confirm(message)) || !allowed()) return;
         await this.runControl(control);
     }
 
