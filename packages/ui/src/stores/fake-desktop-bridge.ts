@@ -64,9 +64,9 @@ export const bridge: Pick<
         main.confirmed.push(id);
         return main.confirmBackend(id, info);
     },
-    detachBackend: (id) => {
+    detachBackend: (id, options) => {
         main.detached.push(id);
-        return main.detachBackend(id);
+        return main.detachBackend(id, options);
     },
     listBackends: () => Promise.resolve([]),
     getAttached: () => Promise.resolve([]),

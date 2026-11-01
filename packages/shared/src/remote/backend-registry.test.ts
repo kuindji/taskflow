@@ -115,6 +115,18 @@ describe("backend registry", () => {
         expect(reg.attached()).toEqual([]);
     });
 
+    test("detaching to redial closes the tunnel but keeps the attached flag", async () => {
+        const closed: string[] = [];
+        const { reg } = await registry({ closeTunnel: (id: string) => closed.push(id) });
+        const record = await reg.addBackend({ host: "desktop.local" });
+        await reg.attachBackend(record.id);
+        await reg.detachBackend(record.id, { keepIntent: true });
+        expect((await reg.listBackends())[0].attached).toBe(true);
+        expect(reg.attachedRecordIds()).toEqual([record.id]);
+        expect(closed).toEqual([record.id]);
+        expect(reg.attached()).toEqual([]);
+    });
+
     test("a first confirm is a rename: the tunnel moves and nothing is closed", async () => {
         const closed: string[] = [];
         const rekeyed: [string, string][] = [];

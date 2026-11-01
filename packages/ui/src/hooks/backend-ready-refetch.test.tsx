@@ -5,11 +5,13 @@ import { MSG } from "@taskflow/shared";
 import { notifyBackendReady } from "@/lib/backend-ready";
 import { closeConnection, openConnection, setPrimary } from "@/lib/connection-registry";
 import { initConnectivity, useConnectivity } from "./useConnectivity";
+import { useAgentAvailability } from "./useAgentAvailability";
 import { useRemoteAgentStatus } from "./useRemoteAgentStatus";
 
 const BACKEND = "ready-refetch";
 let remoteOnline = false;
 let agentRunning = false;
+let codexInstalled = false;
 let server: ReturnType<typeof startServer>;
 
 /** Each tick is its own `act`, so React commits what arrived before the next check. */
@@ -35,7 +37,9 @@ function startServer() {
                 const payload =
                     r.type === MSG.REMOTE_AGENT_STATUS
                         ? { running: agentRunning }
-                        : { online: remoteOnline };
+                        : r.type === MSG.AGENTS_LIST
+                          ? { agents: [{ type: "codex", available: codexInstalled }] }
+                          : { online: remoteOnline };
                 ws.send(JSON.stringify({ correlationId: r.correlationId, payload }));
             },
         },
@@ -94,6 +98,29 @@ test("a remote agent status read before the connection existed is asked again on
     notifyBackendReady(BACKEND);
     await waitUntil(() => running() === "true");
     expect(running()).toBe("true");
+    await act(async () => {
+        root.unmount();
+    });
+});
+
+test("the installed agents are asked again when the machine is ready again", async () => {
+    await openConnection(BACKEND, `http://127.0.0.1:${server.port}`, "test-token");
+    codexInstalled = false;
+    function Probe() {
+        const agents = useAgentAvailability(BACKEND);
+        return <>{agents.map((a) => `${a.type}:${String(a.available)}`).join()}</>;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    await act(async () => {
+        root.render(<Probe />);
+    });
+    await waitUntil(() => container.textContent === "codex:false");
+    // Codex installed on the machine and its backend restarted; the client reconnects.
+    codexInstalled = true;
+    notifyBackendReady(BACKEND);
+    await waitUntil(() => container.textContent === "codex:true");
+    expect(container.textContent).toBe("codex:true");
     await act(async () => {
         root.unmount();
     });

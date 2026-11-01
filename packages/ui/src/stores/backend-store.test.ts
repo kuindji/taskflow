@@ -893,6 +893,53 @@ test("an automatic retry closes a tunnel left by a failed attempt", async () => 
     expect(calls).toEqual(["attach 1"]);
     expect(row("abc123")?.keepAttached).toBe(true);
 });
+test("a Retry whose redial fails leaves the machine attached for the next refresh", async () => {
+    await recoverySetup();
+    // Main's persisted intent: only a successful attach sets it, and a plain
+    // detach clears it.
+    let persisted = true;
+    let tunnelLive = true;
+    const originalAttached = bridge.getAttached;
+    const originalList = bridge.listBackends;
+    bridge.getAttached = () =>
+        Promise.resolve(
+            tunnelLive ? [{ id: "abc123", origin: "http://127.0.0.1:1", isLocal: false }] : [],
+        );
+    bridge.listBackends = () =>
+        Promise.resolve([
+            {
+                id: "abc123",
+                displayName: "desktop",
+                host: "desktop.local",
+                instanceId: "main",
+                attached: persisted,
+                saved: true,
+                seen: true,
+            },
+        ]);
+    cleanups.push(() => {
+        bridge.getAttached = originalAttached;
+        bridge.listBackends = originalList;
+    });
+    main.detachBackend = (_id, options) => {
+        tunnelLive = false;
+        if (!options?.keepIntent) persisted = false;
+        return Promise.resolve();
+    };
+    let attaches = 0;
+    main.attachBackend = () => {
+        attaches++;
+        return Promise.resolve({ ok: false, failure: failure("Backend did not answer") });
+    };
+
+    store.getState().retry("abc123");
+    await waitUntil(() => attaches === 1 && row("abc123")?.failure !== undefined);
+    await store.getState().refresh();
+
+    expect(main.detached).toContain("abc123");
+    expect(persisted).toBe(true);
+    expect(row("abc123")?.keepAttached).toBe(true);
+});
 test("a repeated failure keeps its identity across automatic retries", async () => {
     await recoverySetup();
     let calls = 0;

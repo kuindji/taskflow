@@ -10,16 +10,24 @@ import { registerBackendReset } from "@/stores/store-reset";
 export function createPerBackendCache<T>(
     fetcher: (backendId: string) => Promise<T>,
     name: string,
-): { get(backendId: string): Promise<T>; peek(backendId: string): T | null } {
+): {
+    get(backendId: string): Promise<T>;
+    peek(backendId: string): T | null;
+    /** Forget this backend's value; the next `get` fetches it again. */
+    invalidate(backendId: string): void;
+} {
     const values = new Map<string, T>();
     const inFlight = new Map<string, Promise<T>>();
 
-    registerBackendReset(name, (backendId) => {
+    function invalidate(backendId: string): void {
         values.delete(backendId);
         inFlight.delete(backendId);
-    });
+    }
+
+    registerBackendReset(name, invalidate);
 
     return {
+        invalidate,
         get(backendId) {
             const cached = values.get(backendId);
             if (cached !== undefined) return Promise.resolve(cached);

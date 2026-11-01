@@ -219,15 +219,16 @@ function rekeyRecovery(fromId: string, toId: string): void {
 /**
  * A tunnel main still holds for this id is handed back as-is by the tunnel
  * manager, even when the remote backend has since moved port. Close it so the
- * next attach dials afresh. Only when one exists: a detach also clears the
- * persisted intent, which a machine whose tunnel already died must keep so the
- * next launch redials it. False once `current` lapses.
+ * next attach dials afresh, keeping the persisted intent: main sets it again
+ * only on a successful attach, so a redial that fails would otherwise leave the
+ * machine detached for the next refresh and the next launch. False once
+ * `current` lapses.
  */
 async function closeLiveTunnel(id: string, current: () => boolean): Promise<boolean> {
     const live = await bridge().getAttached();
     if (!current()) return false;
     if (live.some((entry) => entry.id === id && !entry.isLocal)) {
-        await bridge().detachBackend(id);
+        await bridge().detachBackend(id, { keepIntent: true });
         if (!current()) return false;
     }
     return true;

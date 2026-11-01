@@ -109,7 +109,8 @@ interface TaskflowBridge {
     >;
     refreshBackendToken(id: string): Promise<{ ok: boolean }>;
     getLocalApiToken(): Promise<string | null>;
-    detachBackend(id: string): Promise<void>;
+    /** `keepIntent`: close the tunnel to redial, leaving the machine attached. */
+    detachBackend(id: string, options?: { keepIntent?: boolean }): Promise<void>;
     confirmBackend(
         id: string,
         info: { backendUid: string; protocolVersion: number },

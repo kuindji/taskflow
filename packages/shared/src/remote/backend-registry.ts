@@ -419,13 +419,20 @@ function createRegistry(deps: RegistryDeps) {
             });
         },
 
-        detachBackend(requestedId: string): Promise<void> {
+        /**
+         * Close the tunnel. `keepIntent` leaves the persisted `attached` flag set:
+         * the caller is about to redial, and a redial that fails must not read
+         * as the user having detached the machine.
+         */
+        detachBackend(requestedId: string, options?: { keepIntent?: boolean }): Promise<void> {
             return serializeCanonical(requestedId, async (id) => {
                 deps.closeTunnel(id);
                 origins.delete(id);
                 const record = findRecord(id);
-                if (record) records = upsertRecord(records, { ...record, attached: false });
-                await persist();
+                if (record && !options?.keepIntent) {
+                    records = upsertRecord(records, { ...record, attached: false });
+                    await persist();
+                }
                 notifyChanged();
             });
         },

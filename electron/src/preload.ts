@@ -288,7 +288,8 @@ contextBridge.exposeInMainWorld("taskflow", {
         ipcRenderer.invoke("attach-backend", id) as Promise<
             { ok: true; origin: string } | { ok: false; failure: TunnelFailure }
         >,
-    detachBackend: (id: string) => ipcRenderer.invoke("detach-backend", id) as Promise<void>,
+    detachBackend: (id: string, options?: { keepIntent?: boolean }) =>
+        ipcRenderer.invoke("detach-backend", id, options) as Promise<void>,
     confirmBackend: (id: string, info: { backendUid: string; protocolVersion: number }) =>
         ipcRenderer.invoke("confirm-backend", id, info) as Promise<{
             id: string;

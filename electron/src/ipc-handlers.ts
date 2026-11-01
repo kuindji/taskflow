@@ -343,9 +343,9 @@ function registerBackendHandlers(deps: IpcHandlersDeps): void {
         return { ok: true, origin, token: deps.getBackendToken() ?? undefined };
     });
 
-    ipcMain.handle("detach-backend", (_event, id: string) => {
+    ipcMain.handle("detach-backend", (_event, id: string, options?: { keepIntent?: boolean }) => {
         if (id === LOCAL_BACKEND_ID) return;
-        return registry.detachBackend(id);
+        return registry.detachBackend(id, options);
     });
 
     ipcMain.handle(
