@@ -97,7 +97,7 @@ describe("external editor", () => {
     it("reopens the same file after validation and backend errors", async () => {
         const test = harness();
         let validationCount = 0;
-        let saveCount = 0;
+        const saved: string[] = [];
         const result = await editRecord({
             filename: "flow.yaml",
             initialContents: "name: Flow\n",
@@ -106,13 +106,15 @@ describe("external editor", () => {
                 if (validationCount === 1) throw new Error("name is invalid");
                 return contents;
             },
-            save: async () => {
-                saveCount += 1;
-                if (saveCount === 1) throw new Error("backend rejected save");
+            save: async (value) => {
+                saved.push(value);
+                if (saved.length === 1) throw new Error("backend rejected save");
             },
             deps: test.deps,
         });
-        expect(result).toContain("taskflow validation errors");
+        // The error block shown on retry is never validated or saved as content.
+        expect(result).toBe("name: Flow\n");
+        expect(saved).toEqual(["name: Flow\n", "name: Flow\n"]);
         expect(test.calls.filter((call) => call.startsWith("editor:"))).toHaveLength(3);
         expect(test.calls.filter((call) => call === "resume")).toHaveLength(3);
         expect(test.calls.at(-1)).toBe("rm");

@@ -167,7 +167,7 @@ function fakeNet(
 describe("SettingsStore", () => {
     test("loads settings and installed choices in parallel", async () => {
         const net = fakeNet();
-        const store = new SettingsStore(net);
+        const store = new SettingsStore(net, () => true);
         await store.load();
         expect(store.settings?.general.defaultAgent).toBe("codex");
         expect(store.choices.agents).toEqual([{ value: "codex", label: "Codex" }]);
@@ -179,6 +179,19 @@ describe("SettingsStore", () => {
             { value: "gpt-current", label: "GPT Current" },
         ]);
         expect(net.requests.map((request) => request.type)).toContain(MSG.KIMI_MODELS);
+        store.dispose();
+    });
+
+    test("picks a terminal editor installed on this machine, not only on the backend's", async () => {
+        const net = fakeNet([
+            { id: "micro", name: "Micro", command: "micro", type: "internal" },
+            { id: "nvim", name: "Neovim", command: "nvim", type: "internal" },
+            { id: "vi", name: "Vi", command: "vi", type: "internal" },
+        ]);
+        const store = new SettingsStore(net, (command) => command === "vi");
+        await store.loadSettings();
+        await store.update({ editor: { internalEditor: "micro" } });
+        expect(store.terminalEditor()).toEqual({ command: '"vi"', name: "Vi" });
         store.dispose();
     });
 

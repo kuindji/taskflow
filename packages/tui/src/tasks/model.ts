@@ -1,4 +1,10 @@
-import type { AttrDeletePayload, AttrUpdatePayload, Project, ResolvedAttribute, Task } from "@taskflow/shared";
+import type {
+    AttrDeletePayload,
+    AttrUpdatePayload,
+    Project,
+    ResolvedAttribute,
+    Task,
+} from "@taskflow/shared";
 import type { SessionOwner } from "../sessions/owner";
 
 interface TaskModelSource {
@@ -26,7 +32,9 @@ function repositoryTargetIdForOwner(owner: SessionOwner, source: TaskModelSource
     if (owner.kind === "master") return null;
     if (owner.kind === "project") return owner.projectId;
     const task = taskForOwner(owner, source);
-    return task?.worktree.enabled && task.worktree.path ? task.id : owner.projectId;
+    if (!task?.worktree.enabled || !task.worktree.path) return owner.projectId;
+    // Subtasks share their parent's worktree, which the backend tracks under the parent's id.
+    return task.parentId ?? task.id;
 }
 
 function resolvedTaskAttributes(task: Task, source: TaskModelSource): ResolvedAttribute[] {

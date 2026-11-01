@@ -49,14 +49,9 @@ describe("task detail model", () => {
             parent,
         );
         expect(repositoryPathForOwner({ kind: "master" }, source)).toBeNull();
-        expect(repositoryPathForOwner({ kind: "project", projectId: "p1" }, source)).toBe(
-            "/repo",
-        );
+        expect(repositoryPathForOwner({ kind: "project", projectId: "p1" }, source)).toBe("/repo");
         expect(
-            repositoryPathForOwner(
-                { kind: "task", taskId: "parent", projectId: "p1" },
-                source,
-            ),
+            repositoryPathForOwner({ kind: "task", taskId: "parent", projectId: "p1" }, source),
         ).toBe("/worktree");
         const withoutWorktree = {
             projects: [project],
@@ -69,10 +64,7 @@ describe("task detail model", () => {
             ),
         ).toBe("/repo");
         expect(
-            repositoryTargetIdForOwner(
-                { kind: "task", taskId: "parent", projectId: "p1" },
-                source,
-            ),
+            repositoryTargetIdForOwner({ kind: "task", taskId: "parent", projectId: "p1" }, source),
         ).toBe("parent");
         expect(
             repositoryTargetIdForOwner(
@@ -80,6 +72,12 @@ describe("task detail model", () => {
                 withoutWorktree,
             ),
         ).toBe("p1");
+    });
+
+    test("targets a subtask's git view at the parent, which tracks their shared worktree", () => {
+        expect(
+            repositoryTargetIdForOwner({ kind: "task", taskId: "child", projectId: "p1" }, source),
+        ).toBe("parent");
     });
 
     test("labels resolved attribute scope and only mutates own attributes", () => {

@@ -70,7 +70,12 @@ class SettingsStore {
     private readonly listeners = new Set<() => void>();
     private readonly unsubscribe: () => void;
 
-    constructor(private readonly net: NetLike) {
+    constructor(
+        private readonly net: NetLike,
+        /** Terminal editors run on this machine, which may lack editors the backend's machine has. */
+        private readonly installedLocally: (command: string) => boolean = (command) =>
+            Bun.which(command) !== null,
+    ) {
         this.unsubscribe = net.on(MSG.SETTINGS_UPDATED, (payload) => {
             const event = payload as Partial<SettingsUpdatedEvent>;
             if (!event.settings || this.disposed) return;
@@ -118,7 +123,8 @@ class SettingsStore {
     terminalEditor(): TerminalEditor | null {
         const editors =
             this.choiceSnapshot.systemInfo?.editors.filter(
-                (candidate) => candidate.type === "internal",
+                (candidate) =>
+                    candidate.type === "internal" && this.installedLocally(candidate.command),
             ) ?? [];
         const configured = this.settingsSnapshot?.editor.internalEditor;
         const selected = editors.find((candidate) => candidate.id === configured);

@@ -74,11 +74,17 @@ function validationMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+const ERROR_BLOCK = new RegExp(
+    `^${ERROR_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n[\\s\\S]*?${ERROR_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?`,
+);
+
+/** The file without the error block a failed attempt put on top, so a retry never saves it. */
+function withoutValidationError(contents: string): string {
+    return contents.replace(ERROR_BLOCK, "");
+}
+
 function withValidationError(contents: string, message: string): string {
-    const existing = new RegExp(
-        `^${ERROR_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n[\\s\\S]*?${ERROR_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?`,
-    );
-    const body = contents.replace(existing, "");
+    const body = withoutValidationError(contents);
     const comments = message
         .split("\n")
         .map((line) => `# ${line}`)
@@ -111,7 +117,7 @@ async function editRecord<T>(options: EditRecordOptions<T>): Promise<T | null> {
         while (true) {
             const exitCode = await invokeEditor(file, deps);
             if (exitCode !== 0) return null;
-            const contents = await deps.filesystem.readFile(file, "utf8");
+            const contents = withoutValidationError(await deps.filesystem.readFile(file, "utf8"));
             try {
                 const value = options.validate(contents);
                 await options.save(value);

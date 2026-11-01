@@ -371,7 +371,7 @@ describe("OpenTuiApp", () => {
         const store = new FakeStore();
         const flowStore = new FlowStore(net);
         const scheduleStore = new ScheduleStore(net);
-        const settingsStore = new SettingsStore(net);
+        const settingsStore = new SettingsStore(net, () => true);
         const edits: string[] = [];
         const app = new OpenTuiApp({
             renderer: test.renderer,

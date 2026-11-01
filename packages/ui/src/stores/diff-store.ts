@@ -30,12 +30,16 @@ export const useDiffStore = create<DiffStore>(() => ({
     behindByProject: {},
 }));
 
-/** The target a workspace's repository reports changes under: a worktree task's own, else its project's. */
+/**
+ * The target a workspace's repository reports changes under: a worktree task's own (a subtask
+ * shares its parent's worktree, tracked under the parent's id), else its project's.
+ */
 export function changeTargetId(
-    task: Pick<Task, "id" | "worktree"> | null | undefined,
+    task: Pick<Task, "id" | "parentId" | "worktree"> | null | undefined,
     project: Pick<Project, "id"> | null | undefined,
 ): string | undefined {
-    return task?.worktree.enabled && task.worktree.path ? task.id : project?.id;
+    if (!task?.worktree.enabled || !task.worktree.path) return project?.id;
+    return task.parentId ?? task.id;
 }
 
 /** Calls `onChange` each time the backend reports new change stats for `targetId`. */
