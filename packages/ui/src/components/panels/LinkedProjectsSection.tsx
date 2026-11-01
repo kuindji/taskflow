@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LinkedProject, Project } from "@taskflow/shared";
 import { Plus, X } from "lucide-react";
+import type { Scoped } from "@/lib/backend-scope";
 import { useProjectStore } from "@/stores/project-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface LinkedProjectsSectionProps {
-    project: Project;
+    project: Scoped<Project>;
 }
 
 function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
@@ -37,12 +38,20 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
         [linkedProjects],
     );
 
+    // The project's own machine resolves a link when an agent starts, so a
+    // project on another machine cannot be linked.
     const availableProjects = useMemo(
         () =>
             projects
-                .filter((p) => p.id !== project.id && !p.hidden && !linkedIds.has(p.id))
+                .filter(
+                    (p) =>
+                        p.backendId === project.backendId &&
+                        p.id !== project.id &&
+                        !p.hidden &&
+                        !linkedIds.has(p.id),
+                )
                 .sort((a, b) => a.name.localeCompare(b.name)),
-        [projects, project.id, linkedIds],
+        [projects, project.backendId, project.id, linkedIds],
     );
 
     const resolvedNames = useMemo(() => {

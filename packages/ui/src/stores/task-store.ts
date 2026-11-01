@@ -153,15 +153,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
     async archiveTask(task) {
         await sendRequest(task.backendId, MSG.TASK_ARCHIVE, { id: task.id });
-        const activeTaskId = activeTaskAfterRemoving(task.id);
-        live.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
-        useTaskStore.setState({ tasks: live.read(), activeTaskId });
-        if (useTaskStore.getState().showArchive) {
-            useTaskStore
-                .getState()
-                .fetchArchivedTasks(task.backendId)
-                .catch(() => {});
-        }
+        moveTaskToArchive(task.backendId, task.id);
     },
     async unarchiveTask(task) {
         try {
@@ -174,12 +166,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
             });
             return;
         }
-        archived.apply(task.backendId, (items) => withoutTaskFamily(items, task.id));
-        publish();
-        useTaskStore
-            .getState()
-            .fetchTasks(task.backendId)
-            .catch(() => {});
+        restoreTaskFromArchive(task.backendId, task.id);
     },
     async deleteTask(task, options) {
         const response = await sendRequest<TaskDeleteResponse>(
@@ -233,6 +220,29 @@ function insertTask(backendId: string, task: Task): Scoped<Task> {
     return scoped;
 }
 
+/** An archived task leaves the live list with its subtasks, whoever archived it. */
+function moveTaskToArchive(backendId: string, id: string): void {
+    const activeTaskId = activeTaskAfterRemoving(id);
+    live.apply(backendId, (items) => withoutTaskFamily(items, id));
+    useTaskStore.setState({ tasks: live.read(), activeTaskId });
+    if (useTaskStore.getState().showArchive) {
+        useTaskStore
+            .getState()
+            .fetchArchivedTasks(backendId)
+            .catch(() => {});
+    }
+}
+
+/** A restore brings the task's subtasks back too, and only a list fetch returns those. */
+function restoreTaskFromArchive(backendId: string, id: string): void {
+    archived.apply(backendId, (items) => withoutTaskFamily(items, id));
+    publish();
+    useTaskStore
+        .getState()
+        .fetchTasks(backendId)
+        .catch(() => {});
+}
+
 function applyTaskUpdate(backendId: string, task: Task): void {
     live.apply(backendId, (items) =>
         sortTasksByCreatedAtDesc(items.map((t) => (t.id === task.id ? { ...task, backendId } : t))),
@@ -267,8 +277,18 @@ function isTask(payload: unknown): payload is Task {
 
 // Listen for task updates from the HTTP API (e.g., title generation).
 // Module-level listener — singleton store, registered once.
+// Archive and restore made elsewhere (`taskflow-cli task archive`) arrive here
+// too, so the task's status decides which list it belongs to.
 const _unsubTaskUpdated = onEvent(MSG.TASK_UPDATED, (payload, backendId) => {
-    if (isTask(payload)) applyTaskUpdate(backendId, payload);
+    if (!isTask(payload)) return;
+    const isLive = live.read().some((t) => t.backendId === backendId && t.id === payload.id);
+    if (payload.status === "archived") {
+        if (isLive) moveTaskToArchive(backendId, payload.id);
+    } else if (isLive) {
+        applyTaskUpdate(backendId, payload);
+    } else {
+        restoreTaskFromArchive(backendId, payload.id);
+    }
 });
 
 const _unsubTaskCreated = onEvent(MSG.TASK_CREATED, (payload, backendId) => {

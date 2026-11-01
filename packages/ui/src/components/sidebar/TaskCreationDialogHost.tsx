@@ -13,18 +13,7 @@ import {
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
-
-interface PendingSession {
-    taskId: string;
-    type: "claude" | "codex" | "opencode" | "pi" | "kimi";
-    description: string;
-    agentOptions?: AgentLaunchOptions;
-}
-
-interface PendingFlow {
-    taskId: string;
-    flowId: string;
-}
+import { takeReadyStarts, type PendingTaskStart } from "./pending-task-starts";
 
 export function TaskCreationDialogHost() {
     const { projects, addProject } = useProjectStore();
@@ -46,8 +35,7 @@ export function TaskCreationDialogHost() {
         handleProjectCreated,
     } = useTaskCreationStore();
 
-    const pendingSessionRef = useRef<PendingSession | null>(null);
-    const pendingFlowRef = useRef<PendingFlow | null>(null);
+    const pendingStartsRef = useRef(new Map<string, PendingTaskStart>());
     const firstActiveProjectId = projects.find((project) => !project.hidden)?.id;
 
     const flowsFor = useCallback(
@@ -69,34 +57,20 @@ export function TaskCreationDialogHost() {
 
     // Watch for worktree readiness and start deferred session or flow
     useEffect(() => {
-        const pendingSession = pendingSessionRef.current;
-        if (pendingSession) {
-            const task = tasks.find((t) => t.id === pendingSession.taskId);
-            if (!task) {
-                pendingSessionRef.current = null;
-            } else if (!task.worktree.enabled || task.worktree.path) {
-                pendingSessionRef.current = null;
-                void createSession(
-                    { taskId: pendingSession.taskId },
-                    pendingSession.type,
-                    undefined,
-                    pendingSession.description,
-                    undefined,
-                    pendingSession.agentOptions,
-                );
-            }
-        }
-
-        const pendingFlow = pendingFlowRef.current;
-        if (pendingFlow) {
-            const task = tasks.find((t) => t.id === pendingFlow.taskId);
-            if (!task) {
-                pendingFlowRef.current = null;
-            } else if (!task.worktree.enabled || task.worktree.path) {
-                pendingFlowRef.current = null;
+        for (const { task, start } of takeReadyStarts(pendingStartsRef.current, tasks)) {
+            if (start.kind === "flow") {
                 void useFlowStore
                     .getState()
-                    .startFlow(task.backendId, { taskId: task.id, flowId: pendingFlow.flowId });
+                    .startFlow(task.backendId, { taskId: task.id, flowId: start.flowId });
+            } else {
+                void createSession(
+                    { taskId: task.id },
+                    start.type,
+                    undefined,
+                    start.description,
+                    undefined,
+                    start.agentOptions,
+                );
             }
         }
     }, [tasks, createSession]);
@@ -133,10 +107,10 @@ export function TaskCreationDialogHost() {
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
                     if (data.worktree && !data.parentId) {
-                        pendingFlowRef.current = {
-                            taskId: task.id,
+                        pendingStartsRef.current.set(task.id, {
+                            kind: "flow",
                             flowId: data.startWithFlowId,
-                        };
+                        });
                     } else {
                         void useFlowStore.getState().startFlow(task.backendId, {
                             taskId: task.id,
@@ -146,12 +120,12 @@ export function TaskCreationDialogHost() {
                 } else if (data.startWith) {
                     if (data.worktree && !data.parentId) {
                         // Defer session start until worktree is ready
-                        pendingSessionRef.current = {
-                            taskId: task.id,
+                        pendingStartsRef.current.set(task.id, {
+                            kind: "session",
                             type: data.startWith,
                             description: data.description,
                             agentOptions: data.agentOptions,
-                        };
+                        });
                     } else {
                         await createSession(
                             { taskId: task.id },

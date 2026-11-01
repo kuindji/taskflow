@@ -10,6 +10,7 @@ import { SessionBadge } from "./SessionBadge";
 import { TaskCard } from "./TaskCard";
 import { NoDragSpacer } from "./NoDragSpacer";
 import { MissingLocationDialog } from "./MissingLocationDialog";
+import { groupTasksByParent } from "./task-groups";
 import {
     AlertTriangle,
     Archive,
@@ -120,20 +121,7 @@ export function ProjectGroup({
         opacity: isDragging ? 0.6 : undefined,
     };
 
-    const { topLevelTasks, subtaskMap } = useMemo(() => {
-        const topLevel: Scoped<Task>[] = [];
-        const subtasks = new Map<string, Scoped<Task>[]>();
-        for (const task of tasks) {
-            if (task.parentId) {
-                const list = subtasks.get(task.parentId) ?? [];
-                list.push(task);
-                subtasks.set(task.parentId, list);
-            } else {
-                topLevel.push(task);
-            }
-        }
-        return { topLevelTasks: topLevel, subtaskMap: subtasks };
-    }, [tasks]);
+    const { topLevelTasks, subtaskMap } = useMemo(() => groupTasksByParent(tasks), [tasks]);
 
     const activeSubtaskParentIds = useMemo(() => {
         const ids = new Set<string>();
