@@ -19,6 +19,8 @@ interface NotificationsResponse {
 
 interface NotificationPollerDeps {
     getAttachedBackends: () => AttachedBackend[];
+    /** Whether the user still wants `id` attached while its tunnel is down (it gets redialed). */
+    keepsAttachment: (id: string) => boolean;
     fetchNotifications: (origin: string) => Promise<NotificationsResponse>;
     /**
      * Shows one notification. `backendId` names its machine when called, not when
@@ -65,6 +67,14 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
      * anything raised since the failure is new.
      */
     const failedSince = new Map<string, number>();
+    /** The id each origin answered for at the last poll. */
+    const originIds = new Map<string, string>();
+    /**
+     * Watermarks of machines whose tunnel dropped while they stay attached, by id:
+     * the reconnect gives the tunnel a new origin, and what was raised during the
+     * outage is still new.
+     */
+    const parked = new Map<string, string | null>();
     let timer: ReturnType<typeof setInterval> | null = null;
     let polling = false;
 
@@ -101,6 +111,12 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
                 from,
             );
 
+        const shownId = backendIdFor(origin);
+        if (!watermarks.has(origin) && shownId !== null && parked.has(shownId)) {
+            watermarks.set(origin, parked.get(shownId) ?? null);
+            parked.delete(shownId);
+            failedSince.delete(origin);
+        }
         if (!watermarks.has(origin)) {
             const since = failedSince.get(origin) ?? startedAt;
             failedSince.delete(origin);
@@ -119,7 +135,6 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
         const fresh = notifications.filter(
             (n) => !n.read && (!watermark || n.createdAt > watermark),
         );
-        const shownId = backendIdFor(origin);
         for (const n of fresh) {
             deps.notify(n, () => clickBackendId(shownId, origin));
         }
@@ -130,13 +145,24 @@ function createNotificationPoller(deps: NotificationPollerDeps) {
         if (polling) return;
         polling = true;
         try {
-            const origins = new Set(deps.getAttachedBackends().map((entry) => entry.origin));
+            const attached = deps.getAttachedBackends();
+            const origins = new Set(attached.map((entry) => entry.origin));
+            for (const [origin, watermark] of watermarks) {
+                const id = originIds.get(origin);
+                if (!origins.has(origin) && id !== undefined && deps.keepsAttachment(id)) {
+                    parked.set(id, watermark);
+                }
+            }
             // A tunnel's local port can be reused by another machine later.
-            for (const map of [watermarks, failedSince]) {
+            for (const map of [watermarks, failedSince, originIds]) {
                 for (const origin of map.keys()) {
                     if (!origins.has(origin)) map.delete(origin);
                 }
             }
+            for (const id of parked.keys()) {
+                if (!deps.keepsAttachment(id)) parked.delete(id);
+            }
+            for (const entry of attached) originIds.set(entry.origin, entry.id);
             await Promise.all([...origins].map((origin) => pollOrigin(origin)));
         } finally {
             polling = false;

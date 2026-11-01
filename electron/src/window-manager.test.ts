@@ -16,11 +16,17 @@ class FakeWindow {
     emit(event: string): void {
         for (const listener of this.listeners.get(event) ?? []) listener();
     }
+    private maximized = false;
+    maximize() {
+        this.maximized = true;
+    }
     getBounds() {
-        return { x: 10, y: 20, width: 1000, height: 700 };
+        return this.maximized
+            ? { x: 0, y: 0, width: 1920, height: 1080 }
+            : { x: 10, y: 20, width: 1000, height: 700 };
     }
     isMaximized() {
-        return false;
+        return this.maximized;
     }
     isMinimized() {
         return false;
@@ -48,11 +54,13 @@ const { initWindowManager, createWindow, getMainWindow, saveWindowState, showMai
 let requests: { path: string; init?: RequestInit }[];
 let releaseSettings: () => void;
 let backendPort: number | null;
+let settingsBody: string;
 
 beforeEach(() => {
     created.length = 0;
     requests = [];
     backendPort = 4100;
+    settingsBody = "{}";
     const settingsGate = new Promise<void>((resolve) => {
         releaseSettings = resolve;
     });
@@ -60,7 +68,7 @@ beforeEach(() => {
         backendFetch: async (_origin, path, init) => {
             requests.push({ path, init });
             if (!init?.method) await settingsGate;
-            return new Response("{}");
+            return new Response(init?.method ? "{}" : settingsBody);
         },
         getBackendPort: () => backendPort,
         getUIDevServerURL: () => "http://localhost:5173",
@@ -109,6 +117,24 @@ test("showing the window before the backend is up leaves opening to startup", as
     releaseSettings();
     await opened;
     expect(created).toHaveLength(1);
+
+    created[0]?.emit("closed");
+});
+
+test("a window reopened maximized keeps its normal bounds", async () => {
+    settingsBody = JSON.stringify({
+        layout: { window: { width: 1000, height: 700, isMaximized: true } },
+    });
+    const opened = createWindow();
+    releaseSettings();
+    await opened;
+
+    await saveWindowState();
+
+    const body = requests.find((r) => r.init?.method === "PATCH")?.init?.body;
+    expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
+        layout: { window: { x: 10, y: 20, width: 1000, height: 700, isMaximized: true } },
+    });
 
     created[0]?.emit("closed");
 });

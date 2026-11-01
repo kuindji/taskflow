@@ -55,7 +55,7 @@ import {
 } from "./notification-poller";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { createBackendFetch } from "./backend-fetch";
-import { listAttachedBackends } from "./attached-backends";
+import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import * as browserHost from "./browser-host";
 
 declare const BUILD_GIT_BRANCH: string;
@@ -164,6 +164,7 @@ function getAttachedBackends() {
 
 const notificationPoller = createNotificationPoller({
     getAttachedBackends,
+    keepsAttachment: (id) => id === LOCAL_BACKEND_ID || registry.attachedRecordIds().includes(id),
     fetchNotifications: (origin) => fetchBackendNotifications(backendFetch, origin),
     notify: (notification, backendId) => {
         const desktopNotification = new Notification({

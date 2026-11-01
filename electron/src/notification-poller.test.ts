@@ -8,6 +8,8 @@ const B = "http://127.0.0.1:4102";
 let backends: AttachedBackend[];
 let lists: Map<string, BackendNotification[]>;
 let delivered: { id: string; backendId: () => string | null }[];
+/** Ids the user still wants attached; a dropped tunnel to one of them is redialed. */
+let kept: Set<string>;
 
 function notification(id: string, createdAt: string): BackendNotification {
     return {
@@ -28,6 +30,7 @@ function emit(origin: string, n: BackendNotification): void {
 function makePoller() {
     return createNotificationPoller({
         getAttachedBackends: () => backends,
+        keepsAttachment: (id) => kept.has(id),
         fetchNotifications: (origin) =>
             Promise.resolve({ notifications: lists.get(origin) ?? [], serverTime: null }),
         notify: (n, backendId) => delivered.push({ id: n.id, backendId }),
@@ -41,6 +44,7 @@ beforeEach(() => {
     ];
     lists = new Map();
     delivered = [];
+    kept = new Set(["local", "desktop.local:main"]);
 });
 
 test("a machine's notification older than another machine's newest still arrives", async () => {
@@ -79,6 +83,7 @@ test("a notification raised while a machine's first poll was failing still arriv
     let failing = true;
     const poller = createNotificationPoller({
         getAttachedBackends: () => backends,
+        keepsAttachment: (id) => kept.has(id),
         fetchNotifications: (origin) =>
             failing
                 ? Promise.reject(new Error("timeout"))
@@ -107,6 +112,7 @@ test("a machine with a clock behind, no Date header and a failed first poll stil
     let failing = true;
     const poller = createNotificationPoller({
         getAttachedBackends: () => backends,
+        keepsAttachment: (id) => kept.has(id),
         fetchNotifications: (origin) =>
             failing
                 ? Promise.reject(new Error("timeout"))
@@ -130,6 +136,7 @@ test("a notification raised while a machine's first poll is under way still arri
     let clientNow = at("10:00:00");
     const poller = createNotificationPoller({
         getAttachedBackends: () => backends,
+        keepsAttachment: (id) => kept.has(id),
         fetchNotifications: (origin) => {
             // Raised on B after the request left, before B answered.
             if (origin === B) {
@@ -186,4 +193,48 @@ test("a machine reconnected on a new tunnel port still names itself on click", a
     ];
 
     expect(delivered[0].backendId()).toBe("desktop.local:main");
+});
+
+test("a notification raised while a machine's tunnel was down arrives after it reconnects", async () => {
+    const reconnected = "http://127.0.0.1:4199";
+    const poller = makePoller();
+    await poller.poll();
+    emit(B, notification("b-1", "10:00:01"));
+    await poller.poll();
+
+    // The ssh child exits: the record stays attached, the tunnel and its origin go.
+    backends = [backends[0]];
+    await poller.poll();
+
+    // Raised during the outage; the reconnect gives the tunnel a new local port.
+    lists.set(reconnected, [notification("b-2", "10:00:30"), ...(lists.get(B) ?? [])]);
+    backends = [
+        backends[0],
+        { id: "desktop.local:main", origin: reconnected, token: null, isLocal: false },
+    ];
+    await poller.poll();
+
+    expect(delivered.map((d) => d.id)).toEqual(["b-1", "b-2"]);
+});
+
+test("a machine detached on purpose starts afresh when attached again", async () => {
+    const reattached = "http://127.0.0.1:4199";
+    const poller = makePoller();
+    await poller.poll();
+    emit(B, notification("b-1", "10:00:01"));
+    await poller.poll();
+
+    backends = [backends[0]];
+    kept.delete("desktop.local:main");
+    await poller.poll();
+
+    lists.set(reattached, [notification("b-2", "10:00:30"), ...(lists.get(B) ?? [])]);
+    backends = [
+        backends[0],
+        { id: "desktop.local:main", origin: reattached, token: null, isLocal: false },
+    ];
+    kept.add("desktop.local:main");
+    await poller.poll();
+
+    expect(delivered.map((d) => d.id)).toEqual(["b-1"]);
 });

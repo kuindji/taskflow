@@ -126,11 +126,13 @@ async function buildWindow(): Promise<void> {
         webPreferences.preload = join(appPath, "dist", "browser-preload.js");
     });
 
+    // Before maximizing: where maximize is synchronous, the bounds after it are the
+    // screen's, and a quit while still maximized would save them as the normal size.
+    lastNonMaximizedBounds = mainWindow.getBounds();
     if (saved?.isMaximized) {
         mainWindow.maximize();
     }
 
-    lastNonMaximizedBounds = mainWindow.getBounds();
     const broadcastFullscreenState = () => {
         mainWindow?.webContents.send("window-fullscreen-changed", {
             fullscreen: mainWindow.isFullScreen(),
