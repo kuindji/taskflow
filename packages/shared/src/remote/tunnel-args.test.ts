@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendRecord } from "../types/backend";
 import {
-    buildKeyscanArgs,
+    buildHostKeyScanArgs,
     buildRemoteReadArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
@@ -36,7 +36,7 @@ describe("buildTunnelArgs", () => {
             // port is bound in accordance with the GatewayPorts setting" — a
             // user with `GatewayPorts yes` in ~/.ssh/config would otherwise
             // republish the remote backend to their own LAN.
-            "127.0.0.1:7777:127.0.0.1:54892",
+            "127.0.0.1:7777:localhost:54892",
             "-p",
             "22",
             "-o",
@@ -167,8 +167,40 @@ describe("known hosts helpers", () => {
         );
     });
 
-    test("keyscan queries the host on its ssh port", () => {
-        expect(buildKeyscanArgs(record)).toEqual(["-T", "5", "-p", "22", "--", "192.168.1.20"]);
+    test("the host-key scan goes through ssh's own route into a scratch file", () => {
+        expect(
+            buildHostKeyScanArgs({ ...record, host: "workbox" }, "/scratch/known_hosts"),
+        ).toEqual([
+            "-n",
+            "-T",
+            "-p",
+            "22",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "UserKnownHostsFile=/scratch/known_hosts",
+            "-o",
+            "GlobalKnownHostsFile=/dev/null",
+            "-o",
+            "HostKeyAlias=taskflow-workbox-22",
+            "-o",
+            "ControlMaster=no",
+            "-o",
+            "ControlPath=none",
+            "-o",
+            "ControlPersist=no",
+            "-o",
+            "PreferredAuthentications=none",
+            "-o",
+            "ConnectTimeout=5",
+            "-l",
+            record.user,
+            "--",
+            "workbox",
+            "true",
+        ]);
     });
 });
 

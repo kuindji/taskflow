@@ -41,7 +41,10 @@ function encodeAliasChar(char: string): string {
 
 /**
  * `-L` forwards a local port to loopback on the remote host, which is the only
- * address the backend binds. The *local* bind address is spelled out too:
+ * address the backend binds. The remote end is `localhost`, not `127.0.0.1`:
+ * `TASKFLOW_HOST` may pin that backend to `::1` (`utils/backend-host.ts`), and
+ * sshd tries each address the name resolves to until one accepts. The *local*
+ * bind address is spelled out too:
  * without it ssh follows GatewayPorts, so a user who set `GatewayPorts yes`
  * would expose the remote backend on their own LAN through this client.
  * BatchMode keeps ssh from ever blocking on a prompt — it exits and we read
@@ -88,7 +91,7 @@ export function buildTunnelArgs(
     return [
         "-N",
         "-L",
-        `127.0.0.1:${localPort}:127.0.0.1:${backendPort}`,
+        `127.0.0.1:${localPort}:localhost:${backendPort}`,
         "-p",
         String(record.sshPort),
         ...connectionOptions(record),
@@ -109,11 +112,19 @@ export function buildTunnelArgs(
  *  looked up. Every ssh invocation that connects to a record passes these; see
  *  `buildTunnelArgs` for why each one is there. */
 export function hostKeyOptions(record: BackendRecord): string[] {
+    return hostKeyLookupOptions(record, "yes", KNOWN_HOSTS_FILE);
+}
+
+function hostKeyLookupOptions(
+    record: BackendRecord,
+    checking: "yes" | "accept-new",
+    knownHostsFile: string,
+): string[] {
     return [
         "-o",
-        "StrictHostKeyChecking=yes",
+        `StrictHostKeyChecking=${checking}`,
         "-o",
-        `UserKnownHostsFile=${KNOWN_HOSTS_FILE}`,
+        `UserKnownHostsFile=${knownHostsFile}`,
         "-o",
         "GlobalKnownHostsFile=/dev/null",
         "-o",
@@ -121,11 +132,14 @@ export function hostKeyOptions(record: BackendRecord): string[] {
     ];
 }
 
-function connectionOptions(record: BackendRecord): string[] {
+function connectionOptions(
+    record: BackendRecord,
+    hostKey: string[] = hostKeyOptions(record),
+): string[] {
     return [
         "-o",
         "BatchMode=yes",
-        ...hostKeyOptions(record),
+        ...hostKey,
         // Adapted from t3code (MIT, https://github.com/pingdotgg/t3code, 32ecd717): packages/ssh/src/tunnel.ts
         "-o",
         "ControlMaster=no",
@@ -164,10 +178,38 @@ export function knownHostsKey(record: BackendRecord): string {
     return hostKeyAlias(record);
 }
 
-/** `--` for the same reason as `buildTunnelArgs`: `ssh-keyscan -p 22 -bad`
- *  answers `ssh-keyscan: illegal option -- b` and prints its usage. */
-export function buildKeyscanArgs(record: BackendRecord): string[] {
-    return ["-T", "5", "-p", String(record.sshPort), "--", record.host];
+/**
+ * Collects the host key with `ssh` itself, not `ssh-keyscan`. `ssh-keyscan`
+ * reads no ssh config, so a record whose host is a `Host` alias (`HostName`,
+ * `Port`) or sits behind `ProxyJump` scans nothing, and the trust dialog can
+ * never be approved even though the connection itself reaches the host.
+ *
+ * Same route and options as every other call, except that the key is accepted
+ * into `scanFile` — a scratch file, never the trust store — under the same
+ * alias. ssh writes it there during key exchange, before authentication, so
+ * the call's exit status does not matter. `PreferredAuthentications=none`
+ * offers the destination no credential at all, so an agent that confirms each
+ * use or a hardware key does not prompt for a scan (a `ProxyJump` hop still
+ * authenticates: command-line `-o` values apply to the destination only).
+ * `true`, `-n` and `-T` cover a server that accepts `none` anyway.
+ */
+export function buildHostKeyScanArgs(record: BackendRecord, scanFile: string): string[] {
+    return [
+        "-n",
+        "-T",
+        "-p",
+        String(record.sshPort),
+        ...connectionOptions(record, hostKeyLookupOptions(record, "accept-new", scanFile)),
+        "-o",
+        "PreferredAuthentications=none",
+        "-o",
+        "ConnectTimeout=5",
+        "-l",
+        record.user,
+        "--",
+        record.host,
+        "true",
+    ];
 }
 
 export function classifyTunnelFailure(stderr: string, exitCode: number | null): TunnelFailure {

@@ -1,12 +1,12 @@
 import { isApiToken } from "../utils/api-token";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { isSafeLabel } from "../discovery";
 import type { BackendRecord, TunnelFailure } from "../types/backend";
 import {
-    buildKeyscanArgs,
+    buildHostKeyScanArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
     buildRemoteReadArgs,
@@ -220,12 +220,23 @@ function spawnTunnel(record: BackendRecord, localPort: number, backendPort: numb
     };
 }
 
-function scanHostKey(record: BackendRecord): Promise<string> {
-    return new Promise((resolve) => {
-        execFile("ssh-keyscan", buildKeyscanArgs(record), { timeout: 10_000 }, (_e, stdout) =>
-            resolve(stdout),
-        );
-    });
+/** The key lines ssh accepted for this record, or `""` when it got none. The
+ *  scratch file sits beside the trust store, so its path is no harder for ssh
+ *  to parse than `KNOWN_HOSTS_FILE` already is. */
+async function scanHostKey(record: BackendRecord): Promise<string> {
+    await mkdir(dirname(KNOWN_HOSTS_FILE), { recursive: true, mode: 0o700 });
+    const scratch = await mkdtemp(join(dirname(KNOWN_HOSTS_FILE), "scan-"));
+    const scanFile = join(scratch, "known_hosts");
+    try {
+        await new Promise<void>((resolve) => {
+            execFile("ssh", buildHostKeyScanArgs(record, scanFile), { timeout: 15_000 }, () =>
+                resolve(),
+            );
+        });
+        return await readFile(scanFile, "utf-8").catch(() => "");
+    } finally {
+        await rm(scratch, { recursive: true, force: true });
+    }
 }
 
 interface ScannedHostKey {
@@ -235,10 +246,10 @@ interface ScannedHostKey {
 }
 
 /**
- * `ssh-keyscan` files each key under the host it scanned (`[host]:port` off
- * port 22), but every connection looks the key up under `HostKeyAlias`, so the
- * first field of each key line is replaced by the alias. Comment lines are
- * dropped.
+ * The scan files each key under the alias, but a user config with
+ * `HashKnownHosts yes` writes that first field hashed, and every connection
+ * looks the key up under the plain `HostKeyAlias`. So the first field of each
+ * key line is replaced by the alias. Comment lines are dropped.
  */
 function aliasKeyLines(material: string, alias: string): string[] {
     return material

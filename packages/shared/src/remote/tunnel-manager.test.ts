@@ -11,6 +11,16 @@ import { createTunnelManager } from "./tunnel-manager";
 const FAKE_SSH = `#!/usr/bin/env bun
 const { appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
+const knownHosts = args.find((arg) => arg.startsWith("UserKnownHostsFile="));
+if (args.includes("StrictHostKeyChecking=accept-new") && knownHosts) {
+    // Like real ssh: the key lands in the scratch file under the alias during
+    // key exchange, then authentication is refused.
+    appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify({ event: "scan", args }) + "\\n");
+    const alias = args.find((arg) => arg.startsWith("HostKeyAlias=")).slice("HostKeyAlias=".length);
+    appendFileSync(knownHosts.slice("UserKnownHostsFile=".length), alias + " " + process.env.FAKE_SSH_HOST_KEY + "\\n");
+    process.stderr.write("Permission denied (publickey).\\n");
+    process.exit(255);
+}
 if (!args.includes("-L")) {
     appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify({ event: "read", args }) + "\\n");
     process.stdout.write(process.env.FAKE_SSH_CAT_OUTPUT ?? "54892\\n");
@@ -26,7 +36,7 @@ setTimeout(() => {
 `;
 
 interface LogEntry {
-    event: "spawn" | "ready" | "read";
+    event: "spawn" | "ready" | "read" | "scan";
     args?: string[];
     pid: number;
     localPort?: number;
@@ -240,4 +250,28 @@ describe("readRemoteToken", () => {
             },
         });
     });
+});
+
+describe("fetchHostKeyFingerprint", () => {
+    afterAll(() => {
+        delete process.env.FAKE_SSH_HOST_KEY;
+    });
+    // ssh-keyscan reads no ssh config, so an alias with its own HostName (or a
+    // host behind ProxyJump) scanned nothing and the trust dialog could never
+    // be approved. The scan now goes through ssh and its config.
+    test.skipIf(!Bun.which("ssh-keygen"))(
+        "reads the key through ssh for a host that is an ssh config alias",
+        async () => {
+            useLog("scan.log");
+            process.env.FAKE_SSH_HOST_KEY =
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUllLTyM1obmPmUzmBACE77+c5knj3aBd3KtL2a3WC9";
+            const alias = { ...record, id: "workbox:main", host: "workbox" };
+            const fingerprint = await createTunnelManager().fetchHostKeyFingerprint(alias);
+            expect(fingerprint).toContain("SHA256:");
+            expect(fingerprint).toContain("(ED25519)");
+            const scan = readLog().find((entry) => entry.event === "scan");
+            const args = scan?.args ?? [];
+            expect(args.slice(-5)).toEqual(["-l", "kuindji", "--", "workbox", "true"]);
+        },
+    );
 });
