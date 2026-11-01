@@ -226,6 +226,9 @@ function hideDockIcon(): void {
 }
 
 async function showMainWindow(): Promise<void> {
+    // During startup `whenReady` opens the window once the backend is up; a window
+    // built earlier has no backend to connect to and never retries.
+    if (!mainWindow && deps.getBackendPort() === null) return;
     showDockIcon();
 
     if (!mainWindow) {

@@ -42,15 +42,17 @@ void mock.module("electron", () => ({
 }));
 void mock.module("./browser-host", () => ({ detachAll: () => {} }));
 
-const { initWindowManager, createWindow, getMainWindow, saveWindowState } =
+const { initWindowManager, createWindow, getMainWindow, saveWindowState, showMainWindow } =
     await import("./window-manager");
 
 let requests: { path: string; init?: RequestInit }[];
 let releaseSettings: () => void;
+let backendPort: number | null;
 
 beforeEach(() => {
     created.length = 0;
     requests = [];
+    backendPort = 4100;
     const settingsGate = new Promise<void>((resolve) => {
         releaseSettings = resolve;
     });
@@ -60,7 +62,7 @@ beforeEach(() => {
             if (!init?.method) await settingsGate;
             return new Response("{}");
         },
-        getBackendPort: () => 4100,
+        getBackendPort: () => backendPort,
         getUIDevServerURL: () => "http://localhost:5173",
         getUIPath: () => "/ui/index.html",
         onWindowClosed: () => {},
@@ -93,6 +95,20 @@ test("window state can be saved before the window closes", async () => {
     expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
         layout: { window: { x: 10, y: 20, width: 1000, height: 700, isMaximized: false } },
     });
+
+    created[0]?.emit("closed");
+});
+
+test("showing the window before the backend is up leaves opening to startup", async () => {
+    backendPort = null;
+    await showMainWindow();
+    expect(created).toHaveLength(0);
+
+    backendPort = 4100;
+    const opened = createWindow();
+    releaseSettings();
+    await opened;
+    expect(created).toHaveLength(1);
 
     created[0]?.emit("closed");
 });

@@ -320,3 +320,17 @@ test("a staging error after the download settles fails the download", async () =
     f.controller.install();
     expect(f.installs).toBe(0);
 });
+
+test("a staging error after the download settles still lets retry download again", async () => {
+    const f = fixture();
+    const checking = f.controller.check();
+    f.available();
+    f.checks[0].resolve();
+    f.downloads[0].resolve();
+    await checking;
+    await Promise.resolve();
+    f.controller.receiveError("No space left on device");
+    void f.controller.retry();
+    expect(f.downloads.length).toBe(2);
+    expect(f.controller.getState().status).toBe("downloading");
+});

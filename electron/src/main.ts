@@ -271,8 +271,6 @@ function onAllAppWindowsClosed(): void {
 app.on("window-all-closed", onAllAppWindowsClosed);
 
 app.on("activate", () => {
-    // During startup `whenReady` opens the window once the backend is up.
-    if (getBackendPort() === null) return;
     void showMainWindow();
 });
 

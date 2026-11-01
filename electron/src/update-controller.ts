@@ -68,6 +68,8 @@ export function createUpdateController(deps: UpdateControllerDeps): UpdateContro
                 if (active === operation) active = null;
                 break;
         }
+        // A macOS staging error arrives after the download promise settled.
+        release(operation);
     }
 
     // An available-update event can already have started a download, so only
