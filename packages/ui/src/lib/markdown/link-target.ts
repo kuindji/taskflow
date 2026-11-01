@@ -1,3 +1,5 @@
+import { defaultUrlTransform } from "react-markdown";
+import type { UrlTransform } from "react-markdown";
 import { dirnameOf, joinRelative } from "@taskflow/shared";
 import { isMarkdownPath } from "@/lib/open-file-plan";
 
@@ -38,5 +40,15 @@ function resolveLinkTarget(href: string, currentFilePath: string): LinkAction {
     return { kind: "file", path };
 }
 
+/**
+ * react-markdown's URL sanitiser for the preview. The default one reads the
+ * drive letter of "C:/w/doc.md" as an unknown scheme and blanks the href, so
+ * every wiki link (an absolute path under the wiki root) and every explicit
+ * drive-letter link would render dead on a Windows machine. A drive-letter
+ * path is kept; everything else gets the default treatment.
+ */
+const markdownUrlTransform: UrlTransform = (url) =>
+    /^[a-z]:[\\/]/i.test(url) ? url : defaultUrlTransform(url);
+
 export type { LinkAction };
-export { resolveLinkTarget };
+export { markdownUrlTransform, resolveLinkTarget };

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { resolveLinkTarget } from "./link-target";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import Markdown from "react-markdown";
+import { resolveWikiPageHref } from "@/lib/wiki/page-path";
+import { markdownUrlTransform, resolveLinkTarget } from "./link-target";
+import { remarkWikiLink } from "./remark-wiki-link";
 
 const CURRENT = "/w/docs/wiki/business/money.md";
 
@@ -57,5 +62,46 @@ describe("resolveLinkTarget", () => {
             kind: "markdown",
             path: "C:/w/docs/other.md",
         });
+    });
+});
+
+describe("markdownUrlTransform", () => {
+    const render = (source: string) =>
+        renderToStaticMarkup(
+            createElement(
+                Markdown,
+                {
+                    remarkPlugins: [
+                        [
+                            remarkWikiLink,
+                            {
+                                resolve: (target: string) =>
+                                    resolveWikiPageHref(
+                                        "C:/work/wiki",
+                                        new Map([["other", "other.md"]]),
+                                        target,
+                                    ),
+                            },
+                        ],
+                    ],
+                    urlTransform: markdownUrlTransform,
+                },
+                source,
+            ),
+        );
+
+    it("keeps a wiki link under a Windows wiki root clickable", () => {
+        expect(render("[[other]]")).toContain('href="C:/work/wiki/other.md"');
+    });
+
+    it("keeps explicit drive-letter links and images", () => {
+        const html = render("[a](C:/w/a.md) ![i](D:/w/i.png)");
+        expect(html).toContain('href="C:/w/a.md"');
+        expect(html).toContain('src="D:/w/i.png"');
+    });
+
+    it("still blanks unsafe schemes", () => {
+        expect(render("[x](javascript:alert(1))")).toContain('href=""');
+        expect(render("[x](https://example.com)")).toContain('href="https://example.com"');
     });
 });

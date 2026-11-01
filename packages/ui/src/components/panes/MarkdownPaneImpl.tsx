@@ -21,7 +21,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { onEvent } from "@/lib/connection-registry";
-import { resolveLinkTarget } from "@/lib/markdown/link-target";
+import { markdownUrlTransform, resolveLinkTarget } from "@/lib/markdown/link-target";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
 import { MermaidBlock } from "@/components/panes/markdown/MermaidBlock";
@@ -533,6 +533,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
             <Markdown
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}
+                urlTransform={markdownUrlTransform}
                 components={components}>
                 {content}
             </Markdown>

@@ -48,6 +48,7 @@ await mock.module("@/hooks/useActiveWorkspace", () => ({
     getTaskWorkspaceKey: (id: string) => `task:${id}`,
     getProjectWorkspaceKey: (id: string) => `project:${id}`,
     workspaceBackendId: () => "local",
+    workspaceOwner: () => ({}),
     useActiveWorkspace: () => {
         useChurn((s) => s.tick);
         return {
