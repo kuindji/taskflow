@@ -96,14 +96,37 @@ function createRegistry(deps: RegistryDeps) {
      * newest state and lands last. A temp file and a rename keep a crash
      * mid-write from leaving a torn file, which `load` would read as no machines
      * and the next write would make permanent.
+     *
+     * The file can be shared: every TUI on a machine uses the same state dir. A
+     * record on disk under an id this registry never held was saved by another
+     * process after this one loaded, and is carried into the write rather than
+     * overwritten. An id this registry did hold and no longer has was removed
+     * here, and stays removed.
      */
+    const ownIds = new Set<string>();
+    async function foreignRecords(): Promise<BackendRecord[]> {
+        try {
+            const onDisk = normalizeRecords(JSON.parse(await readFile(deps.file, "utf-8")));
+            return onDisk.filter((record) => !ownIds.has(record.id));
+        } catch {
+            return [];
+        }
+    }
+
     let persistChain: Promise<void> = Promise.resolve();
     function persist(): Promise<void> {
-        const snapshot = JSON.stringify(records, null, 2);
+        // Updates replace `records` rather than mutate it, so the reference is
+        // the state at the moment this write was queued.
+        const snapshot = records;
+        for (const record of snapshot) ownIds.add(record.id);
         const temp = `${deps.file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
         const write = persistChain.then(async () => {
+            const merged = [...snapshot, ...(await foreignRecords())];
             try {
-                await writeFile(temp, snapshot, { mode: 0o600, flag: "wx" });
+                await writeFile(temp, JSON.stringify(merged, null, 2), {
+                    mode: 0o600,
+                    flag: "wx",
+                });
                 await rename(temp, deps.file);
             } finally {
                 await rm(temp, { force: true });
@@ -119,6 +142,7 @@ function createRegistry(deps: RegistryDeps) {
         } catch {
             records = [];
         }
+        for (const record of records) ownIds.add(record.id);
     }
 
     /**

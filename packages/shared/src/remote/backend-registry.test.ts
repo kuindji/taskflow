@@ -510,6 +510,26 @@ describe("backend registry", () => {
         );
     });
 
+    test("a write keeps a machine another process saved after this one loaded", async () => {
+        // Two TUIs share one state dir and so one backends.json.
+        const { reg: first, dir } = await registry();
+        const file = join(dir, "backends.json");
+        const kept = await first.addBackend({ host: "desktop.local" });
+        const gone = await first.addBackend({ host: "old.local" });
+        const { reg: second } = await registry({ file });
+        await second.load();
+
+        await first.addBackend({ host: "laptop.local" });
+        await second.removeBackend(gone.id);
+        await second.attachBackend(kept.id);
+
+        const written = JSON.parse(await readFile(file, "utf-8")) as { id: string }[];
+        // The machine `first` added survives; the one `second` removed stays removed.
+        expect(written.map((record) => record.id).sort()).toEqual(
+            ["desktop.local:main", "laptop.local:main"].sort(),
+        );
+    });
+
     test("discovery can be started again after it is stopped", async () => {
         const { reg } = await registry();
         await reg.load();
