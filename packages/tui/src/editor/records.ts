@@ -380,7 +380,9 @@ function serializeSchedule(recordValue: ScheduleDraft | Schedule, creating: bool
         {
             projectId: creating ? projectId : undefined,
             name,
-            prompt: prompt || undefined,
+            // The backend keeps an old prompt when a schedule switches to an
+            // action and runs the action; emitting both fails validation.
+            prompt: actionId ? undefined : prompt || undefined,
             actionId,
             agentType,
             agentOptions,

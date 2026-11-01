@@ -186,6 +186,10 @@ describe("record YAML", () => {
             createdAt: now,
             updatedAt: now,
         };
+        expect(
+            parseScheduleDraft(serializeSchedule(existing, false), context, false),
+        ).toMatchObject({ prompt: undefined, actionId: "action-1" });
+
         const draft = parseScheduleDraft(
             "name: Updated\nprompt: echo ok\nexpression: 10m\nexpressionType: rate\ntimeout: 45\nenabled: false\n",
             context,

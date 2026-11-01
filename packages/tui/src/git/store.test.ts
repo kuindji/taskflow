@@ -99,6 +99,44 @@ describe("GitStore", () => {
         store.dispose();
     });
 
+    test("reloads the shown diff when a refresh keeps its file listed", async () => {
+        const net = fakeNet();
+        const store = new GitStore(net);
+        const load = store.loadStatus("/repo", "task-id");
+        net.resolve(MSG.GIT_STATUS, 0, {
+            status: { ...emptyStatus, stagedFiles: [stagedChange] },
+        });
+        await load;
+        const diff = store.loadDiff(stagedChange);
+        net.resolve(MSG.GIT_DIFF_FILE, 0, { staged: "@@ old" });
+        await diff;
+
+        const refresh = store.loadStatus("/repo", "task-id");
+        net.resolve(MSG.GIT_STATUS, 1, {
+            status: { ...emptyStatus, stagedFiles: [stagedChange] },
+        });
+        await refresh;
+        expect(net.requests.filter((request) => request.type === MSG.GIT_DIFF_FILE)).toHaveLength(
+            2,
+        );
+        expect(store.diff?.text).toBe("@@ old");
+        net.resolve(MSG.GIT_DIFF_FILE, 1, { staged: "@@ new" });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(store.diff?.text).toBe("@@ new");
+
+        const moved = store.loadStatus("/repo", "task-id");
+        net.resolve(MSG.GIT_STATUS, 2, {
+            status: { ...emptyStatus, unstagedFiles: [{ ...stagedChange, staged: false }] },
+        });
+        await moved;
+        expect(store.diff).toBeNull();
+        expect(net.requests.filter((request) => request.type === MSG.GIT_DIFF_FILE)).toHaveLength(
+            2,
+        );
+        store.dispose();
+    });
+
     test("never generates implicitly and rejects invalid commits before requesting", async () => {
         const net = fakeNet();
         const store = new GitStore(net);

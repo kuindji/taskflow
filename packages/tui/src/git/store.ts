@@ -21,6 +21,7 @@ class GitStore {
     private targetId: string | null = null;
     private statusSnapshot: GitStatusResult | null = null;
     private diffSnapshot: GitDiffState | null = null;
+    private diffChange: GitChange | null = null;
     private statusToken = 0;
     private diffToken = 0;
     private disposed = false;
@@ -66,6 +67,7 @@ class GitStore {
             this.targetId = targetId;
             this.statusSnapshot = null;
             this.diffSnapshot = null;
+            this.diffChange = null;
             this.diffToken++;
             this.notify();
         }
@@ -79,22 +81,27 @@ class GitStore {
             return;
         }
         this.statusSnapshot = response.status;
-        if (
-            this.diffSnapshot &&
-            ![...response.status.stagedFiles, ...response.status.unstagedFiles].some(
-                (file) => file.path === this.diffSnapshot?.path,
-            )
-        ) {
+        const change = this.diffChange;
+        const file = change
+            ? (change.staged ? response.status.stagedFiles : response.status.unstagedFiles).find(
+                  (candidate) => candidate.path === change.path,
+              )
+            : undefined;
+        if (change && !file) {
             this.diffSnapshot = null;
+            this.diffChange = null;
             this.diffToken++;
         }
         this.notify();
+        // The file's contents may have changed while its path stayed listed.
+        if (change && file) void this.loadDiff({ ...change, ...file }).catch(() => undefined);
     }
 
     async loadDiff(change: GitChange): Promise<void> {
         const path = this.repoPath;
         if (!path) return;
         const token = ++this.diffToken;
+        this.diffChange = change;
         const key = change.key;
         const response = await this.net.request<GitDiffFileResult>(MSG.GIT_DIFF_FILE, {
             repoPath: path,
@@ -166,6 +173,7 @@ class GitStore {
         this.targetId = null;
         this.statusSnapshot = null;
         this.diffSnapshot = null;
+        this.diffChange = null;
         this.statusToken++;
         this.diffToken++;
         this.notify();
