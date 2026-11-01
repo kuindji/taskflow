@@ -702,6 +702,50 @@ test("a remote reconnects automatically without receiving a beacon", async () =>
     expect(row("abc123")?.state).toBe("attached");
     expect(ids).toEqual(["abc123"]);
 });
+test("a remote whose backend restarts on a new port behind a live tunnel attaches again", async () => {
+    const before = await recoverySetup();
+    const ids: string[] = [];
+    cleanups.push(onBackendReady((id) => ids.push(id)));
+    // ssh stays up, so no `backend-dropped`: only the socket closes, and the
+    // restarted backend listens where the old forward does not reach.
+    const after = startBackend(() => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "abc123" }));
+    cleanups.push(after.stop);
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: after.origin });
+    before.stop();
+    await waitUntil(() => row("abc123")?.state === "reconnecting");
+    await waitUntil(() => ids.length > 0);
+    expect(row("abc123")?.state).toBe("attached");
+    expect(await outcomeOf(sendRequest("abc123", "ping"))).toBe("resolved");
+});
+test("a socket that comes back by itself does not redial its machine later", async () => {
+    // The longest first backoff (1.2s), so the socket's own 1s reconnect wins.
+    const random = Math.random;
+    Math.random = () => 1;
+    cleanups.push(() => {
+        Math.random = random;
+    });
+    const info = () => ({ protocolVersion: PROTOCOL_VERSION, backendUid: "selfback" });
+    const backend = startBackend(info);
+    seedRow("selfback");
+    main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+    main.confirmBackend = (id) => Promise.resolve({ id, merged: false });
+    await store.getState().attach("selfback");
+    let attaches = 0;
+    main.attachBackend = () => {
+        attaches++;
+        return Promise.resolve({ ok: true, origin: backend.origin });
+    };
+    const port = Number(new URL(backend.origin).port);
+    backend.stop();
+    await waitUntil(() => row("selfback")?.state === "reconnecting");
+    const restarted = startBackend(info, undefined, true, undefined, undefined, port);
+    cleanups.push(restarted.stop);
+    await waitUntil(() => row("selfback")?.state === "attached");
+    await Bun.sleep(1500);
+    expect(attaches).toBe(0);
+    expect(row("selfback")?.state).toBe("attached");
+    await store.getState().detach("selfback");
+});
 test("detaching during an automatic attach wins over its late result", async () => {
     const backend = await recoverySetup();
     let answer: ((result: AttachResult) => void) | undefined;

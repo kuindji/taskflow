@@ -149,18 +149,18 @@ function nextAttempt(id: string): number {
 const automaticAttempts = new Map<string, symbol>();
 const recovering = new Set<string>();
 const confirmingIds = new Map<string, { uid: string; attempt: number }>();
+/** A remote the user left attached and that was not refused for its token. */
+function wantsRecovery(id: string): boolean {
+    return useBackendStore
+        .getState()
+        .machines.some(
+            (m) =>
+                m.id === id && !m.isLocal && m.keepAttached && m.failure?.kind !== "unauthorized",
+        );
+}
+
 const reconnects = createBackendReconnects({
-    isWanted(id) {
-        return useBackendStore
-            .getState()
-            .machines.some(
-                (m) =>
-                    m.id === id &&
-                    !m.isLocal &&
-                    m.keepAttached &&
-                    m.failure?.kind !== "unauthorized",
-            );
-    },
+    isWanted: wantsRecovery,
     async attempt(id) {
         const owner = Symbol();
         automaticAttempts.set(id, owner);
@@ -206,6 +206,17 @@ function recoveryState(id: string): "reconnecting" | "incompatible" | "offline" 
 function removeRecovery(id: string): void {
     reconnects.remove(id);
     recovering.delete(id);
+}
+
+/**
+ * A machine that is attached again. One reattached outside the policy's own
+ * attempt (its socket came back by itself, or a token refresh reattached it)
+ * still has that policy's retry armed, which would close a healthy tunnel and
+ * attach again; stop it.
+ */
+function settleRecovery(id: string): void {
+    if (automaticAttempts.has(id)) recovering.delete(id);
+    else removeRecovery(id);
 }
 
 function rekeyRecovery(fromId: string, toId: string): void {
@@ -495,7 +506,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             attempts.get(liveId) === liveAttempt &&
             get().machines.find((m) => m.id === liveId)?.state === "attached"
         ) {
-            recovering.delete(liveId);
+            settleRecovery(liveId);
             reconnects.setConnected(liveId, true);
             notifyBackendReady(liveId);
         }
@@ -671,6 +682,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             attempts.get(id) === attempt &&
             get().machines.find((m) => m.id === id)?.state === "attached"
         ) {
+            settleRecovery(id);
             reconnects.setConnected(id, true);
             notifyBackendReady(id);
         }
@@ -711,6 +723,15 @@ function followSocket(backendId: string): void {
             if (!status.connected && wasConnected) {
                 wasConnected = false;
                 reconnects.setConnected(backendId, false);
+                // A remote backend that stops or restarts behind a live tunnel
+                // closes only the socket: ssh stays up, so no `backend-dropped`
+                // starts recovery, and a restarted backend listens on a new
+                // port the old forward never reaches. Recover as for a dropped
+                // tunnel; a socket that comes back first settles it.
+                if (wantsRecovery(backendId)) {
+                    recovering.add(backendId);
+                    reconnects.lost(backendId);
+                }
                 patch(backendId, { state: recovering.has(backendId) ? "reconnecting" : "offline" });
             }
         }),
