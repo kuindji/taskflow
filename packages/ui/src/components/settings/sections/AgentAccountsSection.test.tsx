@@ -439,3 +439,42 @@ test("Browse on this machine saves the picked home dir", async () => {
         useBackendStore.setState({ machines: [] });
     }
 });
+
+test("a save response does not undo an edit made to the account while the save was in flight", () => {
+    mount([a1]);
+
+    // Rename and move on to the home dir; the rename goes out on blur.
+    typeInto("claude-account-name-a1", "job");
+    blur("claude-account-name-a1");
+    expect(patches).toEqual([{ accounts: [{ ...a1, name: "job" }] }]);
+
+    // The home dir is edited before the backend answers the rename...
+    typeInto("claude-account-home-a1", "/home/job");
+
+    // ...and the answer carries the renamed account with the old home dir.
+    rerender([{ ...a1, name: "job" }]);
+    expect(input("claude-account-name-a1").value).toBe("job");
+    expect(input("claude-account-home-a1").value).toBe("/home/job");
+
+    blur("claude-account-home-a1");
+    expect(patches[1]).toEqual({ accounts: [{ ...a1, name: "job", homeDir: "/home/job" }] });
+});
+
+test("a newly added account keeps edits made while its first save was in flight", () => {
+    mount([]);
+    click(addButton());
+    typeInto("claude-account-home-new-id", "/home/new");
+    blur("claude-account-home-new-id");
+    const sent = { id: "new-id", name: "account 1", homeDir: "/home/new" };
+    expect(patches).toEqual([{ accounts: [sent] }]);
+
+    typeInto("claude-account-name-new-id", "side");
+    rerender([sent]);
+    expect(input("claude-account-name-new-id").value).toBe("side");
+});
+
+test("a saved value changed elsewhere replaces a field the user has not touched", () => {
+    mount([a1]);
+    rerender([{ ...a1, homeDir: "/home/moved" }]);
+    expect(input("claude-account-home-a1").value).toBe("/home/moved");
+});

@@ -80,19 +80,38 @@ function AgentAccountsSection({
     const [pendingDelete, setPendingDelete] = useState<AgentAccount | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    // Saved accounts win: a completed row round-trips through the backend and
-    // comes back as a new `accounts` array. Rows that are not saved yet and
-    // are still incomplete are kept, because every save (including one from
-    // another settings section) republishes the whole settings object and so
-    // hands this section a fresh `accounts` array -- replacing drafts outright
-    // would wipe a half-filled row the user is still typing into.
+    // Every save (including one from another settings section) republishes the
+    // whole settings object and so hands this section a fresh `accounts`
+    // array. Saved values replace the rows, except fields the user has edited
+    // since the value they were last saved or sent with: a save answers with
+    // what was sent, and the user may have typed into the next field while it
+    // was in flight. Rows that are not saved yet and are still incomplete are
+    // kept as they are.
+    const savedRef = useRef<AgentAccount[]>(accounts);
+    const sentRef = useRef<AgentAccount[]>([]);
     useEffect(() => {
+        const previous = savedRef.current;
+        savedRef.current = accounts;
+        const sent = sentRef.current;
         setDrafts((prev) => {
             const savedIds = new Set(accounts.map((account) => account.id));
+            const merged = accounts.map((account) => {
+                const draft = prev.find((row) => row.id === account.id);
+                const base =
+                    previous.find((row) => row.id === account.id) ??
+                    sent.find((row) => row.id === account.id);
+                if (!draft || !base) return account;
+                return {
+                    ...account,
+                    name: draft.name.trim() !== base.name ? draft.name : account.name,
+                    homeDir:
+                        draft.homeDir.trim() !== base.homeDir ? draft.homeDir : account.homeDir,
+                };
+            });
             const pending = prev.filter(
                 (row) => !savedIds.has(row.id) && !(row.name.trim() && row.homeDir.trim()),
             );
-            return [...accounts, ...pending];
+            return [...merged, ...pending];
         });
     }, [accounts]);
 
@@ -117,6 +136,7 @@ function AgentAccountsSection({
                 const saved = accounts.find((account) => account.id === row.id);
                 return saved ? [saved] : [];
             });
+            sentRef.current = complete;
             setError(null);
             onUpdate({ accounts: complete }).catch((e: unknown) =>
                 setError(e instanceof Error ? e.message : String(e)),

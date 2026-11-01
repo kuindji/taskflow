@@ -536,7 +536,7 @@ function SettingsModal() {
                         )}
 
                         {section === "claude" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <ClaudeOptions
                                     mode="defaults"
                                     modelValue={settings.claude.defaultModel}
@@ -558,7 +558,7 @@ function SettingsModal() {
                         )}
 
                         {section === "codex" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <CodexSection
                                     defaultAccount={settings.codex.defaultAccount}
                                     discoveryKey={JSON.stringify([
@@ -591,7 +591,7 @@ function SettingsModal() {
                         )}
 
                         {section === "opencode" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <OpenCodeSection
                                     defaultModel={settings.opencode.defaultModel}
                                     autoApprove={settings.opencode.autoApprove}
@@ -602,7 +602,7 @@ function SettingsModal() {
                         )}
 
                         {section === "pi" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <PiSection
                                     defaultModel={settings.pi.defaultModel}
                                     thinking={settings.pi.thinking}
@@ -615,7 +615,7 @@ function SettingsModal() {
                         )}
 
                         {section === "kimi" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <KimiSection
                                     defaultModel={settings.kimi.defaultModel}
                                     permissionMode={settings.kimi.permissionMode}
@@ -626,7 +626,7 @@ function SettingsModal() {
                         )}
 
                         {section === "remote-agent" && (
-                            <div className="flex flex-col gap-3 p-3">
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
                                 <RemoteSection
                                     settings={settings.remoteAgent}
                                     remoteAgent={remoteAgent}
