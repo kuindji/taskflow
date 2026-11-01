@@ -143,8 +143,10 @@ export function TaskCard({
         projectPath,
         taskId: task.id,
         showAgentOptions: !archived,
-        enabled: contextMenuOpen,
+        // A native menu reads its own data when it opens.
+        enabled: contextMenuOpen && !nativeMenus,
     });
+    const loadRunMenuData = runMenu.loadData;
 
     const cardClasses = useMemo(
         () =>
@@ -204,7 +206,7 @@ export function TaskCard({
 
             try {
                 const { items: runItems, actions: runActions } = buildNativeRunMenuItems(
-                    runMenu.data,
+                    await loadRunMenuData(),
                     runMenu.callbacks,
                 );
 
@@ -260,7 +262,7 @@ export function TaskCard({
             openUnarchive,
             task.pinned,
             togglePin,
-            runMenu.data,
+            loadRunMenuData,
             runMenu.callbacks,
         ],
     );

@@ -102,3 +102,30 @@ test("a script run from that menu starts its shell on the project's machine", as
     expect(typesAt(b)).toContain(MSG.SESSION_CREATE);
     expect(typesAt(a)).toEqual([]);
 });
+
+test("a native menu's data carries the scripts on its first opening", async () => {
+    let native: ReturnType<typeof useRunMenu> | null = null;
+    function NativeProbe() {
+        const result = useRunMenu({
+            backendId: "b",
+            projectId: "p",
+            projectPath: "/repos/p",
+            showAgentOptions: false,
+            enabled: false,
+        });
+        useEffect(() => {
+            native = result;
+        }, [result]);
+        return null;
+    }
+    const nativeRoot = createRoot(document.createElement("div"));
+    await act(async () => nativeRoot.render(<NativeProbe />));
+    if (!native) throw new Error("probe did not mount");
+    const probe: ReturnType<typeof useRunMenu> = native;
+
+    expect(probe.data.scripts).toEqual({});
+    const data = await act(() => probe.loadData());
+    expect(data.scripts).toEqual({ dev: "b dev" });
+
+    await act(async () => nativeRoot.unmount());
+});

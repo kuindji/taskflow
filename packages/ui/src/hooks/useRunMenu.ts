@@ -21,6 +21,8 @@ import { useConnectivity } from "@/hooks/useConnectivity";
 
 const emptyScripts: Record<string, string> = {};
 const emptyAgentCommands: AgentCommand[] = [];
+/** How long a native menu waits for scripts before opening without them. */
+const NATIVE_MENU_FETCH_TIMEOUT_MS = 3000;
 
 interface UseRunMenuOptions {
     /** The row's machine: its flows, defaults and runs are that machine's. */
@@ -41,6 +43,7 @@ interface FlowInputState {
 
 interface UseRunMenuResult {
     data: RunMenuData;
+    loadData: () => Promise<RunMenuData>;
     callbacks: RunMenuCallbacks;
     hasItems: boolean;
     flowInputState: FlowInputState | null;
@@ -87,36 +90,50 @@ function useRunMenu({
         [allActions, projectId, backendId],
     );
 
+    // The project's package scripts and agent commands, read from the row's
+    // machine: the path is only meaningful there. A failed read lists none.
+    const fetchMenuSources = useCallback(
+        async (timeoutMs?: number) => {
+            const [nextScripts, nextCommands] = await Promise.all([
+                sendRequest<ScriptsListResponse>(
+                    backendId,
+                    MSG.SCRIPTS_LIST,
+                    { path: projectPath },
+                    timeoutMs,
+                ).then(
+                    (res) => res.scripts,
+                    () => emptyScripts,
+                ),
+                sendRequest<AgentCommandsListResponse>(
+                    backendId,
+                    MSG.AGENT_COMMANDS_LIST,
+                    { path: projectPath },
+                    timeoutMs,
+                ).then(
+                    (res) => res.commands,
+                    () => emptyAgentCommands,
+                ),
+            ]);
+            return { scripts: nextScripts, agentCommands: nextCommands };
+        },
+        [backendId, projectPath],
+    );
+
     // Fetch scripts and agent commands lazily when context menu opens
     useEffect(() => {
         if (!enabled || !projectPath || !backendId) {
             return;
         }
         let cancelled = false;
-
-        // The row's machine: the path is only meaningful there.
-        sendRequest<ScriptsListResponse>(backendId, MSG.SCRIPTS_LIST, { path: projectPath })
-            .then((res) => {
-                if (!cancelled) setScripts(res.scripts);
-            })
-            .catch(() => {
-                if (!cancelled) setScripts(emptyScripts);
-            });
-
-        sendRequest<AgentCommandsListResponse>(backendId, MSG.AGENT_COMMANDS_LIST, {
-            path: projectPath,
-        })
-            .then((res) => {
-                if (!cancelled) setAgentCommands(res.commands);
-            })
-            .catch(() => {
-                if (!cancelled) setAgentCommands(emptyAgentCommands);
-            });
-
+        void fetchMenuSources().then((sources) => {
+            if (cancelled) return;
+            setScripts(sources.scripts);
+            setAgentCommands(sources.agentCommands);
+        });
         return () => {
             cancelled = true;
         };
-    }, [enabled, projectPath, backendId]);
+    }, [enabled, projectPath, backendId, fetchMenuSources]);
 
     // Ensure flow/action definitions are loaded
     useEffect(() => {
@@ -150,6 +167,13 @@ function useRunMenu({
             online,
         ],
     );
+
+    // A native menu is fixed once shown, so it is built from freshly read
+    // scripts and agent commands rather than whatever the last opening fetched.
+    const loadData = useCallback(async (): Promise<RunMenuData> => {
+        if (!projectPath || !backendId) return data;
+        return { ...data, ...(await fetchMenuSources(NATIVE_MENU_FETCH_TIMEOUT_MS)) };
+    }, [data, projectPath, backendId, fetchMenuSources]);
 
     const navigate = useCallback(
         (focusWorkspace: boolean) => {
@@ -321,6 +345,7 @@ function useRunMenu({
 
     return {
         data,
+        loadData,
         callbacks,
         hasItems: hasRunMenuItems(data),
         flowInputState,

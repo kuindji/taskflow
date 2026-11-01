@@ -109,7 +109,8 @@ export function ProjectGroup({
         projectId: project.id,
         projectPath: project.path,
         showAgentOptions: false,
-        enabled: contextMenuOpen,
+        // A native menu reads its own data when it opens.
+        enabled: contextMenuOpen && !nativeMenus,
     });
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -204,7 +205,7 @@ export function ProjectGroup({
 
         try {
             const { items: runItems, actions: runActions } = buildNativeRunMenuItems(
-                runMenu.data,
+                await runMenu.loadData(),
                 runMenu.callbacks,
             );
 

@@ -9,7 +9,7 @@ export type PendingTaskStart =
           description: string;
           agentOptions?: AgentLaunchOptions;
       }
-    | { kind: "flow"; flowId: string };
+    | { kind: "flow"; flowId: string; inputValues?: Record<string, string> };
 
 /**
  * Removes and returns the starts whose task is ready: its worktree is set up,

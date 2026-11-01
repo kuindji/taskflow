@@ -70,22 +70,44 @@ function LinkedProjectsSection({ project }: LinkedProjectsSectionProps) {
     const lastSavedNotes = useRef<Record<string, string>>({});
     const noteDraftsRef = useRef<Record<string, string>>({});
 
-    // Sync note drafts when linked projects change identity
-    useEffect(() => {
-        const initial: Record<string, string> = {};
-        const saved: Record<string, string> = {};
-        for (const lp of linkedProjects) {
-            initial[lp.projectId] = lp.note;
-            saved[lp.projectId] = lp.note;
-        }
-        setNoteDrafts(initial);
-        lastSavedNotes.current = saved;
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only when project identity changes
-    }, [project.id]);
+    // The notes last received from the record, per link.
+    const receivedNotes = useRef<Record<string, string>>({});
+    const syncedProjectId = useRef<string | null>(null);
 
     useEffect(() => {
         noteDraftsRef.current = noteDrafts;
     }, [noteDrafts]);
+
+    // A new project resets every draft. A note changed elsewhere (another
+    // client, the TUI, the HTTP API) replaces its draft unless that draft has
+    // an unsaved edit, so a later save does not write the old note back.
+    useEffect(() => {
+        const fresh = syncedProjectId.current !== project.id;
+        syncedProjectId.current = project.id;
+        const received = receivedNotes.current;
+        receivedNotes.current = Object.fromEntries(
+            linkedProjects.map((lp) => [lp.projectId, lp.note]),
+        );
+        if (fresh) {
+            setNoteDrafts({ ...receivedNotes.current });
+            lastSavedNotes.current = { ...receivedNotes.current };
+            return;
+        }
+        const drafts = noteDraftsRef.current;
+        const incoming: Record<string, string> = {};
+        for (const lp of linkedProjects) {
+            if (received[lp.projectId] === lp.note) continue;
+            const draft = drafts[lp.projectId];
+            if (draft !== undefined && draft !== (lastSavedNotes.current[lp.projectId] ?? "")) {
+                continue;
+            }
+            incoming[lp.projectId] = lp.note;
+            lastSavedNotes.current[lp.projectId] = lp.note;
+        }
+        if (Object.keys(incoming).length > 0) {
+            setNoteDrafts((prev) => ({ ...prev, ...incoming }));
+        }
+    }, [project.id, linkedProjects]);
 
     const persistNotes = useCallback(
         (drafts: Record<string, string>) => {

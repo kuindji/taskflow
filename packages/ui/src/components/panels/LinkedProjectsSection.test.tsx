@@ -127,3 +127,40 @@ test("a note edit while an added link is in flight keeps the added link", async 
         { projectId: "sibling", note: "" },
     ]);
 });
+
+test("a note changed elsewhere is shown and not overwritten by the next note edit", async () => {
+    const owner = {
+        ...project("owner", "machine-a"),
+        linkedProjects: [
+            { projectId: "alpha", note: "A" },
+            { projectId: "beta", note: "B old" },
+        ],
+    };
+    useProjectStore.setState({
+        projects: [owner, project("alpha", "machine-a"), project("beta", "machine-a")],
+    });
+    const { container, sent } = await mountPending(owner);
+
+    const updated = {
+        ...owner,
+        linkedProjects: [
+            { projectId: "alpha", note: "A" },
+            { projectId: "beta", note: "B new" },
+        ],
+    };
+    await act(async () => root?.render(<LinkedProjectsSection project={updated} />));
+    const inputs = container.querySelectorAll<HTMLInputElement>("input");
+    expect(inputs[1]?.value).toBe("B new");
+
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+        setValue?.call(inputs[0], "A edited");
+        inputs[0]?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 450)));
+
+    expect(sent.at(-1)).toEqual([
+        { projectId: "alpha", note: "A edited" },
+        { projectId: "beta", note: "B new" },
+    ]);
+});

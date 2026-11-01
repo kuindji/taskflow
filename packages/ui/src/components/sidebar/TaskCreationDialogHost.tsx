@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
-import type { AgentLaunchOptions } from "@taskflow/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AgentLaunchOptions, FlowDefinition, Task } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import { requirePrimary } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -13,6 +14,7 @@ import {
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
+import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 import { takeReadyStarts, type PendingTaskStart } from "./pending-task-starts";
 
 export function TaskCreationDialogHost() {
@@ -36,6 +38,12 @@ export function TaskCreationDialogHost() {
     } = useTaskCreationStore();
 
     const pendingStartsRef = useRef(new Map<string, PendingTaskStart>());
+    // A new task whose flow has inputs waits for them before it starts.
+    const [flowInput, setFlowInput] = useState<{
+        task: Scoped<Task>;
+        flow: Scoped<FlowDefinition>;
+        deferred: boolean;
+    } | null>(null);
     const firstActiveProjectId = projects.find((project) => !project.hidden)?.id;
 
     const flowsFor = useCallback(
@@ -55,25 +63,63 @@ export function TaskCreationDialogHost() {
             ? (tasks.find((task) => task.id === activeTaskId)?.projectId ?? firstActiveProjectId)
             : (activeProjectId ?? firstActiveProjectId));
 
+    const runReadyStarts = useCallback(
+        (current: Scoped<Task>[]) => {
+            for (const { task, start } of takeReadyStarts(pendingStartsRef.current, current)) {
+                if (start.kind === "flow") {
+                    void useFlowStore.getState().startFlow(task.backendId, {
+                        taskId: task.id,
+                        flowId: start.flowId,
+                        inputValues: start.inputValues,
+                    });
+                } else {
+                    void createSession(
+                        { taskId: task.id },
+                        start.type,
+                        undefined,
+                        start.description,
+                        undefined,
+                        start.agentOptions,
+                    );
+                }
+            }
+        },
+        [createSession],
+    );
+
     // Watch for worktree readiness and start deferred session or flow
     useEffect(() => {
-        for (const { task, start } of takeReadyStarts(pendingStartsRef.current, tasks)) {
-            if (start.kind === "flow") {
+        runReadyStarts(tasks);
+    }, [tasks, runReadyStarts]);
+
+    const startTaskFlow = useCallback(
+        (
+            task: Scoped<Task>,
+            flowId: string,
+            deferred: boolean,
+            inputValues?: Record<string, string>,
+        ) => {
+            if (deferred) {
+                pendingStartsRef.current.set(task.id, { kind: "flow", flowId, inputValues });
+            } else {
                 void useFlowStore
                     .getState()
-                    .startFlow(task.backendId, { taskId: task.id, flowId: start.flowId });
-            } else {
-                void createSession(
-                    { taskId: task.id },
-                    start.type,
-                    undefined,
-                    start.description,
-                    undefined,
-                    start.agentOptions,
-                );
+                    .startFlow(task.backendId, { taskId: task.id, flowId, inputValues });
             }
-        }
-    }, [tasks, createSession]);
+        },
+        [],
+    );
+
+    const handleFlowInputSubmit = useCallback(
+        (values: Record<string, string>) => {
+            if (!flowInput) return;
+            startTaskFlow(flowInput.task, flowInput.flow.id, flowInput.deferred, values);
+            // The worktree may have become ready while the inputs were asked.
+            if (flowInput.deferred) runReadyStarts(useTaskStore.getState().tasks);
+            setFlowInput(null);
+        },
+        [flowInput, startTaskFlow, runReadyStarts],
+    );
 
     const handleProjectSubmit = useCallback(
         async (path: string) => {
@@ -106,16 +152,16 @@ export function TaskCreationDialogHost() {
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
-                    if (data.worktree && !data.parentId) {
-                        pendingStartsRef.current.set(task.id, {
-                            kind: "flow",
-                            flowId: data.startWithFlowId,
-                        });
+                    const deferred = data.worktree && !data.parentId;
+                    const flow = useFlowStore
+                        .getState()
+                        .flows.find(
+                            (f) => f.backendId === task.backendId && f.id === data.startWithFlowId,
+                        );
+                    if (flow?.inputs && flow.inputs.length > 0) {
+                        setFlowInput({ task, flow, deferred });
                     } else {
-                        void useFlowStore.getState().startFlow(task.backendId, {
-                            taskId: task.id,
-                            flowId: data.startWithFlowId,
-                        });
+                        startTaskFlow(task, data.startWithFlowId, deferred);
                     }
                 } else if (data.startWith) {
                     if (data.worktree && !data.parentId) {
@@ -141,7 +187,15 @@ export function TaskCreationDialogHost() {
                 console.error("Failed to create task:", err);
             }
         },
-        [createSession, createTask, projects, tasks, setActiveProject, setActiveTask],
+        [
+            createSession,
+            createTask,
+            projects,
+            tasks,
+            setActiveProject,
+            setActiveTask,
+            startTaskFlow,
+        ],
     );
 
     return (
@@ -162,6 +216,16 @@ export function TaskCreationDialogHost() {
                 prefill={prefill}
                 onSubmit={(data) => void handleCreateTask(data)}
             />
+            {flowInput && (
+                <FlowInputDialog
+                    open
+                    backendId={flowInput.task.backendId}
+                    flowName={flowInput.flow.name}
+                    inputs={flowInput.flow.inputs ?? []}
+                    onSubmit={handleFlowInputSubmit}
+                    onCancel={() => setFlowInput(null)}
+                />
+            )}
         </>
     );
 }
