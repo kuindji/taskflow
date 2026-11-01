@@ -84,8 +84,13 @@ function FlowPanel({ ownerId, backendId, onClose }: FlowPanelProps) {
           ? getProjectWorkspaceKey(run.projectId)
           : null;
 
-    const getActionName = (_state: FlowActionState, index: number): string => {
-        const entry = flowDef?.actions[index];
+    // Rows follow the run's own order; the definition may have been reordered or
+    // edited since, so entries are looked up by id, never by position.
+    const entryFor = (state: FlowActionState) =>
+        flowDef?.actions.find((entry) => entry.id === state.actionEntryId);
+
+    const getActionName = (state: FlowActionState, index: number): string => {
+        const entry = entryFor(state);
         if (!entry) return `Action ${index + 1}`;
         if (entry.label) return entry.label;
         if ("inline" in entry && entry.inline) return entry.inline.name;
@@ -98,8 +103,8 @@ function FlowPanel({ ownerId, backendId, onClose }: FlowPanelProps) {
         return `Action ${index + 1}`;
     };
 
-    const getActionSessionType = (index: number): string => {
-        const entry = flowDef?.actions[index];
+    const getActionSessionType = (state: FlowActionState): string => {
+        const entry = entryFor(state);
         if (!entry) return "agent";
         if ("inline" in entry && entry.inline) return entry.inline.sessionType;
         if ("actionId" in entry && entry.actionId) {
@@ -257,7 +262,7 @@ function FlowPanel({ ownerId, backendId, onClose }: FlowPanelProps) {
                         <div className="min-w-0 flex-1">
                             <div className="truncate">{getActionName(action, i)}</div>
                             <div className="text-muted-foreground text-[10px]">
-                                {getActionSessionType(i)}
+                                {getActionSessionType(action)}
                             </div>
                         </div>
                         {action.status === "running" && run.status === "running" && (

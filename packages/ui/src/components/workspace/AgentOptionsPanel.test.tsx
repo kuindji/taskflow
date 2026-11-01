@@ -260,3 +260,14 @@ test("headless pi leaves thinking off unset", () => {
     if (options.type !== "pi") throw new Error("expected pi options");
     expect(options.thinking).toBeUndefined();
 });
+
+test("a legacy Claude action's skip-permissions flag survives being opened for edit", () => {
+    // Saved before permission modes existed; the backend still honours the
+    // field, so opening the action must not swap it for the machine default.
+    settings.claude.permissionMode = "default";
+    const legacy = { type: "claude" as const, dangerouslySkipPermissions: true };
+    mountWith("claude", { value: legacy });
+    const options = lastEmitted();
+    if (options.type !== "claude") throw new Error("expected claude options");
+    expect(options.permissionMode).toBe("bypassPermissions");
+});

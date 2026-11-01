@@ -25,6 +25,7 @@ import { PiOptions } from "@/components/shared/PiOptions";
 import { KimiOptions } from "@/components/shared/KimiOptions";
 import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
+import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
 
 interface AgentOptionsPanelProps {
     /**
@@ -88,7 +89,9 @@ function AgentOptionsPanel({
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
 
-    const matchingValue = value?.type === agentType ? value : undefined;
+    // Normalized so stored legacy shapes (Claude's dangerouslySkipPermissions)
+    // prefill as the value the backend would launch with.
+    const matchingValue = normalizeAgentOptions(agentType, value);
 
     // --- Claude-specific defaults ---
     const defaultPermissionMode =

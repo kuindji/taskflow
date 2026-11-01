@@ -1,4 +1,4 @@
-import { expect, test, beforeEach, afterAll } from "bun:test";
+import { expect, test, beforeEach, afterAll, mock } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { FlowDefinition, FlowRun } from "@taskflow/shared";
@@ -162,4 +162,35 @@ test("a paused looped run still offers the loop-aware stop", () => {
     const button = stopButton();
     expect(button.className).not.toContain("text-destructive");
     expect(tooltipTextOf(button)).toContain("Finish loop");
+});
+
+test("after the definition is reordered, rows and Re-run keep the run's own actions", () => {
+    const jumpToAction = mock(() => Promise.resolve());
+    mount(
+        makeRun({
+            status: "completed",
+            actions: [
+                { actionEntryId: "entry-1", status: "completed" },
+                { actionEntryId: "entry-2", status: "completed" },
+            ],
+        }),
+    );
+    act(() => {
+        useFlowStore.setState({
+            flows: [{ ...flowDef, actions: [...flowDef.actions].reverse(), backendId: BACKEND }],
+            jumpToAction,
+        });
+    });
+
+    const rows = container.textContent ?? "";
+    expect(rows.indexOf("Plan")).toBeLessThan(rows.indexOf("Review"));
+
+    const rerun = [...container.querySelectorAll("button")].find((b) =>
+        b.querySelector(".lucide-rotate-ccw"),
+    );
+    if (!rerun) throw new Error("no re-run button rendered");
+    act(() => {
+        rerun.click();
+    });
+    expect(document.body.textContent).toContain('Re-run action "Plan"?');
 });
