@@ -635,6 +635,38 @@ describe("OpenTuiApp", () => {
         expect(test.captureCharFrame()).toContain("Selected description");
     });
 
+    it("edits the task chosen in the sidebar after the detail switches tasks", async () => {
+        const test = await createTestRenderer({ width: 90, height: 24, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.TASK_LOG_LIST, { entries: [] });
+        net.responses.set(MSG.TASK_UPDATE, task("t2", "p1", "Second taskX"));
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "First task"), task("t2", "p1", "Second task")];
+        const taskStore = new TaskDetailStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, taskStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => taskStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressArrow("down");
+        test.mockInput.pressKey("t");
+        await test.renderOnce();
+        await test.mockMouse.click(2, 4);
+        await Bun.sleep(1);
+        expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t2", projectId: "p1" });
+        test.mockInput.pressKey("r");
+        await test.mockInput.typeText("X");
+        test.mockInput.pressEnter();
+        await Bun.sleep(1);
+        const updates = net.requests.filter((request) => request.type === MSG.TASK_UPDATE);
+        expect(updates).toHaveLength(1);
+        expect(updates[0].payload).toMatchObject({ id: "t2" });
+    });
+
     it("creates a top-level task from a project and consumes duplicate submit keys", async () => {
         const test = await createTestRenderer({ width: 90, height: 24, kittyKeyboard: true });
         const net = new FakeNet();
@@ -1705,6 +1737,49 @@ describe("OpenTuiApp", () => {
             expect(frame.split("\n")[0]).toContain("Studio Mac");
             expect(frame).not.toContain("offline: ssh exited");
             expect(frame).not.toContain("Studio Mac is offline.");
+        });
+
+        it("keeps running when sidebar navigation cannot load flows and schedules", async () => {
+            const test = await createTestRenderer({ width: 100, height: 24, kittyKeyboard: true });
+            const inner = new FakeNet();
+            inner.responses.set(MSG.FLOW_DEFINITIONS_LIST, { flows: [] });
+            inner.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+            inner.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+            inner.responses.set(MSG.SCHEDULE_LIST, { schedules: [] });
+            const guard = new OfflineGuardNet(inner);
+            const store = new FakeStore();
+            store.projects = [project("p1", "Project")];
+            store.tasks = [task("t1", "p1", "Task")];
+            const flowStore = new FlowStore(guard);
+            const scheduleStore = new ScheduleStore(guard);
+            const app = new OpenTuiApp({
+                renderer: test.renderer,
+                local: true,
+                net: guard,
+                store,
+                flowStore,
+                scheduleStore,
+                machineLabel: "Studio Mac",
+            });
+            await app.init();
+            const rejections: unknown[] = [];
+            const onRejection = (error: unknown): void => {
+                rejections.push(error);
+            };
+            process.on("unhandledRejection", onRejection);
+            cleanups.push(
+                () => process.off("unhandledRejection", onRejection),
+                () => app.destroy(),
+                () => test.renderer.destroy(),
+            );
+            guard.offline = true;
+            app.setMachineStatus({ state: "offline", reason: "ssh exited" });
+            test.mockInput.pressArrow("down");
+            await test.renderOnce();
+            await test.mockMouse.click(2, 3);
+            await Bun.sleep(5);
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
+            expect(rejections).toEqual([]);
         });
 
         it("sends no task create and shows the offline notice", async () => {

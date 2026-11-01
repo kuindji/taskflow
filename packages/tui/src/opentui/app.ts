@@ -823,10 +823,12 @@ class OpenTuiApp {
             );
             if (this.mainView === "flow-run") this.openFlowLibrary();
             else this.syncProductView();
-            void this.loadOwnerProducts().then(() => {
-                if (this.mainView === "flow-run") this.openFlowProduct();
-                else this.syncProductView();
-            });
+            void this.loadOwnerProducts()
+                .catch(() => undefined)
+                .then(() => {
+                    if (this.mainView === "flow-run") this.openFlowProduct();
+                    else this.syncProductView();
+                });
         }
         this.updateFocus();
         this.deps.renderer.requestRender();
@@ -1007,7 +1009,9 @@ class OpenTuiApp {
                 );
                 if (this.mainView === "flow-run") this.openFlowLibrary();
                 else this.syncProductView();
-                void this.loadOwnerProducts().then(() => this.syncProductView());
+                void this.loadOwnerProducts()
+                    .catch(() => undefined)
+                    .then(() => this.syncProductView());
                 break;
             case "select-tab":
                 if (command.index >= this.sessions.length) return;
@@ -2200,6 +2204,11 @@ class OpenTuiApp {
             const task = this.ownerTask(this.selectedOwnerState.taskId);
             if (!task || (this.sidebarMode === "active" && task.status !== "active")) {
                 this.showSessions();
+                return;
+            }
+            // The view's edit callbacks are bound to the task it was opened for.
+            if (this.productView.taskId !== task.id) {
+                this.openTaskDetail();
                 return;
             }
             this.productView.update(
