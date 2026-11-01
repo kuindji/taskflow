@@ -10,6 +10,8 @@ export const PROTOCOL_VERSION = 3;
 // Task deletion waits for worktree cleanup.
 export const TASK_DELETE_TIMEOUT_MS = 300_000;
 export const WS_CLOSE_UNAUTHORIZED = 4401;
+/** Most commits one `GIT_LOG` read returns; larger limits are clamped. */
+export const GIT_LOG_MAX_LIMIT = 500;
 
 /** LAN discovery. TTL 1 keeps announcements on the local subnet. */
 export const DISCOVERY_GROUP = "239.255.42.98";

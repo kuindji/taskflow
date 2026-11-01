@@ -132,6 +132,8 @@ export function CommitDialogBody({
     // The commit (and push) landed but the request did not; status alone
     // cannot tell when changes left out of the commit remain.
     const [requestPending, setRequestPending] = useState(false);
+    // The commit landed but its push did not; likewise invisible to status.
+    const [pushPending, setPushPending] = useState(false);
 
     const [branch, setBranch] = useState<string | null>(null);
     const [lookup, setLookup] = useState<GitCheckPrResult | null>(null);
@@ -153,6 +155,7 @@ export function CommitDialogBody({
         setAhead(null);
         setBehind(0);
         setRequestPending(false);
+        setPushPending(false);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -230,8 +233,8 @@ export function CommitDialogBody({
     }, []);
 
     const taskId = "taskId" in sessionOwner ? sessionOwner.taskId : undefined;
-    const prOnly = requestPending || (hasChanges === false && ahead === 0);
-    const pushOnly = !prOnly && hasChanges === false && (ahead ?? 0) > 0;
+    const prOnly = requestPending || (!pushPending && hasChanges === false && ahead === 0);
+    const pushOnly = !prOnly && (pushPending || (hasChanges === false && (ahead ?? 0) > 0));
     const commitButtonDisabled =
         (prOnly && !canCreate) || (!pushOnly && !prOnly && !includeUnstaged && !hasStagedChanges);
 
@@ -245,6 +248,22 @@ export function CommitDialogBody({
             return;
         setError(null);
         setLoading(true);
+        // A failed push whose commit landed: the dialog already knows what is left.
+        let pushLeft = false;
+        // A request after a commit or push that landed: on failure, offer it alone.
+        const requestAfter = async (title: string) => {
+            try {
+                await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
+                    path: repoPath,
+                    title,
+                    taskId,
+                });
+            } catch (err) {
+                setRequestPending(true);
+                setMessage(title);
+                throw err;
+            }
+        };
 
         try {
             if (prOnly) {
@@ -263,16 +282,15 @@ export function CommitDialogBody({
 
             if (pushOnly) {
                 // Push-only mode
-                await request(MSG.GIT_PUSH, { path: repoPath });
-                if (createPr) {
-                    // Use current branch name or a generic title
-                    const branchName = branch ?? "update";
-                    await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
-                        path: repoPath,
-                        title: branchName,
-                        taskId,
-                    });
+                try {
+                    await request(MSG.GIT_PUSH, { path: repoPath });
+                } catch (err) {
+                    pushLeft = pushPending;
+                    throw err;
                 }
+                setPushPending(false);
+                // The landed commit's message, else the branch name or a generic title
+                if (createPr) await requestAfter(message.trim() || branch || "update");
                 handleOpenChange(false);
                 return;
             }
@@ -321,30 +339,31 @@ export function CommitDialogBody({
                 commitMessage = result.message;
             }
 
+            // Pushed separately, so a failed push is known to follow a landed commit.
             const commitResult = await request<GitCommitResult>(MSG.GIT_COMMIT, {
                 path: repoPath,
                 message: commitMessage,
-                push,
+                push: false,
                 includeUnstaged,
             });
 
-            if (createPr) {
+            if (push) {
                 try {
-                    await request<GitCreatePrResult>(MSG.GIT_CREATE_PR, {
-                        path: repoPath,
-                        title: commitResult.message,
-                        taskId,
-                    });
+                    await request(MSG.GIT_PUSH, { path: repoPath });
                 } catch (err) {
-                    setRequestPending(true);
+                    pushLeft = true;
+                    setPushPending(true);
                     setMessage(commitResult.message);
                     throw err;
                 }
             }
 
+            if (createPr) await requestAfter(commitResult.message);
+
             handleOpenChange(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
+            if (pushLeft) return;
             // The failed step may follow ones that landed (the commit before
             // its push, the push before the request): when the repository
             // moved, read it again so a retry offers only what is left.
@@ -369,6 +388,7 @@ export function CommitDialogBody({
         hasChanges,
         ahead,
         unpublished,
+        pushPending,
         canCreate,
         branch,
         labels.agentInstruction,

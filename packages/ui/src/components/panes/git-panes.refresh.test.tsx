@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MSG } from "@taskflow/shared";
-import type { GitLogEntry, Project } from "@taskflow/shared";
+import { GIT_LOG_MAX_LIMIT, MSG } from "@taskflow/shared";
+import type { GitLogEntry, GitLogPayload, Project } from "@taskflow/shared";
 import { closeConnection, openConnection } from "@/lib/connection-registry";
 import { startTestServer, type TestServer } from "@/lib/test-ws-server";
 import { useProjectStore } from "@/stores/project-store";
@@ -41,7 +41,7 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 async function mount(element: React.ReactNode) {
-    server = startTestServer("git", (type) => {
+    server = startTestServer("git", (type, payload) => {
         if (type === MSG.GIT_STATUS)
             return {
                 status: {
@@ -57,7 +57,12 @@ async function mount(element: React.ReactNode) {
                     hasUpstream: true,
                 },
             };
-        if (type === MSG.GIT_LOG) return { entries: repo.log, hasMore: false };
+        if (type === MSG.GIT_LOG) {
+            // Paged and clamped as the backend handler does
+            const { limit = 100, skip = 0 } = payload as GitLogPayload;
+            const end = skip + Math.min(limit, GIT_LOG_MAX_LIMIT);
+            return { entries: repo.log.slice(skip, end), hasMore: repo.log.length > end };
+        }
         return {};
     });
     await openConnection("git", server.origin);
@@ -109,4 +114,23 @@ test("an open History pane lists commits made while it is open", async () => {
     repo.log = [commit("second"), commit("first")];
     server?.broadcast(MSG.GIT_CHANGE_STATS, { targetId: project.id, stats: null });
     await until(() => !!container?.textContent?.includes("second"));
+});
+
+test("a History refresh keeps every loaded commit past one read's limit", async () => {
+    repo.log = Array.from({ length: 650 }, (_, index) => commit(`c${index}`));
+    await mount(<HistoryPane repoPath="/repo" changeTarget={project.id} />);
+    const rows = () => container?.querySelectorAll('div[role="button"][tabindex="0"]').length ?? 0;
+    await until(() => rows() === 100);
+    for (let loaded = 200; loaded <= 600; loaded += 100) {
+        const more = [...(container?.querySelectorAll("button") ?? [])].find(
+            (b) => b.textContent?.trim() === "Load more",
+        );
+        await act(async () => more?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+        await until(() => rows() === loaded);
+    }
+
+    repo.log = [commit("new"), ...repo.log];
+    server?.broadcast(MSG.GIT_CHANGE_STATS, { targetId: project.id, stats: null });
+    await until(() => !!container?.textContent?.includes("new"));
+    expect(rows()).toBe(600);
 });

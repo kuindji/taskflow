@@ -181,6 +181,27 @@ test("a failed request after a staged-only commit offers only the request again"
     expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([MSG.GIT_CREATE_PR]);
     expect(f.repo.changes).toBe(true);
 });
+test("a failed push after a staged-only commit offers the push and request again", async () => {
+    const f = fixture(true);
+    f.repo.staged = true;
+    f.failing.add(MSG.GIT_PUSH);
+    await render(f.props);
+    await typeMessage("ready");
+    await click(document.querySelector("#commit-include-unstaged"));
+    await click(document.querySelector("#commit-push"));
+    await click(document.querySelector("#commit-create-pr"));
+    await click(button("Commit & Push"));
+    expect(document.body.textContent).toContain(`${MSG.GIT_PUSH} failed`);
+    expect(f.repo.changes).toBe(true);
+    f.failing.clear();
+    f.requests.length = 0;
+    await click(button("Push"));
+    expect(f.requests.filter((type) => type !== MSG.GIT_STATUS)).toEqual([
+        MSG.GIT_PUSH,
+        MSG.GIT_CREATE_PR,
+    ]);
+    expect(f.repo.changes).toBe(true);
+});
 test("GitLab agent mode requests a merge request", async () => {
     const f = fixture(true);
     await render(f.props);

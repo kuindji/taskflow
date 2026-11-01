@@ -1,4 +1,4 @@
-import { MSG } from "@taskflow/shared";
+import { GIT_LOG_MAX_LIMIT, MSG } from "@taskflow/shared";
 import type {
     GitStatusPayload,
     GitDiffPayload,
@@ -90,7 +90,7 @@ export function registerGitHandlers(deps: GitHandlerDeps): void {
     router.register(MSG.GIT_LOG, async (payload) => {
         const { repoPath: rawRepoPath, limit, skip } = payload as GitLogPayload;
         const repoPath = await assertWorkspaceRepo(taskStore, rawRepoPath);
-        const safeLimit = Math.min(Math.max(limit ?? 100, 1), 500);
+        const safeLimit = Math.min(Math.max(limit ?? 100, 1), GIT_LOG_MAX_LIMIT);
         const safeSkip = Math.max(skip ?? 0, 0);
         return await git.log(repoPath, safeLimit, safeSkip);
     });

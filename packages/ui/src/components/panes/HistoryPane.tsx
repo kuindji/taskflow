@@ -6,7 +6,7 @@ import type {
     GitLogEntry,
     GitLogResult,
 } from "@taskflow/shared";
-import { MSG } from "@taskflow/shared";
+import { GIT_LOG_MAX_LIMIT, MSG } from "@taskflow/shared";
 import { useWorkspaceRequest } from "@/hooks/useWorkspaceRequest";
 import { useChangeStatsUpdates } from "@/stores/diff-store";
 import { Badge } from "@/components/ui/badge";
@@ -140,14 +140,21 @@ function HistoryPane({ repoPath, changeTarget, className }: HistoryPaneProps) {
                 repoVersion === repoVersionRef.current && logRequestId === logRequestIdRef.current;
             setLogLoading(true);
             try {
-                const result = await request<GitLogResult>(MSG.GIT_LOG, {
-                    repoPath,
-                    limit,
-                    skip,
-                });
-                if (!isCurrent()) return;
-                setEntries((prev) => (skip === 0 ? result.entries : [...prev, ...result.entries]));
-                setHasMore(result.hasMore);
+                // One read returns at most GIT_LOG_MAX_LIMIT commits; a refresh may want more.
+                const read: GitLogEntry[] = [];
+                let hasMore = true;
+                while (hasMore && read.length < limit) {
+                    const result = await request<GitLogResult>(MSG.GIT_LOG, {
+                        repoPath,
+                        limit: Math.min(limit - read.length, GIT_LOG_MAX_LIMIT),
+                        skip: skip + read.length,
+                    });
+                    if (!isCurrent()) return;
+                    read.push(...result.entries);
+                    hasMore = result.hasMore && result.entries.length > 0;
+                }
+                setEntries((prev) => (skip === 0 ? read : [...prev, ...read]));
+                setHasMore(hasMore);
                 setLogError(false);
             } catch (err: unknown) {
                 if (!isCurrent()) return;
