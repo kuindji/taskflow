@@ -1,4 +1,5 @@
 import type { MarkdownWidth } from "./types/settings";
+import type { EditorInfo } from "./types/system";
 
 /**
  * Bumped only when a protocol change is NOT backward compatible. A client
@@ -254,6 +255,25 @@ export const DEFAULT_TERMINAL_FONT_FAMILY =
     '"CaskaydiaCove Nerd Font Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 export const DEFAULT_TERMINAL_FONT_SIZE = 18;
 export const DEFAULT_TERMINAL_SHELL = "system";
+
+/** Terminal editors Taskflow knows how to launch. A TUI runs them on its own
+ *  machine, so it checks its own PATH against this list. */
+export const INTERNAL_EDITORS: readonly EditorInfo[] = [
+    { id: "nvim", name: "Neovim", command: "nvim", type: "internal", lineFlag: "+{line}" },
+    { id: "vim", name: "Vim", command: "vim", type: "internal", lineFlag: "+{line}" },
+    { id: "nano", name: "Nano", command: "nano", type: "internal", lineFlag: "+{line}" },
+    { id: "vi", name: "Vi", command: "vi", type: "internal", lineFlag: "+{line}" },
+    { id: "helix", name: "Helix", command: "hx", type: "internal", lineFlag: "{file}:{line}" },
+    { id: "micro", name: "Micro", command: "micro", type: "internal", lineFlag: "+{line}" },
+    {
+        id: "emacs",
+        name: "Emacs",
+        command: "emacs",
+        type: "internal",
+        lineFlag: "+{line}",
+        extraArgs: ["-nw"],
+    },
+];
 
 export const DEFAULT_EDITOR_FONT_FAMILY =
     '"JetBrainsMono Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';

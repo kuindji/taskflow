@@ -1,5 +1,6 @@
 import {
     AGENT_DISPLAY_NAMES,
+    INTERNAL_EDITORS,
     MSG,
     type AgentListResponse,
     type AppSettings,
@@ -121,11 +122,10 @@ class SettingsStore {
     }
 
     terminalEditor(): TerminalEditor | null {
-        const editors =
-            this.choiceSnapshot.systemInfo?.editors.filter(
-                (candidate) =>
-                    candidate.type === "internal" && this.installedLocally(candidate.command),
-            ) ?? [];
+        // The editor runs on this machine, so the backend's detected list does not apply.
+        const editors = INTERNAL_EDITORS.filter((candidate) =>
+            this.installedLocally(candidate.command),
+        );
         const configured = this.settingsSnapshot?.editor.internalEditor;
         const selected = editors.find((candidate) => candidate.id === configured);
         const editor =

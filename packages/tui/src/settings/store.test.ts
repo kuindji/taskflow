@@ -167,7 +167,7 @@ function fakeNet(
 describe("SettingsStore", () => {
     test("loads settings and installed choices in parallel", async () => {
         const net = fakeNet();
-        const store = new SettingsStore(net, () => true);
+        const store = new SettingsStore(net, (command) => command === "vim");
         await store.load();
         expect(store.settings?.general.defaultAgent).toBe("codex");
         expect(store.choices.agents).toEqual([{ value: "codex", label: "Codex" }]);
@@ -195,9 +195,17 @@ describe("SettingsStore", () => {
         store.dispose();
     });
 
+    test("picks a local terminal editor the backend's machine does not have", async () => {
+        const net = fakeNet([{ id: "nano", name: "Nano", command: "nano", type: "internal" }]);
+        const store = new SettingsStore(net, (command) => command === "vi");
+        await store.loadSettings();
+        expect(store.terminalEditor()).toEqual({ command: '"vi"', name: "Vi" });
+        store.dispose();
+    });
+
     test("does not fall back to a detected GUI editor", async () => {
         const net = fakeNet([{ id: "zed", name: "Zed", command: "zed", type: "external" }]);
-        const store = new SettingsStore(net);
+        const store = new SettingsStore(net, (command) => command === "zed");
         await store.loadSettings();
         expect(store.choices.editors).toEqual([
             { value: "monaco", label: "Automatic terminal editor" },

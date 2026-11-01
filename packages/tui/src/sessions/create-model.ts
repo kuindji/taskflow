@@ -160,5 +160,10 @@ function buildSessionCreatePayload(inputs: CreatePayloadInputs): SessionCreatePa
     };
 }
 
-export { buildSessionCreatePayload, buildSessionPickerItems, defaultAgentOptions };
+export {
+    configuredShellPath,
+    buildSessionCreatePayload,
+    buildSessionPickerItems,
+    defaultAgentOptions,
+};
 export type { CreatePayloadInputs, SessionPickerItem };

@@ -14,7 +14,7 @@ const base: ActionDefinition = {
     updatedAt: "now",
 };
 
-function setup() {
+function setup(defaultShell = "system") {
     const requests: Array<{ type: string; payload: unknown }> = [];
     const creates: unknown[] = [];
     const net: NetLike = {
@@ -22,9 +22,15 @@ function setup() {
             requests.push({ type, payload });
             if (type === MSG.SHELLS_LIST) {
                 return {
-                    shells: [{ name: "zsh", path: "/bin/zsh" }],
+                    shells: [
+                        { name: "zsh", path: "/bin/zsh" },
+                        { name: "bash", path: "/bin/bash" },
+                    ],
                     systemShellPath: "/bin/zsh",
                 } as T;
+            }
+            if (type === MSG.SETTINGS_GET) {
+                return { terminal: { defaultShell } } as T;
             }
             return { success: true } as T;
         },
@@ -72,6 +78,14 @@ describe("ActionRunner", () => {
             type: MSG.SESSION_INPUT,
             payload: { sessionId: "session-1", data: "echo ok\r" },
         });
+    });
+
+    it("runs a shell action in the configured default shell", async () => {
+        const test = setup("/bin/bash");
+        await test.runner.run({ kind: "master" }, base);
+        expect(test.creates).toEqual([
+            { master: true, type: "shell", label: "Action", shell: "/bin/bash" },
+        ]);
     });
 
     it("rejects non-standalone actions before any request", async () => {

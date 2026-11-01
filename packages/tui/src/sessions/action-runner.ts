@@ -1,6 +1,7 @@
 import { MSG } from "@taskflow/shared";
-import type { ActionDefinition, ShellListResponse } from "@taskflow/shared";
+import type { ActionDefinition, AppSettings, ShellListResponse } from "@taskflow/shared";
 import type { NetLike } from "../net/client";
+import { configuredShellPath } from "./create-model";
 import { ownerRequest, type SessionOwner } from "./owner";
 
 interface ActionSessionController {
@@ -28,16 +29,17 @@ class ActionRunner {
             });
         }
 
-        const shells = await this.net.request<ShellListResponse>(MSG.SHELLS_LIST);
-        const shell =
-            shells.shells.find((candidate) => candidate.path === shells.systemShellPath) ??
-            shells.shells[0];
+        const [shells, settings] = await Promise.all([
+            this.net.request<ShellListResponse>(MSG.SHELLS_LIST),
+            this.net.request<AppSettings>(MSG.SETTINGS_GET),
+        ]);
+        const shell = configuredShellPath(shells, settings.terminal.defaultShell);
         if (!shell) throw new Error("No shell is available");
         const sessionId = await this.controller.create(owner, {
             ...ownerRequest(owner),
             type: "shell",
             label: action.name,
-            shell: shell.path,
+            shell,
         });
         await this.net.request(MSG.SESSION_INPUT, {
             sessionId,

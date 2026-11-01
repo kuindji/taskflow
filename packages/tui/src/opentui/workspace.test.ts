@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { CliRenderEvents } from "@opentui/core";
 import type { FlowDefinition, Task } from "@taskflow/shared";
@@ -23,7 +23,7 @@ function workspaceNet(): FakeNet {
     net.responses.set(MSG.TASK_LIST, { tasks: [task("t1", "p1", "Task")] });
     net.responses.set(MSG.MASTER_SESSIONS_LIST, { sessions: [] });
     net.responses.set(MSG.SYSTEM_INFO, {
-        editors: [{ id: "true", name: "True", command: "true", type: "internal" }],
+        editors: [],
         homedir: "/tmp",
         schedulerEnabled: true,
         hostname: "test",
@@ -56,6 +56,17 @@ describe("openWorkspace", () => {
         cleanups.push(() => test.renderer.destroy());
         return test;
     }
+
+    // Terminal editors come from this machine's PATH; run the no-op `true` instead of a real one.
+    const realTerminalEditor = Object.getOwnPropertyDescriptor(
+        SettingsStore.prototype,
+        "terminalEditor",
+    );
+    SettingsStore.prototype.terminalEditor = () => ({ command: '"true"', name: "True" });
+    afterAll(() => {
+        if (realTerminalEditor)
+            Object.defineProperty(SettingsStore.prototype, "terminalEditor", realTerminalEditor);
+    });
 
     async function open(test: TestSetup, net = workspaceNet()): Promise<Workspace> {
         const workspace = await openWorkspace(net, {
