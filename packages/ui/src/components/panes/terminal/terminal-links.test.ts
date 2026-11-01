@@ -3,7 +3,7 @@ import type { Project, Task } from "@taskflow/shared";
 import { useProjectStore } from "@/stores/project-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useTaskStore } from "@/stores/task-store";
-import { getWorkingDir, sessionWorkspace } from "./terminal-links";
+import { droppedPath, getWorkingDir, sessionWorkspace } from "./terminal-links";
 
 const target: Task & { backendId: string } = {
     id: "target",
@@ -65,6 +65,50 @@ describe("getWorkingDir", () => {
         });
 
         expect(getWorkingDir("s1", "target")).toBe("/repo/.worktrees/target");
+    });
+});
+
+describe("droppedPath", () => {
+    beforeEach(() => {
+        useProjectStore.setState({ projects: [project] });
+        useTaskStore.setState({ tasks: [target] });
+    });
+
+    it("keeps a path outside a moved session's cwd absolute", () => {
+        // Started in task "source", now shown in task "target".
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                "task:target": [
+                    {
+                        id: "s1",
+                        type: "claude",
+                        label: "Claude",
+                        sessionId: "s1",
+                        cwd: "/repo/.worktrees/source",
+                    },
+                ],
+            },
+        });
+
+        expect(droppedPath("/repo/.worktrees/target/src/app.ts", "s1", "target")).toBe(
+            "/repo/.worktrees/target/src/app.ts",
+        );
+        expect(droppedPath("/repo/.worktrees/source/src/app.ts", "s1", "target")).toBe(
+            "src/app.ts",
+        );
+    });
+
+    it("makes a path relative to the owner's directory for a tab without a cwd", () => {
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                "task:target": [{ id: "s1", type: "claude", label: "Claude", sessionId: "s1" }],
+            },
+        });
+
+        expect(droppedPath("/repo/.worktrees/target/src/app.ts", "s1", "target")).toBe(
+            "src/app.ts",
+        );
+        expect(droppedPath("/elsewhere/a.ts", "s1", "target")).toBe("/elsewhere/a.ts");
     });
 });
 

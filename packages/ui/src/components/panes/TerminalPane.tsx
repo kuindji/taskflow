@@ -6,7 +6,6 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useMarkdownInputStore, getEditor } from "@/stores/markdown-input-store";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
-import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -25,6 +24,8 @@ import {
     restoreViewport,
 } from "./terminal/terminal-utils";
 import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
+import { releaseInputDraft } from "./terminal/terminal-input-draft";
+import { droppedPath } from "./terminal/terminal-links";
 import { useTerminalModifierBlur } from "./terminal/useTerminalModifierBlur";
 import type { Tab } from "@/stores/session-helpers";
 import { Button } from "@/components/ui/button";
@@ -75,9 +76,6 @@ function TerminalPane({
     const closeSession = useSessionStore((s) => s.closeSession);
     const [resumeError, setResumeError] = useState<string | null>(null);
     const focusedPanel = useUIStore((s) => s.focusedPanel);
-    const { workingDir } = useActiveWorkspace();
-    const workingDirRef = useRef(workingDir);
-    workingDirRef.current = workingDir;
     const isLocal = useIsLocalBackend(useWorkspaceBackend());
     const isLocalRef = useRef(isLocal);
     isLocalRef.current = isLocal;
@@ -379,11 +377,9 @@ function TerminalPane({
         const id = sessionId;
         return () => {
             // If the terminal cache no longer has this session after the detach
-            // grace period, clean up the markdown input state.
+            // grace period, drop its input editor state unless its tab lives on.
             window.setTimeout(() => {
-                if (!terminalCache.has(id)) {
-                    useMarkdownInputStore.getState().cleanup(id);
-                }
+                if (!terminalCache.has(id)) releaseInputDraft(id);
             }, 100);
         };
     }, [sessionId]);
@@ -434,11 +430,7 @@ function TerminalPane({
         }
 
         function toRelative(absolutePath: string): string {
-            const root = workingDirRef.current;
-            if (root && absolutePath.startsWith(root + "/")) {
-                return absolutePath.slice(root.length + 1);
-            }
-            return absolutePath;
+            return droppedPath(absolutePath, sessionId, taskId, projectId, master);
         }
 
         function forwardInput(data: string) {
@@ -519,7 +511,7 @@ function TerminalPane({
             container.removeEventListener("dragleave", onDragLeave, opts);
             container.removeEventListener("drop", onDrop, opts);
         };
-    }, [sessionId]);
+    }, [sessionId, taskId, projectId, master]);
 
     return (
         <div className="bg-card relative flex-1 overflow-hidden p-3">

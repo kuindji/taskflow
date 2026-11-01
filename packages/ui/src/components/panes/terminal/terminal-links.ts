@@ -46,6 +46,24 @@ function getWorkingDir(
 }
 
 /**
+ * A path dropped onto a session's terminal, relative to the session's own cwd
+ * when it lies inside it, else absolute.
+ */
+function droppedPath(
+    absolutePath: string,
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): string {
+    const root = getWorkingDir(sessionId, taskId, projectId, master);
+    if (root && absolutePath.startsWith(root + "/")) {
+        return absolutePath.slice(root.length + 1);
+    }
+    return absolutePath;
+}
+
+/**
  * The workspace (pane) key of the session's tab now, else the one its
  * terminal was mounted with, and that workspace's owner ids.
  */
@@ -114,6 +132,7 @@ function createWebLinkHandler(
 
 export {
     getWorkingDir,
+    droppedPath,
     sessionWorkspace,
     openUrlInApp,
     openExternalUrl,
