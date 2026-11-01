@@ -43,7 +43,7 @@ function render(open: boolean, prefill?: DroppedTask | null) {
                 flowsFor={() => []}
                 defaultProjectId="web"
                 prefill={prefill}
-                onSubmit={() => {}}
+                onSubmit={async () => {}}
             />,
         );
     });

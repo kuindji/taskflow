@@ -30,6 +30,18 @@ import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailabi
 import type { DroppedTask } from "@/lib/dropped-task";
 import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
 
+export interface NewTaskSubmission {
+    projectId: string;
+    title?: string;
+    description: string;
+    worktree: boolean;
+    parentId?: string;
+    startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi";
+    agentOptions?: AgentLaunchOptions;
+    startWithFlowId?: string;
+    initCommand?: string;
+}
+
 interface NewTaskDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -40,17 +52,8 @@ interface NewTaskDialogProps {
     parentId?: string | null;
     /** Fields to open with, when the dialog was opened by a drop. */
     prefill?: DroppedTask | null;
-    onSubmit: (data: {
-        projectId: string;
-        title?: string;
-        description: string;
-        worktree: boolean;
-        parentId?: string;
-        startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi";
-        agentOptions?: AgentLaunchOptions;
-        startWithFlowId?: string;
-        initCommand?: string;
-    }) => void;
+    /** Settles once the task exists; a rejection keeps the dialog open with its form. */
+    onSubmit: (data: NewTaskSubmission) => Promise<void>;
 }
 
 export function NewTaskDialog({
@@ -77,6 +80,8 @@ export function NewTaskDialog({
     const [agentOptions, setAgentOptions] = useState<AgentLaunchOptions | undefined>(undefined);
     const [startWithFlowId, setStartWithFlowId] = useState("");
     const [agentOptionsOpen, setAgentOptionsOpen] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState<string | null>(null);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
@@ -126,6 +131,7 @@ export function NewTaskDialog({
         setAgentOptions(undefined);
         setStartWithFlowId("");
         setAgentOptionsOpen(false);
+        setSubmitError(null);
     }, []);
 
     const handleProjectChange = useCallback((nextProjectId: string) => {
@@ -166,22 +172,35 @@ export function NewTaskDialog({
     const startWithChoice = startWith === "flow" && flows.length === 0 ? "none" : startWith;
     const hasFlowSelection = startWithChoice !== "flow" || flowId !== "";
     const canSubmit =
-        (isSubtask || projectId !== "") && description.trim() !== "" && hasFlowSelection;
+        !submitting &&
+        (isSubtask || projectId !== "") &&
+        description.trim() !== "" &&
+        hasFlowSelection;
     const defaultInitCommandPlaceholder = getProjectDefaultInitCommand(projectId) || "bun install";
 
-    const handleSubmit = useCallback(() => {
+    const handleSubmit = useCallback(async () => {
         if (!canSubmit) return;
-        onSubmit({
-            projectId,
-            title: title.trim() || undefined,
-            description: description.trim(),
-            worktree: isSubtask ? false : worktree,
-            parentId: parentId ?? undefined,
-            startWith: isAgentType(startWith) ? startWith : undefined,
-            agentOptions,
-            startWithFlowId: startWithChoice === "flow" && flowId ? flowId : undefined,
-            initCommand: worktree ? initCommand.trim() : undefined,
-        });
+        setSubmitting(true);
+        setSubmitError(null);
+        try {
+            await onSubmit({
+                projectId,
+                title: title.trim() || undefined,
+                description: description.trim(),
+                worktree: isSubtask ? false : worktree,
+                parentId: parentId ?? undefined,
+                startWith: isAgentType(startWith) ? startWith : undefined,
+                agentOptions,
+                startWithFlowId: startWithChoice === "flow" && flowId ? flowId : undefined,
+                initCommand: worktree ? initCommand.trim() : undefined,
+            });
+        } catch (err) {
+            // The draft stays for a retry once the machine answers again.
+            setSubmitError(err instanceof Error ? err.message : "Failed to create task");
+            return;
+        } finally {
+            setSubmitting(false);
+        }
         resetForm();
         onOpenChange(false);
     }, [
@@ -206,7 +225,7 @@ export function NewTaskDialog({
         (e: React.KeyboardEvent) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSubmit) {
                 e.preventDefault();
-                handleSubmit();
+                void handleSubmit();
             }
         },
         [canSubmit, handleSubmit],
@@ -398,13 +417,15 @@ export function NewTaskDialog({
                     )}
                 </div>
 
+                {submitError && <p className="text-destructive text-xs">{submitError}</p>}
+
                 <DialogFooter>
                     <Button variant="secondary" size="sm" onClick={() => handleOpenChange(false)}>
                         Cancel
                     </Button>
                     <Button
                         size="sm"
-                        onClick={handleSubmit}
+                        onClick={() => void handleSubmit()}
                         disabled={!canSubmit}
                         className="bg-accent text-accent-foreground hover:bg-accent/90">
                         {isSubtask ? "Create Subtask" : "Create Task"}

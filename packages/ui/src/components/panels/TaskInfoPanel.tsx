@@ -60,6 +60,30 @@ function restoreFailedBaseline<T extends Record<string, string>>(
     baseline.current = restored;
 }
 
+/**
+ * Moves the shown record's fields that changed since `received` into the
+ * baseline and returns them for the drafts, except a field whose draft holds
+ * an unsaved edit. A value changed elsewhere (an agent's `taskflow-cli task
+ * update`, the TUI, another client) then replaces a clean draft instead of
+ * being written back by the next edit.
+ */
+function adoptChangedFields<T extends Record<string, string>>(
+    received: T,
+    incoming: T,
+    drafts: T,
+    baseline: RefObject<T>,
+): Partial<T> {
+    const adopted: Partial<T> = {};
+    const next = { ...baseline.current };
+    for (const key of Object.keys(incoming) as (keyof T)[]) {
+        if (received[key] === incoming[key] || drafts[key] !== baseline.current[key]) continue;
+        adopted[key] = incoming[key];
+        next[key] = incoming[key];
+    }
+    baseline.current = next;
+    return adopted;
+}
+
 function TaskInfoPanel() {
     // Focus the first input field when navigation mode ends on this panel
     usePanelActivation(
@@ -117,6 +141,16 @@ function TaskInfoPanel() {
     // The record the baselines above describe, for saves that settle later.
     const shownTaskIdRef = useRef(taskId);
     const shownProjectIdRef = useRef(projectId);
+    // The fields last received from the shown records.
+    const receivedTaskRef = useRef<typeof lastSavedRef.current | null>(null);
+    const receivedProjectRef = useRef<typeof lastSavedProjectRef.current | null>(null);
+    const taskTitle = task?.title;
+    const taskDescription = task?.description;
+    const taskNotes = task?.notes;
+    const shownProject = projectId ? project : null;
+    const projectName = shownProject?.name;
+    const projectInitCommand = shownProject?.defaultInitCommand;
+    const projectPrompt = shownProject?.prompt;
 
     useEffect(() => {
         draftRef.current = {
@@ -197,47 +231,58 @@ function TaskInfoPanel() {
         [updateProject],
     );
 
+    // A new record resets the drafts; a field changed on the shown record
+    // replaces its draft unless the draft has an unsaved edit.
     useEffect(() => {
+        const incoming = {
+            title: taskTitle ?? "",
+            description: taskDescription ?? "",
+            notes: taskNotes ?? "",
+        };
+        const received = receivedTaskRef.current;
+        receivedTaskRef.current = incoming;
+        if (received && shownTaskIdRef.current === taskId) {
+            const adopted = adoptChangedFields(received, incoming, draftRef.current, lastSavedRef);
+            if (adopted.title !== undefined) setTitleDraft(adopted.title);
+            if (adopted.description !== undefined) setDescriptionDraft(adopted.description);
+            if (adopted.notes !== undefined) setNotesDraft(adopted.notes);
+            return;
+        }
         shownTaskIdRef.current = taskId;
-        if (!task) {
-            setTitleDraft("");
-            setDescriptionDraft("");
-            setNotesDraft("");
-            lastSavedRef.current = { title: "", description: "", notes: "" };
-            return;
-        }
-
-        setTitleDraft(task.title);
-        setDescriptionDraft(task.description);
-        setNotesDraft(task.notes);
-        lastSavedRef.current = {
-            title: task.title,
-            description: task.description,
-            notes: task.notes,
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally sync only when task identity changes, not on every task object update
-    }, [taskId]);
+        setTitleDraft(incoming.title);
+        setDescriptionDraft(incoming.description);
+        setNotesDraft(incoming.notes);
+        lastSavedRef.current = incoming;
+    }, [taskId, taskTitle, taskDescription, taskNotes]);
 
     useEffect(() => {
-        shownProjectIdRef.current = projectId;
-        if (workspace.scope !== "project" || !project) {
-            setProjectTitleDraft("");
-            setProjectInitCommandDraft("");
-            setProjectPromptDraft("");
-            lastSavedProjectRef.current = { name: "", defaultInitCommand: "", prompt: "" };
+        const incoming = {
+            name: projectName ?? "",
+            defaultInitCommand: projectInitCommand ?? "",
+            prompt: projectPrompt ?? "",
+        };
+        const received = receivedProjectRef.current;
+        receivedProjectRef.current = incoming;
+        if (received && shownProjectIdRef.current === projectId) {
+            const adopted = adoptChangedFields(
+                received,
+                incoming,
+                projectDraftRef.current,
+                lastSavedProjectRef,
+            );
+            if (adopted.name !== undefined) setProjectTitleDraft(adopted.name);
+            if (adopted.defaultInitCommand !== undefined) {
+                setProjectInitCommandDraft(adopted.defaultInitCommand);
+            }
+            if (adopted.prompt !== undefined) setProjectPromptDraft(adopted.prompt);
             return;
         }
-
-        setProjectTitleDraft(project.name);
-        setProjectInitCommandDraft(project.defaultInitCommand ?? "");
-        setProjectPromptDraft(project.prompt ?? "");
-        lastSavedProjectRef.current = {
-            name: project.name,
-            defaultInitCommand: project.defaultInitCommand ?? "",
-            prompt: project.prompt ?? "",
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally sync only when project identity changes, not on every project object update
-    }, [projectId]);
+        shownProjectIdRef.current = projectId;
+        setProjectTitleDraft(incoming.name);
+        setProjectInitCommandDraft(incoming.defaultInitCommand);
+        setProjectPromptDraft(incoming.prompt);
+        lastSavedProjectRef.current = incoming;
+    }, [projectId, projectName, projectInitCommand, projectPrompt]);
 
     // Auto-save on debounce
     useEffect(() => {

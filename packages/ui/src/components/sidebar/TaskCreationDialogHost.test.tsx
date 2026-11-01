@@ -138,3 +138,41 @@ test("a new task's flow with inputs asks for them and starts with them", async (
         { taskId: "task-1", flowId: "research", inputValues: { topic: "caching" } },
     ]);
 });
+
+test("a task create that fails keeps the dialog open with its draft and the error", async () => {
+    let attempts = 0;
+    useProjectStore.setState({ projects: [web] });
+    useTaskStore.setState({
+        tasks: [],
+        createTask: async () => {
+            attempts++;
+            if (attempts === 1) throw new Error("Backend remote is not connected");
+            return created;
+        },
+    });
+    useFlowStore.setState({ flows: [], fetchFlows: async () => {}, fetchActions: async () => {} });
+    useTaskCreationStore.setState({
+        newTaskOpen: true,
+        newProjectOpen: false,
+        parentTaskId: null,
+        preferredProjectId: "web",
+        prefill: null,
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(<TaskCreationDialogHost />));
+
+    await act(async () => setValue(byId("new-task-description"), "Look into it"));
+    await act(async () => button("Create Task").click());
+
+    expect(useTaskCreationStore.getState().newTaskOpen).toBe(true);
+    expect((byId("new-task-description") as HTMLTextAreaElement).value).toBe("Look into it");
+    expect(document.body.textContent).toContain("Backend remote is not connected");
+
+    await act(async () => button("Create Task").click());
+    expect(attempts).toBe(2);
+    expect(useTaskCreationStore.getState().newTaskOpen).toBe(false);
+});

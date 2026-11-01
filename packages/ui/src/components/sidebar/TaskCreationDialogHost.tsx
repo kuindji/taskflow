@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentLaunchOptions, FlowDefinition, Task } from "@taskflow/shared";
+import type { FlowDefinition, Task } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import { requirePrimary } from "@/stores/backend-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -13,7 +13,7 @@ import {
 } from "@/stores/task-creation-store";
 import { useUIStore } from "@/stores/ui-store";
 import { NewProjectDialog } from "./NewProjectDialog";
-import { NewTaskDialog } from "./NewTaskDialog";
+import { NewTaskDialog, type NewTaskSubmission } from "./NewTaskDialog";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
 import { takeReadyStarts, type PendingTaskStart } from "./pending-task-starts";
 
@@ -136,19 +136,10 @@ export function TaskCreationDialogHost() {
     );
 
     const handleCreateTask = useCallback(
-        async (data: {
-            projectId: string;
-            title?: string;
-            description: string;
-            worktree: boolean;
-            parentId?: string;
-            startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi";
-            agentOptions?: AgentLaunchOptions;
-            startWithFlowId?: string;
-            initCommand?: string;
-        }) => {
+        async (data: NewTaskSubmission) => {
+            // A failed create rejects to the dialog, which keeps the draft.
+            const task = await createTask(taskCreationBackend(data, projects, tasks), data);
             try {
-                const task = await createTask(taskCreationBackend(data, projects, tasks), data);
                 setActiveProject(task.projectId);
                 setActiveTask(task.id);
                 if (data.startWithFlowId) {
@@ -184,7 +175,7 @@ export function TaskCreationDialogHost() {
                     }
                 }
             } catch (err) {
-                console.error("Failed to create task:", err);
+                console.error("Failed to start the new task:", err);
             }
         },
         [
@@ -214,7 +205,7 @@ export function TaskCreationDialogHost() {
                 defaultProjectId={defaultProjectId}
                 parentId={parentTaskId}
                 prefill={prefill}
-                onSubmit={(data) => void handleCreateTask(data)}
+                onSubmit={handleCreateTask}
             />
             {flowInput && (
                 <FlowInputDialog

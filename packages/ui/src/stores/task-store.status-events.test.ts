@@ -104,3 +104,22 @@ test("an update to a live task still replaces it in place", async () => {
     await until(() => useTaskStore.getState().tasks.some((t) => t.title === "renamed"));
     expect(liveIds()).toEqual(["other"]);
 });
+
+test("a list refresh while the archive is shown refreshes the archive too", async () => {
+    // A reconnect refetches the lists; a restore made while disconnected sent
+    // no event this client saw.
+    liveTasks = [record("other", "active")];
+    archivedTasks = [record("gone", "archived")];
+    await useTaskStore.getState().fetchTasks(BACKEND);
+    useTaskStore.getState().setShowArchive(true);
+    await until(() => archivedIds().includes("gone"));
+
+    liveTasks = [record("gone", "active"), record("other", "active")];
+    archivedTasks = [];
+    await useTaskStore.getState().fetchTasks(BACKEND);
+    await until(() => !archivedIds().includes("gone"));
+
+    expect(liveIds().sort()).toEqual(["gone", "other"]);
+    expect(archivedIds()).toEqual([]);
+    useTaskStore.getState().setShowArchive(false);
+});

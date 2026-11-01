@@ -97,6 +97,28 @@ function typeTitle(text: string) {
     });
 }
 
+function notesField(): HTMLTextAreaElement {
+    const field = container.querySelector<HTMLTextAreaElement>("#task-info-notes");
+    if (!field) throw new Error("no notes field");
+    return field;
+}
+
+function typeNotes(text: string) {
+    const field = notesField();
+    act(() => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+        setter?.call(field, text);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+}
+
+/** The task record changing elsewhere, as a `TASK_UPDATED` broadcast lands. */
+function receiveTask(changes: Partial<Task>) {
+    act(() => {
+        useTaskStore.setState({ tasks: [{ ...task, ...changes }] });
+    });
+}
+
 async function settle(ms: number) {
     await act(async () => {
         await new Promise((r) => setTimeout(r, ms));
@@ -127,4 +149,31 @@ test("an autosave that succeeds is not sent again when the panel closes", async 
     await settle(0);
 
     expect(saved).toEqual([{ title: "Edited" }]);
+});
+
+test("a note changed elsewhere replaces a clean draft and is not written back", async () => {
+    receiveTask({ notes: "Agent note" });
+    expect(notesField().value).toBe("Agent note");
+
+    typeNotes("Agent note, mine");
+    await settle(800);
+
+    expect(saved).toEqual([{ notes: "Agent note, mine" }]);
+});
+
+test("a note changed elsewhere does not replace an unsaved edit", async () => {
+    typeNotes("Mine");
+    receiveTask({ notes: "Agent note" });
+    expect(notesField().value).toBe("Mine");
+
+    await settle(800);
+    expect(saved).toEqual([{ notes: "Mine" }]);
+});
+
+test("a title changed elsewhere is not sent back by an edit of another field", async () => {
+    receiveTask({ title: "Renamed" });
+    typeNotes("Note");
+    await settle(800);
+
+    expect(saved).toEqual([{ notes: "Note" }]);
 });
