@@ -584,6 +584,37 @@ describe("SessionBridge", () => {
         expect(sessionInputs(net)).toEqual(["\x1bOA"]);
     });
 
+    it("forwards function keys from raw terminal events", async () => {
+        const { net, bridge } = await setup();
+        await bridge.attach();
+        net.requests.length = 0;
+        for (const [name, sequence] of [
+            ["f1", "\x1bOP"],
+            ["f5", "\x1b[15~"],
+            ["f10", "\x1b[21~"],
+        ]) {
+            bridge.renderable.handleKeyPress(
+                prepareForEmbeddedTerminal(
+                    new KeyEvent({
+                        name,
+                        ctrl: false,
+                        meta: false,
+                        shift: false,
+                        option: false,
+                        sequence,
+                        raw: sequence,
+                        code: sequence.slice(1),
+                        number: false,
+                        eventType: "press",
+                        source: "raw",
+                    }),
+                ),
+            );
+        }
+
+        expect(sessionInputs(net)).toEqual(["\x1bOP", "\x1b[15~", "\x1b[21~"]);
+    });
+
     it("lets OpenTUI encode press, repeat, release, and paste from real events", async () => {
         const { net, bridge } = await setup();
         net.responses.set(MSG.SESSION_SNAPSHOT, {

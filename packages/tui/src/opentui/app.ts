@@ -612,7 +612,8 @@ class OpenTuiApp {
         return this.deps.gitStore.loadStatus(path, targetId);
     }
 
-    private refreshRows(force = false): void {
+    /** `previousOwnerKey` names the owner a caller replaced just before this refresh. */
+    private refreshRows(force = false, previousOwnerKey = ownerKey(this.selectedOwnerState)): void {
         const archive = this.sidebarMode === "archive";
         // Collapsing is an active-sidebar setting; the archive has no way to expand a project.
         const rows = buildRows(
@@ -622,7 +623,6 @@ class OpenTuiApp {
             this.rowSource(),
         );
         const signature = rowSignature(rows);
-        const previousOwnerKey = ownerKey(this.selectedOwnerState);
         if (archive) {
             // `resolveOwner` accepts only active tasks, so keep the selection while its row exists.
             if (!rows.some((row) => ownerKey(row.owner) === previousOwnerKey)) {
@@ -1828,7 +1828,10 @@ class OpenTuiApp {
     }
 
     private navigateNotification(notification: Notification): void {
-        if (!notification.read) void this.deps.notificationStore?.markRead(notification.id);
+        if (!notification.read) {
+            void this.deps.notificationStore?.markRead(notification.id).catch(() => undefined);
+        }
+        const previousOwnerKey = ownerKey(this.selectedOwnerState);
         const task = notification.taskId ? this.deps.store.taskById(notification.taskId) : null;
         if (task?.status === "active") {
             this.selectedOwnerState = {
@@ -1839,7 +1842,7 @@ class OpenTuiApp {
         } else if (this.deps.store.projectById(notification.projectId)) {
             this.selectedOwnerState = { kind: "project", projectId: notification.projectId };
         }
-        this.refreshRows(true);
+        this.refreshRows(true, previousOwnerKey);
         this.showSessions();
         if (this.deps.onFocusSession?.(notification.sessionId)) {
             this.focusTarget = "session";
@@ -2080,6 +2083,7 @@ class OpenTuiApp {
         try {
             if (tab === "flows") await this.deps.flowStore.deleteFlow(record.id);
             else await this.deps.flowStore.deleteAction(record.id);
+            library?.setPending(false);
         } catch (error) {
             library?.setError(this.errorMessage(error));
         }
@@ -2607,8 +2611,9 @@ class OpenTuiApp {
 
     selectOwner(owner: SessionOwner): void {
         if (this.destroyed) return;
+        const previousOwnerKey = ownerKey(this.selectedOwnerState);
         this.selectedOwnerState = owner;
-        this.refreshRows(true);
+        this.refreshRows(true, previousOwnerKey);
     }
 
     get selectedSessions(): readonly SessionRef[] {

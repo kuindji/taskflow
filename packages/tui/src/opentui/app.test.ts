@@ -408,6 +408,73 @@ describe("OpenTuiApp", () => {
         expect(edits).toEqual(["flow"]);
     });
 
+    it("unlocks the library after deleting a flow", async () => {
+        const test = await createTestRenderer({ width: 100, height: 20, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, {
+            flows: [
+                {
+                    id: "flow-1",
+                    name: "Release flow",
+                    description: "",
+                    actions: [],
+                    createdAt: "now",
+                    updatedAt: "now",
+                },
+            ],
+        });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        net.responses.set(MSG.FLOW_DEFINITION_DELETE, {});
+        const store = new FakeStore();
+        const flowStore = new FlowStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, flowStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => flowStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+
+        test.mockInput.pressKey("f");
+        test.mockInput.pressKey("d");
+        await Bun.sleep(0);
+        test.mockInput.pressEnter();
+        await Bun.sleep(1);
+        await test.renderOnce();
+        expect(flowStore.flows).toEqual([]);
+        expect(test.captureCharFrame()).not.toContain("Working...");
+
+        test.mockInput.pressKey("q");
+        await test.renderOnce();
+        expect(test.captureCharFrame()).toContain("No sessions");
+    });
+
+    it("loads the flow run of a restored selection", async () => {
+        const test = await createTestRenderer({ width: 100, height: 20, kittyKeyboard: true });
+        const net = new FakeNet();
+        net.responses.set(MSG.FLOW_DEFINITIONS_LIST, { flows: [] });
+        net.responses.set(MSG.FLOW_ACTIONS_LIST, { actions: [] });
+        net.responses.set(MSG.FLOW_RUNS_LIST, { runs: [] });
+        const store = new FakeStore();
+        store.projects = [project("p1", "Project")];
+        store.tasks = [task("t1", "p1", "Task")];
+        const flowStore = new FlowStore(net);
+        const app = new OpenTuiApp({ renderer: test.renderer, local: true, net, store, flowStore });
+        await app.init();
+        cleanups.push(
+            () => app.destroy(),
+            () => flowStore.dispose(),
+            () => test.renderer.destroy(),
+        );
+        net.requests.length = 0;
+
+        app.selectOwner({ kind: "task", taskId: "t1", projectId: "p1" });
+        expect(net.requests.filter((request) => request.type === MSG.FLOW_RUNS_LIST)).toEqual([
+            { type: MSG.FLOW_RUNS_LIST, payload: { ownerId: "t1" } },
+        ]);
+    });
+
     it("refreshes scheduler ownership after reconnect", async () => {
         const test = await createTestRenderer({ width: 80, height: 18, kittyKeyboard: true });
         const net = new FakeNet();
@@ -1777,6 +1844,57 @@ describe("OpenTuiApp", () => {
             test.mockInput.pressArrow("down");
             await test.renderOnce();
             await test.mockMouse.click(2, 3);
+            await Bun.sleep(5);
+            expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
+            expect(rejections).toEqual([]);
+        });
+
+        it("keeps running when opening an unread notification offline", async () => {
+            const test = await createTestRenderer({ width: 120, height: 24, kittyKeyboard: true });
+            const inner = new FakeNet();
+            inner.responses.set(MSG.NOTIFICATION_LIST, {
+                notifications: [
+                    {
+                        id: "n1",
+                        projectId: "p1",
+                        taskId: "t1",
+                        sessionId: "missing-session",
+                        message: "Task finished",
+                        read: false,
+                        createdAt: "2026-08-25T12:00:00.000Z",
+                    },
+                ],
+            });
+            const guard = new OfflineGuardNet(inner);
+            const store = new FakeStore();
+            store.projects = [project("p1", "Project")];
+            store.tasks = [task("t1", "p1", "Task")];
+            const notificationStore = new NotificationStore(guard);
+            const app = new OpenTuiApp({
+                renderer: test.renderer,
+                local: true,
+                net: guard,
+                store,
+                notificationStore,
+                machineLabel: "Studio Mac",
+            });
+            await app.init();
+            const rejections: unknown[] = [];
+            const onRejection = (error: unknown): void => {
+                rejections.push(error);
+            };
+            process.on("unhandledRejection", onRejection);
+            cleanups.push(
+                () => process.off("unhandledRejection", onRejection),
+                () => app.destroy(),
+                () => notificationStore.dispose(),
+                () => test.renderer.destroy(),
+            );
+            guard.offline = true;
+            app.setMachineStatus({ state: "offline", reason: "ssh exited" });
+            test.mockInput.pressKey("!");
+            await test.renderOnce();
+            test.mockInput.pressEnter();
             await Bun.sleep(5);
             expect(app.selectedOwner).toEqual({ kind: "task", taskId: "t1", projectId: "p1" });
             expect(rejections).toEqual([]);

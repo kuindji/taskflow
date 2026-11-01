@@ -429,6 +429,7 @@ function prepareForEmbeddedTerminal(event: KeyEvent): KeyEvent {
     if (named) event.code = named;
     else if (/^[a-z]$/i.test(event.name)) event.code = `Key${event.name.toUpperCase()}`;
     else if (/^[0-9]$/.test(event.name)) event.code = `Digit${event.name}`;
+    else if (/^f([1-9]|1[0-2])$/i.test(event.name)) event.code = event.name.toUpperCase();
     else event.code = undefined;
 
     if (event.source === "kitty") event.sequence = "";
