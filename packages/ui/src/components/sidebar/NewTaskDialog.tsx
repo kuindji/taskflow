@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Scoped } from "@/lib/backend-scope";
-import { isAgentType } from "@taskflow/shared";
+import { DEFAULT_AGENT_ACCOUNT_ID, isAgentType } from "@taskflow/shared";
 import type { AgentLaunchOptions, FlowDefinition } from "@taskflow/shared";
 import type { Project } from "@taskflow/shared";
 import {
@@ -29,6 +29,7 @@ import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
 import { useAgentAvailability, isAgentAvailable } from "@/hooks/useAgentAvailability";
 import type { DroppedTask } from "@/lib/dropped-task";
 import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
+import { settingsFor } from "@/stores/settings-store";
 
 export interface NewTaskSubmission {
     projectId: string;
@@ -54,6 +55,23 @@ interface NewTaskDialogProps {
     prefill?: DroppedTask | null;
     /** Settles once the task exists; a rejection keeps the dialog open with its form. */
     onSubmit: (data: NewTaskSubmission) => Promise<void>;
+}
+
+/**
+ * The options with their account dropped unless the machine knows it: an
+ * account is the machine's own, and the launch fails on a machine without it.
+ */
+function withMachineAccount(
+    options: AgentLaunchOptions | undefined,
+    backendId: string | undefined,
+): AgentLaunchOptions | undefined {
+    if (options?.type !== "claude" && options?.type !== "codex") return options;
+    const ref = options.account;
+    if (ref === undefined || ref === DEFAULT_AGENT_ACCOUNT_ID) return options;
+    const accounts = backendId ? settingsFor(backendId)?.[options.type].accounts : undefined;
+    return accounts?.some((account) => account.id === ref || account.name === ref)
+        ? options
+        : { ...options, account: undefined };
 }
 
 export function NewTaskDialog({
@@ -85,12 +103,6 @@ export function NewTaskDialog({
     const submission = useRef(0);
     const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
-    useEffect(() => {
-        if (open) {
-            setProjectId(defaultSelection ?? "");
-        }
-    }, [defaultSelection, open]);
-
     // Seeded on the false -> true edge only, and never afterwards.
     //
     // `handleOpenChange` cannot do this: it runs only when Radix drives the
@@ -98,9 +110,18 @@ export function NewTaskDialog({
     // without that handler firing. Keying off the edge rather than off `open`
     // also means a re-render carrying an equal-but-new `prefill` object cannot
     // overwrite what the user has since typed.
+    //
+    // The project is seeded on that edge too. While the form is open a later
+    // default (the active task moved, say by an earlier create settling) must
+    // not move a project already chosen; it only fills an empty picker, such
+    // as one opened before the projects arrived.
     const wasOpen = useRef(false);
     useEffect(() => {
+        if (open && wasOpen.current && defaultSelection) {
+            setProjectId((current) => current || defaultSelection);
+        }
         if (open && !wasOpen.current) {
+            setProjectId(defaultSelection ?? "");
             if (prefill?.title !== undefined) setTitle(prefill.title);
             if (prefill?.description !== undefined) setDescription(prefill.description);
         }
@@ -111,7 +132,7 @@ export function NewTaskDialog({
             setSubmitting(false);
         }
         wasOpen.current = open;
-    }, [open, prefill]);
+    }, [open, prefill, defaultSelection]);
 
     // The machine the task will run on: its installed agents are the ones on offer.
     const agents = useAgentAvailability(
@@ -141,10 +162,18 @@ export function NewTaskDialog({
         setSubmitError(null);
     }, []);
 
-    const handleProjectChange = useCallback((nextProjectId: string) => {
-        setProjectId(nextProjectId);
-        setInitCommand("");
-    }, []);
+    const handleProjectChange = useCallback(
+        (nextProjectId: string) => {
+            const backendOf = (id: string) => projects.find((p) => p.id === id)?.backendId;
+            const nextBackendId = backendOf(nextProjectId);
+            if (nextBackendId !== backendOf(projectId)) {
+                setAgentOptions((current) => withMachineAccount(current, nextBackendId));
+            }
+            setProjectId(nextProjectId);
+            setInitCommand("");
+        },
+        [projects, projectId],
+    );
 
     const handleStartWithChange = useCallback(
         (value: string) => {

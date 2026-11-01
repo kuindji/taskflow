@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AgentAvailability, AgentType, Project } from "@taskflow/shared";
+import type { AgentAvailability, AgentType, AppSettings, Project } from "@taskflow/shared";
 import type { Scoped } from "@/lib/backend-scope";
 import type { NewTaskSubmission } from "./NewTaskDialog";
 
@@ -10,10 +10,17 @@ await mock.module("@/components/ui/monaco-editor-dialog", () => ({
     MonacoEditorDialog: () => null,
 }));
 
-// Machine "a" has Claude Code, machine "b" does not.
+// Machines "a" and "c" have Claude Code, machine "b" does not.
+const claude: AgentAvailability = {
+    type: "claude",
+    available: true,
+    path: "/usr/local/bin/claude",
+    version: "2.1.0",
+};
 const agentsByBackend: Record<string, AgentAvailability[]> = {
-    a: [{ type: "claude", available: true, path: "/usr/local/bin/claude", version: "2.1.0" }],
+    a: [claude],
     b: [{ type: "claude", available: false, path: "", version: "" }],
+    c: [claude],
 };
 await mock.module("@/hooks/useAgentAvailability", () => ({
     useAgentAvailability: (backendId: string | null) =>
@@ -23,6 +30,7 @@ await mock.module("@/hooks/useAgentAvailability", () => ({
 }));
 
 const { NewTaskDialog } = await import("./NewTaskDialog");
+const { useSettingsStore } = await import("@/stores/settings-store");
 
 // @ts-expect-error react act env flag, no upstream type for this global
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,15 +51,73 @@ let container: HTMLDivElement;
 let root: Root;
 let submitted: NewTaskSubmission[];
 
-function render() {
+/** Machine settings whose Claude Code has these accounts. */
+function machineSettings(claudeAccounts: AppSettings["claude"]["accounts"]): AppSettings {
+    return {
+        general: {
+            fontFamily: "sans",
+            fontSize: 13,
+            defaultAgent: "claude",
+            defaultRuntime: "",
+            favoriteAgents: [],
+            confirmBeforeExit: false,
+        },
+        terminal: { fontFamily: "mono", fontSize: 13, defaultShell: "" },
+        editor: {
+            fontFamily: "mono",
+            fontSize: 13,
+            wordWrap: false,
+            internalEditor: "",
+            externalEditor: "",
+            markdownWidth: "full",
+        },
+        layout: {
+            window: { width: 1000, height: 800, isMaximized: false },
+            panels: {
+                sidebarWidth: 200,
+                fileExplorerWidth: 200,
+                taskInfoWidth: 200,
+                flowPanelWidth: 200,
+                compactSidebar: false,
+                collapsedProjectIds: [],
+                wikiRailOpen: false,
+                wikiRailWidth: 200,
+            },
+        },
+        claude: {
+            accounts: claudeAccounts,
+            defaultAccount: "default",
+            defaultModel: "default",
+            defaultEffort: "default",
+            permissionMode: "default",
+        },
+        codex: {
+            accounts: [],
+            defaultAccount: "default",
+            defaultModel: "",
+            defaultReasoningEffort: "default",
+            sandbox: "workspace-write",
+            approvalPolicy: "on-request",
+            dangerouslyBypassApprovalsAndSandbox: false,
+        },
+        opencode: { defaultModel: "", autoApprove: false },
+        pi: { defaultModel: "", thinking: "off", tools: "" },
+        kimi: { defaultModel: "", permissionMode: "manual" },
+        appearance: { theme: "dark" },
+        remoteAgent: { autoStart: false, appName: "", headless: false, permissionMode: "default" },
+        network: { discoverable: false, displayName: "" },
+    };
+}
+
+function render(defaultProjectId = "web") {
     act(() => {
         root.render(
             <NewTaskDialog
                 open
                 onOpenChange={() => {}}
-                projects={[project("web", "a"), project("api", "b")]}
+                projects={[project("web", "a"), project("api", "b"), project("docs", "c")]}
                 flowsFor={() => []}
-                defaultProjectId="web"
+                defaultProjectId={defaultProjectId}
                 onSubmit={async (data) => {
                     submitted.push(data);
                 }}
@@ -181,5 +247,67 @@ describe("new task dialog start with", () => {
         typeDescription("Ship it.");
         await submit();
         expect(submitted[0]?.startWith).toBe("claude");
+    });
+
+    // A late create elsewhere moves the active task, and with it the default.
+    it("keeps the chosen project when the default project changes", async () => {
+        render("web");
+        await choose(picker("new-task-project"), "docs");
+        render("api");
+
+        expect(picker("new-task-project").textContent?.trim()).toBe("docs");
+        typeDescription("Ship it.");
+        await submit();
+        expect(submitted[0]?.projectId).toBe("docs");
+    });
+
+    it("drops an account the newly chosen project's machine does not have", async () => {
+        const saved = useSettingsStore.getState();
+        useSettingsStore.setState({
+            byBackend: {
+                a: machineSettings([{ id: "work", name: "work", homeDir: "/a/work" }]),
+                c: machineSettings([]),
+            },
+        });
+        try {
+            render();
+            await choose(picker("new-task-start-with"), "Claude Code");
+            click(button("Agent Options"));
+            await choose(picker("Inherit (project → default)"), "work");
+            click(button("Agent Options"));
+            await choose(picker("new-task-project"), "docs");
+
+            typeDescription("Ship it.");
+            await submit();
+            expect(submitted[0]?.projectId).toBe("docs");
+            expect(submitted[0]?.startWith).toBe("claude");
+            expect(submitted[0]?.agentOptions).toMatchObject({ type: "claude" });
+            expect(submitted[0]?.agentOptions).not.toHaveProperty("account", "work");
+        } finally {
+            useSettingsStore.setState(saved);
+        }
+    });
+
+    it("keeps an account the newly chosen project's machine also has", async () => {
+        const saved = useSettingsStore.getState();
+        useSettingsStore.setState({
+            byBackend: {
+                a: machineSettings([{ id: "work", name: "work", homeDir: "/a/work" }]),
+                c: machineSettings([{ id: "work", name: "work", homeDir: "/c/work" }]),
+            },
+        });
+        try {
+            render();
+            await choose(picker("new-task-start-with"), "Claude Code");
+            click(button("Agent Options"));
+            await choose(picker("Inherit (project → default)"), "work");
+            await choose(picker("new-task-project"), "docs");
+
+            typeDescription("Ship it.");
+            await submit();
+            expect(submitted[0]?.agentOptions).toMatchObject({ type: "claude", account: "work" });
+        } finally {
+            useSettingsStore.setState(saved);
+        }
     });
 });
