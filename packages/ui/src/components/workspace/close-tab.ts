@@ -15,8 +15,17 @@ function requestCloseTab(workspaceKey: string, tab: Tab): void {
 
     const doClose = () => {
         if (tab.filePath && backendId !== null) clearEditorDirty(backendId, tab.filePath);
-        if (tab.sessionId) destroyTerminal(tab.sessionId);
-        void useSessionStore.getState().closeTab(workspaceKey, tab.id);
+        // A close the session's machine refuses keeps the tab, so the terminal
+        // goes only once the close went through.
+        void useSessionStore
+            .getState()
+            .closeTab(workspaceKey, tab.id)
+            .then(
+                () => {
+                    if (tab.sessionId) destroyTerminal(tab.sessionId);
+                },
+                (error: unknown) => console.warn("Close tab failed; the tab stays", error),
+            );
     };
 
     if (

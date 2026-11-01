@@ -22,6 +22,9 @@ function MonacoEditorDialog({
 }: MonacoEditorDialogProps) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const valueRef = useRef(value);
+    // What the editor opened with. Closing an untouched editor must not write
+    // this back over a newer value that arrived while it was open.
+    const openedValueRef = useRef(value);
     const fontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
     );
@@ -43,7 +46,8 @@ function MonacoEditorDialog({
     const handleOpenChange = useCallback(
         (nextOpen: boolean) => {
             if (!nextOpen && editorRef.current) {
-                onClose(editorRef.current.getValue());
+                const edited = editorRef.current.getValue();
+                if (edited !== openedValueRef.current) onClose(edited);
                 editorRef.current.dispose();
                 editorRef.current = null;
             }
@@ -55,6 +59,7 @@ function MonacoEditorDialog({
     const containerCallbackRef = useCallback((node: HTMLDivElement | null) => {
         if (!node) return;
 
+        openedValueRef.current = valueRef.current;
         const editor = monaco.editor.create(node, {
             value: valueRef.current,
             language: "markdown",
