@@ -75,6 +75,8 @@ function FileStatusRow({
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
+            // Keys on the row's own buttons are theirs to activate
+            if (e.target !== e.currentTarget) return;
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onSelect(file.path);
@@ -99,7 +101,7 @@ function FileStatusRow({
                 </Badge>
                 <span className="text-secondary-foreground truncate">{displayPath(file)}</span>
             </span>
-            <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                 {!staged && onRevert && (
                     <Button
                         variant="ghost"

@@ -134,3 +134,21 @@ test("a History refresh keeps every loaded commit past one read's limit", async 
     await until(() => !!container?.textContent?.includes("new"));
     expect(rows()).toBe(600);
 });
+
+test("Enter on a Changes row's button is left to the button, not the row", async () => {
+    await mount(<ChangesPane repoPath="/repo" changeTarget={project.id} />);
+    await until(() => !!container?.textContent?.includes("a.ts"));
+
+    const stage = container?.querySelector('button[aria-label="Stage file"]');
+    const key = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => stage?.dispatchEvent(key));
+    expect(key.defaultPrevented).toBe(false);
+    expect(server?.received.some((r) => r.type === MSG.GIT_DIFF_FILE_CONTENT)).toBe(false);
+
+    // Enter on the row itself still opens the diff
+    const row = stage?.closest('div[role="button"]');
+    await act(async () =>
+        row?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    );
+    await until(() => !!server?.received.some((r) => r.type === MSG.GIT_DIFF_FILE_CONTENT));
+});

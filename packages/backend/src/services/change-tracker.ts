@@ -18,6 +18,12 @@ interface TrackedTarget {
     id: string;
     path: string;
     stats: ChangeStats | null;
+    /**
+     * Which files changed and by how much, staged and unstaged apart. Staging a
+     * file moves its lines between the two sides without changing the totals,
+     * so open Changes panes need an update the stats alone would not trigger.
+     */
+    layout: string | null;
     invalidated: boolean;
     polling: boolean;
     backoffIndex: number;
@@ -59,6 +65,7 @@ export class ChangeTracker {
             id,
             path,
             stats: null,
+            layout: null,
             invalidated: true,
             polling: false,
             backoffIndex: 0,
@@ -221,13 +228,14 @@ export class ChangeTracker {
             // Clear the flag before reading state so an invalidation arriving while
             // computeStats runs stays set and forces a prompt re-poll
             target.invalidated = false;
-            const stats = await this.computeStats(target.path);
+            const { stats, layout } = await this.computeStats(target.path);
             // The target was untracked (or replaced under the same id, e.g. a project
             // path change) while git ran; its result must not overwrite the current one
             if (this.targets.get(target.id) !== target) return;
-            const changed = !statsEqual(target.stats, stats);
+            const changed = !statsEqual(target.stats, stats) || target.layout !== layout;
             if (changed) {
                 target.stats = stats;
+                target.layout = layout;
                 this.broadcast({
                     type: MSG.GIT_CHANGE_STATS,
                     payload: { targetId: target.id, stats },
@@ -256,7 +264,7 @@ export class ChangeTracker {
         }
     }
 
-    private async computeStats(repoPath: string): Promise<ChangeStats> {
+    private async computeStats(repoPath: string): Promise<{ stats: ChangeStats; layout: string }> {
         // Run numstat for unstaged and staged in parallel (safe — they don't lock)
         const [unstaged, staged] = await Promise.all([
             this.git.numstat(repoPath, false),
@@ -286,7 +294,7 @@ export class ChangeTracker {
         const fileCount = status.stagedFiles.length + status.unstagedFiles.length;
         const hasChanges = fileCount > 0;
 
-        return {
+        const stats: ChangeStats = {
             additions,
             deletions,
             fileCount,
@@ -297,6 +305,13 @@ export class ChangeTracker {
             diffDisabled: !hasChanges,
             commitDisabled: !hasChanges && status.ahead === 0,
         };
+        const layout = JSON.stringify([
+            status.stagedFiles.map((f) => [f.path, f.status]),
+            status.unstagedFiles.map((f) => [f.path, f.status]),
+            staged,
+            unstaged,
+        ]);
+        return { stats, layout };
     }
 
     private async countFileLines(filePath: string): Promise<number> {

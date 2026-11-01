@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, setSystemTime } from "bun:test";
 import { ChangeTracker } from "../../src/services/change-tracker";
 import { MSG } from "@taskflow/shared";
-import type { ChangeStats, GitStatusResult, WsEvent } from "@taskflow/shared";
+import type { ChangeStats, GitFileStatus, GitStatusResult, WsEvent } from "@taskflow/shared";
 import type { GitService } from "../../src/services/git-service";
 
 class FakeGitService {
@@ -10,9 +10,19 @@ class FakeGitService {
     fetchResults: Record<string, boolean> = {};
     statusGate: Promise<void> | null = null;
     branches: Record<string, string> = {};
+    /** Files changed in the index (staged) and in the working tree (unstaged). */
+    staged: GitFileStatus[] = [];
+    unstaged: GitFileStatus[] = [];
 
-    async numstat(): Promise<Array<{ path: string; additions: number; deletions: number }>> {
-        return [];
+    async numstat(
+        _repoPath: string,
+        cached = false,
+    ): Promise<Array<{ path: string; additions: number; deletions: number }>> {
+        return (cached ? this.staged : this.unstaged).map((f) => ({
+            path: f.path,
+            additions: 1,
+            deletions: 1,
+        }));
     }
 
     async status(repoPath: string): Promise<GitStatusResult> {
@@ -20,8 +30,8 @@ class FakeGitService {
         if (this.statusGate) await this.statusGate;
         return {
             branch: this.branches[repoPath] ?? "main",
-            stagedFiles: [],
-            unstagedFiles: [],
+            stagedFiles: this.staged,
+            unstagedFiles: this.unstaged,
             ahead: 0,
             behind: 0,
         };
@@ -267,6 +277,36 @@ describe("ChangeTracker", () => {
 
         const branches = events.map((event) => event.stats?.branch ?? null);
         expect(branches).toEqual([null, "new-branch"]);
+        tracker.dispose();
+    });
+
+    it("reports staging a file even though the totals stay the same", async () => {
+        const git = new FakeGitService();
+        const updates: Array<ChangeStats | null> = [];
+        const tracker = new ChangeTracker(git as unknown as GitService, (event) => {
+            if (event.type === MSG.GIT_CHANGE_STATS) {
+                updates.push((event.payload as { stats: ChangeStats | null }).stats);
+            }
+        });
+        stubStartPolling(tracker);
+        const file: GitFileStatus = { path: "a.ts", status: "modified", staged: false };
+        git.unstaged = [file];
+        tracker.track("project-id", "/repo");
+        await pollDue(tracker);
+        expect(updates).toHaveLength(1);
+
+        // `git add a.ts` in a terminal: same additions, deletions and file count
+        git.unstaged = [];
+        git.staged = [{ ...file, staged: true }];
+        tracker.invalidate("/repo");
+        await waitFor(() => updates.length === 2);
+        expect(updates[1]).toEqual(updates[0]);
+
+        // Nothing moved: no update
+        tracker.invalidate("/repo");
+        await waitFor(() => git.statusCalls.length === 3);
+        await Bun.sleep(25);
+        expect(updates).toHaveLength(2);
         tracker.dispose();
     });
 });
