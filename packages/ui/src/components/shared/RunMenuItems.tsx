@@ -4,6 +4,7 @@ import { SquareTerminal, Workflow, Zap } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
 import { AGENT_META } from "@/components/workspace/tab-constants";
 import { isAgentAvailable } from "@/hooks/useAgentAvailability";
+import { canRunAction, offersFlows } from "@/lib/run-menu";
 import type { RunMenuData, RunMenuCallbacks } from "@/lib/run-menu";
 
 interface MenuComponents {
@@ -79,7 +80,7 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                     </SubContent>
                 </Sub>
             )}
-            {data.flows.length > 0 && !data.activeFlowRun && (
+            {offersFlows(data) && (
                 <>
                     {(scriptNames.length > 0 || data.agentCommands.length > 0) && <Separator />}
                     <Sub>
@@ -100,15 +101,21 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
             {data.standaloneActions.length > 0 && (
                 <>
                     {(scriptNames.length > 0 || data.agentCommands.length > 0) &&
-                        data.flows.length === 0 && <Separator />}
+                        !offersFlows(data) && <Separator />}
                     <Sub>
-                        <SubTrigger disabled={!data.online}>
+                        <SubTrigger
+                            disabled={
+                                !data.standaloneActions.some((a) => canRunAction(a, data.online))
+                            }>
                             <Zap className="mr-2 h-4 w-4" />
                             Actions
                         </SubTrigger>
                         <SubContent>
                             {data.standaloneActions.map((a) => (
-                                <Item key={a.id} onSelect={() => callbacks.onRunAction(a)}>
+                                <Item
+                                    key={a.id}
+                                    disabled={!canRunAction(a, data.online)}
+                                    onSelect={() => callbacks.onRunAction(a)}>
                                     {a.name}
                                     <span className="text-muted-foreground ml-auto text-xs">
                                         {a.sessionType}

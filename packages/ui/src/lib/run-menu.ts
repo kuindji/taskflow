@@ -31,13 +31,27 @@ interface RunMenuCallbacks {
     onRunTabWithOptions?: (type: AgentType) => void;
 }
 
+/**
+ * A finished run stays in the store for its results panel; only a live run
+ * holds the owner, so only a live run hides the flows.
+ */
+function offersFlows(data: RunMenuData): boolean {
+    const status = data.activeFlowRun?.status;
+    return data.flows.length > 0 && status !== "running" && status !== "paused";
+}
+
+/** A shell action runs on the machine itself; only agents need the internet. */
+function canRunAction(action: ActionDefinition, online: boolean): boolean {
+    return online || action.sessionType === "shell";
+}
+
 function hasRunMenuItems(data: RunMenuData): boolean {
     const scriptNames = Object.keys(data.scripts);
     const hasClaudeAgent = isAgentAvailable(data.agents, "claude");
     return (
         scriptNames.length > 0 ||
         (data.agentCommands.length > 0 && hasClaudeAgent) ||
-        (data.flows.length > 0 && !data.activeFlowRun) ||
+        offersFlows(data) ||
         data.standaloneActions.length > 0 ||
         data.showAgentOptions
     );
@@ -84,7 +98,7 @@ function buildNativeRunMenuItems(
         }
     }
 
-    if (data.flows.length > 0 && !data.activeFlowRun) {
+    if (offersFlows(data)) {
         if (items.length > 0) items.push({ type: "separator" });
         items.push({
             type: "submenu",
@@ -104,23 +118,24 @@ function buildNativeRunMenuItems(
     }
 
     if (data.standaloneActions.length > 0) {
-        if ((scriptNames.length > 0 || data.agentCommands.length > 0) && data.flows.length === 0) {
+        if ((scriptNames.length > 0 || data.agentCommands.length > 0) && !offersFlows(data)) {
             items.push({ type: "separator" });
         }
+        const runnable = data.standaloneActions.filter((action) =>
+            canRunAction(action, data.online),
+        );
         items.push({
             type: "submenu",
             label: "Actions",
-            enabled: data.online,
+            enabled: runnable.length > 0,
             submenu: data.standaloneActions.map((action) => ({
                 id: `action:${action.id}`,
                 label: `${action.name} (${action.sessionType})`,
-                enabled: data.online,
+                enabled: canRunAction(action, data.online),
             })),
         });
-        if (data.online) {
-            for (const action of data.standaloneActions) {
-                actions[`action:${action.id}`] = () => callbacks.onRunAction(action);
-            }
+        for (const action of runnable) {
+            actions[`action:${action.id}`] = () => callbacks.onRunAction(action);
         }
     }
 
@@ -184,5 +199,5 @@ function buildNativeRunMenuItems(
     return { items, actions };
 }
 
-export { buildNativeRunMenuItems, hasRunMenuItems };
+export { buildNativeRunMenuItems, canRunAction, hasRunMenuItems, offersFlows };
 export type { RunMenuData, RunMenuCallbacks };
