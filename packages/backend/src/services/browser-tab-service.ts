@@ -232,9 +232,12 @@ function createBrowserTabService(deps: BrowserTabServiceDeps): BrowserTabService
             }
             requireHost();
             const tab = newTab(randomUUID(), input.scope, input.url, undefined, input.label);
-            await store.put(tab);
+            // Registered before the write, so owner cleanup during it closes this tab too.
             tabs.set(tab.id, tab);
             try {
+                await store.put(tab);
+                if (tabs.get(tab.id) !== tab)
+                    throw new BrowserTabNotFoundError("Browser tab not found");
                 await load(tab);
             } catch (error) {
                 tabs.delete(tab.id);

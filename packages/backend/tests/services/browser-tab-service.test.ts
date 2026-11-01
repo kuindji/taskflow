@@ -25,7 +25,9 @@ class RecordingStore extends BrowserTabStore {
     removed: string[] = [];
     failRemove = new Set<string>();
     failPut = false;
+    putGate: Promise<void> | null = null;
     override async put(tab: SavedBrowserTab): Promise<void> {
+        if (this.putGate) await this.putGate;
         if (this.failPut) throw new Error("store write failed");
         await super.put(tab);
     }
@@ -425,6 +427,21 @@ describe("BrowserTabService", () => {
         expect(host.closed.map((call) => call.tabId)).toEqual([...ids].reverse());
         await service.closeForOwner({ projectId: "project-1" });
         expect(service.list().tabs.map((tab) => tab.id)).toEqual([other.id, master.id]);
+    });
+    it("closeForOwner during an open's registry write cancels the open", async () => {
+        heartbeat();
+        let release = () => {};
+        store.putGate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const opening = open();
+        await service.closeForOwner({ taskId: "task-1" });
+        store.putGate = null;
+        release();
+        await rejectsAs(opening, BrowserTabNotFoundError, "Browser tab not found");
+        expect(host.ensured).toEqual([]);
+        expect(service.list().tabs).toEqual([]);
+        expect(await store.list()).toEqual([]);
     });
     it("ensureLoaded on an unloaded saved tab ensures it with its last url", async () => {
         await seed({ ...saved("root"), url: "https://example.com/last" });
