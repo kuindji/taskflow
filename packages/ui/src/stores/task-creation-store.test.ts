@@ -83,9 +83,19 @@ describe("task creation prefill", () => {
 
     it("does not leak the fields into a new subtask", () => {
         useTaskCreationStore.getState().requestNewTaskWithPrefill({ description: "Body." });
-        useTaskCreationStore.getState().requestNewSubtask("web-1");
+        useTaskCreationStore.getState().requestNewSubtask({ id: "web-1", projectId: "web" });
 
         expect(useTaskCreationStore.getState().prefill).toBeNull();
+    });
+
+    it("opens a subtask on its parent's project, not the selected one", () => {
+        useTaskCreationStore.getState().requestNewTask("web");
+        useTaskCreationStore.getState().setNewTaskOpen(false);
+        useTaskCreationStore.getState().requestNewSubtask({ id: "api-1", projectId: "api" });
+
+        const state = useTaskCreationStore.getState();
+        expect(state.parentTaskId).toBe("api-1");
+        expect(state.preferredProjectId).toBe("api");
     });
 });
 

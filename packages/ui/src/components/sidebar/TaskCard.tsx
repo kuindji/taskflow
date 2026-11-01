@@ -165,8 +165,8 @@ export function TaskCard({
     const description = !usingDescriptionAsTitle ? (task.description ?? null) : null;
 
     const openAddSubtask = useCallback(() => {
-        requestNewSubtask(task.id);
-    }, [requestNewSubtask, task.id]);
+        requestNewSubtask(task);
+    }, [requestNewSubtask, task]);
 
     const handleArchiveConfirm = useCallback(() => {
         void archiveTask(task);

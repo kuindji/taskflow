@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { AttributeLayer, TaskLogEntryType } from "@taskflow/shared";
 import { X } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
@@ -40,6 +40,24 @@ function formatLogTime(timestamp: string): string {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+/**
+ * A save that failed hands its fields back to the dirty set: the baseline
+ * returns to `previous` for each field still at the value that failed, so the
+ * next edit or the switch-away flush sends it again instead of treating the
+ * unsaved text as saved.
+ */
+function restoreFailedBaseline<T extends Record<string, string>>(
+    baseline: RefObject<T>,
+    previous: T,
+    attempted: T,
+): void {
+    const restored = { ...baseline.current };
+    for (const key of Object.keys(attempted) as (keyof T)[]) {
+        if (restored[key] === attempted[key]) restored[key] = previous[key];
+    }
+    baseline.current = restored;
 }
 
 function TaskInfoPanel() {
@@ -96,6 +114,9 @@ function TaskInfoPanel() {
     const projectDraftRef = useRef({ name: "", defaultInitCommand: "", prompt: "" });
     const taskId = task?.id ?? null;
     const projectId = workspace.scope === "project" ? (project?.id ?? null) : null;
+    // The record the baselines above describe, for saves that settle later.
+    const shownTaskIdRef = useRef(taskId);
+    const shownProjectIdRef = useRef(projectId);
 
     useEffect(() => {
         draftRef.current = {
@@ -127,13 +148,18 @@ function TaskInfoPanel() {
             }
             if (Object.keys(updates).length === 0) return;
 
-            lastSavedRef.current = { title, description, notes };
+            const previous = lastSavedRef.current;
+            const attempted = { title, description, notes };
+            lastSavedRef.current = attempted;
 
             // Looked up now: the unmount flush can outlive the record.
             const target = useTaskStore.getState().tasks.find((t) => t.id === targetTaskId);
             if (!target) return;
             void updateTask(target, updates).catch((err: unknown) => {
                 console.error("Failed to update task:", err);
+                if (shownTaskIdRef.current === targetTaskId) {
+                    restoreFailedBaseline(lastSavedRef, previous, attempted);
+                }
             });
         },
         [updateTask],
@@ -153,7 +179,9 @@ function TaskInfoPanel() {
             }
             if (Object.keys(updates).length === 0) return;
 
-            lastSavedProjectRef.current = { name, defaultInitCommand, prompt };
+            const previous = lastSavedProjectRef.current;
+            const attempted = { name, defaultInitCommand, prompt };
+            lastSavedProjectRef.current = attempted;
 
             const target = useProjectStore
                 .getState()
@@ -161,12 +189,16 @@ function TaskInfoPanel() {
             if (!target) return;
             void updateProject(target, updates).catch((err: unknown) => {
                 console.error("Failed to update project:", err);
+                if (shownProjectIdRef.current === targetProjectId) {
+                    restoreFailedBaseline(lastSavedProjectRef, previous, attempted);
+                }
             });
         },
         [updateProject],
     );
 
     useEffect(() => {
+        shownTaskIdRef.current = taskId;
         if (!task) {
             setTitleDraft("");
             setDescriptionDraft("");
@@ -187,6 +219,7 @@ function TaskInfoPanel() {
     }, [taskId]);
 
     useEffect(() => {
+        shownProjectIdRef.current = projectId;
         if (workspace.scope !== "project" || !project) {
             setProjectTitleDraft("");
             setProjectInitCommandDraft("");

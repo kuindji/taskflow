@@ -220,7 +220,7 @@ export function TaskHeader({ task, project, onDiff, onHistory }: TaskHeaderProps
 
     const handleAddSubtask = useCallback(() => {
         if (!task) return;
-        requestNewSubtask(task.id);
+        requestNewSubtask(task);
     }, [requestNewSubtask, task]);
 
     const handleCreateProjectTask = useCallback(() => {

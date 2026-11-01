@@ -55,7 +55,8 @@ interface TaskCreationStore {
     prefill: DroppedTask | null;
     requestNewTask(projectId?: string): void;
     requestNewTaskWithPrefill(prefill: DroppedTask, projectId?: string): void;
-    requestNewSubtask(parentTaskId: string): void;
+    /** A subtask's project is its parent's: the dialog's agents and options come from there. */
+    requestNewSubtask(parent: Pick<Task, "id" | "projectId">): void;
     openProjectDialog(thenOpenTask?: boolean): void;
     setNewTaskOpen(open: boolean): void;
     setNewProjectOpen(open: boolean): void;
@@ -95,14 +96,14 @@ export const useTaskCreationStore = create<TaskCreationStore>((set) => ({
     requestNewTaskWithPrefill(prefill, projectId) {
         set(taskRequest(prefill, projectId));
     },
-    requestNewSubtask(parentTaskId: string) {
+    requestNewSubtask(parent) {
         set({
             newTaskOpen: true,
-            parentTaskId,
+            parentTaskId: parent.id,
             newProjectOpen: false,
             openTaskAfterProject: false,
             projectError: null,
-            preferredProjectId: null,
+            preferredProjectId: parent.projectId,
             prefill: null,
         });
     },
