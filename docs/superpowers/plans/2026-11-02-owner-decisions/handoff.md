@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S7. S6 done (bf94a84c; Codex fix ad56e7b5 after one round).
+Next: S8. S7 done (ec16911f; Codex fix 469b04f1 after one round).
 
 ## Notes
 
@@ -37,6 +37,13 @@ Next: S7. S6 done (bf94a84c; Codex fix ad56e7b5 after one round).
   `backendBanner` in `shared/src/utils/backend-banner.ts`). The registry's
   `__setDiscoveredForTest` now runs the real discovery handler (seen, re-point).
 
+- S7: `SystemInfo.os` (backend `process.platform`) is kept on `MachineState.os`;
+  `backendPathFlavour(backendId)` in `terminal/terminal-links.ts` reads it, and
+  `lib/path-flavour.ts` holds the POSIX/Windows path helpers. On Windows the
+  backend's file tree lists nodes with forward slashes but the tree root keeps
+  the spelling the UI asked for (`C:\Repo`); `expandToPathAndLoad` now accepts
+  either. Other explorer code still compares with `"/"` and may trip on that.
+
 ## Owner checks
 
 - S1: in the desktop app, "Run now" on a disabled schedule starts a session
@@ -67,6 +74,12 @@ Next: S7. S6 done (bf94a84c; Codex fix ad56e7b5 after one round).
   old record and appears as its own menu entry. Also: with two instances on
   one remote, a record whose remembered port the other instance took
   reconnects to its own port instead of failing with "unauthorized".
+- S7 (not driven: needs a Windows backend): in a Windows session, terminal
+  output `C:\repo\src\a.ts:12`, `src\a.ts` and `app.ts` are links that open
+  the file (same tab as from the explorer); a directory link expands the
+  explorer. Dropping a file with a space or `'` on pwsh, cmd, bash and an
+  agent session types it quoted for that shell. A pre-S7 shell session has no
+  shell name recorded and gets cmd-style double quotes.
 - S6 decision consequence for the owner: neither connect dialog (UI, TUI)
   asks for an instance, so a manual connect defaults to `main`. A manual
   connect by explicit port to a `dev-*` backend is now refused on first

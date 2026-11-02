@@ -24,7 +24,7 @@ Status values: `todo`, `done (<commit>)`, `blocked (see handoff)`.
 | S4 | [Read-only archived task view in the UI](2026-11-02-owner-decisions/S4-archived-task-view.md) | A15 R4-1 | done (901451c0, 277d6d61) |
 | S5 | [Data folder change moves everything, then restarts](2026-11-02-owner-decisions/S5-data-folder-move.md) | A01 R1-2 | done (cd0841d6, b3d6dd75) |
 | S6 | [Remote machine identity: new IP and taken port](2026-11-02-owner-decisions/S6-remote-identity.md) | A10 R1-2, A10 R2-2 | done (bf94a84c, ad56e7b5) |
-| S7 | [Windows paths in terminal links](2026-11-02-owner-decisions/S7-windows-terminal-links.md) | A13 R3-3 | todo |
+| S7 | [Windows paths in terminal links](2026-11-02-owner-decisions/S7-windows-terminal-links.md) | A13 R3-3 | done (ec16911f, 469b04f1) |
 | S8 | [Reference-counted file watches in the UI](2026-11-02-owner-decisions/S8-file-watch-refcount.md) | A20 R4-1 | todo |
 | S9 | [Editor and checkbox writes that respect disk changes](2026-11-02-owner-decisions/S9-editor-disk-changes.md) | A18 R2-2, A20 R2-1 | todo |
 
