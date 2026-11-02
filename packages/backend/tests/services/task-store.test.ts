@@ -313,24 +313,6 @@ describe("TaskStore", () => {
             // tasks used to be destroyed; leave it for a human to inspect.
             expect(await readFile(taskFile, "utf-8")).toBe("{bad json");
         });
-
-        it("cleans expired archives", async () => {
-            const projectDir = await createProjectDir("test");
-            const project = await store.addProject({ name: "test", path: projectDir });
-            const task = await store.createTask({
-                projectId: project.id,
-                title: "Old",
-                description: "test",
-            });
-
-            const archived = await store.archiveTask(task.id);
-            const oldDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-            await store.updateArchived(archived.id, { archivedAt: oldDate });
-
-            await store.cleanExpiredArchives();
-            const remaining = await store.listArchived();
-            expect(remaining).toHaveLength(0);
-        });
     });
 
     describe("durable session recovery", () => {

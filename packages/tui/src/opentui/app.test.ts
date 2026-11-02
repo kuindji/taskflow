@@ -1614,7 +1614,7 @@ describe("OpenTuiApp", () => {
             test.mockInput.pressEnter();
             await settle();
             expect(frame()).toContain("Needle sub");
-            expect(frame()).toContain("Archived 2026-09-01 · purged after 30 days");
+            expect(frame()).toContain("Archived 2026-09-01");
             expect(frame()).toContain("stack = bun  (parent)");
 
             const before = net.requests.length;

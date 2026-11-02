@@ -17,7 +17,7 @@ interface TaskDetailDeps {
     project: Project | null;
     attributes: readonly ResolvedAttribute[];
     logs: readonly TaskLogEntry[];
-    /** An archived task: only navigation and close keys work, and the header says when it is purged. */
+    /** An archived task: only navigation and close keys work, and the header says when it was archived. */
     readOnly?: boolean;
     onEditDescription(): void;
     onEditNotes(): void;
@@ -279,7 +279,7 @@ class TaskDetail {
             true,
         );
         if (this.deps.readOnly) {
-            this.addLine(` Archived ${archivedDate(this.task.archivedAt)} · purged after 30 days`);
+            this.addLine(` Archived ${archivedDate(this.task.archivedAt)}`);
         }
         this.addLine(` Project: ${cleanMultiline(this.project?.name ?? this.task.projectId)}`);
         const worktree = this.task.worktree.enabled

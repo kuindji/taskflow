@@ -334,7 +334,7 @@ describe("TaskDetail", () => {
         expect(view.keyHints).not.toContain("Archive");
         await test.renderOnce();
         const frame = test.captureCharFrame();
-        expect(frame).toContain("Archived 2026-09-01 · purged after 30 days");
+        expect(frame).toContain("Archived 2026-09-01");
         expect(frame).not.toContain("New title");
 
         view.handleKey(key("escape", "\x1b"));

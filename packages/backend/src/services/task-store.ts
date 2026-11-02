@@ -8,12 +8,7 @@ import type {
     TaskLogEntryType,
     TaskWorktree,
 } from "@taskflow/shared";
-import {
-    ARCHIVE_EXPIRY_DAYS,
-    isAgentType,
-    orderProjectsByIds,
-    sortTasksByCreatedAtDesc,
-} from "@taskflow/shared";
+import { isAgentType, orderProjectsByIds, sortTasksByCreatedAtDesc } from "@taskflow/shared";
 import { appendFile, open, readFile, readdir, mkdir, realpath, rm, stat } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
@@ -1392,24 +1387,5 @@ export class TaskStore {
             const resolvedUpdates = typeof updates === "function" ? updates(task) : updates;
             await this.writeTask(this.archivePath(id), { ...task, ...resolvedUpdates });
         });
-    }
-
-    async cleanExpiredArchives(): Promise<number> {
-        const expiryMs = ARCHIVE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-        const now = Date.now();
-        let cleaned = 0;
-        const archived = await this.listArchived();
-        for (const task of archived) {
-            if (task.archivedAt) {
-                const archivedTime = new Date(task.archivedAt).getTime();
-                if (now - archivedTime > expiryMs) {
-                    await this.removeTaskRecord(this.archivePath(task.id), task.id);
-                    await this.deleteTaskSessionHistory(task.id);
-                    await this.deleteTaskLog(task.id);
-                    cleaned++;
-                }
-            }
-        }
-        return cleaned;
     }
 }
