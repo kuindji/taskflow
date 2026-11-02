@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Project, Task } from "@taskflow/shared";
@@ -10,19 +10,11 @@ import { useProjectStore } from "@/stores/project-store";
 import { resetBackend } from "@/stores/store-reset";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
-import type { SplitContainerProps } from "./SplitContainer";
+
+import { TaskSidebar } from "@/components/sidebar/TaskSidebar";
+import { Workspace } from "./Workspace";
 
 const BACKEND = "archived-task-view";
-
-// The pane tree stands in for a live workspace: it names the workspace it shows.
-void mock.module("./SplitContainer", () => ({
-    SplitContainer: (props: SplitContainerProps) => (
-        <div data-testid="live-workspace">{props.workspaceKey}</div>
-    ),
-}));
-
-const { Workspace } = await import("./Workspace");
-const { TaskSidebar } = await import("@/components/sidebar/TaskSidebar");
 
 const project: Scoped<Project> = {
     id: "p1",
@@ -162,6 +154,11 @@ function readOnlyView(): HTMLElement | null {
     return button ?? null;
 }
 
+/** Only a live workspace's header offers the file explorer. */
+function liveWorkspaceHeader(): Element | null {
+    return document.querySelector('[aria-label="Show file explorer"]');
+}
+
 function notesField(): HTMLTextAreaElement | null {
     return document.querySelector<HTMLTextAreaElement>("#archived-task-notes");
 }
@@ -170,7 +167,7 @@ function expectReadOnlyViewOf(t: Task) {
     expect(readOnlyView()).not.toBeNull();
     expect(notesField()?.value).toBe(t.notes);
     expect(notesField()?.readOnly).toBe(true);
-    expect(document.querySelector("[data-testid=live-workspace]")).toBeNull();
+    expect(liveWorkspaceHeader()).toBeNull();
     expect(document.body.textContent).not.toContain("Select a task or project");
 }
 
@@ -237,9 +234,8 @@ test("Unarchive opens the same task as a live workspace", async () => {
 
     expect(server?.received.some((r) => r.type === MSG.TASK_UNARCHIVE)).toBe(true);
     expect(readOnlyView()).toBeNull();
-    expect(document.querySelector("[data-testid=live-workspace]")?.textContent).toBe(
-        `task:${parent.id}`,
-    );
+    expect(liveWorkspaceHeader()).not.toBeNull();
+    expect(useTaskStore.getState().activeTaskId).toBe(parent.id);
 });
 
 test("an archived subtask of an archived parent inherits the parent's attributes", async () => {
