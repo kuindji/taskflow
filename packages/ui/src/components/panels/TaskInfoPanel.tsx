@@ -7,6 +7,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { isStaleReply, restoreFailedBaseline, trackSave } from "@/lib/draft-baseline";
 import { usePanelActivation } from "@/hooks/usePanelActivation";
+import { useInheritedAttributeLayers } from "@/hooks/useInheritedAttributeLayers";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ExpandableTextarea } from "@/components/ui/expandable-textarea";
@@ -91,21 +92,7 @@ function TaskInfoPanel() {
     const updateProject = useProjectStore((s) => s.updateProject);
     const toggleTaskInfo = useUIStore((s) => s.toggleTaskInfo);
     const allLogs = useTaskStore((s) => (task ? s.taskLogs[task.id] : undefined));
-    const parentTask = useTaskStore((s) =>
-        task?.parentId ? s.tasks.find((t) => t.id === task.parentId) : undefined,
-    );
-    const taskProject = useProjectStore((s) =>
-        task ? s.projects.find((p) => p.id === task.projectId) : undefined,
-    );
-    const inheritedLayers = useMemo<AttributeLayer[]>(() => {
-        const layers: AttributeLayer[] = [
-            { scope: "project", attributes: taskProject?.attributes ?? [] },
-        ];
-        if (task?.parentId) {
-            layers.push({ scope: "parent", attributes: parentTask?.attributes ?? [] });
-        }
-        return layers;
-    }, [parentTask, task?.parentId, taskProject]);
+    const inheritedLayers = useInheritedAttributeLayers(task);
     const editedFiles = useMemo(() => (allLogs ?? []).filter((e) => e.type === "file"), [allLogs]);
     const taskLogs = useMemo(() => {
         if (!allLogs) return undefined;

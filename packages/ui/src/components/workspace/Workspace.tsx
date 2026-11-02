@@ -8,11 +8,12 @@ import type {
 } from "@taskflow/shared";
 import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { useSessionStore } from "@/stores/session-store";
-import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
+import { useActiveArchivedTask, useActiveWorkspace } from "@/hooks/useActiveWorkspace";
 import { useTaskStore } from "@/stores/task-store";
 import { focusedPaneKey, useUIStore } from "@/stores/ui-store";
 import { sendRequest } from "@/lib/connection-registry";
 import { openHostedBrowserTab } from "@/lib/hosted-browser";
+import { ArchivedTaskView } from "./ArchivedTaskView";
 import { TaskHeader } from "./TaskHeader";
 import { SplitContainer } from "./SplitContainer";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
@@ -41,6 +42,7 @@ import { useWorkspaceTabOps } from "./hooks/useWorkspaceTabOps";
 export function Workspace() {
     const isElectron = useIsElectron();
     const workspace = useActiveWorkspace();
+    const archivedTask = useActiveArchivedTask();
     const createSession = useSessionStore((s) => s.createSession);
     const addTab = useSessionStore((s) => s.addTab);
     const updateTask = useTaskStore((s) => s.updateTask);
@@ -159,6 +161,8 @@ export function Workspace() {
         (workspace.scope !== "task" ||
             !workspace.task?.worktree.enabled ||
             !!workspace.task.worktree.path);
+
+    if (archivedTask) return <ArchivedTaskView task={archivedTask} />;
 
     if (!workspace.scope) {
         return (

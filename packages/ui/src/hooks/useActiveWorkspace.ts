@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useProjectStore } from "@/stores/project-store";
-import { useTaskStore } from "@/stores/task-store";
+import { selectedArchivedTask, useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { MSG } from "@taskflow/shared";
-import type { SessionOwnerRef, SystemInfoResponse } from "@taskflow/shared";
+import type { SessionOwnerRef, SystemInfoResponse, Task } from "@taskflow/shared";
+import type { Scoped } from "@/lib/backend-scope";
 import { getPrimary, onPrimaryChange, sendRequest } from "@/lib/connection-registry";
 import { createPerBackendCache } from "@/lib/per-backend-cache";
 
@@ -83,8 +84,16 @@ function useHomedir(backendId: string | null): string | null {
     return homedir;
 }
 
+/** The archived task selected in the sidebar, or null. */
+export function useActiveArchivedTask(): Scoped<Task> | null {
+    const masterWorkspaceActive = useUIStore((s) => s.masterWorkspaceActive);
+    const task = useTaskStore(selectedArchivedTask);
+    return masterWorkspaceActive ? null : task;
+}
+
 export function useActiveWorkspace() {
     const tasks = useTaskStore((s) => s.tasks);
+    const archivedTasks = useTaskStore((s) => s.archivedTasks);
     const projects = useProjectStore((s) => s.projects);
     const activeTaskId = useTaskStore((s) => s.activeTaskId);
     const activeProjectId = useUIStore((s) => s.activeProjectId);
@@ -103,6 +112,17 @@ export function useActiveWorkspace() {
                 workspaceKey: MASTER_WORKSPACE_KEY,
             };
         }
+
+        const empty = {
+            scope: null,
+            task: null,
+            project: null,
+            workingDir: null,
+            workspaceKey: null,
+        };
+
+        // An archived task has no workspace, not even its project's.
+        if (selectedArchivedTask({ activeTaskId, tasks, archivedTasks })) return empty;
 
         const task = activeTaskId
             ? (tasks.find((entry) => entry.id === activeTaskId) ?? null)
@@ -135,12 +155,14 @@ export function useActiveWorkspace() {
             };
         }
 
-        return {
-            scope: null,
-            task: null,
-            project: null,
-            workingDir: null,
-            workspaceKey: null,
-        };
-    }, [activeProjectId, activeTaskId, masterWorkspaceActive, homedir, projects, tasks]);
+        return empty;
+    }, [
+        activeProjectId,
+        activeTaskId,
+        archivedTasks,
+        masterWorkspaceActive,
+        homedir,
+        projects,
+        tasks,
+    ]);
 }

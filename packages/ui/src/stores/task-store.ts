@@ -50,6 +50,18 @@ interface TaskStore {
     appendLogEntry(taskId: string, entry: TaskLogEntry): void;
 }
 
+/**
+ * The selected task when only the archive holds it. It is shown read-only and
+ * is never a workspace: nothing may run in it or act on it.
+ */
+export function selectedArchivedTask(
+    state: Pick<TaskStore, "activeTaskId" | "tasks" | "archivedTasks">,
+): Scoped<Task> | null {
+    const { activeTaskId, tasks, archivedTasks } = state;
+    if (!activeTaskId || tasks.some((t) => t.id === activeTaskId)) return null;
+    return archivedTasks.find((t) => t.id === activeTaskId) ?? null;
+}
+
 const live = createSlices<Task>();
 const archived = createSlices<Task>();
 
@@ -130,7 +142,11 @@ export const useTaskStore = create<TaskStore>((set) => ({
     },
     setShowArchive(show) {
         set({ showArchive: show });
-        if (!show) return;
+        if (!show) {
+            // An archived task is selected only from the archive view.
+            if (selectedArchivedTask(useTaskStore.getState())) set({ activeTaskId: null });
+            return;
+        }
         // The archive view lists every machine the live list does.
         for (const backendId of live.backends()) {
             useTaskStore

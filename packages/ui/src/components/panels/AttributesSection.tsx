@@ -18,6 +18,8 @@ interface AttributesSectionProps {
     inheritedLayers: AttributeLayer[];
     /** Prefix for input ids, so task and project panels don't collide. */
     idPrefix: string;
+    /** Lists every resolved attribute, own ones included, with no editing controls. */
+    readOnly?: boolean;
 }
 
 type DraftField = "name" | "value";
@@ -35,6 +37,7 @@ function AttributesSection({
     attributes,
     inheritedLayers,
     idPrefix,
+    readOnly = false,
 }: AttributesSectionProps) {
     const [error, setError] = useState<string | null>(null);
     // A field with a draft is being edited; without one it renders the store
@@ -67,10 +70,17 @@ function AttributesSection({
 
     // Inherited rows shadowed by an own attribute must not be shown, so resolve
     // the full stack and keep only the entries the own list did not shadow.
-    const inherited = useMemo(() => {
-        const resolved = resolveAttributes([...inheritedLayers, { scope: ownScope, attributes }]);
-        return resolved.filter((a) => !attributes.some((own) => own.id === a.id));
-    }, [attributes, inheritedLayers, ownScope]);
+    const resolved = useMemo(
+        () => resolveAttributes([...inheritedLayers, { scope: ownScope, attributes }]),
+        [attributes, inheritedLayers, ownScope],
+    );
+    const inherited = useMemo(
+        () => resolved.filter((a) => !attributes.some((own) => own.id === a.id)),
+        [attributes, resolved],
+    );
+    // Read-only, own attributes are listed the way inherited ones are.
+    const listed = readOnly ? resolved : inherited;
+    const editable = readOnly ? [] : attributes;
 
     const setDraft = useCallback((attrId: string, field: DraftField, text: string) => {
         setDrafts((current) => ({
@@ -270,23 +280,25 @@ function AttributesSection({
         <div>
             <div className="flex items-center justify-between">
                 <span className="text-muted-foreground text-xs font-medium">Attributes</span>
-                <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={addAttribute}
-                    aria-label="Add attribute"
-                    tooltip="Add attribute"
-                    tooltipSide="bottom">
-                    <Plus className="h-3 w-3" />
-                </Button>
+                {!readOnly && (
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={addAttribute}
+                        aria-label="Add attribute"
+                        tooltip="Add attribute"
+                        tooltipSide="bottom">
+                        <Plus className="h-3 w-3" />
+                    </Button>
+                )}
             </div>
 
-            {inherited.length > 0 && (
+            {listed.length > 0 && (
                 <div className="mt-2 space-y-1">
-                    {inherited.map((attribute) => (
+                    {listed.map((attribute) => (
                         <div
                             key={attribute.id}
-                            className="flex items-center gap-2 text-xs opacity-70">
+                            className={`flex items-center gap-2 text-xs ${attribute.scope === ownScope ? "" : "opacity-70"}`}>
                             <span className="border-border text-muted-foreground shrink-0 rounded border px-1 py-0.5 text-[10px]">
                                 {scopeLabels[attribute.scope] ?? attribute.scope}
                             </span>
@@ -302,7 +314,7 @@ function AttributesSection({
             )}
 
             <div className="mt-2 space-y-1">
-                {attributes.map((attribute) => (
+                {editable.map((attribute) => (
                     <div key={attribute.id} className="flex items-center gap-1">
                         <Input
                             id={`${idPrefix}-attr-name-${attribute.id}`}
@@ -335,7 +347,7 @@ function AttributesSection({
                 ))}
             </div>
 
-            {attributes.length === 0 && inherited.length === 0 && (
+            {editable.length === 0 && listed.length === 0 && (
                 <p className="text-muted-foreground mt-1 text-xs">No attributes yet.</p>
             )}
 

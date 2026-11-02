@@ -272,13 +272,14 @@ export function TaskSidebar() {
 
     const handleTaskClick = useCallback(
         (taskId: string) => {
-            const task = tasks.find((entry) => entry.id === taskId);
+            // The rows shown: the archive's in the archive view, as keyboard selection uses.
+            const task = displayTasks.find((entry) => entry.id === taskId);
             setFocusedPanel("workspace");
             setActiveTask(taskId);
             setActiveProject(task?.projectId ?? null);
             setMasterWorkspaceActive(false);
         },
-        [setActiveProject, setActiveTask, setFocusedPanel, setMasterWorkspaceActive, tasks],
+        [displayTasks, setActiveProject, setActiveTask, setFocusedPanel, setMasterWorkspaceActive],
     );
 
     const handleProjectOpenChange = useCallback(
