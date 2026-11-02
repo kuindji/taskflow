@@ -1,6 +1,7 @@
 # Handoff
 
-Next: S9. S8 done (24e9cbec; Codex round found only the known mock leak).
+Next: none. All steps done; S9 finished the chain (221f48ef, f15f8737: Codex
+found three state bugs, all fixed with regression tests).
 
 ## Notes
 
@@ -55,6 +56,15 @@ Next: S9. S8 done (24e9cbec; Codex round found only the known mock leak).
   before S8 too; `MarkdownPaneImpl.file-watch.test.tsx` (real store) is one
   more of those. Judge by running files alone.
 
+- S9: `FILE_READ` returns `hash` (sha256 of the bytes, `FileDiskText`);
+  `FILE_WRITE` takes `expected` and answers `FileWriteResponse` (a typed
+  conflict, never a thrown error) and is serialized per path. The UI
+  `readFile` returns `{ content, hash }`; `writeFile` returns the response
+  and no longer awaits the git status refresh. Editor baseline and the
+  disk-change notice live per model in `editor-dirty-state.ts`;
+  `fileChangeCovers` (`lib/file-change.ts`) is the event-coverage test both
+  panes use. `test-monaco-fake.ts` is the shared Monaco fake for editor tests.
+
 ## Owner checks
 
 - S1: in the desktop app, "Run now" on a disabled schedule starts a session
@@ -92,10 +102,21 @@ Next: S9. S8 done (24e9cbec; Codex round found only the known mock leak).
   agent session types it quoted for that shell. A pre-S7 shell session has no
   shell name recorded and gets cmd-style double quotes.
 - S8: close the file explorer, open a markdown preview and a file in the
-  editor, and edit both files from a terminal: the preview re-renders (the
-  editor reload itself lands in S9). Reopening and closing the explorer
+  editor, and edit both files from a terminal: the preview re-renders and the
+  editor reloads. Reopening and closing the explorer
   keeps the preview updating. After a backend restart or reconnect, previews
   keep updating.
+- S9: with a file open and unedited in the editor, have an agent (or a
+  terminal) edit it: the buffer updates in place, cursor and scroll kept, and
+  Cmd+Z steps back to the old text. Type in it, then edit it from outside:
+  the bar "Changed on disk — Reload / Keep mine" appears (one bar for split
+  panes). Keep mine, then save: your text wins. Type, change the file from
+  outside before its event arrives (or ignore the bar) and save: "Not saved:
+  the file changed on disk — Reload / Overwrite". Saving your own edits never
+  raises the bar. In a markdown preview, tick a checkbox while an agent is
+  appending to the file: both the tick and the agent's lines survive. The
+  bar sits above the editor in normal flow (layout change: the pane is now a
+  flex column); check it does not clip the editor.
 - S6 decision consequence for the owner: neither connect dialog (UI, TUI)
   asks for an instance, so a manual connect defaults to `main`. A manual
   connect by explicit port to a `dev-*` backend is now refused on first
