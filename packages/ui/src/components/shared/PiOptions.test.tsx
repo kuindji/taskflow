@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PiModelsResponse, PiThinkingLevel } from "@taskflow/shared";
+import type { Inheritable } from "./launch-defaults";
 // @ts-expect-error React test environment flag
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -123,7 +124,7 @@ test("Pi missing metadata and a late backend reply cannot enable Xhigh", async (
         b = deferred();
     const load = (id: string) => (id === "a" ? a.promise : b.promise);
     const changed: string[] = [];
-    const callback = (v: PiThinkingLevel) => changed.push(v);
+    const callback = (v: Inheritable<PiThinkingLevel>) => changed.push(v);
     render(<PiOptions {...props} loadModels={load} onThinkingChange={callback} />);
     render(<PiOptions {...props} backendId="b" loadModels={load} onThinkingChange={callback} />);
     await act(async () => a.resolve(inventory(true)));
@@ -136,13 +137,13 @@ test("Pi model changes normalize thinking while preserving tools and custom inpu
     const changed: string[] = [];
     const tools: string[] = [];
     const load = async () => inventory(true);
-    const callback = (v: PiThinkingLevel) => changed.push(v);
+    const callback = (v: Inheritable<PiThinkingLevel>) => changed.push(v);
     render(
         <PiOptions
             {...props}
             loadModels={load}
             onThinkingChange={callback}
-            onToolsChange={(v) => tools.push(v)}
+            onToolsChange={(v) => tools.push(v ?? "")}
         />,
     );
     await flush();
@@ -152,17 +153,13 @@ test("Pi model changes normalize thinking while preserving tools and custom inpu
             modelValue="shorthand"
             loadModels={load}
             onThinkingChange={callback}
-            onToolsChange={(v) => tools.push(v)}
+            onToolsChange={(v) => tools.push(v ?? "")}
         />,
     );
     await flush();
     expect(changed).toEqual(["high"]);
     expect(tools).toEqual([]);
-    expect(
-        container.querySelector<HTMLInputElement>(
-            'input[placeholder="read,bash,edit,write,grep,find,ls"]',
-        )?.value,
-    ).toBe("read,bash");
+    expect(container.querySelector<HTMLInputElement>("input:not([role])")?.value).toBe("read,bash");
     expect(container.textContent).toContain("shorthand");
 });
 test("Pi discovery failure shows and emits high", async () => {

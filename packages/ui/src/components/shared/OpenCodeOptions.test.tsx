@@ -15,13 +15,14 @@ afterEach(() => {
     container?.remove();
 });
 
-test("each auto-approve label toggles its own switch when two editors are open", () => {
+test("each auto-approve label toggles its own Settings switch when two editors are open", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     const changes: string[] = [];
     const editor = (name: string) => (
         <OpenCodeOptions
+            mode="defaults"
             backendId={null}
             modelValue=""
             autoApprove={false}

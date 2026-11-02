@@ -1,5 +1,6 @@
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { useBackendStore } from "@/stores/backend-store";
+import { settingsSetter } from "@/components/shared/launch-defaults";
 
 interface OpenCodeSectionProps {
     defaultModel: string;
@@ -23,7 +24,7 @@ function OpenCodeSection({
             modelValue={defaultModel}
             autoApprove={autoApprove}
             onModelChange={onModelChange}
-            onAutoApproveChange={onAutoApproveChange}
+            onAutoApproveChange={settingsSetter(onAutoApproveChange)}
         />
     );
 }

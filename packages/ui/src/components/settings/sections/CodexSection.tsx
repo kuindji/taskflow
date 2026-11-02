@@ -1,6 +1,7 @@
 import { loadCodexDiscovery } from "@/lib/agent-discovery";
 import { CodexOptions } from "@/components/shared/CodexOptions";
 import { useBackendStore } from "@/stores/backend-store";
+import { settingsSetter } from "@/components/shared/launch-defaults";
 import type { CodexApprovalPolicy, CodexReasoningEffort, CodexSandboxMode } from "@taskflow/shared";
 
 interface CodexSectionProps {
@@ -50,11 +51,11 @@ function CodexSection({
             dangerouslyBypassApprovalsAndSandbox={dangerouslyBypassApprovalsAndSandbox}
             onModelChange={onModelChange}
             onReasoningEffortChange={onReasoningEffortChange}
-            onSandboxChange={onSandboxChange}
-            onApprovalPolicyChange={onApprovalPolicyChange}
-            onDangerouslyBypassApprovalsAndSandboxChange={
-                onDangerouslyBypassApprovalsAndSandboxChange
-            }
+            onSandboxChange={settingsSetter(onSandboxChange)}
+            onApprovalPolicyChange={settingsSetter(onApprovalPolicyChange)}
+            onDangerouslyBypassApprovalsAndSandboxChange={settingsSetter(
+                onDangerouslyBypassApprovalsAndSandboxChange,
+            )}
         />
     );
 }

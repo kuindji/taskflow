@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { AgentOptionsPanel } from "@/components/workspace/AgentOptionsPanel";
+import { launchDefaultLabel } from "@/components/shared/launch-defaults";
+import { useSettingsStore } from "@/stores/settings-store";
 import type { Scoped } from "@/lib/backend-scope";
 import {
     computeNextRunPreview,
@@ -75,6 +77,11 @@ function ScheduleForm({
 
     // A schedule runs on its project's machine, so only that machine's actions apply.
     const projectBackendId = projects.find((p) => p.id === projectId)?.backendId;
+    // A schedule without a type runs that machine's Settings default agent.
+    const defaultAgent = useSettingsStore(
+        (s) =>
+            (projectBackendId ? s.byBackend[projectBackendId] : s.settings)?.general.defaultAgent,
+    );
     const savedActionId = schedule?.actionId;
     const availableActions = useMemo(
         () => scheduleActionOptions(actions, projectId, projectBackendId, savedActionId),
@@ -323,7 +330,12 @@ function ScheduleForm({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="__default__">Default</SelectItem>
+                                <SelectItem value="__default__">
+                                    {launchDefaultLabel(
+                                        "Taskflow",
+                                        defaultAgent && AGENT_DISPLAY_NAMES[defaultAgent],
+                                    )}
+                                </SelectItem>
                                 {ALL_AGENT_TYPES.map((t) => (
                                     <SelectItem key={t} value={t}>
                                         {AGENT_DISPLAY_NAMES[t]}

@@ -183,14 +183,44 @@ test("agents without accounts build options with no account field", () => {
     expect(lastEmitted()).not.toHaveProperty("account");
 });
 
-test("session mode prefills Claude from the machine's session defaults", () => {
+test("session mode leaves unset fields out so launch-time Settings fill them", () => {
+    // Saved actions, flow steps and schedules store this payload: a Settings
+    // value copied in would outlive later Settings changes.
     settings.claude.defaultModel = "opus";
     settings.claude.permissionMode = "bypassPermissions";
     mountWith("claude", {});
-    const options = lastEmitted();
-    if (options.type !== "claude") throw new Error("expected claude options");
-    expect(options.model).toBe("opus");
-    expect(options.permissionMode).toBe("bypassPermissions");
+    const claude = lastEmitted();
+    if (claude.type !== "claude") throw new Error("expected claude options");
+    expect(claude.model).toBeUndefined();
+    expect(claude.permissionMode).toBeUndefined();
+    expect(claude.effort).toBeUndefined();
+    unmount();
+
+    settings.codex.defaultModel = "gpt-test";
+    settings.codex.sandbox = "danger-full-access";
+    settings.codex.dangerouslyBypassApprovalsAndSandbox = true;
+    mountWith("codex", {});
+    expect(lastEmitted()).toEqual({ type: "codex" });
+    unmount();
+
+    for (const agentType of ["opencode", "pi", "kimi"] as const) {
+        mountWith(agentType, {});
+        expect(JSON.parse(JSON.stringify(lastEmitted()))).toEqual({ type: agentType });
+        unmount();
+    }
+});
+
+test("stored fields load as chosen and stay explicit", () => {
+    settings.codex.sandbox = "danger-full-access";
+    mountWith("codex", {
+        value: { type: "codex", model: "gpt-saved", sandbox: "read-only", reasoningEffort: "low" },
+    });
+    expect(JSON.parse(JSON.stringify(lastEmitted()))).toEqual({
+        type: "codex",
+        model: "gpt-saved",
+        sandbox: "read-only",
+        reasoningEffort: "low",
+    });
 });
 
 test("headless mode ignores session defaults and omits session-only fields", () => {

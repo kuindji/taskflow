@@ -7,19 +7,23 @@ import {
 } from "@/components/ui/select";
 import { KimiModelSelect } from "@/components/settings/KimiModelSelect";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
-import type { KimiPermissionMode } from "@taskflow/shared";
+import type { KimiPermissionMode, KimiSettings } from "@taskflow/shared";
+import { launchDefaultLabel, type Inheritable } from "./launch-defaults";
 
 interface KimiOptionsProps {
     /** The machine the session runs on (settings: primary); lists its models. */
     backendId: string | null;
     modelValue: string;
-    permissionMode: KimiPermissionMode;
+    /** "default" (session mode only) leaves it unset for Settings to fill. */
+    permissionMode: Inheritable<KimiPermissionMode>;
     onModelChange: (value: string) => void;
-    onPermissionModeChange: (value: KimiPermissionMode) => void;
+    onPermissionModeChange: (value: Inheritable<KimiPermissionMode>) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
     /** One-shot headless run: hide fields that only matter to an interactive session. */
     headless?: boolean;
+    /** Session mode: the machine's Settings, which fill unset fields; null while loading. */
+    settings?: KimiSettings | null;
 }
 
 const LABELS = {
@@ -53,8 +57,11 @@ function KimiOptions({
     onPermissionModeChange,
     mode = "session",
     headless = false,
+    settings,
 }: KimiOptionsProps) {
     const l = LABELS[mode];
+    const sessionDefault = (text: string | null | undefined) =>
+        launchDefaultLabel("Kimi", headless ? null : text);
 
     return (
         <>
@@ -63,17 +70,35 @@ function KimiOptions({
                     backendId={backendId}
                     value={modelValue}
                     onChange={onModelChange}
+                    inheritedLabel={
+                        mode === "session"
+                            ? sessionDefault(settings ? settings.defaultModel || null : undefined)
+                            : undefined
+                    }
                 />
             </SettingRow>
             {!headless && (
                 <SettingRow label={l.permission} hint={l.permissionHint}>
                     <Select
                         value={permissionMode}
-                        onValueChange={(v) => onPermissionModeChange(v as KimiPermissionMode)}>
+                        onValueChange={(v) =>
+                            onPermissionModeChange(v as Inheritable<KimiPermissionMode>)
+                        }>
                         <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                            {mode === "session" && (
+                                <SelectItem value="default">
+                                    {sessionDefault(
+                                        settings
+                                            ? (PERMISSION_OPTIONS.find(
+                                                  (opt) => opt.value === settings.permissionMode,
+                                              )?.label ?? settings.permissionMode)
+                                            : undefined,
+                                    )}
+                                </SelectItem>
+                            )}
                             {PERMISSION_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
                                     {opt.label}

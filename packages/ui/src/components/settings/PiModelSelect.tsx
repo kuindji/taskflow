@@ -13,6 +13,8 @@ interface PiModelSelectProps {
     backendId: string | null;
     value: string;
     onChange: (model: string) => void;
+    /** Session pickers: label of the unset model, which Settings fills. */
+    inheritedLabel?: string;
     onModelsChange?: (response: PiModelsResponse) => void;
     loadModels?: typeof loadPiModels;
 }
@@ -27,6 +29,7 @@ function PiModelSelect({
     onChange,
     onModelsChange,
     loadModels = loadPiModels,
+    inheritedLabel,
 }: PiModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<PiModelInfo[] | null>(null);
@@ -118,7 +121,7 @@ function PiModelSelect({
         return (
             <SettingInput
                 value={value}
-                placeholder="e.g. anthropic/claude-sonnet-4.5"
+                placeholder={inheritedLabel ?? "e.g. anthropic/claude-sonnet-4.5"}
                 onChange={(e) => onChange(e.target.value)}
                 size="sm"
                 className="text-[13px]"
@@ -135,7 +138,7 @@ function PiModelSelect({
                         size="sm"
                         className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
-                            {displayLabel || "Select model..."}
+                            {displayLabel || inheritedLabel || "Select model..."}
                         </span>
                         <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                     </Button>
@@ -158,6 +161,7 @@ function PiModelSelect({
                         {models !== null && !search && (
                             <ModelDefaultOption
                                 agent="Pi"
+                                inheritedLabel={inheritedLabel}
                                 selected={!value}
                                 onSelect={() => handleSelect("")}
                             />

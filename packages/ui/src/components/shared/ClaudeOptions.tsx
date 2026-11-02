@@ -6,6 +6,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
+import type { ClaudeSettings } from "@taskflow/shared";
+import { capitalize, launchDefaultLabel } from "./launch-defaults";
 
 interface ClaudeOptionsProps {
     modelValue: string;
@@ -19,6 +21,36 @@ interface ClaudeOptionsProps {
     mode?: "defaults" | "session";
     /** One-shot headless run: hide fields that only matter to an interactive session. */
     headless?: boolean;
+    /** Session mode: the machine's Settings, which fill the "Default" choices; null while loading. */
+    settings?: ClaudeSettings | null;
+}
+
+const EFFORT_LABELS: Record<string, string> = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Extra High",
+    max: "Max",
+    ultracode: "Ultracode",
+};
+
+const PERMISSION_LABELS: Record<string, string> = {
+    manual: "Manual",
+    auto: "Auto",
+    acceptEdits: "Accept Edits",
+    bypassPermissions: "Bypass Permissions",
+    dontAsk: "Don't Ask",
+    plan: "Plan",
+};
+
+/** A Settings value as text; null when Settings leaves it to the CLI ("default"). */
+function settingText(
+    value: string | undefined,
+    labels?: Record<string, string>,
+): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === "default" || value === "") return null;
+    return labels?.[value] ?? capitalize(value);
 }
 
 const LABELS = {
@@ -50,8 +82,20 @@ function ClaudeOptions({
     onPermissionModeChange,
     mode = "session",
     headless = false,
+    settings,
 }: ClaudeOptionsProps) {
     const l = LABELS[mode];
+    // Session "Default" leaves the field unset: the machine's Settings fill it,
+    // except headless runs, where the CLI decides.
+    const sessionDefault = (value: string | undefined, labels?: Record<string, string>) =>
+        launchDefaultLabel("Claude", headless ? null : settingText(value, labels));
+    const modelDefault = mode === "defaults" ? "Default" : sessionDefault(settings?.defaultModel);
+    const effortDefault =
+        mode === "defaults" ? "Default" : sessionDefault(settings?.defaultEffort, EFFORT_LABELS);
+    const permissionDefault =
+        mode === "defaults"
+            ? "Inherit Claude Default"
+            : sessionDefault(settings?.permissionMode, PERMISSION_LABELS);
 
     return (
         <>
@@ -61,7 +105,7 @@ function ClaudeOptions({
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="default">{modelDefault}</SelectItem>
                         <SelectItem value="fable">Fable</SelectItem>
                         <SelectItem value="opus">Opus</SelectItem>
                         <SelectItem value="sonnet">Sonnet</SelectItem>
@@ -75,15 +119,19 @@ function ClaudeOptions({
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="xhigh">Extra High</SelectItem>
-                        <SelectItem value="max">Max</SelectItem>
-                        <SelectItem value="ultracode" disabled={!supportsUltracode}>
-                            Ultracode{supportsUltracode ? "" : " (requires Claude 2.1.203+)"}
-                        </SelectItem>
+                        <SelectItem value="default">{effortDefault}</SelectItem>
+                        {Object.entries(EFFORT_LABELS).map(([value, label]) =>
+                            value === "ultracode" ? (
+                                <SelectItem key={value} value={value} disabled={!supportsUltracode}>
+                                    {label}
+                                    {supportsUltracode ? "" : " (requires Claude 2.1.203+)"}
+                                </SelectItem>
+                            ) : (
+                                <SelectItem key={value} value={value}>
+                                    {label}
+                                </SelectItem>
+                            ),
+                        )}
                     </SelectContent>
                 </Select>
             </SettingRow>
@@ -94,13 +142,12 @@ function ClaudeOptions({
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="default">Inherit Claude Default</SelectItem>
-                            <SelectItem value="manual">Manual</SelectItem>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="acceptEdits">Accept Edits</SelectItem>
-                            <SelectItem value="bypassPermissions">Bypass Permissions</SelectItem>
-                            <SelectItem value="dontAsk">Don&apos;t Ask</SelectItem>
-                            <SelectItem value="plan">Plan</SelectItem>
+                            <SelectItem value="default">{permissionDefault}</SelectItem>
+                            {Object.entries(PERMISSION_LABELS).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                    {label}
+                                </SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </SettingRow>

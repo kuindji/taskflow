@@ -14,9 +14,16 @@ interface OpenCodeModelSelectProps {
     backendId: string | null;
     value: string;
     onChange: (model: string) => void;
+    /** Session pickers: label of the unset model, which Settings fills. */
+    inheritedLabel?: string;
 }
 
-function OpenCodeModelSelect({ backendId, value, onChange }: OpenCodeModelSelectProps) {
+function OpenCodeModelSelect({
+    backendId,
+    value,
+    onChange,
+    inheritedLabel,
+}: OpenCodeModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<OpenCodeModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
@@ -95,7 +102,7 @@ function OpenCodeModelSelect({ backendId, value, onChange }: OpenCodeModelSelect
         return (
             <SettingInput
                 value={value}
-                placeholder="e.g. anthropic/claude-sonnet-4-20250514"
+                placeholder={inheritedLabel ?? "e.g. anthropic/claude-sonnet-4-20250514"}
                 onChange={(e) => onChange(e.target.value)}
                 size="sm"
                 className="text-[13px]"
@@ -112,7 +119,7 @@ function OpenCodeModelSelect({ backendId, value, onChange }: OpenCodeModelSelect
                         size="sm"
                         className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
-                            {displayLabel || "Select model..."}
+                            {displayLabel || inheritedLabel || "Select model..."}
                         </span>
                         <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                     </Button>
@@ -135,6 +142,7 @@ function OpenCodeModelSelect({ backendId, value, onChange }: OpenCodeModelSelect
                         {models !== null && !search && (
                             <ModelDefaultOption
                                 agent="OpenCode"
+                                inheritedLabel={inheritedLabel}
                                 selected={!value}
                                 onSelect={() => handleSelect("")}
                             />

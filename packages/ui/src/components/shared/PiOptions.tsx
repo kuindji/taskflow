@@ -11,22 +11,27 @@ import {
 } from "@/components/ui/select";
 import { PiModelSelect } from "@/components/settings/PiModelSelect";
 import { SettingRow } from "@/components/settings/sections/SettingRow";
-import type { PiThinkingLevel } from "@taskflow/shared";
+import type { PiSettings, PiThinkingLevel } from "@taskflow/shared";
+import { capitalize, launchDefaultLabel, type Inheritable } from "./launch-defaults";
 
 interface PiOptionsProps {
     loadModels?: typeof loadPiModels;
     /** The machine the session runs on (settings: primary); lists its models. */
     backendId: string | null;
     modelValue: string;
-    thinkingValue: PiThinkingLevel;
-    toolsValue: string;
+    /** "default" (session mode only) leaves it unset for Settings to fill. */
+    thinkingValue: Inheritable<PiThinkingLevel>;
+    /** null (session mode only) leaves the tools unset for Settings to fill. */
+    toolsValue: string | null;
     onModelChange: (value: string) => void;
-    onThinkingChange: (value: PiThinkingLevel) => void;
-    onToolsChange: (value: string) => void;
+    onThinkingChange: (value: Inheritable<PiThinkingLevel>) => void;
+    onToolsChange: (value: string | null) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
     /** One-shot headless run: hide fields that only matter to an interactive session. */
     headless?: boolean;
+    /** Session mode: the machine's Settings, which fill unset fields; null while loading. */
+    settings?: PiSettings | null;
 }
 
 const LABELS = {
@@ -65,18 +70,35 @@ function PiOptionsContent({
     onToolsChange,
     mode = "session",
     headless = false,
+    settings,
 }: PiOptionsProps) {
     const l = LABELS[mode];
     const [inventory, setInventory] = useState<PiModelsResponse | null>(null);
-    const key = modelValue || inventory?.defaultModel;
+    // Session fields left unset launch with the machine's Settings.
+    const inheritsSettings = mode === "session" && !headless;
+    const sessionDefault = (text: string | null | undefined) =>
+        launchDefaultLabel("Pi", headless ? null : text);
+    const key =
+        modelValue || (inheritsSettings ? settings?.defaultModel : "") || inventory?.defaultModel;
     const supportsXhigh =
         inventory?.models.find((model) => `${model.provider}/${model.id}` === key)
             ?.supportsXhigh === true;
-    const effectiveThinking = normalizePiThinkingLevel(thinkingValue, supportsXhigh);
+    // An unset level is the backend's to normalize, against the model it launches.
+    const effectiveThinking =
+        thinkingValue === "default"
+            ? "default"
+            : normalizePiThinkingLevel(thinkingValue, supportsXhigh);
     useEffect(() => {
         if (inventory !== null && effectiveThinking !== thinkingValue)
             onThinkingChange(effectiveThinking);
     }, [inventory, effectiveThinking, thinkingValue, onThinkingChange]);
+    // Settings "off" and empty tools pass no flag, leaving the CLI's own default.
+    const settingsThinkingText = !settings
+        ? undefined
+        : settings.thinking === "off"
+          ? null
+          : capitalize(settings.thinking);
+    const toolsDefault = sessionDefault(settings ? settings.tools || null : undefined);
 
     return (
         <>
@@ -87,6 +109,11 @@ function PiOptionsContent({
                     onChange={onModelChange}
                     loadModels={loadModels}
                     onModelsChange={setInventory}
+                    inheritedLabel={
+                        mode === "session"
+                            ? sessionDefault(settings ? settings.defaultModel || null : undefined)
+                            : undefined
+                    }
                 />
             </SettingRow>
             <SettingRow label={l.thinking} hint={l.thinkingHint}>
@@ -94,19 +121,24 @@ function PiOptionsContent({
                     value={effectiveThinking}
                     onValueChange={(v) =>
                         onThinkingChange(
-                            normalizePiThinkingLevel(v as PiThinkingLevel, supportsXhigh),
+                            v === "default"
+                                ? "default"
+                                : normalizePiThinkingLevel(v as PiThinkingLevel, supportsXhigh),
                         )
                     }>
                     <SelectTrigger size="sm" className="w-[180px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                        {mode === "session" && (
+                            <SelectItem value="default">
+                                {sessionDefault(settingsThinkingText)}
+                            </SelectItem>
+                        )}
                         {THINKING_OPTIONS.filter((level) => level !== "xhigh" || supportsXhigh).map(
                             (level) => (
                                 <SelectItem key={level} value={level}>
-                                    {level === "off"
-                                        ? "Off"
-                                        : level.charAt(0).toUpperCase() + level.slice(1)}
+                                    {capitalize(level)}
                                 </SelectItem>
                             ),
                         )}
@@ -118,9 +150,16 @@ function PiOptionsContent({
                     <Input
                         size="sm"
                         className="text-[13px]"
-                        placeholder="read,bash,edit,write,grep,find,ls"
-                        value={toolsValue}
-                        onChange={(e) => onToolsChange(e.target.value)}
+                        placeholder={
+                            inheritsSettings ? toolsDefault : "read,bash,edit,write,grep,find,ls"
+                        }
+                        value={toolsValue ?? ""}
+                        // Clearing a session field hands it back to Settings.
+                        onChange={(e) =>
+                            onToolsChange(
+                                inheritsSettings && e.target.value === "" ? null : e.target.value,
+                            )
+                        }
                     />
                 </SettingRow>
             )}

@@ -5,6 +5,7 @@ import {
     type CodexModelInfo,
     type CodexReasoningEffort,
     type CodexSandboxMode,
+    type CodexSettings,
 } from "@taskflow/shared";
 import { loadCodexDiscovery } from "@/lib/agent-discovery";
 import { CodexModelSelect } from "@/components/settings/CodexModelSelect";
@@ -18,6 +19,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { capitalize, launchDefaultLabel, type Inheritable } from "./launch-defaults";
 
 interface CodexOptionsProps {
     /** The machine whose Codex CLI lists the models. */
@@ -27,19 +29,38 @@ interface CodexOptionsProps {
     discoveryKey?: string;
     loadDiscovery?: typeof loadCodexDiscovery;
     modelValue: string;
-    reasoningEffort: CodexReasoningEffort | "default";
-    sandbox: CodexSandboxMode;
-    approvalPolicy: CodexApprovalPolicy;
-    dangerouslyBypassApprovalsAndSandbox: boolean;
+    /** "default" leaves the field unset. Only session mode offers it for sandbox, approvals and bypass. */
+    reasoningEffort: Inheritable<CodexReasoningEffort>;
+    sandbox: Inheritable<CodexSandboxMode>;
+    approvalPolicy: Inheritable<CodexApprovalPolicy>;
+    dangerouslyBypassApprovalsAndSandbox: Inheritable<boolean>;
     onModelChange: (value: string) => void;
-    onReasoningEffortChange: (value: CodexReasoningEffort | "default") => void;
-    onSandboxChange: (value: CodexSandboxMode) => void;
-    onApprovalPolicyChange: (value: CodexApprovalPolicy) => void;
-    onDangerouslyBypassApprovalsAndSandboxChange: (value: boolean) => void;
+    onReasoningEffortChange: (value: Inheritable<CodexReasoningEffort>) => void;
+    onSandboxChange: (value: Inheritable<CodexSandboxMode>) => void;
+    onApprovalPolicyChange: (value: Inheritable<CodexApprovalPolicy>) => void;
+    onDangerouslyBypassApprovalsAndSandboxChange: (value: Inheritable<boolean>) => void;
     /** "defaults" shows "Default Model" etc. "session" shows "Model" etc. */
     mode?: "defaults" | "session";
     /** One-shot headless run: hide fields that only matter to an interactive session. */
     headless?: boolean;
+    /** Session mode: the machine's Settings, which fill unset fields; null while loading. */
+    settings?: CodexSettings | null;
+}
+
+const SANDBOX_LABELS: Record<CodexSandboxMode, string> = {
+    "read-only": "Read only",
+    "workspace-write": "Workspace write",
+    "danger-full-access": "Full access (dangerous)",
+};
+
+const APPROVAL_LABELS: Record<CodexApprovalPolicy, string> = {
+    untrusted: "Untrusted commands",
+    "on-request": "On request",
+    never: "Never",
+};
+
+function bypassLabel(enabled: boolean): string {
+    return enabled ? "YOLO enabled" : "Disabled";
 }
 
 const LABELS = {
@@ -68,10 +89,6 @@ const LABELS = {
         approvalPolicyHint: "When to ask for approval of commands",
     },
 };
-
-function capitalize(value: string): string {
-    return value.charAt(0).toUpperCase() + value.slice(1);
-}
 
 function CodexOptions(props: CodexOptionsProps) {
     return (
@@ -105,17 +122,45 @@ function CodexOptionsContext({
     onDangerouslyBypassApprovalsAndSandboxChange,
     mode = "session",
     headless = false,
+    settings,
 }: CodexOptionsProps) {
     const labels = LABELS[mode];
     const bypassId = useId();
     const [models, setModels] = useState<CodexModelInfo[]>([]);
-    const selectedModel = useMemo(
-        () =>
-            modelValue
-                ? models.find((model) => model.model === modelValue || model.id === modelValue)
+    // Session fields left at "default" launch with the machine's Settings.
+    // Headless runs ignore Settings; the Settings page itself has none above it.
+    const inheritsSettings = mode === "session" && !headless;
+    const inherited = inheritsSettings ? settings : null;
+    const findModel = useCallback(
+        (value: string) =>
+            value
+                ? models.find((model) => model.model === value || model.id === value)
                 : models.find((model) => model.isDefault),
-        [modelValue, models],
+        [models],
     );
+    const selectedModel = useMemo(
+        () => findModel(modelValue || (inherited?.defaultModel ?? "")),
+        [findModel, inherited?.defaultModel, modelValue],
+    );
+    const effectiveEffort =
+        reasoningEffort === "default"
+            ? (inherited?.defaultReasoningEffort ?? "default")
+            : reasoningEffort;
+    const effectiveBypass =
+        dangerouslyBypassApprovalsAndSandbox === "default"
+            ? (inherited?.dangerouslyBypassApprovalsAndSandbox ?? false)
+            : dangerouslyBypassApprovalsAndSandbox;
+    // Text of a Settings value for a session "Default" choice.
+    const sessionDefault = (text: string | null | undefined) =>
+        launchDefaultLabel("Codex", headless ? null : text);
+    const settingsModelText = !settings
+        ? undefined
+        : settings.defaultModel
+          ? (models.find(
+                (model) =>
+                    model.model === settings.defaultModel || model.id === settings.defaultModel,
+            )?.displayName ?? settings.defaultModel)
+          : null;
     const supportedReasoningEfforts = useMemo(() => {
         const supported = selectedModel?.supportedReasoningEfforts.map(
             (effort) => effort.reasoningEffort,
@@ -132,37 +177,41 @@ function CodexOptionsContext({
         [mode],
     );
 
+    // An inherited effort counts too: the launch would pass the Settings level.
     useEffect(() => {
         if (
-            reasoningEffort !== "default" &&
+            effectiveEffort !== "default" &&
             selectedModel &&
             !selectedModel.supportedReasoningEfforts.some(
-                (effort) => effort.reasoningEffort === reasoningEffort,
+                (effort) => effort.reasoningEffort === effectiveEffort,
             )
         ) {
             onReasoningEffortChange(fallbackEffort(selectedModel));
         }
-    }, [fallbackEffort, onReasoningEffortChange, reasoningEffort, selectedModel]);
+    }, [effectiveEffort, fallbackEffort, onReasoningEffortChange, selectedModel]);
 
     const handleModelChange = useCallback(
         (nextModel: string) => {
-            const model = nextModel
-                ? models.find(
-                      (candidate) => candidate.model === nextModel || candidate.id === nextModel,
-                  )
-                : models.find((candidate) => candidate.isDefault);
+            const model = findModel(nextModel || (inherited?.defaultModel ?? ""));
             if (
-                reasoningEffort !== "default" &&
+                effectiveEffort !== "default" &&
                 model &&
                 !model.supportedReasoningEfforts.some(
-                    (effort) => effort.reasoningEffort === reasoningEffort,
+                    (effort) => effort.reasoningEffort === effectiveEffort,
                 )
             ) {
                 onReasoningEffortChange(fallbackEffort(model));
             }
             onModelChange(nextModel);
         },
-        [fallbackEffort, models, onModelChange, onReasoningEffortChange, reasoningEffort],
+        [
+            effectiveEffort,
+            fallbackEffort,
+            findModel,
+            inherited?.defaultModel,
+            onModelChange,
+            onReasoningEffortChange,
+        ],
     );
 
     return (
@@ -178,6 +227,9 @@ function CodexOptionsContext({
                         value={modelValue}
                         onChange={handleModelChange}
                         onModelsChange={setModels}
+                        inheritedLabel={
+                            inheritsSettings ? sessionDefault(settingsModelText) : undefined
+                        }
                     />
                 </div>
             </SettingRow>
@@ -185,15 +237,22 @@ function CodexOptionsContext({
                 <Select
                     value={reasoningEffort}
                     onValueChange={(value) =>
-                        onReasoningEffortChange(value as CodexReasoningEffort | "default")
+                        onReasoningEffortChange(value as Inheritable<CodexReasoningEffort>)
                     }>
                     <SelectTrigger size="sm" className="w-[220px] text-[13px]">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="default">
-                            Model default
-                            {selectedModel ? ` (${selectedModel.defaultReasoningEffort})` : ""}
+                            {mode === "defaults"
+                                ? `Model default${selectedModel ? ` (${selectedModel.defaultReasoningEffort})` : ""}`
+                                : sessionDefault(
+                                      !settings
+                                          ? undefined
+                                          : settings.defaultReasoningEffort === "default"
+                                            ? null
+                                            : capitalize(settings.defaultReasoningEffort),
+                                  )}
                         </SelectItem>
                         {supportedReasoningEfforts.map((effort) => (
                             <SelectItem key={effort} value={effort}>
@@ -206,33 +265,71 @@ function CodexOptionsContext({
             {!headless && (
                 <>
                     <SettingRow label={labels.bypass} hint={labels.bypassHint} className="h-8">
-                        <div className="flex items-center gap-2.5">
-                            <Switch
-                                id={bypassId}
-                                checked={dangerouslyBypassApprovalsAndSandbox}
-                                onCheckedChange={onDangerouslyBypassApprovalsAndSandboxChange}
-                            />
-                            <Label
-                                htmlFor={bypassId}
-                                className={`${dangerouslyBypassApprovalsAndSandbox ? "text-destructive" : "text-muted-foreground"} cursor-pointer text-[13px] font-normal normal-case`}>
-                                {dangerouslyBypassApprovalsAndSandbox ? "YOLO enabled" : "Disabled"}
-                            </Label>
-                        </div>
+                        {inheritsSettings ? (
+                            <Select
+                                value={String(dangerouslyBypassApprovalsAndSandbox)}
+                                onValueChange={(value) =>
+                                    onDangerouslyBypassApprovalsAndSandboxChange(
+                                        value === "default" ? "default" : value === "true",
+                                    )
+                                }>
+                                <SelectTrigger
+                                    size="sm"
+                                    className={`w-[220px] text-[13px] ${effectiveBypass ? "text-destructive" : ""}`}>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="default">
+                                        {sessionDefault(
+                                            settings
+                                                ? bypassLabel(
+                                                      settings.dangerouslyBypassApprovalsAndSandbox,
+                                                  )
+                                                : undefined,
+                                        )}
+                                    </SelectItem>
+                                    <SelectItem value="true">{bypassLabel(true)}</SelectItem>
+                                    <SelectItem value="false">{bypassLabel(false)}</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        ) : (
+                            <div className="flex items-center gap-2.5">
+                                <Switch
+                                    id={bypassId}
+                                    checked={effectiveBypass}
+                                    onCheckedChange={onDangerouslyBypassApprovalsAndSandboxChange}
+                                />
+                                <Label
+                                    htmlFor={bypassId}
+                                    className={`${effectiveBypass ? "text-destructive" : "text-muted-foreground"} cursor-pointer text-[13px] font-normal normal-case`}>
+                                    {bypassLabel(effectiveBypass)}
+                                </Label>
+                            </div>
+                        )}
                     </SettingRow>
                     <SettingRow label={labels.sandbox} hint={labels.sandboxHint}>
                         <Select
                             value={sandbox}
-                            onValueChange={(value) => onSandboxChange(value as CodexSandboxMode)}
-                            disabled={dangerouslyBypassApprovalsAndSandbox}>
+                            onValueChange={(value) =>
+                                onSandboxChange(value as Inheritable<CodexSandboxMode>)
+                            }
+                            disabled={effectiveBypass}>
                             <SelectTrigger size="sm" className="w-[220px] text-[13px]">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="read-only">Read only</SelectItem>
-                                <SelectItem value="workspace-write">Workspace write</SelectItem>
-                                <SelectItem value="danger-full-access">
-                                    Full access (dangerous)
-                                </SelectItem>
+                                {inheritsSettings && (
+                                    <SelectItem value="default">
+                                        {sessionDefault(
+                                            settings ? SANDBOX_LABELS[settings.sandbox] : undefined,
+                                        )}
+                                    </SelectItem>
+                                )}
+                                {Object.entries(SANDBOX_LABELS).map(([value, label]) => (
+                                    <SelectItem key={value} value={value}>
+                                        {label}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </SettingRow>
@@ -240,16 +337,27 @@ function CodexOptionsContext({
                         <Select
                             value={approvalPolicy}
                             onValueChange={(value) =>
-                                onApprovalPolicyChange(value as CodexApprovalPolicy)
+                                onApprovalPolicyChange(value as Inheritable<CodexApprovalPolicy>)
                             }
-                            disabled={dangerouslyBypassApprovalsAndSandbox}>
+                            disabled={effectiveBypass}>
                             <SelectTrigger size="sm" className="w-[220px] text-[13px]">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="untrusted">Untrusted commands</SelectItem>
-                                <SelectItem value="on-request">On request</SelectItem>
-                                <SelectItem value="never">Never</SelectItem>
+                                {inheritsSettings && (
+                                    <SelectItem value="default">
+                                        {sessionDefault(
+                                            settings
+                                                ? APPROVAL_LABELS[settings.approvalPolicy]
+                                                : undefined,
+                                        )}
+                                    </SelectItem>
+                                )}
+                                {Object.entries(APPROVAL_LABELS).map(([value, label]) => (
+                                    <SelectItem key={value} value={value}>
+                                        {label}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </SettingRow>

@@ -26,11 +26,13 @@ import { KimiOptions } from "@/components/shared/KimiOptions";
 import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
+import type { Inheritable } from "@/components/shared/launch-defaults";
 
 interface AgentOptionsPanelProps {
     /**
-     * The machine that will run the agent, whose defaults prefill the options.
-     * Omitted where the options are saved rather than launched: primary's.
+     * The machine that will run the agent, whose Settings fill unset options
+     * and label them. Omitted where the options are saved rather than
+     * launched: primary's.
      */
     backendId?: string;
     projectId?: string;
@@ -41,8 +43,8 @@ interface AgentOptionsPanelProps {
     /**
      * One-shot text generation (built-in helpers). Hides and omits
      * session-only fields (permissions, sandbox, approvals, auto-approve,
-     * tools) and does not prefill from the machine's session defaults: an
-     * unset field means the agent CLI's own default.
+     * tools); an unset field means the agent CLI's own default, not the
+     * machine's Settings.
      */
     headless?: boolean;
     onRun?: (options: AgentLaunchOptions) => void;
@@ -78,101 +80,39 @@ function AgentOptionsPanel({
         settings?.codex.defaultAccount,
         projectAccount,
     ]);
-    // Headless runs don't use the machine's session defaults.
-    const defaults = headless ? null : settings;
-    const claudeSettings = defaults?.claude;
-    const codexSettings = defaults?.codex;
-    const opencodeSettings = defaults?.opencode;
-    const piSettings = defaults?.pi;
-    const kimiSettings = defaults?.kimi;
     const agents = useAgentAvailability(agentBackendId);
     const claudeVersion = agents.find((agent) => agent.type === "claude")?.version;
     const supportsClaudeUltracode = !claudeVersion || isVersionAtLeast(claudeVersion, [2, 1, 203]);
 
     // Normalized so stored legacy shapes (Claude's dangerouslySkipPermissions)
-    // prefill as the value the backend would launch with.
+    // load as the value the backend would launch with.
     const matchingValue = normalizeAgentOptions(agentType, value);
+    const claudeValue = matchingValue?.type === "claude" ? matchingValue : undefined;
+    const codexValue = matchingValue?.type === "codex" ? matchingValue : undefined;
+    const opencodeValue = matchingValue?.type === "opencode" ? matchingValue : undefined;
+    const piValue = matchingValue?.type === "pi" ? matchingValue : undefined;
+    const kimiValue = matchingValue?.type === "kimi" ? matchingValue : undefined;
 
-    // --- Claude-specific defaults ---
-    const defaultPermissionMode =
-        agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.permissionMode ?? claudeSettings?.permissionMode ?? "default")
-            : agentType === "claude"
-              ? (claudeSettings?.permissionMode ?? "default")
-              : "default";
-
-    const defaultEffort =
-        agentType === "claude" && matchingValue?.type === "claude"
-            ? (matchingValue.effort ?? claudeSettings?.defaultEffort ?? "default")
-            : agentType === "claude"
-              ? (claudeSettings?.defaultEffort ?? "default")
-              : "default";
-
-    // --- Codex-specific defaults ---
-    const defaultDangerouslyBypassApprovalsAndSandbox =
-        matchingValue?.type === "codex"
-            ? (matchingValue.dangerouslyBypassApprovalsAndSandbox ??
-              codexSettings?.dangerouslyBypassApprovalsAndSandbox ??
-              false)
-            : (codexSettings?.dangerouslyBypassApprovalsAndSandbox ?? false);
-    const defaultCodexReasoningEffort: CodexReasoningEffort | "default" =
-        matchingValue?.type === "codex"
-            ? (matchingValue.reasoningEffort ?? codexSettings?.defaultReasoningEffort ?? "default")
-            : (codexSettings?.defaultReasoningEffort ?? "default");
-    const defaultCodexSandbox: CodexSandboxMode =
-        matchingValue?.type === "codex"
-            ? (matchingValue.sandbox ?? codexSettings?.sandbox ?? "workspace-write")
-            : (codexSettings?.sandbox ?? "workspace-write");
-    const defaultApprovalPolicy: CodexApprovalPolicy =
-        matchingValue?.type === "codex"
-            ? (matchingValue.approvalPolicy ?? codexSettings?.approvalPolicy ?? "on-request")
-            : (codexSettings?.approvalPolicy ?? "on-request");
-
-    // --- OpenCode-specific defaults ---
-    const defaultOcAutoApprove =
-        matchingValue?.type === "opencode"
-            ? (matchingValue.autoApprove ?? opencodeSettings?.autoApprove ?? false)
-            : (opencodeSettings?.autoApprove ?? false);
-
-    // --- Pi-specific defaults ---
-    const defaultPiThinking: PiThinkingLevel =
-        matchingValue?.type === "pi"
-            ? (matchingValue.thinking ?? piSettings?.thinking ?? "off")
-            : (piSettings?.thinking ?? "off");
-    const defaultPiTools =
-        matchingValue?.type === "pi"
-            ? (matchingValue.tools ?? piSettings?.tools ?? "")
-            : (piSettings?.tools ?? "");
-
-    // --- Kimi-specific defaults ---
-    const defaultKimiPermissionMode: KimiPermissionMode =
-        matchingValue?.type === "kimi"
-            ? (matchingValue.permissionMode ?? kimiSettings?.permissionMode ?? "manual")
-            : (kimiSettings?.permissionMode ?? "manual");
-
-    // --- Model defaults (shared across agents) ---
-    const defaultModel =
-        agentType === "codex" && matchingValue?.type === "codex"
-            ? (matchingValue.model ?? codexSettings?.defaultModel ?? "")
-            : agentType === "claude" && matchingValue?.type === "claude"
-              ? (matchingValue.model ?? claudeSettings?.defaultModel ?? "default")
-              : agentType === "opencode" && matchingValue?.type === "opencode"
-                ? (matchingValue.model ?? opencodeSettings?.defaultModel ?? "")
-                : agentType === "pi" && matchingValue?.type === "pi"
-                  ? (matchingValue.model ?? piSettings?.defaultModel ?? "")
-                  : agentType === "kimi" && matchingValue?.type === "kimi"
-                    ? (matchingValue.model ?? kimiSettings?.defaultModel ?? "")
-                    : agentType === "codex"
-                      ? (codexSettings?.defaultModel ?? "")
-                      : agentType === "claude"
-                        ? (claudeSettings?.defaultModel ?? "default")
-                        : agentType === "opencode"
-                          ? (opencodeSettings?.defaultModel ?? "")
-                          : agentType === "pi"
-                            ? (piSettings?.defaultModel ?? "")
-                            : agentType === "kimi"
-                              ? (kimiSettings?.defaultModel ?? "")
-                              : "default";
+    // A stored field loads as chosen; an absent one as "default", which stays
+    // out of the payload so the backend fills it from the machine's Settings
+    // at launch time (the CLI's own default for headless runs). The controls
+    // label it with that Settings value.
+    const defaultPermissionMode = claudeValue?.permissionMode ?? "default";
+    const defaultEffort = claudeValue?.effort ?? "default";
+    const defaultDangerouslyBypassApprovalsAndSandbox: Inheritable<boolean> =
+        codexValue?.dangerouslyBypassApprovalsAndSandbox ?? "default";
+    const defaultCodexReasoningEffort: Inheritable<CodexReasoningEffort> =
+        codexValue?.reasoningEffort ?? "default";
+    const defaultCodexSandbox: Inheritable<CodexSandboxMode> = codexValue?.sandbox ?? "default";
+    const defaultApprovalPolicy: Inheritable<CodexApprovalPolicy> =
+        codexValue?.approvalPolicy ?? "default";
+    const defaultOcAutoApprove: Inheritable<boolean> = opencodeValue?.autoApprove ?? "default";
+    const defaultPiThinking: Inheritable<PiThinkingLevel> = piValue?.thinking ?? "default";
+    const defaultPiTools = piValue?.tools ?? null;
+    const defaultKimiPermissionMode: Inheritable<KimiPermissionMode> =
+        kimiValue?.permissionMode ?? "default";
+    // Claude's model picker spells "unset" as "default", the others as "".
+    const defaultModel = matchingValue?.model ?? (agentType === "claude" ? "default" : "");
 
     // --- Account (never prefilled from settings: absent means inherit) ---
     const defaultAccount =
@@ -191,18 +131,14 @@ function AgentOptionsPanel({
     const [effort, setEffort] = useState<string>(defaultEffort);
     const [dangerouslyBypassApprovalsAndSandbox, setDangerouslyBypassApprovalsAndSandbox] =
         useState(defaultDangerouslyBypassApprovalsAndSandbox);
-    const [codexReasoningEffort, setCodexReasoningEffort] = useState<
-        CodexReasoningEffort | "default"
-    >(defaultCodexReasoningEffort);
-    const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(defaultCodexSandbox);
-    const [approvalPolicy, setApprovalPolicy] =
-        useState<CodexApprovalPolicy>(defaultApprovalPolicy);
+    const [codexReasoningEffort, setCodexReasoningEffort] = useState(defaultCodexReasoningEffort);
+    const [codexSandbox, setCodexSandbox] = useState(defaultCodexSandbox);
+    const [approvalPolicy, setApprovalPolicy] = useState(defaultApprovalPolicy);
     const [ocAutoApprove, setOcAutoApprove] = useState(defaultOcAutoApprove);
     const [model, setModel] = useState<string>(defaultModel);
-    const [piThinking, setPiThinking] = useState<PiThinkingLevel>(defaultPiThinking);
-    const [piTools, setPiTools] = useState<string>(defaultPiTools);
-    const [kimiPermissionMode, setKimiPermissionMode] =
-        useState<KimiPermissionMode>(defaultKimiPermissionMode);
+    const [piThinking, setPiThinking] = useState(defaultPiThinking);
+    const [piTools, setPiTools] = useState(defaultPiTools);
+    const [kimiPermissionMode, setKimiPermissionMode] = useState(defaultKimiPermissionMode);
     const [account, setAccount] = useState<string>(defaultAccount);
 
     const isFirstRender = useRef(true);
@@ -271,12 +207,13 @@ function AgentOptionsPanel({
             type: "codex",
             model: model || undefined,
             reasoningEffort: codexReasoningEffort === "default" ? undefined : codexReasoningEffort,
-            sandbox: headless ? undefined : codexSandbox || undefined,
-            approvalPolicy: headless ? undefined : approvalPolicy || undefined,
-            // Explicit false: an omitted field falls back to the machine default.
-            dangerouslyBypassApprovalsAndSandbox: headless
-                ? undefined
-                : dangerouslyBypassApprovalsAndSandbox,
+            sandbox: headless || codexSandbox === "default" ? undefined : codexSandbox,
+            approvalPolicy: headless || approvalPolicy === "default" ? undefined : approvalPolicy,
+            // A chosen false stays explicit: omitted falls back to Settings.
+            dangerouslyBypassApprovalsAndSandbox:
+                headless || dangerouslyBypassApprovalsAndSandbox === "default"
+                    ? undefined
+                    : dangerouslyBypassApprovalsAndSandbox,
             account: account === INHERIT_AGENT_ACCOUNT ? undefined : account,
         }),
         [
@@ -294,7 +231,7 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "opencode",
             model: model || undefined,
-            autoApprove: headless ? undefined : ocAutoApprove,
+            autoApprove: headless || ocAutoApprove === "default" ? undefined : ocAutoApprove,
         }),
         [model, ocAutoApprove, headless],
     );
@@ -304,8 +241,11 @@ function AgentOptionsPanel({
             type: "pi",
             model: model || undefined,
             // Headless leaves "off" unset: an unset field means the CLI's own default.
-            thinking: headless && piThinking === "off" ? undefined : piThinking,
-            tools: headless ? undefined : piTools.trim(),
+            thinking:
+                piThinking === "default" || (headless && piThinking === "off")
+                    ? undefined
+                    : piThinking,
+            tools: headless || piTools === null ? undefined : piTools.trim(),
         }),
         [model, piThinking, piTools, headless],
     );
@@ -314,7 +254,8 @@ function AgentOptionsPanel({
         (): AgentLaunchOptions => ({
             type: "kimi",
             model: model || undefined,
-            permissionMode: headless ? undefined : kimiPermissionMode,
+            permissionMode:
+                headless || kimiPermissionMode === "default" ? undefined : kimiPermissionMode,
         }),
         [model, kimiPermissionMode, headless],
     );
@@ -360,6 +301,7 @@ function AgentOptionsPanel({
                 <>
                     <ClaudeOptions
                         headless={headless}
+                        settings={settings?.claude ?? null}
                         modelValue={model}
                         effortValue={effort}
                         permissionMode={permissionMode}
@@ -388,6 +330,7 @@ function AgentOptionsPanel({
                         discoveryKey={discoveryKey}
                         loadDiscovery={loadDiscovery}
                         headless={headless}
+                        settings={settings?.codex ?? null}
                         backendId={agentBackendId}
                         modelValue={model}
                         reasoningEffort={codexReasoningEffort}
@@ -416,6 +359,7 @@ function AgentOptionsPanel({
             ) : agentType === "opencode" ? (
                 <OpenCodeOptions
                     headless={headless}
+                    settings={settings?.opencode ?? null}
                     backendId={agentBackendId}
                     modelValue={model}
                     autoApprove={ocAutoApprove}
@@ -425,6 +369,7 @@ function AgentOptionsPanel({
             ) : agentType === "pi" ? (
                 <PiOptions
                     headless={headless}
+                    settings={settings?.pi ?? null}
                     backendId={agentBackendId}
                     modelValue={model}
                     thinkingValue={piThinking}
@@ -436,6 +381,7 @@ function AgentOptionsPanel({
             ) : agentType === "kimi" ? (
                 <KimiOptions
                     headless={headless}
+                    settings={settings?.kimi ?? null}
                     backendId={agentBackendId}
                     modelValue={model}
                     permissionMode={kimiPermissionMode}

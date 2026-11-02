@@ -4,10 +4,20 @@ interface ModelDefaultOptionProps {
     /** True when no model override is set. */
     selected: boolean;
     onSelect: () => void;
+    /** Session pickers: the Settings model an unset model launches with. */
+    inheritedLabel?: string;
 }
 
-/** The model picker row that clears the override so the agent CLI picks its own model. */
-function ModelDefaultOption({ agent, selected, onSelect }: ModelDefaultOptionProps) {
+/**
+ * The model picker row that clears the override: the agent CLI picks its own
+ * model, or in a session picker the machine's Settings model applies.
+ */
+function ModelDefaultOption({
+    agent,
+    selected,
+    onSelect,
+    inheritedLabel,
+}: ModelDefaultOptionProps) {
     return (
         <button
             type="button"
@@ -15,9 +25,9 @@ function ModelDefaultOption({ agent, selected, onSelect }: ModelDefaultOptionPro
                 selected ? "bg-accent text-accent-foreground" : ""
             }`}
             onClick={onSelect}>
-            <span>{agent} default</span>
+            <span>{inheritedLabel ?? `${agent} default`}</span>
             <span className="text-muted-foreground text-[11px]">
-                Follow the installed CLI default
+                {inheritedLabel ? "Follow the Settings model" : "Follow the installed CLI default"}
             </span>
         </button>
     );

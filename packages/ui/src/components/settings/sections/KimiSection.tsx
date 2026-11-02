@@ -1,5 +1,6 @@
 import { KimiOptions } from "@/components/shared/KimiOptions";
 import { useBackendStore } from "@/stores/backend-store";
+import { settingsSetter } from "@/components/shared/launch-defaults";
 import type { KimiPermissionMode } from "@taskflow/shared";
 
 interface KimiSectionProps {
@@ -24,7 +25,7 @@ function KimiSection({
             modelValue={defaultModel}
             permissionMode={permissionMode}
             onModelChange={onModelChange}
-            onPermissionModeChange={onPermissionModeChange}
+            onPermissionModeChange={settingsSetter(onPermissionModeChange)}
         />
     );
 }

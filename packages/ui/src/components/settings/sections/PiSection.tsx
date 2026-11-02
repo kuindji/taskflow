@@ -1,6 +1,7 @@
 import { loadPiModels } from "@/lib/agent-discovery";
 import { PiOptions } from "@/components/shared/PiOptions";
 import { useBackendStore } from "@/stores/backend-store";
+import { settingsSetter } from "@/components/shared/launch-defaults";
 import type { PiThinkingLevel } from "@taskflow/shared";
 
 interface PiSectionProps {
@@ -33,8 +34,8 @@ function PiSection({
             thinkingValue={thinking}
             toolsValue={tools}
             onModelChange={onModelChange}
-            onThinkingChange={onThinkingChange}
-            onToolsChange={onToolsChange}
+            onThinkingChange={settingsSetter(onThinkingChange)}
+            onToolsChange={(value) => onToolsChange(value ?? "")}
         />
     );
 }

@@ -19,6 +19,8 @@ interface CodexModelSelectProps {
     value: string;
     onChange: (model: string) => void;
     onModelsChange: (models: CodexModelInfo[]) => void;
+    /** Session pickers: label of the unset model, which Settings fills. */
+    inheritedLabel?: string;
 }
 
 function CodexModelSelect(props: CodexModelSelectProps) {
@@ -44,6 +46,7 @@ function CodexModelSelectContext({
     value,
     onChange,
     onModelsChange,
+    inheritedLabel,
 }: CodexModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<CodexModelInfo[] | null>(null);
@@ -122,6 +125,7 @@ function CodexModelSelectContext({
 
     const displayLabel = useMemo(() => {
         if (!value) {
+            if (inheritedLabel) return inheritedLabel;
             const defaultModel = models?.find((model) => model.isDefault);
             return defaultModel ? `Codex default (${defaultModel.displayName})` : "Codex default";
         }
@@ -129,13 +133,13 @@ function CodexModelSelectContext({
             models?.find((model) => model.model === value || model.id === value)?.displayName ??
             value
         );
-    }, [models, value]);
+    }, [inheritedLabel, models, value]);
 
     if (fetchFailed || (models !== null && models.length === 0)) {
         return (
             <SettingInput
                 value={value}
-                placeholder="Codex default"
+                placeholder={inheritedLabel ?? "Codex default"}
                 onChange={(event) => onChange(event.target.value)}
                 size="sm"
                 className="text-[13px]"
@@ -183,6 +187,7 @@ function CodexModelSelectContext({
                                 {!search && (
                                     <ModelDefaultOption
                                         agent="Codex"
+                                        inheritedLabel={inheritedLabel}
                                         selected={!value}
                                         onSelect={() => handleSelect("")}
                                     />

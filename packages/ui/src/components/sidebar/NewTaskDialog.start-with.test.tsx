@@ -209,7 +209,13 @@ describe("new task dialog start with", () => {
         render();
         await choose(picker("new-task-start-with"), "Claude Code");
         click(button("Agent Options"));
-        await choose(picker("Inherit Claude Default"), "Bypass Permissions");
+        // Model, effort and permission all start unset (no Settings loaded
+        // here); permission is the last.
+        const permission = [
+            ...document.body.querySelectorAll<HTMLElement>('[role="combobox"]'),
+        ].findLast((c) => c.textContent?.trim() === "Default (from Settings)");
+        if (!permission) throw new Error("no permission picker");
+        await choose(permission, "Bypass Permissions");
         click(button("Agent Options"));
         expect(() => picker("Bypass Permissions")).toThrow();
 

@@ -14,9 +14,11 @@ interface KimiModelSelectProps {
     backendId: string | null;
     value: string;
     onChange: (model: string) => void;
+    /** Session pickers: label of the unset model, which Settings fills. */
+    inheritedLabel?: string;
 }
 
-function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
+function KimiModelSelect({ backendId, value, onChange, inheritedLabel }: KimiModelSelectProps) {
     const [open, setOpen] = useState(false);
     const [models, setModels] = useState<KimiModelInfo[] | null>(null);
     const [search, setSearch] = useState("");
@@ -98,7 +100,7 @@ function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
         return (
             <SettingInput
                 value={value}
-                placeholder="e.g. kimi-code/k3"
+                placeholder={inheritedLabel ?? "e.g. kimi-code/k3"}
                 onChange={(e) => onChange(e.target.value)}
                 size="sm"
                 className="text-[13px]"
@@ -115,7 +117,7 @@ function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
                         size="sm"
                         className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
                         <span className="min-w-0 flex-1 truncate text-left">
-                            {displayLabel || "Select model..."}
+                            {displayLabel || inheritedLabel || "Select model..."}
                         </span>
                         <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
                     </Button>
@@ -138,6 +140,7 @@ function KimiModelSelect({ backendId, value, onChange }: KimiModelSelectProps) {
                         {models !== null && !search && (
                             <ModelDefaultOption
                                 agent="Kimi"
+                                inheritedLabel={inheritedLabel}
                                 selected={!value}
                                 onSelect={() => handleSelect("")}
                             />
