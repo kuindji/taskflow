@@ -12,7 +12,7 @@ import { mkdtemp, mkdir, readFile, rm, realpath, stat } from "fs/promises";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
-import type { PiModelsResponse, SessionRef } from "@taskflow/shared";
+import type { CodexModelsResponse, PiModelsResponse, SessionRef } from "@taskflow/shared";
 import { GitService } from "../../src/services/git-service";
 import { TrayStateTracker } from "../../src/services/tray-state-tracker";
 import { SettingsStore } from "../../src/services/settings-store";
@@ -123,6 +123,7 @@ describe("session handlers", () => {
     let discoveryHomes: Array<string | undefined>;
     let settingsStore: SettingsStore;
     let piInventory: PiModelsResponse;
+    let codexInventory: CodexModelsResponse;
     let piProbes: Array<{ env?: Record<string, string | undefined>; cwd?: string }>;
     let sessionLifecycle: ReturnType<typeof createSessionLifecycle>;
 
@@ -142,6 +143,7 @@ describe("session handlers", () => {
         events = [];
         discoveryHomes = [];
         piProbes = [];
+        codexInventory = { models: [], account: { state: "unknown" } };
         piInventory = {
             models: [
                 {
@@ -173,6 +175,7 @@ describe("session handlers", () => {
                 piProbes.push(context ?? {});
                 return piInventory;
             },
+            discoverCodexModels: async () => codexInventory,
             apiToken: "test-token",
             ptyManager: ptyManager as never,
             taskStore: store,
@@ -642,6 +645,33 @@ describe("session handlers", () => {
         const saved = { type: "codex" as const, model: "gpt-test" };
         await settingsStore.update({ codex: { defaultReasoningEffort: "xhigh" } });
         await router.handle(MSG.SESSION_CREATE, { projectId, type: "codex", agentOptions: saved });
+        expect(ptyManager.spawns.at(-1)?.args).toContain('model_reasoning_effort="xhigh"');
+
+        // ...unless the pinned model cannot run it: then the model's default.
+        codexInventory.models = [
+            {
+                id: "gpt-test",
+                model: "gpt-test",
+                displayName: "GPT test",
+                description: "",
+                hidden: false,
+                supportedReasoningEfforts: [
+                    { reasoningEffort: "low", description: "" },
+                    { reasoningEffort: "medium", description: "" },
+                ],
+                defaultReasoningEffort: "medium",
+                inputModalities: ["text"],
+                isDefault: false,
+            },
+        ];
+        await router.handle(MSG.SESSION_CREATE, { projectId, type: "codex", agentOptions: saved });
+        expect(ptyManager.spawns.at(-1)?.args).toContain('model_reasoning_effort="medium"');
+        // A pair the run chose whole is the user's call.
+        await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+            agentOptions: { ...saved, reasoningEffort: "xhigh" },
+        });
         expect(ptyManager.spawns.at(-1)?.args).toContain('model_reasoning_effort="xhigh"');
 
         await settingsStore.update({ codex: { defaultReasoningEffort: "low" } });

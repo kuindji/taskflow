@@ -75,7 +75,7 @@ function OpenCodeOptions({
                     value={modelValue}
                     onChange={onModelChange}
                     inheritedLabel={
-                        mode === "session"
+                        inheritsSettings
                             ? sessionDefault(settings ? settings.defaultModel || null : undefined)
                             : undefined
                     }

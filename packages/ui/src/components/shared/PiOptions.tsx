@@ -110,7 +110,7 @@ function PiOptionsContent({
                     loadModels={loadModels}
                     onModelsChange={setInventory}
                     inheritedLabel={
-                        mode === "session"
+                        inheritsSettings
                             ? sessionDefault(settings ? settings.defaultModel || null : undefined)
                             : undefined
                     }

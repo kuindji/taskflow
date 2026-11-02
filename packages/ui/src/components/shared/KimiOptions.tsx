@@ -71,7 +71,7 @@ function KimiOptions({
                     value={modelValue}
                     onChange={onModelChange}
                     inheritedLabel={
-                        mode === "session"
+                        mode === "session" && !headless
                             ? sessionDefault(settings ? settings.defaultModel || null : undefined)
                             : undefined
                     }

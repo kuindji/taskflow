@@ -23,7 +23,8 @@ import { mkdirSync } from "fs";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 import { normalizePiLaunchOptions } from "./pi-options";
-import type { fetchPiModels } from "./runtime-detector";
+import { normalizeCodexLaunchOptions } from "./codex-options";
+import type { fetchCodexModels, fetchPiModels } from "./runtime-detector";
 import { normalizeClaudeLaunchOptions } from "./claude-options";
 import {
     acquireNativeSessionLaunchLock,
@@ -90,6 +91,7 @@ function isAutonomousAgent(
 
 interface SessionLifecycleDeps {
     discoverPiModels?: typeof fetchPiModels;
+    discoverCodexModels?: typeof fetchCodexModels;
     apiToken: string;
     ptyManager: PtyManager;
     taskStore: TaskStore;
@@ -469,10 +471,9 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                 // Merge user-configured defaults under any explicit per-run options.
                 const settings = await settingsStore.get();
                 const defaultAgentOptions = settingsToAgentOptions(type, settings);
-                resolvedAgentOptions = mergeAgentOptions(
-                    defaultAgentOptions,
-                    resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined,
-                );
+                const explicitAgentOptions =
+                    resolvedAgentOptions?.type === type ? resolvedAgentOptions : undefined;
+                resolvedAgentOptions = mergeAgentOptions(defaultAgentOptions, explicitAgentOptions);
                 if (resolvedAgentOptions.type === "pi") {
                     resolvedAgentOptions = await normalizePiLaunchOptions(
                         resolvedAgentOptions,
@@ -481,6 +482,13 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                             cwd,
                         },
                         deps.discoverPiModels,
+                    );
+                } else if (resolvedAgentOptions.type === "codex") {
+                    resolvedAgentOptions = await normalizeCodexLaunchOptions(
+                        resolvedAgentOptions,
+                        explicitAgentOptions?.type === "codex" ? explicitAgentOptions : undefined,
+                        () => headlessAgentEnv("codex", resolvedAgentOptions, settings, project),
+                        deps.discoverCodexModels,
                     );
                 }
                 effectiveAgentOptions = resolvedAgentOptions;
