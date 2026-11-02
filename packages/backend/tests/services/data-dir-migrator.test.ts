@@ -150,6 +150,36 @@ describe("migrateDataDir", () => {
         },
     );
 
+    it.skipIf(process.platform === "win32")(
+        "places a read-only folder, which cannot be renamed into another parent",
+        async () => {
+            const from = join(root, "old");
+            const to = join(root, "new");
+            await seed(from);
+            await chmod(join(from, "themes"), 0o555);
+            let leftovers: string[] | undefined;
+            try {
+                leftovers = await migrateDataDir(from, to, async () => {});
+            } finally {
+                const staging = (await readdir(to)).filter((name) =>
+                    name.startsWith(".taskflow-migrating-"),
+                );
+                for (const dir of [
+                    join(to, "themes"),
+                    join(from, "themes"),
+                    ...staging.map((name) => join(to, name, "incoming", "themes")),
+                ]) {
+                    await chmod(dir, 0o755).catch(() => undefined);
+                }
+            }
+
+            await expectComplete(to);
+            // Its read-only source and staged copy cannot be deleted; both are reported.
+            expect(leftovers).toHaveLength(2);
+            expect(leftovers?.[0]).toBe(join(from, "themes"));
+        },
+    );
+
     it("puts the destination back when the commit fails", async () => {
         const from = join(root, "old");
         const to = join(root, "new");

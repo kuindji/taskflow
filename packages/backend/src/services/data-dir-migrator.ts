@@ -13,6 +13,7 @@ import {
 import { constants } from "fs";
 import { join } from "path";
 import { isPathInsideDirectory } from "./theme-service";
+import { isPermissionError } from "./write-file-atomic";
 
 /**
  * Everything the stores keep in the data directory (see `buildDataPaths` in
@@ -165,7 +166,7 @@ export async function migrateDataDir(
                 await rename(dest, join(replaced, item));
                 setAside.push(item);
             }
-            await rename(join(incoming, item), dest);
+            await placeItem(join(incoming, item), dest);
             placed.push(item);
         }
         await commit();
@@ -186,6 +187,21 @@ export async function migrateDataDir(
         }
     }
     return leftovers;
+}
+
+/**
+ * Renames a staged item into place. A read-only folder cannot be renamed into
+ * another parent, and macOS File Provider mounts can refuse renames while
+ * allowing writes, so a refused rename falls back to copying; the staged copy
+ * goes with the staging folder.
+ */
+async function placeItem(staged: string, dest: string): Promise<void> {
+    try {
+        await rename(staged, dest);
+    } catch (error) {
+        if (!isPermissionError(error)) throw error;
+        await cp(staged, dest, { recursive: true });
+    }
 }
 
 async function restoreDestination(

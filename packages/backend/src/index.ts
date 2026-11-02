@@ -678,9 +678,12 @@ async function main() {
         }
         // Dev instances share the task store; only one backend may finish a setup.
         if (config.instanceId === "main") {
-            worktreeSetup.resumePendingWorktrees().catch((error: unknown) => {
-                console.error("Failed to resume pending worktree setups:", error);
-            });
+            // Skipped once a data folder change has begun; the restart resumes them.
+            dataDirGate
+                .tryRun(() => worktreeSetup.resumePendingWorktrees())
+                ?.catch((error: unknown) => {
+                    console.error("Failed to resume pending worktree setups:", error);
+                });
         }
     } catch (error) {
         if (advertisedPort !== undefined) {
