@@ -92,3 +92,19 @@ it("keeps the launch as is when discovery fails or the model is unknown", async 
     );
     expect(unknown.options.reasoningEffort).toBe("xhigh");
 });
+
+it("stops a probe that outlives the launch budget", async () => {
+    let probeSignal: AbortSignal | undefined;
+    const options = await normalizeCodexLaunchOptions(
+        { type: "codex", model: "small", reasoningEffort: "xhigh" },
+        { type: "codex", model: "small" },
+        () => ({}),
+        (_env, _deps, signal) => {
+            probeSignal = signal;
+            return new Promise(() => {});
+        },
+        10,
+    );
+    expect(options.reasoningEffort).toBe("xhigh");
+    expect(probeSignal?.aborted).toBe(true);
+});

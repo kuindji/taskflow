@@ -22,7 +22,10 @@ async function normalizeCodexLaunchOptions(
     const pinsEffort = explicit?.reasoningEffort !== undefined;
     if (!effort || pinsModel === pinsEffort) return resolved;
 
-    const response = await discoverWithinBudget(async () => discover(env()), budgetMs);
+    const response = await discoverWithinBudget(
+        async (signal) => discover(env(), {}, signal),
+        budgetMs,
+    );
     const models = response?.models ?? [];
     const model = resolved.model
         ? models.find((m) => m.model === resolved.model || m.id === resolved.model)

@@ -355,6 +355,8 @@ function codexAccountStatus(result: unknown): CodexAccountStatus {
 export async function fetchCodexModels(
     env?: Record<string, string | undefined>,
     deps: ProbeDeps = {},
+    /** Ends the probe early, e.g. when a launch stops waiting for it. */
+    signal?: AbortSignal,
 ): Promise<CodexModelsResponse> {
     let account: CodexAccountStatus = { state: "unknown" };
     try {
@@ -406,6 +408,7 @@ export async function fetchCodexModels(
                 } while (cursor);
                 return [...models.values()].filter((model) => !model.hidden);
             },
+            { signal },
         );
         return { models, account };
     } catch {
