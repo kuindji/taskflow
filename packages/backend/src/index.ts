@@ -169,10 +169,17 @@ async function main() {
         let requestRestart = (): void => {
             process.exit(BACKEND_RESTART_EXIT_CODE);
         };
-        const server = createServer(router, config.port, apiRouter, cdpGateway, {
-            token: apiToken,
-            allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS),
-        });
+        const server = createServer(
+            router,
+            config.port,
+            apiRouter,
+            cdpGateway,
+            {
+                token: apiToken,
+                allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS),
+            },
+            { instanceId: config.instanceId, backendUid: config.backendUid },
+        );
         const changeTracker = new ChangeTracker(gitService, server.broadcast);
         const wikiIndex = new WikiIndexService({
             onChange: (data) => server.broadcast({ type: MSG.WIKI_INDEX_CHANGED, payload: data }),

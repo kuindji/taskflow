@@ -13,6 +13,7 @@ const BunWebSocket = WebSocket as typeof WebSocket & {
 };
 
 const T = "A".repeat(43);
+const IDENTITY = { instanceId: "main", backendUid: "uid123" };
 function testAuth(): AuthContext {
     return {
         token: T,
@@ -36,7 +37,7 @@ async function startTestServer(auth = testAuth()): Promise<{
 }> {
     const router = new Router();
     router.register("ping", () => Promise.resolve({ ok: true }));
-    const server = createServer(router, 0, undefined, undefined, auth);
+    const server = createServer(router, 0, undefined, undefined, auth, IDENTITY);
     const started = await server.start();
     stop = started.stop;
     return { port: started.port, clientCount: server.clientCount };
@@ -140,7 +141,7 @@ describe("createServer", () => {
             held.add(ctx.clientId);
             return { ok: true };
         });
-        const server = createServer(router, 0, undefined, undefined, testAuth());
+        const server = createServer(router, 0, undefined, undefined, testAuth(), IDENTITY);
         server.onDisconnect((clientId) => held.delete(clientId));
         const started = await server.start();
         stop = started.stop;
@@ -162,7 +163,7 @@ describe("createServer", () => {
         // wildcard or LAN address has to fail the bind rather than open the socket.
         process.env.TASKFLOW_HOST = "0.0.0.0";
         const router = new Router();
-        const server = createServer(router, 0, undefined, undefined, testAuth());
+        const server = createServer(router, 0, undefined, undefined, testAuth(), IDENTITY);
 
         let message: string | null = null;
         try {
@@ -221,15 +222,15 @@ describe("request authentication", () => {
         const ws = await connect(port, { headers: { Authorization: `Bearer ${T}` } });
         ws.close();
     });
-    test("GET / answers Taskflow backend with no credential", async () => {
+    test("GET / names the instance and uid with no credential", async () => {
         const { port } = await startTestServer(testAuth());
         const res = await fetch(`http://127.0.0.1:${port}/`);
-        expect(await res.text()).toBe("Taskflow backend");
+        expect(await res.text()).toBe("Taskflow backend main uid123");
     });
     test("an upgrade without a credential closes with 4401 unauthorized and never counts as a client", async () => {
         let connects = 0;
         let disconnects = 0;
-        const server = createServer(new Router(), 0, undefined, undefined, testAuth());
+        const server = createServer(new Router(), 0, undefined, undefined, testAuth(), IDENTITY);
         server.onConnect(() => connects++);
         server.onDisconnect(() => disconnects++);
         const started = await server.start();
@@ -274,7 +275,7 @@ describe("request authentication", () => {
             calls.push(payload);
             return {};
         });
-        const server = createServer(router, 0, undefined, undefined, testAuth());
+        const server = createServer(router, 0, undefined, undefined, testAuth(), IDENTITY);
         const started = await server.start();
         stop = started.stop;
         const received = await new Promise<Buffer>((resolve) => {
@@ -326,7 +327,7 @@ describe("request authentication", () => {
             calls.push(payload);
             return {};
         });
-        const server = createServer(router, 0, undefined, undefined, testAuth());
+        const server = createServer(router, 0, undefined, undefined, testAuth(), IDENTITY);
         const started = await server.start();
         stop = started.stop;
         const { closed } = await rejectedSocket(started.port, undefined, true);
@@ -372,7 +373,7 @@ describe("request authentication", () => {
     test("the token query is accepted on GET /api/file/raw", async () => {
         const apiRouter = new ApiRouter();
         apiRouter.register("GET", "/api/file/raw", async () => new Response("raw file"));
-        const server = createServer(new Router(), 0, apiRouter, undefined, testAuth());
+        const server = createServer(new Router(), 0, apiRouter, undefined, testAuth(), IDENTITY);
         const started = await server.start();
         stop = started.stop;
         const res = await fetch(`http://127.0.0.1:${started.port}/api/file/raw?token=${T}`);
@@ -436,7 +437,7 @@ async function startRouteServer() {
         versionJson: async () => ({}),
         listJson: async () => [],
     };
-    const server = createServer(new Router(), 0, apiRouter, gateway, testAuth());
+    const server = createServer(new Router(), 0, apiRouter, gateway, testAuth(), IDENTITY);
     const started = await server.start();
     stop = started.stop;
     return { port: started.port, calls, openedTabs, clientCount: server.clientCount };
@@ -474,7 +475,7 @@ describe("authentication across route groups", () => {
         await cdp.text();
         const unknown = await fetch(`http://127.0.0.1:${port}/nothing-here`, { headers });
         expect(unknown.status).toBe(200);
-        expect(await unknown.text()).toBe("Taskflow backend");
+        expect(await unknown.text()).toBe("Taskflow backend main uid123");
         expect(calls).toEqual([]);
     });
 

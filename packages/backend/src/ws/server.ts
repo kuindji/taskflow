@@ -1,12 +1,19 @@
 import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "crypto";
 import {
+    backendBanner,
     MSG,
     resolveBackendHost,
     TASK_DELETE_TIMEOUT_MS,
     WS_CLOSE_UNAUTHORIZED,
 } from "@taskflow/shared";
-import type { WsRequest, WsResponse, WsEvent, SystemClientsEvent } from "@taskflow/shared";
+import type {
+    BeaconAnnounce,
+    WsRequest,
+    WsResponse,
+    WsEvent,
+    SystemClientsEvent,
+} from "@taskflow/shared";
 import type { ApiRouter } from "../api/router";
 import { Router } from "./router";
 import { errorResponse } from "../api/routes/response-helpers";
@@ -27,6 +34,9 @@ export function createServer(
     apiRouter: ApiRouter | undefined,
     cdpGateway: CdpGateway | undefined,
     auth: AuthContext,
+    /** Named in the anonymous `GET /` answer, so a client's readiness probe can
+     *  tell this backend from another instance on a port it remembered. */
+    identity: Pick<BeaconAnnounce, "instanceId" | "backendUid">,
 ): {
     start(): Promise<{ port: number; stop(): void }>;
     broadcast(event: WsEvent, opts?: BroadcastOptions): void;
@@ -69,6 +79,8 @@ export function createServer(
         broadcast({ type: MSG.SYSTEM_CLIENTS, payload });
     }
 
+    const banner = backendBanner(identity);
+
     async function start() {
         server = Bun.serve({
             port,
@@ -82,8 +94,7 @@ export function createServer(
                     else if (!isUpgradeRequest(req)) return errorResponse("Unauthorized", 401);
                     else unauthorized = true;
                 }
-                if (verdict.ok && verdict.anonymous)
-                    return new Response("Taskflow backend", { status: 200 });
+                if (verdict.ok && verdict.anonymous) return new Response(banner, { status: 200 });
                 if (isUpgradeRequest(req) && offersUnansweredToken(req))
                     return errorResponse("Unauthorized", 401);
                 if (unauthorized) {
@@ -134,7 +145,7 @@ export function createServer(
                     const response = await apiRouter.handle(req);
                     if (response) return response;
                 }
-                return new Response("Taskflow backend", { status: 200 });
+                return new Response(banner, { status: 200 });
             },
             websocket: {
                 backpressureLimit: 2 * 1024 * 1024, // 2 MB

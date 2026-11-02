@@ -4,14 +4,18 @@ import { appendFile, chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promise
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { isSafeLabel } from "../discovery";
+import { readBackendBanner } from "../utils/backend-banner";
 import type { BackendRecord, TunnelFailure } from "../types/backend";
 import {
+    aliasKeyLines,
     buildHostKeyScanArgs,
+    buildMovedHostProbeArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
     buildRemoteReadArgs,
     KNOWN_HOSTS_FILE,
     knownHostsKey,
+    movedKeyLines,
 } from "./tunnel-args";
 
 interface ActiveTunnel {
@@ -66,33 +70,42 @@ function allocateLocalPort(): Promise<number> {
 
 /**
  * `ssh -L` accepts connections whether or not anything is listening on the far
- * side, so a TCP connect proves nothing. The backend answers `GET /` with
- * "Taskflow backend" (`packages/backend/src/ws/server.ts` — `/` falls past the
- * API router to exactly that string), and the body is what gets checked. A
- * status check alone is not enough: the port being forwarded to can be a
- * *stale* one — a remembered port the remote machine may have handed to
- * something else since — and any HTTP server answering 200 there would pass.
- * The failure then resurfaces much later, as an unexplained WebSocket error.
+ * side, so a TCP connect proves nothing. The backend answers `GET /` with its
+ * banner (`backendBanner`, `packages/backend/src/ws/server.ts`), and the body
+ * is what gets checked. A status check alone is not enough: the port being
+ * forwarded to can be a *stale* one — a remembered port the remote machine may
+ * have handed to something else since — and any HTTP server answering 200
+ * there would pass. The failure then resurfaces much later, as an unexplained
+ * WebSocket error.
+ *
+ * The banner names the instance, so another Taskflow instance that took the
+ * remembered port answers `"other"` and the open fails at once: the registry
+ * moves on to its next candidate port instead of attaching the record to a
+ * backend whose token it does not hold.
  *
  * `stopped` ends the wait early once the open was closed or the app is
  * quitting, so nobody waits out the timeout on a child that was killed.
  */
-async function waitForBackend(localPort: number, stopped: () => boolean): Promise<boolean> {
+async function waitForBackend(
+    localPort: number,
+    expected: BackendRecord,
+    stopped: () => boolean,
+): Promise<"ready" | "other" | "not-ready"> {
     const deadline = Date.now() + READINESS_TIMEOUT_MS;
     while (Date.now() < deadline && !stopped()) {
         try {
             const response = await fetch(`http://127.0.0.1:${localPort}/`, {
                 signal: AbortSignal.timeout(1_000),
             });
-            if (response.ok && (await response.text()).startsWith("Taskflow backend")) {
-                return true;
-            }
+            const banner = response.ok ? readBackendBanner(await response.text(), expected) : null;
+            if (banner === "match") return "ready";
+            if (banner === "other") return "other";
         } catch {
             // Not up yet.
         }
         await delay(200);
     }
-    return false;
+    return "not-ready";
 }
 
 function runSsh(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
@@ -245,18 +258,22 @@ interface ScannedHostKey {
     sshPort: number;
 }
 
-/**
- * The scan files each key under the alias, but a user config with
- * `HashKnownHosts yes` writes that first field hashed, and every connection
- * looks the key up under the plain `HostKeyAlias`. So the first field of each
- * key line is replaced by the alias. Comment lines are dropped.
- */
-function aliasKeyLines(material: string, alias: string): string[] {
-    return material
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith("#"))
-        .map((line) => [alias, ...line.split(/\s+/).slice(1)].join(" "));
+async function readKnownHosts(): Promise<string> {
+    try {
+        return await readFile(KNOWN_HOSTS_FILE, "utf-8");
+    } catch {
+        // File does not exist yet.
+        return "";
+    }
+}
+
+/** `existing` is the file as just read, so a line is never glued onto an
+ *  unterminated last one. */
+async function appendKnownHosts(existing: string, lines: string[]): Promise<void> {
+    await mkdir(dirname(KNOWN_HOSTS_FILE), { recursive: true, mode: 0o700 });
+    const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    await appendFile(KNOWN_HOSTS_FILE, `${prefix}${lines.join("\n")}\n`, { mode: 0o600 });
+    await chmod(KNOWN_HOSTS_FILE, 0o600);
 }
 
 /**
@@ -408,8 +425,8 @@ function createTunnelManager() {
                 resolve(failure);
             });
         });
-        const ready = waitForBackend(localPort, () => isStopped(ctx)).then((ok) =>
-            ok ? null : "not-ready",
+        const ready = waitForBackend(localPort, record, () => isStopped(ctx)).then((answer) =>
+            answer === "ready" ? null : answer,
         );
 
         const outcome = await Promise.race([exited, ready]);
@@ -432,6 +449,16 @@ function createTunnelManager() {
 
         deregister();
         child.kill();
+        if (outcome === "other") {
+            return {
+                ok: false,
+                failure: {
+                    kind: "no-backend",
+                    message: `Another Taskflow instance answers on port ${backendPort} of ${record.displayName}.`,
+                    stderr: readStderr(),
+                },
+            };
+        }
         if (outcome === "not-ready") {
             return {
                 ok: false,
@@ -621,19 +648,33 @@ function createTunnelManager() {
             throw new Error(`No host key returned by ${record.host}`);
         }
 
-        await mkdir(dirname(KNOWN_HOSTS_FILE), { recursive: true, mode: 0o700 });
-        let existing = "";
-        try {
-            existing = await readFile(KNOWN_HOSTS_FILE, "utf-8");
-        } catch {
-            // File does not exist yet.
-        }
-        const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-        await appendFile(KNOWN_HOSTS_FILE, `${prefix}${lines.join("\n")}\n`, { mode: 0o600 });
-        await chmod(KNOWN_HOSTS_FILE, 0o600);
+        await appendKnownHosts(await readKnownHosts(), lines);
+    }
+
+    /**
+     * A saved machine's beacon now comes from `address`. Re-pointing the record
+     * there is safe only if the machine at `address` holds the key the user
+     * approved for the old one, so ssh connects to `address` with the old alias
+     * (`buildMovedHostProbeArgs`). On a match, the approved key lines are filed
+     * under the new address's alias too, so the moved record connects without a
+     * trust dialog. Anything else (another key, no answer, a refused login)
+     * returns false and pins nothing.
+     */
+    async function adoptMovedHost(record: BackendRecord, address: string): Promise<boolean> {
+        const { code } = await runSsh(buildMovedHostProbeArgs(record, address));
+        if (code !== 0) return false;
+        const existing = await readKnownHosts();
+        const lines = movedKeyLines(
+            existing,
+            knownHostsKey(record),
+            knownHostsKey({ ...record, host: address }),
+        );
+        if (lines.length > 0) await appendKnownHosts(existing, lines);
+        return true;
     }
 
     return {
+        adoptMovedHost,
         closeAllTunnels,
         closeTunnel,
         fetchHostKeyFingerprint,

@@ -36,6 +36,7 @@ export * from "./utils/kitty-keyboard";
 export * from "./utils/backend-host";
 export * from "./utils/api-token";
 export * from "./utils/backend-auth";
+export { backendBanner } from "./utils/backend-banner";
 export * from "./utils/terminal-snapshot";
 export * from "./utils/chrome-user-agent";
 export * from "./utils/pi-thinking";

@@ -217,10 +217,17 @@ async function fixture(
         cdpGateway: gateway,
         cdpKeyFor: (id) => cdpKey(TOKEN, id),
     });
-    const backend = createServer(new Router(), 0, apiRouter, gateway, {
-        token: TOKEN,
-        allowedOrigins: new Set(["file://", "null"]),
-    });
+    const backend = createServer(
+        new Router(),
+        0,
+        apiRouter,
+        gateway,
+        {
+            token: TOKEN,
+            allowedOrigins: new Set(["file://", "null"]),
+        },
+        { instanceId: "main", backendUid: "uid123" },
+    );
     const running = await backend.start();
     cleanups.push(() => running.stop());
     const origin = `http://127.0.0.1:${running.port}`;

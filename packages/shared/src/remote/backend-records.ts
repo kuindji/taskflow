@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { isApiToken } from "../utils/api-token";
 import { backendIdFor, isSafeLabel, isStale, isValidPort } from "../discovery";
 import type { BackendRecord, DiscoveredBackend, MenuEntry } from "../types/backend";
@@ -144,10 +145,28 @@ export function recordFromDiscovered(
  * Does this announcement describe this record? Uid first, because that is
  * identity; host and instance only as a fallback for a record that has never
  * completed a handshake.
+ *
+ * A record saved by address (`isMovableHost`) also needs the address to agree.
+ * The uid is broadcast in cleartext, so a beacon from another address claiming
+ * it proves nothing until `adoptMovedHost` has checked the host key there;
+ * until then the beacon is its own menu entry and the record keeps dialing the
+ * address it has.
  */
 export function matchesDiscovered(record: BackendRecord, entry: DiscoveredBackend): boolean {
-    if (record.backendUid) return record.backendUid === entry.backendUid;
+    if (record.backendUid) {
+        if (record.backendUid !== entry.backendUid) return false;
+        return !isMovableHost(record) || record.host === entry.address;
+    }
     return record.host === entry.address && record.instanceId === entry.instanceId;
+}
+
+/**
+ * Whether a beacon at a new address may re-point this record. Only a record
+ * whose host is an IP literal, which is what discovery saves: records carry no
+ * origin, and a hand-typed hostname is the user's choice and stays as typed.
+ */
+export function isMovableHost(record: BackendRecord): boolean {
+    return isIP(record.host) !== 0;
 }
 
 /**

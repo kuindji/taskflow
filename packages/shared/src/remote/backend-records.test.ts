@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { BackendRecord, DiscoveredBackend } from "../types/backend";
 import {
     adoptUid,
+    matchesDiscovered,
     mergeForMenu,
     normalizeRecords,
     recordFromDiscovered,
@@ -260,4 +261,32 @@ test("adoptUid keeps the source token, else the existing one", () => {
             token ?? existing.token,
         );
     }
+});
+
+describe("matchesDiscovered", () => {
+    const beacon = (address: string): DiscoveredBackend => ({
+        v: 1,
+        protocolVersion: 1,
+        instanceId: "main",
+        hostname: "desktop",
+        displayName: "",
+        port: 54892,
+        appVersion: "0.14.4",
+        os: "darwin",
+        backendUid: "abc123",
+        address,
+        lastSeenAt: 0,
+    });
+
+    test("a record saved by address matches its uid only at that address", () => {
+        const byIp = record({ id: "abc123", backendUid: "abc123", host: "192.168.1.20" });
+        expect(matchesDiscovered(byIp, beacon("192.168.1.20"))).toBe(true);
+        // Unproven until the host key is checked there: the beacon is listed on its own.
+        expect(matchesDiscovered(byIp, beacon("192.168.1.30"))).toBe(false);
+    });
+
+    test("a record saved by host name matches its uid from any address", () => {
+        const byName = record({ id: "abc123", backendUid: "abc123" });
+        expect(matchesDiscovered(byName, beacon("192.168.1.30"))).toBe(true);
+    });
 });

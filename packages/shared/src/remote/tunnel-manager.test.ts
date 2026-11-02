@@ -31,7 +31,7 @@ const localPort = Number(args[args.indexOf("-L") + 1].split(":")[1]);
 const log = (entry) => appendFileSync(process.env.FAKE_SSH_LOG, JSON.stringify(entry) + "\\n");
 log({ event: "spawn", pid: process.pid, localPort });
 setTimeout(() => {
-    Bun.serve({ hostname: "127.0.0.1", port: localPort, fetch: () => new Response("Taskflow backend") });
+    Bun.serve({ hostname: "127.0.0.1", port: localPort, fetch: () => new Response(process.env.FAKE_SSH_BANNER ?? "Taskflow backend") });
     log({ event: "ready", pid: process.pid, at: Date.now() });
 }, Number(process.env.FAKE_SSH_READY_DELAY_MS));
 `;
@@ -127,6 +127,48 @@ describe("openTunnel", () => {
         expect(results[0]).toEqual(results[1]);
         expect(results[0].ok).toBe(true);
         for (const at of settledAt) expect(at).toBeGreaterThanOrEqual(readyAt);
+    });
+});
+
+describe("readiness probe identity", () => {
+    const manager = createTunnelManager();
+    const confirmed: BackendRecord = { ...record, id: "abc123", backendUid: "abc123" };
+    afterEach(() => {
+        delete process.env.FAKE_SSH_BANNER;
+        for (const id of [record.id, "abc123"]) manager.closeTunnel(id);
+    });
+
+    test("accepts the backend that names the record's uid", async () => {
+        useLog("identity-match.log");
+        process.env.FAKE_SSH_BANNER = "Taskflow backend dev abc123";
+        expect((await manager.openTunnel(confirmed, 54892)).ok).toBe(true);
+    });
+
+    test("accepts a provisional record's instance", async () => {
+        useLog("identity-instance.log");
+        process.env.FAKE_SSH_BANNER = "Taskflow backend main zzz999";
+        expect((await manager.openTunnel(record, 54892)).ok).toBe(true);
+    });
+
+    test("accepts a backend older than the identity", async () => {
+        useLog("identity-legacy.log");
+        process.env.FAKE_SSH_BANNER = "Taskflow backend";
+        expect((await manager.openTunnel(confirmed, 54892)).ok).toBe(true);
+    });
+
+    test("fails fast when another instance answers on the port", async () => {
+        useLog("identity-other.log");
+        process.env.FAKE_SSH_BANNER = "Taskflow backend dev zzz999";
+        const started = Date.now();
+        const result = await manager.openTunnel(confirmed, 54892);
+        if (result.ok) throw new Error("expected another instance to be refused");
+        expect(result.failure.kind).toBe("no-backend");
+        expect(result.failure.message).toBe(
+            "Another Taskflow instance answers on port 54892 of desktop.",
+        );
+        // Well inside the 10 s readiness wait.
+        expect(Date.now() - started).toBeLessThan(5_000);
+        expect(manager.hasTunnel("abc123")).toBe(false);
     });
 });
 

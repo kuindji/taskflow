@@ -50,6 +50,7 @@ function createMachines(
         rekeyTunnel: tunnels.rekeyTunnel,
         readRemotePort: tunnels.readRemotePort,
         readRemoteToken: tunnels.readRemoteToken,
+        adoptMovedHost: tunnels.adoptMovedHost,
         fetchHostKeyFingerprint: tunnels.fetchHostKeyFingerprint,
         trustHostKey: tunnels.trustHostKey,
         forgetScannedHostKey: tunnels.forgetScannedHostKey,

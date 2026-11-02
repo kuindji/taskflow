@@ -17,10 +17,17 @@ it("task deletion outlasts the default HTTP idle timeout", async () => {
         await Bun.sleep(15_000);
         return Response.json({ success: true });
     });
-    const running = await createServer(new Router(), 0, apiRouter, undefined, {
-        token: TOKEN,
-        allowedOrigins: new Set(),
-    }).start();
+    const running = await createServer(
+        new Router(),
+        0,
+        apiRouter,
+        undefined,
+        {
+            token: TOKEN,
+            allowedOrigins: new Set(),
+        },
+        { instanceId: "main", backendUid: "uid123" },
+    ).start();
     cleanups.push(() => running.stop());
 
     // curl, as the sh CLI uses it; Bun's own fetch hides the dropped reply.

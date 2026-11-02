@@ -12,6 +12,7 @@ import {
 } from "../discovery";
 import {
     adoptUid,
+    isMovableHost,
     matchesDiscovered,
     mergeForMenu,
     normalizeRecords,
@@ -30,6 +31,9 @@ interface RegistryDeps {
     rekeyTunnel(fromId: string, toId: string): void;
     readRemotePort(record: BackendRecord): Promise<{ port: number } | { failure: TunnelFailure }>;
     readRemoteToken(record: BackendRecord): Promise<{ token: string } | { failure: TunnelFailure }>;
+    /** Check the machine at `address` holds this record's pinned host key and,
+     *  if so, file that key under the new address too. */
+    adoptMovedHost(record: BackendRecord, address: string): Promise<boolean>;
     fetchHostKeyFingerprint(record: BackendRecord): Promise<string>;
     trustHostKey(record: BackendRecord): Promise<void>;
     /** Drop a fingerprint scanned for `id`, so an edited or removed record is never
@@ -223,19 +227,66 @@ function createRegistry(deps: RegistryDeps) {
         });
     }
 
+    function announceSeen(id: string): void {
+        for (const handler of seenHandlers) handler(id);
+    }
+
+    /** A beacon's uid and source address, the pair a re-point probe is keyed by. */
+    function sightingKey(entry: DiscoveredBackend): string {
+        return `${entry.backendUid} ${entry.address}`;
+    }
+
+    /**
+     * A saved machine's uid is announced from an address the record does not
+     * dial: probe the host key there once, and re-point the record if it
+     * matches (`adoptMovedHost`). Called once per (uid, address) appearance, so
+     * a mismatch is not retried until that sighting leaves the list and comes
+     * back. Serialized with the record's other mutations, and re-checked after
+     * the probe: an edit or removal meanwhile wins.
+     */
+    function repointIfMoved(entry: DiscoveredBackend): void {
+        const movedFrom = (record: BackendRecord): boolean =>
+            record.backendUid === entry.backendUid &&
+            isMovableHost(record) &&
+            record.host !== entry.address;
+        const record = records.find(movedFrom);
+        if (!record) return;
+        void serialize(record.id, async () => {
+            const before = findRecord(record.id);
+            const listed = discovered.some((live) => sightingKey(live) === sightingKey(entry));
+            if (!before || !movedFrom(before) || !listed) return;
+            const moved = await deps.adoptMovedHost(before, entry.address).catch(() => false);
+            const current = findRecord(record.id);
+            if (!moved || current?.host !== before.host || current.sshPort !== before.sshPort) {
+                return;
+            }
+            deps.forgetScannedHostKey(current.id);
+            records = upsertRecord(records, { ...current, host: entry.address });
+            await persist();
+            notifyChanged();
+            // The renderer redials an attached machine it sees; that dial now
+            // goes to the new address.
+            if (current.attached) announceSeen(current.id);
+        }).catch(() => {});
+    }
+
+    /** The listener's current list. A machine whose listener row switched to
+     *  a new address in place shows up here as a new (uid, address) sighting. */
+    function applyDiscovered(entries: DiscoveredBackend[]): void {
+        const before = new Set(discovered.map((entry) => entry.backendUid));
+        const sightings = new Set(discovered.map(sightingKey));
+        discovered = entries;
+        for (const entry of entries) {
+            if (!sightings.has(sightingKey(entry))) repointIfMoved(entry);
+            if (before.has(entry.backendUid)) continue;
+            const record = records.find((r) => matchesDiscovered(r, entry));
+            if (record) announceSeen(record.id);
+        }
+        notifyChanged();
+    }
+
     async function startDiscovery(): Promise<void> {
-        listener = createListener({
-            onChange(entries) {
-                const before = new Set(discovered.map((entry) => entry.backendUid));
-                discovered = entries;
-                for (const entry of entries) {
-                    if (before.has(entry.backendUid)) continue;
-                    const record = records.find((r) => matchesDiscovered(r, entry));
-                    if (record) for (const handler of seenHandlers) handler(record.id);
-                }
-                notifyChanged();
-            },
-        });
+        listener = createListener({ onChange: applyDiscovered });
         await listener.start();
     }
 
@@ -600,10 +651,11 @@ function createRegistry(deps: RegistryDeps) {
             listener?.probe();
         },
 
-        /** Seed the discovery cache without a socket. Tests only: the port
-         *  preference rules are the point and they are not reachable otherwise. */
+        /** Feed the discovery cache as the listener would, without a socket.
+         *  Tests only: the port preference and re-point rules are the point and
+         *  they are not reachable otherwise. */
         __setDiscoveredForTest(entries: DiscoveredBackend[]): void {
-            discovered = entries;
+            applyDiscovered(entries);
         },
 
         stop: stopDiscovery,

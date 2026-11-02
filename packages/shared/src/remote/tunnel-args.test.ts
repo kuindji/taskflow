@@ -5,12 +5,14 @@ import { join } from "node:path";
 import type { BackendRecord } from "../types/backend";
 import {
     buildHostKeyScanArgs,
+    buildMovedHostProbeArgs,
     buildRemoteReadArgs,
     buildTunnelArgs,
     classifyTunnelFailure,
     hostKeyAlias,
     KNOWN_HOSTS_FILE,
     knownHostsKey,
+    movedKeyLines,
 } from "./tunnel-args";
 
 const record: BackendRecord = {
@@ -362,3 +364,29 @@ test.skipIf(!Bun.which("ssh"))(
         }
     },
 );
+
+describe("moved host", () => {
+    test("the probe dials the new address but checks the key under the old alias", () => {
+        const args = buildMovedHostProbeArgs(record, "192.168.1.30");
+        expect(args).toContain("StrictHostKeyChecking=yes");
+        expect(args).toContain("HostKeyAlias=taskflow-192.168.1.20-22");
+        expect(args).toContain(`UserKnownHostsFile="${KNOWN_HOSTS_FILE}"`);
+        expect(args.slice(-5)).toEqual(["-l", "kuindji", "--", "192.168.1.30", "true"]);
+    });
+
+    test("the approved key lines are refiled under the new alias once", () => {
+        const file = [
+            "taskflow-192.168.1.20-22 ssh-ed25519 AAAAold",
+            "taskflow-10.0.0.5-22 ssh-ed25519 AAAAother",
+            "# comment",
+            "",
+        ].join("\n");
+        expect(movedKeyLines(file, "taskflow-192.168.1.20-22", "taskflow-192.168.1.30-22")).toEqual(
+            ["taskflow-192.168.1.30-22 ssh-ed25519 AAAAold"],
+        );
+        const already = `${file}taskflow-192.168.1.30-22 ssh-ed25519 AAAAold\n`;
+        expect(
+            movedKeyLines(already, "taskflow-192.168.1.20-22", "taskflow-192.168.1.30-22"),
+        ).toEqual([]);
+    });
+});

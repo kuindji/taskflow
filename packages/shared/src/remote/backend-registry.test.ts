@@ -55,6 +55,7 @@ async function registry(overrides: Partial<Parameters<typeof createRegistry>[0]>
             rekeyTunnel: () => {},
             readRemotePort: async () => ({ port: 7777 }),
             readRemoteToken: async () => ({ token: TOKEN }),
+            adoptMovedHost: async () => false,
             fetchHostKeyFingerprint: async () => "256 SHA256:abc desktop (ED25519)",
             trustHostKey: async () => {},
             forgetScannedHostKey: () => {},
@@ -756,4 +757,107 @@ test("updateBackend stores a new token, clears it on null and rejects an invalid
     expect(await savedToken(dir)).toBe(NEXT_TOKEN);
     expect(await reg.updateBackend(record.id, { token: null })).toEqual({ ok: true });
     expect(await savedToken(dir)).toBeNull();
+});
+
+describe("a saved machine announced from a new address", () => {
+    /** A machine saved by address, confirmed and attached, as discovery leaves it. */
+    async function movedSetup(adopt: boolean, host = "192.168.1.20") {
+        const probes: [string, string][] = [];
+        const seen: string[] = [];
+        const setup = await registry({
+            adoptMovedHost: async (record, address) => {
+                probes.push([record.host, address]);
+                return adopt;
+            },
+        });
+        const added = await setup.reg.addBackend({ host });
+        await setup.reg.attachBackend(added.id);
+        await setup.reg.confirmBackend(added.id, { backendUid: "abc123", protocolVersion: 1 });
+        setup.reg.onSeen((id) => seen.push(id));
+        return { ...setup, probes, seen };
+    }
+
+    /** Queued on the record's mutation queue, so it settles after the probe. */
+    async function drained(reg: Awaited<ReturnType<typeof registry>>["reg"]): Promise<void> {
+        await reg.updateBackend("abc123", {});
+    }
+
+    test("re-points the record when the host key matches at the new address", async () => {
+        const { dir, reg, probes, seen } = await movedSetup(true);
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.20" })]);
+        // The listener's row for this machine switches address in place.
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        await drained(reg);
+
+        expect(probes).toEqual([["192.168.1.20", "192.168.1.30"]]);
+        const menu = await reg.listBackends();
+        expect(menu).toHaveLength(1);
+        expect(menu[0]).toMatchObject({ id: "abc123", host: "192.168.1.30", seen: true });
+        // Attached, so the renderer is told to redial it.
+        expect(seen).toContain("abc123");
+        const written = JSON.parse(await readFile(join(dir, "backends.json"), "utf-8")) as {
+            host: string;
+        }[];
+        expect(written[0].host).toBe("192.168.1.30");
+    });
+
+    test("leaves the record and lists the beacon on its own when the key does not match", async () => {
+        const { reg, probes } = await movedSetup(false);
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        await drained(reg);
+
+        expect(probes).toEqual([["192.168.1.20", "192.168.1.30"]]);
+        const menu = await reg.listBackends();
+        expect(menu.map((entry) => [entry.id, entry.host, entry.saved, entry.seen])).toEqual([
+            ["abc123", "192.168.1.20", true, false],
+            ["192.168.1.30:main", "192.168.1.30", false, true],
+        ]);
+    });
+
+    test("probes a sighting once until it leaves the list and comes back", async () => {
+        const { reg, probes } = await movedSetup(false);
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        await drained(reg);
+        expect(probes).toHaveLength(1);
+
+        reg.__setDiscoveredForTest([]);
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        await drained(reg);
+        expect(probes).toHaveLength(2);
+    });
+
+    test("never re-points a record saved by host name", async () => {
+        const { reg, probes } = await movedSetup(true, "desktop.local");
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        await drained(reg);
+
+        expect(probes).toEqual([]);
+        const menu = await reg.listBackends();
+        expect(menu.map((entry) => [entry.id, entry.host, entry.seen])).toEqual([
+            ["abc123", "desktop.local", true],
+        ]);
+    });
+
+    test("a record removed while its probe runs stays removed", async () => {
+        let release = (): void => {};
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const { reg } = await registry({
+            adoptMovedHost: async () => {
+                await gate;
+                return true;
+            },
+        });
+        const added = await reg.addBackend({ host: "192.168.1.20" });
+        await reg.confirmBackend(added.id, { backendUid: "abc123", protocolVersion: 1 });
+        reg.__setDiscoveredForTest([discovered({ address: "192.168.1.30" })]);
+        // Queued behind the probe on the record's queue.
+        const removed = reg.removeBackend("abc123");
+        release();
+        await removed;
+
+        expect((await reg.listBackends()).filter((entry) => entry.saved)).toEqual([]);
+    });
 });

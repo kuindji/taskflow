@@ -226,6 +226,53 @@ export function buildHostKeyScanArgs(record: BackendRecord, scanFile: string): s
     ];
 }
 
+/**
+ * Does the machine now at `address` hold the key this record pinned? Connects
+ * to `address` but looks the key up under the record's own alias, with
+ * `StrictHostKeyChecking=yes` (`hostKeyOptions`), so ssh refuses unless the
+ * key matches the one the user approved for the old address. Exit 0 is the
+ * only accepted answer: it also proves the login still works there. `-n` and
+ * `true` keep it a single round trip.
+ */
+export function buildMovedHostProbeArgs(record: BackendRecord, address: string): string[] {
+    return [
+        "-n",
+        "-T",
+        "-p",
+        String(record.sshPort),
+        ...connectionOptions(record),
+        "-o",
+        "ConnectTimeout=5",
+        "-l",
+        record.user,
+        "--",
+        address,
+        "true",
+    ];
+}
+
+/**
+ * The first field of each key line replaced by `alias`. A user config with
+ * `HashKnownHosts yes` writes that field hashed, and every connection looks
+ * the key up under the plain `HostKeyAlias`. Comment lines are dropped.
+ */
+export function aliasKeyLines(material: string, alias: string): string[] {
+    return material
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith("#"))
+        .map((line) => [alias, ...line.split(/\s+/).slice(1)].join(" "));
+}
+
+/** The key lines filed under `fromAlias` in a known_hosts file, refiled under
+ *  `toAlias`, less any the file already holds. */
+export function movedKeyLines(knownHosts: string, fromAlias: string, toAlias: string): string[] {
+    const lines = knownHosts.split("\n").map((line) => line.trim());
+    const present = new Set(lines);
+    const source = lines.filter((line) => line.split(/\s+/)[0] === fromAlias).join("\n");
+    return aliasKeyLines(source, toAlias).filter((line) => !present.has(line));
+}
+
 export function classifyTunnelFailure(stderr: string, exitCode: number | null): TunnelFailure {
     const failure = (kind: TunnelFailure["kind"], message: string): TunnelFailure => ({
         kind,
