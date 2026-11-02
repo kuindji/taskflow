@@ -32,6 +32,14 @@ Work:
    copies and release the gate. After it: never touch the destination, keep
    the gate closed and restart; a failed source delete is only leftover
    cleanup (log it), not a rollback.
+   The commit itself must be durable and loud: `writeDataLocation`
+   (`data-dir-migrator.ts:45`) writes in place, and `config.ts:13` falls back
+   to the base dir on a torn file, so write a temp file and rename it. Reset
+   to default commits by removing the pointer, but `clearDataLocation`
+   (`:52`) swallows errors: it must throw, so a failed removal counts as a
+   pre-commit failure (roll back), not as committed.
+   "adopt" mode (`handlers/settings.ts:97`) moves nothing but still switches
+   folders: same gate, busy check, pointer commit and restart.
 2. Before moving, refuse with a clear error if any session is running or a
    flow run is running/paused on this backend. UI shows it. A one-time check
    is not enough: the scheduler admits launches on its own
@@ -43,7 +51,8 @@ Work:
    `session-lifecycle.ts:401`; `FlowStore.withMutation` bodies read then
    write, `flow-store.ts:127`). So: close admission, wait for in-flight
    launches and store mutations to drain, then run the busy check, then move.
-   On any failure, release the gate.
+   On a failure before the pointer commit, release the gate; after it, keep
+   it closed (item 1).
 3. After a successful move, the backend must come back on the new folder.
    Pick one, based on what Electron and a headless backend can do:
    - Electron respawns the backend (add a restart to `backend-manager`,
@@ -67,8 +76,10 @@ Work:
 Tests: migrator moves the new items; a failure after some items are copied
 leaves the old folder complete and still configured; a source delete
 failing after another source item was already deleted keeps the complete
-new folder and the new pointer; a write and a launch
+new folder and the new pointer, the gate closed, and triggers the restart;
+a failed pointer write or pointer removal (reset) leaves the old folder
+selected at next start; a write and a launch
 admitted before the gate finish before the move starts; the refusal while busy; a scheduled
 launch and a data write during the move are refused; the no-restarter path
-leaves data readable; whatever restart signal is added. Owner check: change and reset the folder in the
+leaves data readable; adopt mode is gated and restarts; whatever restart signal is added. Owner check: change and reset the folder in the
 packaged app.
