@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S8. S7 done (ec16911f; Codex fix 469b04f1 after one round).
+Next: S9. S8 done (24e9cbec; Codex round found only the known mock leak).
 
 ## Notes
 
@@ -44,6 +44,17 @@ Next: S8. S7 done (ec16911f; Codex fix 469b04f1 after one round).
   the spelling the UI asked for (`C:\Repo`); `expandToPathAndLoad` now accepts
   either. Other explorer code still compares with `"/"` and may trip on that.
 
+- S8: `useFileStore().retainWatch(backendId, path)` returns its release
+  (idempotent; a no-op after the machine's reset). `watchPath`/`unwatchPath`
+  are now sync and only the explorer's hold. `useWorkspaceFileWatch(backendId,
+  filePath)` (hooks/) holds the active workspace root while the file is in
+  it; Markdown and Editor panes call it, so S9's editor gets `FILE_CHANGED`
+  with the explorer closed. Tests that mock `@/stores/file-store` must give
+  the fake a `retainWatch` and honour the selector. The full `bun test
+  packages/ui` run fails ~121 tests from cross-file `mock.module` leakage
+  before S8 too; `MarkdownPaneImpl.file-watch.test.tsx` (real store) is one
+  more of those. Judge by running files alone.
+
 ## Owner checks
 
 - S1: in the desktop app, "Run now" on a disabled schedule starts a session
@@ -80,6 +91,11 @@ Next: S8. S7 done (ec16911f; Codex fix 469b04f1 after one round).
   explorer. Dropping a file with a space or `'` on pwsh, cmd, bash and an
   agent session types it quoted for that shell. A pre-S7 shell session has no
   shell name recorded and gets cmd-style double quotes.
+- S8: close the file explorer, open a markdown preview and a file in the
+  editor, and edit both files from a terminal: the preview re-renders (the
+  editor reload itself lands in S9). Reopening and closing the explorer
+  keeps the preview updating. After a backend restart or reconnect, previews
+  keep updating.
 - S6 decision consequence for the owner: neither connect dialog (UI, TUI)
   asks for an instance, so a manual connect defaults to `main`. A manual
   connect by explicit port to a `dev-*` backend is now refused on first
