@@ -17,7 +17,7 @@ Status values: `todo`, `done (<commit>)`, `blocked (see handoff)`.
 
 | Step | Section | Finding | Status |
 | --- | --- | --- | --- |
-| R | Plan review (Codex gpt-6.1-sol), triage into the sections | — | todo |
+| R | Plan review (Codex gpt-6.1-sol), triage into the sections | — | done (5 rounds) |
 | S1 | [Run now on disabled schedules; drop Terminal.app import](2026-11-02-owner-decisions/S1-schedule-run-now-and-terminal-app.md) | A05 R3-2, A08 R5-3 | todo |
 | S2 | [`task create` subtask flags in both CLIs](2026-11-02-owner-decisions/S2-cli-task-create.md) | A01 R2-1 | todo |
 | S3 | ["Default" means the Settings value](2026-11-02-owner-decisions/S3-launch-option-defaults.md) | A16 R3-2 | todo |
