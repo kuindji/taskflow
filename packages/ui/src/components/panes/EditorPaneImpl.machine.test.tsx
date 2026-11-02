@@ -2,6 +2,7 @@ import { expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { create } from "zustand";
+import { createMonacoFake } from "./test-monaco-fake";
 
 /**
  * The pane's model identity includes its machine, so while the workspace names
@@ -10,102 +11,9 @@ import { create } from "zustand";
  * must not land in the editor it already disposed.
  */
 
-let setValueCalls = 0;
-type ChangeListener = (e: { isFlush: boolean }) => void;
-type FakeModel = ReturnType<typeof fakeModel>;
-type FakeUri = { toString(): string };
-/** Monaco's model registry: one model per URI, shared by every editor on it. */
-const models = new Map<string, FakeModel>();
-const fakeModel = (key: string) => {
-    let disposed = false;
-    let value = "";
-    let version = 1;
-    const listeners: ChangeListener[] = [];
-    return {
-        isDisposed: () => disposed,
-        dispose: () => {
-            disposed = true;
-            models.delete(key);
-        },
-        getValue: () => value,
-        /** A flush replaces the whole text, as `setValue` does; typing does not. */
-        change: (next: string, isFlush: boolean) => {
-            value = next;
-            version += 1;
-            for (const listener of listeners) listener({ isFlush });
-        },
-        onChange: (listener: ChangeListener) => listeners.push(listener),
-        getAlternativeVersionId: () => version,
-    };
-};
-/** The live editors, as `monaco.editor.getEditors()` lists them. */
-const editors = new Set<FakeEditor>();
-type FakeEditor = ReturnType<typeof fakeEditor>;
-/** The newest editor's typing: changes its model's text as a keystroke would. */
-let typeInEditor: (text: string) => void = () => {};
-/** The newest editor's Cmd+S. */
-let pressSave: () => void = () => {};
-const fakeEditor = (options: { model: FakeModel }) => {
-    const { model } = options;
-    typeInEditor = (text) => model.change(text, false);
-    const editor = {
-        setValue: (text: string) => {
-            setValueCalls += 1;
-            model.change(text, true);
-        },
-        getValue: () => model.getValue(),
-        getModel: () => model,
-        restoreViewState: () => {},
-        saveViewState: () => null,
-        revealLineInCenter: () => {},
-        setPosition: () => {},
-        focus: () => {},
-        onDidChangeModelContent: (listener: ChangeListener) => {
-            model.onChange(listener);
-            return { dispose: () => {} };
-        },
-        addCommand: (_keys: number, handler: () => void) => {
-            pressSave = handler;
-        },
-        updateOptions: () => {},
-        layout: () => {},
-        dispose: () => {
-            editors.delete(editor);
-        },
-    };
-    editors.add(editor);
-    return editor;
-};
-const tsDefaults = { setCompilerOptions: () => {}, setDiagnosticsOptions: () => {} };
-
-await mock.module("monaco-editor", () => ({
-    languages: {
-        typescript: {
-            JsxEmit: {},
-            ScriptTarget: {},
-            ModuleKind: {},
-            ModuleResolutionKind: {},
-            typescriptDefaults: tsDefaults,
-            javascriptDefaults: tsDefaults,
-        },
-    },
-    editor: {
-        getModel: (uri: FakeUri) => models.get(uri.toString()) ?? null,
-        getModels: () => [...models.values()],
-        createModel: (_value: string, _language: string, uri: FakeUri) => {
-            const model = fakeModel(uri.toString());
-            models.set(uri.toString(), model);
-            return model;
-        },
-        create: (_container: unknown, options: { model: FakeModel }) => fakeEditor(options),
-        getEditors: () => [...editors],
-        remeasureFonts: () => {},
-        defineTheme: () => {},
-    },
-    Uri: { from: (parts: object) => ({ ...parts, toString: () => JSON.stringify(parts) }) },
-    KeyMod: { CtrlCmd: 0 },
-    KeyCode: { KeyS: 0 },
-}));
+const monaco = createMonacoFake();
+await mock.module("monaco-editor", () => monaco.module);
+const { typeInEditor, pressSave } = monaco;
 
 /** Reads not yet answered; `resolveRead` answers them all. */
 const pendingReads: ((content: string) => void)[] = [];
@@ -126,12 +34,12 @@ const fileStore = {
         };
     },
     readFile: () =>
-        new Promise<string>((resolve) => {
-            pendingReads.push(resolve);
+        new Promise<{ content: string; hash: string }>((resolve) => {
+            pendingReads.push((content) => resolve({ content, hash: content }));
         }),
     writeFile: (_backendId: string, _path: string, content: string) => {
         writes.push(content);
-        return writeHold;
+        return writeHold.then(() => ({ success: true as const, hash: content }));
     },
 };
 /** What each save sent; a save's answer waits for `writeHold`. */
@@ -174,9 +82,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-    setValueCalls = 0;
-    models.clear();
-    editors.clear();
+    monaco.reset();
     pendingReads.length = 0;
     writes.length = 0;
     heldWatches.length = 0;
@@ -220,7 +126,7 @@ test("a read that lands after the machine is gone does not touch the disposed ed
     await act(async () => {
         resolveRead("content");
     });
-    expect(setValueCalls).toBe(0);
+    expect(monaco.state.setValueCalls).toBe(0);
     expect(showsLoading()).toBe(true);
 });
 
@@ -276,7 +182,7 @@ test("closing one of two panes on the same file keeps the other's buffer", async
     await act(async () => {
         resolveRead("v1");
     });
-    const [left, right] = [...editors];
+    const [left, right] = monaco.editors();
     expect(left.getModel()).toBe(right.getModel());
     // The second pane's load replaced the text on the shared model: not an edit.
     expect(isEditorDirty("desktop", "/repo/a.ts")).toBe(false);
@@ -311,13 +217,13 @@ test("a second pane's read answered after typing in the first keeps the typed te
     });
     // Typed in the left pane on the shared model while the right one's read is out.
     await act(async () => {
-        [...editors][0].getModel().change("unsaved edit", false);
+        monaco.editors()[0].getModel().change("unsaved edit", false);
     });
     await act(async () => {
         resolveRead("v1");
     });
 
-    const [left, right] = [...editors];
+    const [left, right] = monaco.editors();
     expect(left.getValue()).toBe("unsaved edit");
     expect(isEditorDirty("desktop", "/repo/a.ts")).toBe(true);
     // Both panes offer to save it.

@@ -20,6 +20,8 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 import { MSG } from "@taskflow/shared";
+import type { FileDiskText, FileWriteResponse } from "@taskflow/shared";
+import { contentHash } from "../../src/services/file-preview";
 import { expectRejects as expectPromiseRejects } from "../expect-rejects";
 import { resolveEditorCommand, type EditorResolverDeps } from "../../src/services/editor-resolver";
 
@@ -231,6 +233,70 @@ describe("file handlers", () => {
             await router.handle(MSG.FILE_WRITE, { path: created, content: "" });
             expect(await readFile(created, "utf-8")).toBe("");
         });
+
+        it("writes over the text it names in `expected` and returns the new hash", async () => {
+            const filePath = join(projectDir, "doc.md");
+            await writeFile(filePath, "one\n");
+            const read = (await router.handle(MSG.FILE_READ, { path: filePath })) as FileDiskText;
+
+            const result = (await router.handle(MSG.FILE_WRITE, {
+                path: filePath,
+                content: "two\n",
+                expected: read.hash,
+            })) as FileWriteResponse;
+
+            expect(result).toEqual({ success: true, hash: contentHash(Buffer.from("two\n")) });
+            expect(await readFile(filePath, "utf-8")).toBe("two\n");
+            const reread = (await router.handle(MSG.FILE_READ, { path: filePath })) as FileDiskText;
+            expect(reread.hash).toBe(result.success ? result.hash : "");
+        });
+
+        it("refuses a write whose `expected` no longer matches the disk, leaving the file", async () => {
+            const filePath = join(projectDir, "doc.md");
+            await writeFile(filePath, "one\n");
+            const read = (await router.handle(MSG.FILE_READ, { path: filePath })) as FileDiskText;
+            // An agent edits the file after the editor loaded it.
+            await writeFile(filePath, "agent\n");
+
+            expect(
+                await router.handle(MSG.FILE_WRITE, {
+                    path: filePath,
+                    content: "mine\n",
+                    expected: read.hash,
+                }),
+            ).toEqual({ success: false, conflict: true });
+            expect(await readFile(filePath, "utf-8")).toBe("agent\n");
+        });
+
+        it("writes without `expected` whatever is on disk", async () => {
+            const filePath = join(projectDir, "doc.md");
+            await writeFile(filePath, "agent\n");
+            const result = await router.handle(MSG.FILE_WRITE, {
+                path: filePath,
+                content: "mine\n",
+            });
+            expect(result).toEqual({ success: true, hash: contentHash(Buffer.from("mine\n")) });
+            expect(await readFile(filePath, "utf-8")).toBe("mine\n");
+        });
+
+        it("lets exactly one of two writes naming the same `expected` through", async () => {
+            const filePath = join(projectDir, "doc.md");
+            await writeFile(filePath, "one\n");
+            const read = (await router.handle(MSG.FILE_READ, { path: filePath })) as FileDiskText;
+
+            const results = (await Promise.all(
+                ["left\n", "right\n"].map((content) =>
+                    router.handle(MSG.FILE_WRITE, { path: filePath, content, expected: read.hash }),
+                ),
+            )) as FileWriteResponse[];
+
+            expect(results.filter((result) => result.success)).toHaveLength(1);
+            expect(results.filter((result) => !result.success)).toEqual([
+                { success: false, conflict: true },
+            ]);
+            const winner = results[0].success ? "left\n" : "right\n";
+            expect(await readFile(filePath, "utf-8")).toBe(winner);
+        });
     });
 
     describe("FILE_CREATE", () => {
@@ -434,6 +500,9 @@ describe("file handlers", () => {
         await writeFile(path, Buffer.from([1, 0, 2]));
         expect(await router.handle(MSG.FILE_READ, { path })).toEqual({ state: "binary" });
         await writeFile(path, "");
-        expect(await router.handle(MSG.FILE_READ, { path })).toEqual({ content: "" });
+        expect(await router.handle(MSG.FILE_READ, { path })).toEqual({
+            content: "",
+            hash: contentHash(Buffer.alloc(0)),
+        });
     });
 });

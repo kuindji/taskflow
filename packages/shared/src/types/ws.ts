@@ -353,9 +353,19 @@ export interface FileReadPayload {
     path: string;
 }
 
-export type FileReadResponse =
-    | { content: string; state?: never }
-    | { state: "tooLarge" | "binary"; content?: never };
+type FilePreviewUnavailable = { state: "tooLarge" | "binary"; content?: never };
+
+export type FileReadResponse = { content: string; state?: never } | FilePreviewUnavailable;
+
+/** Text read from disk, with a hash of the bytes it was decoded from. */
+export interface FileDiskText {
+    content: string;
+    /** What FILE_WRITE's `expected` names to refuse a write over a changed file. */
+    hash: string;
+}
+
+/** FILE_READ's answer. */
+export type FileDiskReadResponse = (FileDiskText & { state?: never }) | FilePreviewUnavailable;
 
 export interface FileWatchPayload {
     path: string;
@@ -368,7 +378,17 @@ export interface FileUnwatchPayload {
 export interface FileWritePayload {
     path: string;
     content: string;
+    /**
+     * The `hash` of the text this write replaces, as FILE_READ or an earlier
+     * write returned it. When the disk no longer matches, the write is refused
+     * with a conflict. Absent, the write goes ahead whatever is on disk.
+     */
+    expected?: string;
 }
+
+export type FileWriteResponse =
+    | { success: true; hash: string }
+    | { success: false; conflict: true };
 
 export interface FileStatPayload {
     path: string;

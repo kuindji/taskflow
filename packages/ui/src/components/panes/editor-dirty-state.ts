@@ -19,6 +19,14 @@ const dirtyModels: PerMachine<boolean> = new Map();
 const viewStates: PerMachine<monaco.editor.ICodeEditorViewState> = new Map();
 
 /**
+ * The hash of the disk text each model last matched: what it loaded, saved or
+ * reloaded. Kept with the model rather than a pane, since models outlive
+ * their pane and split panes share one. A save names it as `expected`, and a
+ * change event re-reads against it.
+ */
+const diskBaselines: PerMachine<string> = new Map();
+
+/**
  * Tracks pending "go to line" requests for editor panes.
  * Used when opening a file at a specific line — the line is stored here
  * and consumed by EditorPaneImpl after the file loads.
@@ -27,6 +35,7 @@ const pendingLines: PerMachine<number> = new Map();
 
 registerBackendReset("editor-dirty-state", (backendId) => {
     dirtyModels.delete(backendId);
+    diskBaselines.delete(backendId);
     viewStates.delete(backendId);
     pendingLines.delete(backendId);
 });
@@ -50,6 +59,19 @@ function setEditorDirty(backendId: string, filePath: string, dirty: boolean): vo
 
 function clearEditorDirty(backendId: string, filePath: string): void {
     dirtyModels.get(backendId)?.delete(filePath);
+}
+
+function getDiskBaseline(backendId: string, filePath: string): string | undefined {
+    return diskBaselines.get(backendId)?.get(filePath);
+}
+
+function setDiskBaseline(backendId: string, filePath: string, hash: string): void {
+    machineMap(diskBaselines, backendId).set(filePath, hash);
+}
+
+/** For a model being disposed. */
+function clearDiskBaseline(backendId: string, filePath: string): void {
+    diskBaselines.get(backendId)?.delete(filePath);
 }
 
 /** Paths with unsaved edits on every machine except `keepBackendId`, which a hard switch keeps. */
@@ -99,6 +121,9 @@ export {
     isEditorDirty,
     setEditorDirty,
     clearEditorDirty,
+    getDiskBaseline,
+    setDiskBaseline,
+    clearDiskBaseline,
     dirtyFilePaths,
     dirtyFilePathsOn,
     getViewState,

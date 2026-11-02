@@ -4,13 +4,17 @@ import {
     DEFAULT_EDITOR_FONT_FAMILY,
     DEFAULT_EDITOR_FONT_SIZE,
     DEFAULT_EDITOR_WORD_WRAP,
+    MSG,
 } from "@taskflow/shared";
+import type { FileChangeEvent, FileDiskText } from "@taskflow/shared";
 import { useFileStore } from "@/stores/file-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { MONACO_THEME_NAME } from "@/lib/monaco-theme";
 import { Button } from "@/components/ui/button";
 import { syncCompilerOptions, registerImportNavigation } from "@/lib/monaco-import-navigation";
 import { openFileInApp } from "@/lib/open-file";
+import { onEvent } from "@/lib/connection-registry";
+import { fileChangeCovers } from "@/lib/file-change";
 import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -33,12 +37,23 @@ import {
     isEditorDirty,
     setEditorDirty,
     clearEditorDirty,
+    getDiskBaseline,
+    setDiskBaseline,
+    clearDiskBaseline,
     getViewState,
     saveViewState,
     consumePendingLine,
 } from "./editor-dirty-state";
 import { createEditorPreviewAccess } from "./editor-preview-access";
 import { modelUriFor } from "./editor-uri";
+import { isDiskSync, queueSave, replaceFromDisk } from "./editor-disk-sync";
+
+/** Why the buffer and the disk disagree, when only the user can say which wins. */
+type DiskNotice =
+    /** The file changed under unsaved edits; `hash` names the disk text the bar is about. */
+    | { kind: "changed"; hash: string }
+    /** A save was refused because the file had changed since it was loaded. */
+    | { kind: "conflict" };
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
@@ -90,6 +105,8 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const loadRequestIdRef = useRef(0);
+    /** Disk reads after load; only the newest may land, and none after the editor goes. */
+    const diskReadIdRef = useRef(0);
     const previewAccess = useRef(createEditorPreviewAccess());
     const editorFontFamily = useSettingsStore(
         (s) => s.settings?.editor?.fontFamily ?? DEFAULT_EDITOR_FONT_FAMILY,
@@ -112,25 +129,98 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const [dirty, setDirty] = useState(
         () => backendId !== null && isEditorDirty(backendId, filePath),
     );
+    const [notice, setNotice] = useState<DiskNotice | null>(null);
 
-    const save = useCallback(async () => {
+    /** `overwrite` writes whatever the disk holds now; a plain save refuses a changed file. */
+    const save = useCallback(
+        async (overwrite = false) => {
+            const model = editorRef.current?.getModel();
+            if (!model || backendId === null) return;
+            try {
+                const access = previewAccess.current;
+                await queueSave(model, () =>
+                    access.save(async () => {
+                        const savedVersion = model.getAlternativeVersionId();
+                        const result = await writeFile(
+                            backendId,
+                            filePath,
+                            model.getValue(),
+                            overwrite ? undefined : getDiskBaseline(backendId, filePath),
+                        );
+                        if (model.isDisposed()) return;
+                        if (!result.success) {
+                            setNotice({ kind: "conflict" });
+                            return;
+                        }
+                        setDiskBaseline(backendId, filePath, result.hash);
+                        setNotice(null);
+                        // Text typed while the write was answered is not on disk.
+                        if (model.getAlternativeVersionId() !== savedVersion) return;
+                        setEditorDirty(backendId, filePath, false);
+                        setDirty(false);
+                    }),
+                );
+            } catch (err: unknown) {
+                console.error("Failed to save file:", err);
+            }
+        },
+        [backendId, filePath, writeFile],
+    );
+
+    /** Reads the file for the model this pane shows, or null if it changed panes, went, or is not text now. */
+    const readDisk = useCallback(async () => {
         const model = editorRef.current?.getModel();
-        if (!model || backendId === null) return;
+        if (!model || backendId === null || !previewAccess.current.canEdit()) return null;
+        const readId = ++diskReadIdRef.current;
+        let disk: FileDiskText;
         try {
-            await previewAccess.current.save(async () => {
-                const savedVersion = model.getAlternativeVersionId();
-                await writeFile(backendId, filePath, model.getValue());
-                // Text typed while the write was answered is not on disk.
-                if (model.isDisposed() || model.getAlternativeVersionId() !== savedVersion) {
-                    return;
-                }
-                setEditorDirty(backendId, filePath, false);
-                setDirty(false);
-            });
+            disk = await readFile(backendId, filePath);
         } catch (err: unknown) {
-            console.error("Failed to save file:", err);
+            console.error("Failed to read file:", err);
+            return null;
         }
-    }, [backendId, filePath, writeFile]);
+        if (readId !== diskReadIdRef.current || model.isDisposed()) return null;
+        return { model, disk };
+    }, [backendId, filePath, readFile]);
+
+    const takeDiskText = useCallback(
+        (model: monaco.editor.ITextModel, disk: FileDiskText) => {
+            if (backendId === null) return;
+            setDiskBaseline(backendId, filePath, disk.hash);
+            setEditorDirty(backendId, filePath, false);
+            if (model.getValue() !== disk.content) replaceFromDisk(model, disk.content);
+            setDirty(false);
+            setNotice(null);
+        },
+        [backendId, filePath],
+    );
+
+    /** On a change event: a clean buffer follows the disk, a dirty one asks. */
+    const followDisk = useCallback(async () => {
+        const read = await readDisk();
+        if (!read || backendId === null) return;
+        const { model, disk } = read;
+        // This pane's own save, or a split pane already took this text.
+        if (disk.hash === getDiskBaseline(backendId, filePath)) return;
+        if (disk.content !== model.getValue() && isEditorDirty(backendId, filePath)) {
+            setNotice({ kind: "changed", hash: disk.hash });
+            return;
+        }
+        takeDiskText(model, disk);
+    }, [backendId, filePath, readDisk, takeDiskText]);
+
+    const reloadFromDisk = useCallback(async () => {
+        const read = await readDisk();
+        if (read) takeDiskText(read.model, read.disk);
+    }, [readDisk, takeDiskText]);
+
+    /** Saving next writes over the disk text the bar was about, not over anything newer. */
+    const keepMine = useCallback(() => {
+        if (notice?.kind === "changed" && backendId !== null) {
+            setDiskBaseline(backendId, filePath, notice.hash);
+        }
+        setNotice(null);
+    }, [backendId, filePath, notice]);
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -144,6 +234,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         const access = previewAccess.current;
         access.reset();
         setError(null);
+        setNotice(null);
         if (!containerRef.current) return;
         if (backendId === null) {
             setLoading(true);
@@ -208,12 +299,15 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             setLoading(false);
         } else {
             void readFile(backendId, filePath)
-                .then((content) => {
+                .then(({ content, hash }) => {
                     if (cancelled || loadRequestId !== loadRequestIdRef.current) return;
                     // A split pane on this model may have been typed in while
                     // this read was answered: its text is newer than the disk's.
                     const editedMeanwhile = isEditorDirty(backendId, filePath);
-                    if (!editedMeanwhile) editor.setValue(content);
+                    if (!editedMeanwhile) {
+                        editor.setValue(content);
+                        setDiskBaseline(backendId, filePath, hash);
+                    }
                     access.allow();
                     editor.updateOptions({ readOnly: false });
                     restoreViewState();
@@ -232,7 +326,13 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         }
 
         const changeDisposable = editor.onDidChangeModelContent((e) => {
-            // A flush is a reload from disk, perhaps by another pane on this model.
+            if (isDiskSync(model)) {
+                // A pane on this model (perhaps another one) took the disk's text.
+                setNotice(null);
+                setDirty(isEditorDirty(backendId, filePath));
+                return;
+            }
+            // A flush is a load from disk, perhaps by another pane on this model.
             if (!access.canEdit() || e.isFlush) return;
             setEditorDirty(backendId, filePath, true);
             setDirty(true);
@@ -244,6 +344,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
         return () => {
             cancelled = true;
+            diskReadIdRef.current += 1;
             access.reset();
             const state = editor.saveViewState();
             if (state) {
@@ -260,9 +361,19 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 // The machine's reset may already have disposed it.
                 if (!model.isDisposed()) model.dispose();
                 clearEditorDirty(backendId, filePath);
+                clearDiskBaseline(backendId, filePath);
             }
         };
     }, [backendId, filePath, readFile, save]);
+
+    useEffect(() => {
+        if (backendId === null) return;
+        return onEvent(MSG.FILE_CHANGED, (payload, fromBackendId) => {
+            // The same path on another machine is another file.
+            if (fromBackendId !== backendId) return;
+            if (fileChangeCovers(payload as FileChangeEvent, filePath)) void followDisk();
+        });
+    }, [backendId, filePath, followDisk]);
 
     // Listen for line-navigation requests from search results or other sources
     useEffect(() => {
@@ -295,8 +406,41 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     }, [editorFontFamily, editorFontSize, editorWordWrap]);
 
     return (
-        <div className="relative flex-1">
-            {dirty && (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+            {notice && (
+                <div
+                    role="alert"
+                    className="bg-muted flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-sm">
+                    <span className="flex-1">
+                        {notice.kind === "changed"
+                            ? "Changed on disk"
+                            : "Not saved: the file changed on disk"}
+                    </span>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                            void reloadFromDisk();
+                        }}>
+                        Reload
+                    </Button>
+                    {notice.kind === "changed" ? (
+                        <Button size="sm" variant="outline" onClick={keepMine}>
+                            Keep mine
+                        </Button>
+                    ) : (
+                        <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                                void save(true);
+                            }}>
+                            Overwrite
+                        </Button>
+                    )}
+                </div>
+            )}
+            {dirty && !notice && (
                 <Button
                     size="sm"
                     className="absolute top-2 right-2 z-10"
@@ -312,7 +456,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                     {error ?? "Loading..."}
                 </div>
             )}
-            <div ref={containerRef} className="h-full w-full" />
+            <div ref={containerRef} className="min-h-0 w-full flex-1" />
         </div>
     );
 }

@@ -37,7 +37,7 @@ const MarkdownPaneImpl = (await import("./MarkdownPaneImpl")).default;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const desktop = startTestServer("desktop", (type) =>
-    type === MSG.FILE_READ ? { content: fileContent } : {},
+    type === MSG.FILE_READ ? { content: fileContent, hash: fileContent } : {},
 );
 
 beforeAll(async () => {

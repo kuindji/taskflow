@@ -1,7 +1,7 @@
 // packages/ui/src/stores/file-store.test.ts
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { MSG } from "@taskflow/shared";
-import type { FileNode, FileReadResponse } from "@taskflow/shared";
+import type { FileDiskReadResponse, FileNode } from "@taskflow/shared";
 import { useFileStore } from "./file-store";
 import { closeConnection, openConnection } from "@/lib/connection-registry";
 import { startTestServer } from "@/lib/test-ws-server";
@@ -40,7 +40,7 @@ const EMPTY_LISTING = { entries: [], gitignorePatterns: [] };
 // Two machines, each holding the same repository at the same path.
 /** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
 let desktopNextUnwatchHold: Promise<void> | null = null;
-let readResponse: FileReadResponse = { content: "" };
+let readResponse: FileDiskReadResponse = { content: "", hash: "empty" };
 /** Desktop's shallow listings by directory; any other directory lists empty. */
 let desktopListings: Record<string, FileNode[]> = {};
 /** While set, desktop's next listing is taken at once but answered only when it resolves. */
@@ -404,7 +404,10 @@ for (const [state, message] of [
         expect((error as Error & { state: string }).state).toBe(state);
     });
 }
-test("an empty complete file still returns an empty string", async () => {
-    readResponse = { content: "" };
-    expect(await useFileStore.getState().readFile("desktop", "/repo/file")).toBe("");
+test("an empty complete file still returns an empty string, with its hash", async () => {
+    readResponse = { content: "", hash: "empty" };
+    expect(await useFileStore.getState().readFile("desktop", "/repo/file")).toEqual({
+        content: "",
+        hash: "empty",
+    });
 });

@@ -27,12 +27,15 @@ await mock.module("@/lib/markdown/rehype-task-list-line", () => ({
 }));
 
 const files = new Map<string, string>();
+/** A fake disk names each text by itself. */
+const diskText = (content: string) => ({ content, hash: content });
 const fileStore = {
     retainWatch: () => () => {},
-    readFile: (_backendId: string, path: string) => Promise.resolve(files.get(path) ?? ""),
+    readFile: (_backendId: string, path: string) =>
+        Promise.resolve(diskText(files.get(path) ?? "")),
     writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);
-        return Promise.resolve();
+        return Promise.resolve({ success: true as const, hash: content });
     },
 };
 

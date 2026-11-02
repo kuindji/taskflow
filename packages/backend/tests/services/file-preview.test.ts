@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { readFilePreview, readGitPreview } from "../../src/services/file-preview";
+import { contentHash, readFilePreview, readGitPreview } from "../../src/services/file-preview";
 import { GitQueryLimitError } from "../../src/services/git-helpers";
 import { expectRejects } from "../expect-rejects";
 
@@ -18,7 +18,10 @@ afterEach(async () => {
 test("exactly 5 MiB of text is readable", async () => {
     const text = "é".repeat(LIMIT / 2);
     await writeFile(join(dir, "file"), text);
-    expect(await readFilePreview(join(dir, "file"))).toEqual({ content: text });
+    expect(await readFilePreview(join(dir, "file"))).toEqual({
+        content: text,
+        hash: contentHash(Buffer.from(text)),
+    });
 });
 test("a file larger than 5 MiB has no content field", async () => {
     await writeFile(join(dir, "file"), Buffer.alloc(LIMIT + 1));
@@ -54,7 +57,10 @@ test("NUL after the first 8 KiB does not trigger the binary rule", async () => {
     const bytes = Buffer.alloc(8193, 120);
     bytes[8192] = 0;
     await writeFile(join(dir, "file"), bytes);
-    expect(await readFilePreview(join(dir, "file"))).toEqual({ content: bytes.toString() });
+    expect(await readFilePreview(join(dir, "file"))).toEqual({
+        content: bytes.toString(),
+        hash: contentHash(bytes),
+    });
 });
 test("preview handles close after read errors", async () => {
     let closed = false;

@@ -10,16 +10,18 @@ import type { WikiIndexData, WikiPage } from "@taskflow/shared";
  */
 
 const files = new Map<string, string>();
+/** A fake disk names each text by itself. */
+const diskText = (content: string) => ({ content, hash: content });
 let reads = 0;
 const fileStore = {
     retainWatch: () => () => {},
     readFile: (_backendId: string, path: string) => {
         reads += 1;
-        return Promise.resolve(files.get(path) ?? "");
+        return Promise.resolve(diskText(files.get(path) ?? ""));
     },
     writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);
-        return Promise.resolve();
+        return Promise.resolve({ success: true as const, hash: content });
     },
 };
 

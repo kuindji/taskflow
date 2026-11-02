@@ -5,7 +5,9 @@ import type {
     FileListDirResponse,
     GitStatusResult,
     GitStatusResponse,
-    FileReadResponse,
+    FileDiskReadResponse,
+    FileDiskText,
+    FileWriteResponse,
 } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { FilePreviewError } from "@/lib/file-preview-error";
@@ -116,8 +118,19 @@ interface FileStore {
     watchPath(backendId: string, path: string): void;
     unwatchPath(backendId: string, path: string): void;
     clearExplorerState(): void;
-    readFile(backendId: string, path: string): Promise<string>;
-    writeFile(backendId: string, path: string, content: string): Promise<void>;
+    /** The file's text and the hash a write's `expected` names it by. */
+    readFile(backendId: string, path: string): Promise<FileDiskText>;
+    /**
+     * With `expected`, a file changed on disk since that hash is left alone
+     * and the answer is a conflict; the caller must check it before treating
+     * the save as done.
+     */
+    writeFile(
+        backendId: string,
+        path: string,
+        content: string,
+        expected?: string,
+    ): Promise<FileWriteResponse>;
     renameFile(backendId: string, oldPath: string, newPath: string): Promise<void>;
     deleteFile(backendId: string, path: string): Promise<void>;
     createFile(backendId: string, path: string): Promise<void>;
@@ -488,18 +501,23 @@ export const useFileStore = create<FileStore>((set, get) => ({
         set({ expandedDirs });
     },
     async readFile(backendId, path) {
-        const response = await sendRequest<FileReadResponse>(backendId, MSG.FILE_READ, {
+        const response = await sendRequest<FileDiskReadResponse>(backendId, MSG.FILE_READ, {
             path,
         });
         if (response.state) throw new FilePreviewError(response.state);
-        return response.content;
+        return { content: response.content, hash: response.hash };
     },
-    async writeFile(backendId, path, content) {
-        await sendRequest(backendId, MSG.FILE_WRITE, { path, content });
+    async writeFile(backendId, path, content, expected) {
+        const result = await sendRequest<FileWriteResponse>(backendId, MSG.FILE_WRITE, {
+            path,
+            content,
+            expected,
+        });
         const watched = get().watched;
-        if (watched?.backendId === backendId && path.startsWith(watched.path)) {
+        if (result.success && watched?.backendId === backendId && path.startsWith(watched.path)) {
             await get().fetchGitStatus(backendId, watched.path);
         }
+        return result;
     },
     async renameFile(backendId, oldPath, newPath) {
         await sendRequest(backendId, MSG.FILE_RENAME, { oldPath, newPath });

@@ -21,6 +21,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUIStore } from "@/stores/ui-store";
 import { onEvent } from "@/lib/connection-registry";
+import { fileChangeCovers } from "@/lib/file-change";
 import { markdownUrlTransform, resolveLinkTarget } from "@/lib/markdown/link-target";
 import { FrontmatterHeader } from "@/components/panes/markdown/FrontmatterHeader";
 import { CodeBlock } from "@/components/panes/markdown/CodeBlock";
@@ -117,6 +118,8 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     const [loadedPath, setLoadedPath] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    /** A checkbox click that could not be saved, shown while its file is; the next click clears it. */
+    const [toggleError, setToggleError] = useState<{ path: string; message: string } | null>(null);
     const workspace = useActiveWorkspace();
     const readFile = useFileStore((s) => s.readFile);
     const writeFile = useFileStore((s) => s.writeFile);
@@ -248,7 +251,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         // No machine yet, nothing to read from; the pane keeps loading.
         if (backendId === null) return;
         try {
-            const text = await readFile(backendId, filePath);
+            const { content: text } = await readFile(backendId, filePath);
             if (loadId !== loadIdRef.current) return;
             setContent(text);
             setLoadedPath(filePath);
@@ -277,12 +280,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         return onEvent(MSG.FILE_CHANGED, (payload, fromBackendId) => {
             // The same path on another machine is another file.
             if (fromBackendId !== backendId) return;
-            const event = payload as FileChangeEvent;
-            if (event.type === "delete") return;
-            const covers = event.recursive
-                ? filePath === event.path || filePath.startsWith(event.path + "/")
-                : event.path === filePath;
-            if (covers) void loadContent();
+            if (fileChangeCovers(payload as FileChangeEvent, filePath)) void loadContent();
         });
     }, [backendId, filePath, loadContent]);
 
@@ -375,6 +373,11 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
      * can be swallowed — checked once instead of checked-then-unchecked. That
      * is the deliberate trade: a lost click is recoverable, a click applied to
      * the wrong item is not.
+     *
+     * The write names the text it was computed from, so an edit landing between
+     * the read and the write (an agent's, say) is refused rather than buried.
+     * The click is then re-applied to the fresh text once; a second refusal
+     * gives up and says so.
      */
     const toggleTaskLine = useCallback(
         (path: string, snapshot: string, line: number) => {
@@ -389,29 +392,41 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                 // put anything the write learns.
                 const stillShown = () =>
                     shownPathRef.current === path && loadId === loadIdRef.current;
-                let current: string;
-                try {
-                    current = await readFile(backendId, path);
-                } catch {
-                    if (stillShown()) void loadContent();
-                    return;
+                if (stillShown()) setToggleError(null);
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    let current: string;
+                    let hash: string;
+                    try {
+                        ({ content: current, hash } = await readFile(backendId, path));
+                    } catch {
+                        if (stillShown()) void loadContent();
+                        return;
+                    }
+                    const target =
+                        current === snapshot ? line : relocateTaskLine(snapshot, current, line);
+                    if (target === null) {
+                        // The item moved or was already toggled by someone else.
+                        // Show what is on disk and drop the click.
+                        if (stillShown()) setContent(current);
+                        return;
+                    }
+                    const next = toggleTaskListItemAtLine(current, target);
+                    if (next === current) return;
+                    if (stillShown()) setContent(next);
+                    try {
+                        const result = await writeFile(backendId, path, next, hash);
+                        if (result.success) return;
+                    } catch {
+                        if (stillShown()) void loadContent();
+                        return;
+                    }
                 }
-                const target =
-                    current === snapshot ? line : relocateTaskLine(snapshot, current, line);
-                if (target === null) {
-                    // The item moved or was already toggled by someone else.
-                    // Show what is on disk and drop the click.
-                    if (stillShown()) setContent(current);
-                    return;
-                }
-                const next = toggleTaskListItemAtLine(current, target);
-                if (next === current) return;
-                if (stillShown()) setContent(next);
-                try {
-                    await writeFile(backendId, path, next);
-                } catch {
-                    if (stillShown()) void loadContent();
-                }
+                if (!stillShown()) return;
+                setToggleError({
+                    path,
+                    message: "The file kept changing on disk; the checkbox was not saved.",
+                });
+                void loadContent();
             });
         },
         [backendId, loadContent, readFile, writeFile],
@@ -583,6 +598,11 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
                 onScroll={handleScroll}
                 onClick={handleClick}
                 className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
+                {toggleError?.path === loadedPath && (
+                    <div role="alert" className="text-destructive mb-4 text-sm">
+                        {toggleError.message}
+                    </div>
+                )}
                 <div
                     className="markdown-preview prose prose-invert min-w-0"
                     style={{

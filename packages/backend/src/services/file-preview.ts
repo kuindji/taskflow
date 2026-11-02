@@ -1,10 +1,16 @@
-import type { FileReadResponse, GitFileContentPair } from "@taskflow/shared";
+import type { FileDiskReadResponse, FileReadResponse, GitFileContentPair } from "@taskflow/shared";
+import { createHash } from "crypto";
 import { open } from "fs/promises";
 import { git, GitQueryLimitError } from "./git-helpers";
 
 const PREVIEW_BYTES = 5 * 1024 * 1024;
 const BINARY_PREFIX_BYTES = 8192;
 const PATCH_BYTES = 1024 * 1024;
+
+/** Names file contents for FILE_WRITE's `expected`; a hash, since mtimes can be too coarse. */
+function contentHash(bytes: Uint8Array): string {
+    return createHash("sha256").update(bytes).digest("hex");
+}
 
 interface PreviewHandle {
     size(): Promise<number>;
@@ -24,7 +30,7 @@ async function readFilePreview(
             };
         },
     },
-): Promise<FileReadResponse> {
+): Promise<FileDiskReadResponse> {
     const handle = await deps.open(path);
     try {
         if ((await handle.size()) > PREVIEW_BYTES) return { state: "tooLarge" };
@@ -40,7 +46,7 @@ async function readFilePreview(
         }
         const bytes = Buffer.concat(chunks, size);
         if (bytes.subarray(0, BINARY_PREFIX_BYTES).includes(0)) return { state: "binary" };
-        return { content: bytes.toString("utf8") };
+        return { content: bytes.toString("utf8"), hash: contentHash(bytes) };
     } finally {
         await handle.close();
     }
@@ -137,4 +143,4 @@ function previewPair(
     return { original: original?.content ?? "", modified: modified?.content ?? "" };
 }
 
-export { readFilePreview, readGitPreview, readGitPatch, previewPair };
+export { contentHash, readFilePreview, readGitPreview, readGitPatch, previewPair };

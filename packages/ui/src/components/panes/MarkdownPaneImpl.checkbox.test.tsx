@@ -30,18 +30,29 @@ function releaseReads() {
 // One frozen store object, as zustand hands out: fresh function identities on
 // every render would make `loadContent` unstable and re-read the file on each
 // re-render, which is not how the pane behaves in the app.
+/** A fake disk names each text by itself, so `expected` is the text a write replaces. */
+const diskText = (path: string) => {
+    const content = files.get(path) ?? "";
+    return { content, hash: content };
+};
+/** Runs just before each write is checked: an agent editing between the read and the write. */
+let beforeWrite: (path: string) => void = () => {};
 const fileStore = {
     retainWatch: () => () => {},
     readFile: (_backendId: string, path: string) => {
-        if (path !== heldPath) return Promise.resolve(files.get(path) ?? "");
-        return new Promise<string>((resolve) => {
-            heldReads.push(() => resolve(files.get(path) ?? ""));
+        if (path !== heldPath) return Promise.resolve(diskText(path));
+        return new Promise<{ content: string; hash: string }>((resolve) => {
+            heldReads.push(() => resolve(diskText(path)));
         });
     },
-    writeFile: (_backendId: string, path: string, content: string) => {
+    writeFile: (_backendId: string, path: string, content: string, expected?: string) => {
+        beforeWrite(path);
+        if (expected !== undefined && expected !== diskText(path).hash) {
+            return Promise.resolve({ success: false as const, conflict: true as const });
+        }
         files.set(path, content);
         writes.push(content);
-        return Promise.resolve();
+        return Promise.resolve({ success: true as const, hash: content });
     },
 };
 
@@ -91,6 +102,7 @@ beforeEach(() => {
     writes.length = 0;
     heldPath = null;
     heldReads.length = 0;
+    beforeWrite = () => {};
     useSessionStore.setState({
         tabsByWorkspace: {
             "project:p1": [
@@ -259,4 +271,56 @@ test("two fast clicks in one pane both land", async () => {
     await settle();
 
     expect(files.get(PATH)).toBe("- [x] a\n- [x] b\n");
+});
+
+test("an edit landing between a click's read and its write is kept, and the click re-applied", async () => {
+    files.set(PATH, "- [ ] a\n- [ ] b\n");
+
+    act(() => {
+        root.render(<MarkdownPaneImpl filePath={PATH} tabId="left" workspaceKey="project:p1" />);
+    });
+    await settle();
+
+    // An agent appends an item after the click read the file, once.
+    beforeWrite = (path) => {
+        beforeWrite = () => {};
+        files.set(path, `${files.get(path) ?? ""}- [ ] c\n`);
+    };
+    act(() => {
+        checkboxesIn(0)[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+
+    expect(files.get(PATH)).toBe("- [x] a\n- [ ] b\n- [ ] c\n");
+    expect(writes).toEqual(["- [x] a\n- [ ] b\n- [ ] c\n"]);
+});
+
+test("a file that keeps changing under the click is left alone, and the pane says so", async () => {
+    files.set(PATH, "- [ ] a\n- [ ] b\n");
+
+    act(() => {
+        root.render(<MarkdownPaneImpl filePath={PATH} tabId="left" workspaceKey="project:p1" />);
+    });
+    await settle();
+
+    // Every write finds the file changed since its read.
+    let edits = 0;
+    beforeWrite = (path) => {
+        edits += 1;
+        files.set(path, `${files.get(path) ?? ""}- [ ] agent ${edits}\n`);
+    };
+    act(() => {
+        checkboxesIn(0)[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+
+    expect(edits).toBe(2);
+    expect(writes).toHaveLength(0);
+    expect(files.get(PATH)).toBe("- [ ] a\n- [ ] b\n- [ ] agent 1\n- [ ] agent 2\n");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "the checkbox was not saved",
+    );
+    // The pane shows the disk, with the box still unchecked.
+    expect(container.textContent).toContain("agent 2");
+    expect(checkboxesIn(0)[0].checked).toBe(false);
 });

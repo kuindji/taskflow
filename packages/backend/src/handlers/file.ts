@@ -6,6 +6,7 @@ import type {
     FileWatchPayload,
     FileUnwatchPayload,
     FileWritePayload,
+    FileWriteResponse,
     FileStatPayload,
     FileRenamePayload,
     FilePathPayload,
@@ -25,7 +26,8 @@ import {
     assertMutableWorkspacePath,
     assertWorkspacePath,
 } from "../utils/path-validation";
-import { readFilePreview } from "../services/file-preview";
+import { contentHash, readFilePreview } from "../services/file-preview";
+import { KeyedQueue } from "../services/keyed-queue";
 import { getKnownEditor } from "../services/editor-detector";
 import { resolveEditorCommand } from "../services/editor-resolver";
 
@@ -66,6 +68,7 @@ interface FileHandlerDeps {
 export function registerFileHandlers(deps: FileHandlerDeps): void {
     const { router, fileWatcher, taskStore, broadcast, changeTracker } = deps;
     const resolveEditor = deps.resolveEditor ?? resolveEditorCommand;
+    const fileWrites = new KeyedQueue();
     const spawnEditor =
         deps.spawnEditor ??
         ((command: string, args: string[]) => {
@@ -92,16 +95,25 @@ export function registerFileHandlers(deps: FileHandlerDeps): void {
         return readFilePreview(workspacePath);
     });
 
-    router.register(MSG.FILE_WRITE, async (payload) => {
-        const { path, content } = payload as FileWritePayload;
+    router.register(MSG.FILE_WRITE, async (payload): Promise<FileWriteResponse> => {
+        const { path, content, expected } = payload as FileWritePayload;
         const workspacePath = await assertMutableWorkspacePath(taskStore, path);
-        // The editor received this file decoded as UTF-8 with every invalid
-        // byte turned into U+FFFD; writing that back would destroy them all.
-        if (!isUtf8(await readExisting(workspacePath))) {
-            throw new Error("The file is not UTF-8 text; saving it here would corrupt it");
-        }
-        await writeFile(workspacePath, content, "utf-8");
-        return { success: true };
+        // One at a time per file: two writes naming the same `expected` must
+        // not both see it on disk.
+        return fileWrites.run(workspacePath, async () => {
+            const existing = await readExisting(workspacePath);
+            if (expected !== undefined && contentHash(existing) !== expected) {
+                return { success: false, conflict: true };
+            }
+            // The editor received this file decoded as UTF-8 with every invalid
+            // byte turned into U+FFFD; writing that back would destroy them all.
+            if (!isUtf8(existing)) {
+                throw new Error("The file is not UTF-8 text; saving it here would corrupt it");
+            }
+            const bytes = Buffer.from(content, "utf-8");
+            await writeFile(workspacePath, bytes);
+            return { success: true, hash: contentHash(bytes) };
+        });
     });
 
     router.register(MSG.FILE_CREATE, async (payload) => {
