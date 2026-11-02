@@ -371,7 +371,8 @@ describe("moved host", () => {
         expect(args).toContain("StrictHostKeyChecking=yes");
         expect(args).toContain("HostKeyAlias=taskflow-192.168.1.20-22");
         expect(args).toContain(`UserKnownHostsFile="${KNOWN_HOSTS_FILE}"`);
-        expect(args.slice(-5)).toEqual(["-l", "kuindji", "--", "192.168.1.30", "true"]);
+        // `exit 0` rather than `true`, which cmd.exe on a Windows server lacks.
+        expect(args.slice(-5)).toEqual(["-l", "kuindji", "--", "192.168.1.30", "exit 0"]);
     });
 
     test("the approved key lines are refiled under the new alias once", () => {

@@ -231,8 +231,9 @@ export function buildHostKeyScanArgs(record: BackendRecord, scanFile: string): s
  * to `address` but looks the key up under the record's own alias, with
  * `StrictHostKeyChecking=yes` (`hostKeyOptions`), so ssh refuses unless the
  * key matches the one the user approved for the old address. Exit 0 is the
- * only accepted answer: it also proves the login still works there. `-n` and
- * `true` keep it a single round trip.
+ * only accepted answer: it also proves the login still works there. The remote
+ * command is `exit 0`, not `true`: a Windows OpenSSH server runs it in
+ * `cmd.exe`, where `true` is not a command and would fail every probe.
  */
 export function buildMovedHostProbeArgs(record: BackendRecord, address: string): string[] {
     return [
@@ -247,7 +248,7 @@ export function buildMovedHostProbeArgs(record: BackendRecord, address: string):
         record.user,
         "--",
         address,
-        "true",
+        "exit 0",
     ];
 }
 
