@@ -2,8 +2,8 @@ import {
     access,
     cp,
     mkdir,
+    mkdtemp,
     readdir,
-    readFile,
     realpath,
     rename,
     rm,
@@ -15,9 +15,9 @@ import { join } from "path";
 import { isPathInsideDirectory } from "./theme-service";
 
 /**
- * Items that live in the data directory and move with it: everything
- * TaskStore reads (it is re-pointed live after the move) plus themes. Agent
- * skills live in the base directory, not here.
+ * Everything the stores keep in the data directory (see `buildDataPaths` in
+ * config). The backend restarts after a move, so each store reopens here.
+ * Agent skills, settings and per-machine files live in the base directory.
  */
 const DATA_ITEMS = [
     "projects.json",
@@ -27,34 +27,33 @@ const DATA_ITEMS = [
     "session-logs",
     "sessions",
     "themes",
+    "flows",
+    "flow-runs",
+    "schedules.json",
+    "notifications.json",
 ];
 
-export async function readDataLocation(baseDir: string): Promise<string | null> {
-    try {
-        const raw = await readFile(join(baseDir, "data-location.json"), "utf-8");
-        const parsed = JSON.parse(raw) as { path?: string };
-        if (parsed.path && typeof parsed.path === "string") {
-            return parsed.path;
-        }
-    } catch {
-        // Missing or invalid
-    }
-    return null;
-}
+const DATA_LOCATION_FILE = "data-location.json";
 
+/**
+ * Written to a temp file and renamed into place: config falls back to the base
+ * directory on a torn pointer, which would silently select the old data.
+ */
 export async function writeDataLocation(baseDir: string, newPath: string): Promise<void> {
-    await writeFile(
-        join(baseDir, "data-location.json"),
-        JSON.stringify({ path: newPath }, null, 2),
-    );
+    const file = join(baseDir, DATA_LOCATION_FILE);
+    const temp = `${file}.${process.pid}.tmp`;
+    try {
+        await writeFile(temp, JSON.stringify({ path: newPath }, null, 2));
+        await rename(temp, file);
+    } catch (error) {
+        await rm(temp, { force: true }).catch(() => undefined);
+        throw error;
+    }
 }
 
+/** Throws when the pointer cannot be removed: the old folder then stays selected. */
 export async function clearDataLocation(baseDir: string): Promise<void> {
-    try {
-        await rm(join(baseDir, "data-location.json"), { force: true });
-    } catch {
-        // Ignore
-    }
+    await rm(join(baseDir, DATA_LOCATION_FILE), { force: true });
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -72,22 +71,6 @@ async function isWritable(path: string): Promise<boolean> {
         return true;
     } catch {
         return false;
-    }
-}
-
-async function moveItem(src: string, dest: string): Promise<void> {
-    try {
-        // Fast path: same filesystem
-        await rename(src, dest);
-    } catch {
-        // Cross-filesystem: copy then delete
-        const srcStat = await stat(src);
-        if (srcStat.isDirectory()) {
-            await cp(src, dest, { recursive: true });
-        } else {
-            await cp(src, dest);
-        }
-        await rm(src, { recursive: true, force: true });
     }
 }
 
@@ -133,14 +116,28 @@ export async function hasExistingData(dirPath: string): Promise<boolean> {
     return false;
 }
 
-/** Move data from currentDir to newDir, overwriting any existing data at destination */
-export async function migrateDataDir(currentDir: string, newDir: string): Promise<void> {
+/**
+ * Moves the data from `currentDir` to `newDir`, replacing data already there.
+ *
+ * Every item is copied into a staging folder inside `newDir`, then renamed
+ * into place, with anything it replaces set aside. `commit` (writing the
+ * location pointer) runs only once all items are in place. A failure up to
+ * and including `commit` puts `newDir` back as it was and leaves `currentDir`
+ * untouched. After `commit` nothing is undone: the sources are deleted and
+ * any that could not be are returned for the caller to log.
+ */
+export async function migrateDataDir(
+    currentDir: string,
+    newDir: string,
+    commit: () => Promise<void>,
+): Promise<string[]> {
     await mkdir(newDir, { recursive: true });
 
     // Clearing a destination that holds its own source (the same folder under
     // another spelling, or the parent of a data folder named like an item)
     // would delete the data before it moves, so refuse before touching anything.
     const [realCurrent, realNew] = await Promise.all([realpath(currentDir), realpath(newDir)]);
+    const items: string[] = [];
     for (const item of DATA_ITEMS) {
         const src = join(realCurrent, item);
         const dest = join(realNew, item);
@@ -148,19 +145,67 @@ export async function migrateDataDir(currentDir: string, newDir: string): Promis
         if (isPathInsideDirectory(src, dest) || isPathInsideDirectory(dest, src)) {
             throw new Error(`The new data folder overlaps the current one at ${src}`);
         }
+        items.push(item);
     }
 
-    for (const item of DATA_ITEMS) {
-        const src = join(currentDir, item);
-        const dest = join(newDir, item);
-
-        if (!(await exists(src))) continue;
-
-        // Remove destination if it exists (overwrite mode)
-        if (await exists(dest)) {
-            await rm(dest, { recursive: true, force: true });
+    const staging = await mkdtemp(join(newDir, ".taskflow-migrating-"));
+    const incoming = join(staging, "incoming");
+    const replaced = join(staging, "replaced");
+    const setAside: string[] = [];
+    const placed: string[] = [];
+    try {
+        await mkdir(incoming);
+        await mkdir(replaced);
+        for (const item of items) {
+            await cp(join(currentDir, item), join(incoming, item), { recursive: true });
         }
+        for (const item of items) {
+            const dest = join(newDir, item);
+            if (await exists(dest)) {
+                await rename(dest, join(replaced, item));
+                setAside.push(item);
+            }
+            await rename(join(incoming, item), dest);
+            placed.push(item);
+        }
+        await commit();
+    } catch (error) {
+        await restoreDestination(newDir, replaced, placed, setAside);
+        await rm(staging, { recursive: true, force: true }).catch((cleanupError: unknown) => {
+            console.error(`Failed to remove ${staging}:`, cleanupError);
+        });
+        throw error;
+    }
 
-        await moveItem(src, dest);
+    const leftovers: string[] = [];
+    for (const path of [...items.map((item) => join(currentDir, item)), staging]) {
+        try {
+            await rm(path, { recursive: true, force: true });
+        } catch {
+            leftovers.push(path);
+        }
+    }
+    return leftovers;
+}
+
+async function restoreDestination(
+    newDir: string,
+    replaced: string,
+    placed: string[],
+    setAside: string[],
+): Promise<void> {
+    for (const item of [...placed].reverse()) {
+        try {
+            await rm(join(newDir, item), { recursive: true, force: true });
+        } catch (error) {
+            console.error(`Failed to remove copied ${item} from ${newDir}:`, error);
+        }
+    }
+    for (const item of setAside) {
+        try {
+            await rename(join(replaced, item), join(newDir, item));
+        } catch (error) {
+            console.error(`Failed to restore ${item} in ${newDir}:`, error);
+        }
     }
 }

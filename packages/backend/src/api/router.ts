@@ -1,5 +1,8 @@
 type RouteHandler = (req: Request, params: Record<string, string>) => Promise<Response>;
 
+/** Wraps every matched route handler, e.g. to refuse requests while the data folder moves. */
+type RouteGuard = (path: string, run: () => Promise<Response>) => Promise<Response>;
+
 interface Route {
     method: string;
     pattern: RegExp;
@@ -9,6 +12,11 @@ interface Route {
 
 export class ApiRouter {
     private routes: Route[] = [];
+    private guard: RouteGuard | null = null;
+
+    setGuard(guard: RouteGuard): void {
+        this.guard = guard;
+    }
 
     register(method: string, path: string, handler: RouteHandler): void {
         const paramNames: string[] = [];
@@ -38,7 +46,8 @@ export class ApiRouter {
                 params[name] = match[i + 1];
             });
 
-            return route.handler(req, params);
+            const run = () => route.handler(req, params);
+            return this.guard ? this.guard(url.pathname, run) : run();
         }
 
         return null;

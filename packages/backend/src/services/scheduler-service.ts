@@ -17,6 +17,11 @@ interface SchedulerDeps {
     enabled?: boolean;
     now?: () => number;
     schedule?: (callback: () => void, delayMs: number) => () => void;
+    /**
+     * Runs timer-driven work, or returns null to skip it (the data folder is
+     * moving). A skipped run stays due and the next tick retries it.
+     */
+    tryRun?: (work: () => Promise<void>) => Promise<void> | null;
 }
 
 const SYSTEM_PROMPT_ADDON = `You are running as a scheduled job. When you have completed your work, you MUST call the following command to signal completion:
@@ -128,7 +133,7 @@ class SchedulerService {
         this.cancelTick = this.schedule(() => {
             this.cancelTick = null;
             this.startTick();
-            this.background(this.checkDue());
+            this.timerDriven(() => this.checkDue());
         }, 30_000);
     }
 
@@ -186,7 +191,7 @@ class SchedulerService {
         const delay = Date.parse(schedule.nextRunAt ?? "") - this.now();
         if (delay <= 0) {
             // execute admits synchronously; don't hold the due scan or init open on its spawn.
-            this.background(this.execute(scheduleId, "scheduled"));
+            this.timerDriven(() => this.execute(scheduleId, "scheduled"));
         } else {
             // Concurrent checks may have read together; replace the timer at installation too.
             this.clearTimer(scheduleId);
@@ -194,7 +199,7 @@ class SchedulerService {
                 scheduleId,
                 this.schedule(
                     () => {
-                        this.background(this.checkDue());
+                        this.timerDriven(() => this.checkDue());
                     },
                     Math.min(delay, 2_147_483_647),
                 ),
@@ -468,6 +473,11 @@ class SchedulerService {
     private clearTimeoutTimer(scheduleId: string): void {
         this.timeoutTimers.get(scheduleId)?.();
         this.timeoutTimers.delete(scheduleId);
+    }
+
+    private timerDriven(work: () => Promise<void>): void {
+        const running = this.deps.tryRun ? this.deps.tryRun(work) : work();
+        if (running) this.background(running);
     }
 
     private background(work: Promise<void>): void {

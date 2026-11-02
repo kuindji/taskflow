@@ -97,7 +97,7 @@ function isTaskTombstone(value: unknown): value is TaskTombstone {
 }
 
 export class TaskStore {
-    private config: TaskStoreConfig;
+    private readonly config: TaskStoreConfig;
     private taskMutations = new Map<string, Promise<void>>();
     private sessionLogMutations = new Map<string, Promise<void>>();
     private masterSessions: SessionRef[] = [];
@@ -110,11 +110,6 @@ export class TaskStore {
         private readonly fileOperations: FileOperations = defaultFileOperations,
     ) {
         this.config = config;
-    }
-
-    async updateConfig(config: TaskStoreConfig): Promise<void> {
-        this.config = config;
-        await this.init();
     }
 
     async init(): Promise<void> {

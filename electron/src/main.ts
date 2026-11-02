@@ -235,7 +235,13 @@ void app.whenReady().then(async () => {
         notify: () => getMainWindow()?.webContents.send("remote-resume"),
     });
     try {
-        const { port, token } = await startBackend(devBranch);
+        // Its stores keep the folder they opened with, so a data folder change
+        // ends in a relaunch that reopens them all on the new one.
+        const { port, token } = await startBackend(devBranch, () => {
+            exitConfirmed = true;
+            app.relaunch();
+            app.quit();
+        });
         setBackendPort(port);
         setBackendToken(token);
         await browserHost.initBrowserHost({ getBackendPort, getMainWindow, backendFetch });

@@ -1,4 +1,4 @@
-import { isApiToken } from "@taskflow/shared";
+import { BACKEND_RESTARTABLE_ENV, isApiToken } from "@taskflow/shared";
 import { execFileSync } from "child_process";
 import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { mkdir, writeFile, access } from "fs/promises";
@@ -218,20 +218,13 @@ export const config = {
         apiToken ??= readOrCreateApiToken(BASE_DIR, instanceId);
         return apiToken;
     },
+    /** Started by the desktop app, which restarts it after a data folder change. */
+    restartable: process.env[BACKEND_RESTARTABLE_ENV] === "1",
     port: Number.isInteger(devPort) && devPort > 0 ? devPort : 0,
     instanceId,
     bootId: randomUUID(),
     ...buildDataPaths(initialDataDir, instanceId),
 };
-
-export function updateConfigDataDir(newDataDir: string): void {
-    const paths = buildDataPaths(newDataDir, config.instanceId);
-    Object.assign(config, paths);
-}
-
-export function isDefaultDataDir(): boolean {
-    return config.dataDir === BASE_DIR;
-}
 
 export async function ensureDirectories(): Promise<void> {
     await mkdir(config.baseDir, { recursive: true });

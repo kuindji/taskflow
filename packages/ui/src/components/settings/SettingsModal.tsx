@@ -21,6 +21,7 @@ import {
     type RuntimeListResponse,
     type ClaudeSettings,
     type CodexSettings,
+    type DataDirInfo,
     type PiThinkingLevel,
     type KimiPermissionMode,
     type EditorInfo,
@@ -134,12 +135,15 @@ function SettingsModal() {
         migrationErrorTimer.current = setTimeout(() => setMigrationError(null), 5000);
     }, []);
 
-    const showDataDirChangedAlert = useCallback((previousPath: string, nextPath: string) => {
-        if (previousPath === nextPath) return;
+    const showDataDirChangedAlert = useCallback((result: DataDirInfo, mode?: "adopt") => {
+        if (!result.restarting) return;
 
         void alert({
             title: "Data Folder Changed",
-            description: `Taskflow is now using "${nextPath}" instead of "${previousPath}" for projects, tasks, and session data.`,
+            description:
+                mode === "adopt"
+                    ? `Taskflow now uses the data already in "${result.dataDir}" and is restarting to load it.`
+                    : `Taskflow moved its data to "${result.dataDir}" and is restarting to use it.`,
         });
     }, []);
 
@@ -150,10 +154,7 @@ function SettingsModal() {
 
             const confirmed = await confirm({
                 title: action === "reset" ? "Reset Data Folder?" : "Change Data Folder?",
-                description:
-                    action === "reset"
-                        ? `Taskflow will move your projects, tasks, and session data from "${currentPath}" back to the default folder at "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`
-                        : `Taskflow will move your projects, tasks, and session data from "${currentPath}" to "${nextPath}". Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`,
+                description: `Taskflow will move your projects, tasks, flows, schedules and session data from "${currentPath}" to ${action === "reset" ? `the default folder at "${nextPath}"` : `"${nextPath}"`}, then restart. Close running sessions and stop running flows first. Config files will remain in ~/.config/taskflow. If the destination already contains Taskflow data, you'll be asked how to proceed.`,
                 confirmLabel: action === "reset" ? "Reset Folder" : "Move Data",
                 cancelLabel: "Cancel",
             });
@@ -170,15 +171,14 @@ function SettingsModal() {
         if (selected === dataDirInfo?.dataDir) return;
         const confirmed = await confirmDataDirChange(selected, "change");
         if (!confirmed) return;
-        const previousPath = dataDirInfo?.dataDir;
         setMigrating(true);
         setMigrationError(null);
         try {
             const result = await updateDataDir(selected);
             if (result.conflict) {
                 setConflictPath(selected);
-            } else if (previousPath) {
-                showDataDirChangedAlert(previousPath, result.dataDir);
+            } else {
+                showDataDirChangedAlert(result);
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to change data folder";
@@ -199,7 +199,6 @@ function SettingsModal() {
         if (!dataDirInfo?.baseDir) return;
         const confirmed = await confirmDataDirChange(dataDirInfo.baseDir, "reset");
         if (!confirmed) return;
-        const previousPath = dataDirInfo.dataDir;
         setMigrating(true);
         setMigrationError(null);
         try {
@@ -207,7 +206,7 @@ function SettingsModal() {
             if (result.conflict) {
                 setConflictPath(dataDirInfo.baseDir);
             } else {
-                showDataDirChangedAlert(previousPath, result.dataDir);
+                showDataDirChangedAlert(result);
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to reset data folder";
@@ -225,14 +224,13 @@ function SettingsModal() {
 
     const handleConflictChoice = useCallback(
         async (mode: "overwrite" | "adopt") => {
-            if (!conflictPath || !dataDirInfo?.dataDir) return;
-            const previousPath = dataDirInfo.dataDir;
+            if (!conflictPath) return;
             setConflictPath(null);
             setMigrating(true);
             setMigrationError(null);
             try {
                 const result = await updateDataDir(conflictPath, mode);
-                showDataDirChangedAlert(previousPath, result.dataDir);
+                showDataDirChangedAlert(result, mode === "adopt" ? "adopt" : undefined);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Failed to change data folder";
                 showMigrationError(message);
@@ -240,13 +238,7 @@ function SettingsModal() {
                 setMigrating(false);
             }
         },
-        [
-            conflictPath,
-            dataDirInfo?.dataDir,
-            updateDataDir,
-            showMigrationError,
-            showDataDirChangedAlert,
-        ],
+        [conflictPath, updateDataDir, showMigrationError, showDataDirChangedAlert],
     );
 
     // --- Defaults section handlers ---
@@ -646,8 +638,9 @@ function SettingsModal() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Existing Data Found</AlertDialogTitle>
                         <AlertDialogDescription>
-                            The selected folder already contains Taskflow data. How would you like
-                            to proceed?
+                            The selected folder already contains Taskflow data. Overwrite replaces
+                            it with your current data; Use Existing switches to it and leaves your
+                            current data where it is. Either way Taskflow restarts.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

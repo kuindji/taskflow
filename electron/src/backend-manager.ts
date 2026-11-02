@@ -1,4 +1,5 @@
 import { parsePortHandshake } from "@taskflow/shared/remote";
+import { BACKEND_RESTARTABLE_ENV } from "@taskflow/shared";
 import type { PortHandshake } from "@taskflow/shared";
 import { app } from "electron";
 import { spawn, type ChildProcess } from "child_process";
@@ -6,6 +7,7 @@ import { accessSync, constants } from "fs";
 import { access, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { watchBackendRestart } from "./backend-restart";
 
 const UI_DEV_SERVER_URL = process.env.TASKFLOW_UI_URL;
 
@@ -107,7 +109,11 @@ async function cleanupBackendArtifacts(): Promise<void> {
     backendPortFile = null;
 }
 
-async function startBackend(devBranch: string | null): Promise<PortHandshake> {
+/** `onRestart` runs when the backend exits asking to be restarted. */
+async function startBackend(
+    devBranch: string | null,
+    onRestart: () => void,
+): Promise<PortHandshake> {
     backendPortFile = join(tmpdir(), `taskflow-port-${process.pid}-${Date.now()}`);
 
     const { binary, args } = getBackendPath();
@@ -130,10 +136,13 @@ async function startBackend(devBranch: string | null): Promise<PortHandshake> {
                   }
                 : {}),
             TASKFLOW_PORT_FILE: backendPortFile,
+            [BACKEND_RESTARTABLE_ENV]: "1",
             ...(devBranch ? { TASKFLOW_DEV_BRANCH: devBranch } : {}),
             ...(rgPath ? { TASKFLOW_RG_PATH: rgPath } : {}),
         },
     });
+
+    watchBackendRestart(backendProcess, onRestart);
 
     backendProcess.stdout?.on("data", (data: Buffer) => {
         console.log("[backend]", data.toString().trim());

@@ -1,19 +1,15 @@
 import { create } from "zustand";
-import type { AppSettings, SettingsUpdatePayload, SettingsUpdatedEvent } from "@taskflow/shared";
+import type {
+    AppSettings,
+    DataDirInfo,
+    SettingsUpdatePayload,
+    SettingsUpdatedEvent,
+} from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { getPrimary, onEvent, sendRequest } from "@/lib/connection-registry";
 import { registerBackendReset } from "./store-reset";
 import { useUIStore } from "./ui-store";
 import { useMarkdownInputStore } from "./markdown-input-store";
-import { useProjectStore } from "./project-store";
-import { useTaskStore } from "./task-store";
-
-interface DataDirInfo {
-    dataDir: string;
-    baseDir: string;
-    isDefault: boolean;
-    conflict?: boolean;
-}
 
 interface SettingsStore {
     /** Every attached machine's settings. Read-only except for primary's. */
@@ -92,16 +88,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
             path,
             mode,
         });
+        // A change restarts the app, which reloads every list from the new folder.
         if (!dataDirInfo.conflict) {
             set({ dataDirInfo });
-        }
-        // Adopting switches primary to another dataset, and the backend
-        // broadcasts no new lists: the old projects and tasks would stay shown.
-        if (mode === "adopt" && !dataDirInfo.conflict) {
-            await Promise.allSettled([
-                useProjectStore.getState().fetchProjects(primary),
-                useTaskStore.getState().fetchTasks(primary),
-            ]);
         }
         return dataDirInfo;
     },

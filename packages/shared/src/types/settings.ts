@@ -133,6 +133,17 @@ export interface AppSettings {
 
 type NullablePartial<T> = { [K in keyof T]?: T[K] | null };
 
+/** The backend's data folder, as Settings shows and changes it. */
+export interface DataDirInfo {
+    dataDir: string;
+    baseDir: string;
+    isDefault: boolean;
+    /** The target already holds Taskflow data and nothing changed; resend with a mode. */
+    conflict?: boolean;
+    /** The change is committed and the backend is restarting to use the new folder. */
+    restarting?: boolean;
+}
+
 /** Broadcast after every settings write so each attached client drops stale defaults. */
 export interface SettingsUpdatedEvent {
     settings: AppSettings;

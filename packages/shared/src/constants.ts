@@ -11,6 +11,13 @@ export const PROTOCOL_VERSION = 3;
 // Task deletion waits for worktree cleanup.
 export const TASK_DELETE_TIMEOUT_MS = 300_000;
 export const WS_CLOSE_UNAUTHORIZED = 4401;
+/**
+ * Set to "1" by the desktop app on the backend it spawns. Only such a backend
+ * may change its data folder: it exits with BACKEND_RESTART_EXIT_CODE and the
+ * app relaunches, so every store reopens on the new folder.
+ */
+export const BACKEND_RESTARTABLE_ENV = "TASKFLOW_RESTARTABLE";
+export const BACKEND_RESTART_EXIT_CODE = 75;
 /** Most commits one `GIT_LOG` read returns; larger limits are clamped. */
 export const GIT_LOG_MAX_LIMIT = 500;
 

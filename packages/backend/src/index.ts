@@ -1,4 +1,9 @@
-import { DISCOVERY_MAX_DISPLAY_NAME, MSG, PROTOCOL_VERSION } from "@taskflow/shared";
+import {
+    BACKEND_RESTART_EXIT_CODE,
+    DISCOVERY_MAX_DISPLAY_NAME,
+    MSG,
+    PROTOCOL_VERSION,
+} from "@taskflow/shared";
 import type { NetworkSettings, SystemClientsEvent } from "@taskflow/shared";
 import { createAdvertiser } from "@taskflow/shared/discovery";
 import appPackage from "../../../electron/package.json";
@@ -33,6 +38,13 @@ import { registerAgentCommandsHandlers } from "./handlers/agent-commands";
 import { registerAgentDiscoveryHandlers } from "./handlers/agent-discovery";
 import { registerThemeHandlers } from "./handlers/theme";
 import { SettingsStore } from "./services/settings-store";
+import {
+    DataDirChangingError,
+    DataDirGate,
+    isUngatedApiPath,
+    isUngatedMessage,
+} from "./services/data-dir-gate";
+import { errorResponse } from "./api/routes/response-helpers";
 import { ThemeService } from "./services/theme-service";
 import { ApiRouter } from "./api/router";
 import { registerApiRoutes } from "./api/routes";
@@ -141,6 +153,22 @@ async function main() {
 
         const router = new Router();
         const apiRouter = new ApiRouter();
+        // Closed while the data folder moves, then until the restart.
+        const dataDirGate = new DataDirGate();
+        router.setGuard((type, run) => (isUngatedMessage(type) ? run() : dataDirGate.run(run)));
+        apiRouter.setGuard(async (path, run) => {
+            if (isUngatedApiPath(path)) return run();
+            try {
+                return await dataDirGate.run(run);
+            } catch (error) {
+                if (error instanceof DataDirChangingError) return errorResponse(error.message, 503);
+                throw error;
+            }
+        });
+        // Replaced by a graceful shutdown once the server is up.
+        let requestRestart = (): void => {
+            process.exit(BACKEND_RESTART_EXIT_CODE);
+        };
         const server = createServer(router, config.port, apiRouter, cdpGateway, {
             token: apiToken,
             allowedOrigins: parseUiOrigins(process.env.TASKFLOW_UI_ORIGINS),
@@ -205,6 +233,7 @@ async function main() {
             broadcast: server.broadcast,
             isOnline: () => connectivityService.isOnline,
             enabled: config.instanceId === "main",
+            tryRun: (work) => dataDirGate.tryRun(work),
         });
 
         async function logToTask(
@@ -236,6 +265,12 @@ async function main() {
             builtinActionRunner,
             createWorktree: worktreeSetup.createWorktreeForTask,
         });
+        // Requests start these without awaiting them; the gate still waits for them.
+        const generateTitle = (taskId: string, description: string, initCommand?: string) => {
+            void dataDirGate.track(titleGenerator.generate(taskId, description, initCommand));
+        };
+        const createWorktree: typeof worktreeSetup.createWorktreeForTask = (...args) =>
+            dataDirGate.track(worktreeSetup.createWorktreeForTask(...args));
 
         // FlowRunner is referenced inside its own spawnSession callback (for
         // handleSessionExit) — the closure captures the variable, not the value,
@@ -328,11 +363,9 @@ async function main() {
             closeSession: (sessionId) => {
                 ptyManager.close(sessionId);
             },
-            generateTitle: (taskId, description, initCommand) => {
-                void titleGenerator.generate(taskId, description, initCommand);
-            },
+            generateTitle,
             createWorktree: (taskId, nameSource, initCommand) => {
-                void worktreeSetup.createWorktreeForTask(taskId, nameSource, initCommand);
+                void createWorktree(taskId, nameSource, initCommand);
             },
             flowStore,
             flowRunner,
@@ -375,8 +408,27 @@ async function main() {
         registerSettingsHandlers({
             router,
             settingsStore,
-            taskStore: store,
             broadcast: server.broadcast,
+            dataDir: {
+                baseDir: config.baseDir,
+                current: config.dataDir,
+                gate: dataDirGate,
+                restartable: config.restartable,
+                findBusyReason: async () => {
+                    const sessions = ptyManager.list().length;
+                    if (sessions > 0) {
+                        return sessions === 1
+                            ? "a session is running"
+                            : `${sessions} sessions are running`;
+                    }
+                    const runs = (await flowStore.getAllActiveRuns()).length;
+                    if (runs > 0) {
+                        return runs === 1 ? "a flow is running" : `${runs} flows are running`;
+                    }
+                    return null;
+                },
+                requestRestart: () => requestRestart(),
+            },
         });
         registerThemeHandlers(router, themeService);
         registerScriptsHandlers(router);
@@ -407,7 +459,11 @@ async function main() {
         const remoteAgentService = new RemoteAgentService({
             settingsStore,
             ptyManager,
-            sessionLifecycle,
+            // Its restarts run off timers, outside any request the gate admits.
+            sessionLifecycle: {
+                createSession: (opts) =>
+                    dataDirGate.run(() => sessionLifecycle.createSession(opts)),
+            },
             broadcast: server.broadcast,
             agents,
             isOnline: () => connectivityService.isOnline,
@@ -427,10 +483,8 @@ async function main() {
             flowStore,
             flowRunner,
             gitService,
-            generateTitle: (taskId, description, initCommand) => {
-                void titleGenerator.generate(taskId, description, initCommand);
-            },
-            createWorktree: worktreeSetup.createWorktreeForTask,
+            generateTitle,
+            createWorktree,
             changeTracker,
             agents,
             sessionLifecycle,
@@ -498,7 +552,9 @@ async function main() {
                 payload: { online },
             });
             if (online) {
-                if (config.instanceId === "main") void schedulerService.resumeDeferred();
+                if (config.instanceId === "main") {
+                    void dataDirGate.tryRun(() => schedulerService.resumeDeferred());
+                }
                 if (config.instanceId === "main") {
                     void remoteAgentService.retryAutoStartIfEnabled();
                 }
@@ -568,7 +624,7 @@ async function main() {
 
         // Installed before the connectivity wait, which can outlast a quit.
         let shuttingDown = false;
-        const shutdown = async () => {
+        const shutdown = async (exitCode = 0) => {
             if (shuttingDown) return;
             shuttingDown = true;
             try {
@@ -584,7 +640,11 @@ async function main() {
             await Promise.allSettled([fileWatcher.stopAll(), wikiIndex.stopAll()]);
             advertiser.stop();
             await releaseInstancePort(config.instancePortFile, startedServer.port, stop);
-            process.exit(0);
+            process.exit(exitCode);
+        };
+        // A short delay lets the reply that announced the restart reach the client.
+        requestRestart = () => {
+            setTimeout(() => void shutdown(BACKEND_RESTART_EXIT_CODE), 300);
         };
         process.on("SIGINT", () => void shutdown());
         if (process.platform !== "win32") {

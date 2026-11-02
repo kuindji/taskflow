@@ -6,6 +6,7 @@ import type { Schedule, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { ScheduleStore } from "../../src/services/schedule-store";
 import { SchedulerService, validateExpression } from "../../src/services/scheduler-service";
+import { DataDirGate } from "../../src/services/data-dir-gate";
 import { expectRejects } from "../expect-rejects";
 
 type Spawn = { sessionId: string; isShell: boolean };
@@ -25,10 +26,14 @@ let spawn: (schedule: Schedule) => Promise<Spawn>;
 let onClose: (id: string) => void;
 let exits: Promise<void>[];
 
-function makeService(enabled = true): SchedulerService {
+function makeService(
+    enabled = true,
+    tryRun?: (work: () => Promise<void>) => Promise<void> | null,
+): SchedulerService {
     return new SchedulerService({
         scheduleStore: store,
         enabled,
+        tryRun,
         now: () => now,
         isOnline: () => online,
         schedule: (callback, delay) => {
@@ -190,6 +195,24 @@ it("startup runs an overdue rate once and stores now plus interval", async () =>
     await drain();
     expect(spawned).toHaveLength(1);
     expect((await record()).nextRunAt).toBe(new Date(now + 60_000).toISOString());
+});
+it("fires nothing and writes nothing while the data folder moves, then catches up", async () => {
+    const gate = new DataDirGate();
+    service.shutdown();
+    service = makeService(true, (work) => gate.tryRun(work));
+    await service.init();
+    const due = timer(60_000);
+    const before = await readFile(file, "utf-8");
+    expect(await gate.close(1_000)).toBe(true);
+    now += 60_000;
+    fire(due);
+    await fireAndDrain(timer(30_000));
+    expect(spawned).toHaveLength(0);
+    expect(await readFile(file, "utf-8")).toBe(before);
+
+    gate.open();
+    await fireAndDrain(timer(30_000));
+    expect(spawned).toHaveLength(1);
 });
 it("sleep across many occurrences catches up once on the next wall-clock tick", async () => {
     await service.init();

@@ -1,10 +1,13 @@
 import { MSG } from "@taskflow/shared";
-import type { SettingsUpdatePayload, SettingsUpdatedEvent, WsEvent } from "@taskflow/shared";
+import type {
+    DataDirInfo,
+    SettingsUpdatePayload,
+    SettingsUpdatedEvent,
+    WsEvent,
+} from "@taskflow/shared";
 import type { Router } from "../ws/router";
 import type { SettingsStore } from "../services/settings-store";
-import type { TaskStore } from "../services/task-store";
-import { config, updateConfigDataDir, isDefaultDataDir } from "../config";
-import { ensureDirectories } from "../config";
+import type { DataDirGate } from "../services/data-dir-gate";
 import {
     hasExistingData,
     migrateDataDir,
@@ -13,22 +16,36 @@ import {
     clearDataLocation,
 } from "../services/data-dir-migrator";
 
+/** Long enough for a title or worktree set up in the background to finish. */
+const DRAIN_TIMEOUT_MS = 15_000;
+
 interface SettingsHandlerDeps {
     router: Router;
     settingsStore: SettingsStore;
-    taskStore: TaskStore;
     broadcast: (event: WsEvent) => void;
-}
-
-interface DataDirResponse {
-    dataDir: string;
-    baseDir: string;
-    isDefault: boolean;
-    conflict?: boolean;
+    dataDir: {
+        baseDir: string;
+        /** The folder this backend's stores opened at startup. */
+        current: string;
+        gate: DataDirGate;
+        /** Whether the desktop app will restart this backend after it exits. */
+        restartable: boolean;
+        /** Why the folder cannot change now (running sessions, flow runs), or null. */
+        findBusyReason: () => Promise<string | null>;
+        /** Exits so the desktop app restarts the backend on the new folder. */
+        requestRestart: () => void;
+        drainTimeoutMs?: number;
+    };
 }
 
 export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
-    const { router, settingsStore, taskStore, broadcast } = deps;
+    const { router, settingsStore, broadcast, dataDir } = deps;
+    const { baseDir, gate } = dataDir;
+    const info = (path: string): DataDirInfo => ({
+        dataDir: path,
+        baseDir,
+        isDefault: path === baseDir,
+    });
 
     // Every write, HTTP included: other clients bake their cached defaults
     // into launch options, so they must not keep a stale copy.
@@ -46,15 +63,9 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         return settingsStore.update(update);
     });
 
-    router.register(MSG.SETTINGS_GET_DATA_DIR, async () => {
-        return {
-            dataDir: config.dataDir,
-            baseDir: config.baseDir,
-            isDefault: isDefaultDataDir(),
-        };
-    });
+    router.register(MSG.SETTINGS_GET_DATA_DIR, async () => info(dataDir.current));
 
-    router.register(MSG.SETTINGS_UPDATE_DATA_DIR, async (payload) => {
+    router.register(MSG.SETTINGS_UPDATE_DATA_DIR, async (payload): Promise<DataDirInfo> => {
         const { path: newPath, mode } = payload as {
             path: string;
             mode?: "overwrite" | "adopt";
@@ -63,70 +74,68 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         if (!newPath || typeof newPath !== "string") {
             throw new Error("Invalid path");
         }
+        if (newPath === dataDir.current) return info(dataDir.current);
 
-        // If setting to the same directory, no-op
-        if (newPath === config.dataDir) {
-            return {
-                dataDir: config.dataDir,
-                baseDir: config.baseDir,
-                isDefault: isDefaultDataDir(),
-            } satisfies DataDirResponse;
+        // The stores keep the paths they opened with, so only a restart puts
+        // all of them on the new folder. Without the desktop app to restart
+        // this backend, the move would leave it serving a folder that is gone.
+        if (!dataDir.restartable) {
+            throw new Error(
+                "This backend was not started by the Taskflow app, so it cannot restart onto a new data folder.",
+            );
         }
 
-        // Validate target
         const validationError = await validateTargetDir(newPath);
         if (validationError) {
             throw new Error(validationError);
         }
 
-        // Check for existing data at target — if no mode specified, signal conflict
-        const targetHasData = await hasExistingData(newPath);
-        if (targetHasData && !mode) {
-            return {
-                dataDir: config.dataDir,
-                baseDir: config.baseDir,
-                isDefault: isDefaultDataDir(),
-                conflict: true,
-            } satisfies DataDirResponse;
+        // Existing data at the target: ask whether to overwrite or adopt it.
+        if (!mode && (await hasExistingData(newPath))) {
+            return { ...info(dataDir.current), conflict: true };
         }
 
-        const currentDataDir = config.dataDir;
-
-        // "adopt" = just point to existing data, don't move anything
-        // "overwrite" = move current data over, replacing what's there
-        if (mode !== "adopt") {
-            await migrateDataDir(currentDataDir, newPath);
+        // Checked again once the gate has drained; this one fails fast
+        // without refusing everyone else's requests in the meantime.
+        const earlyBusyReason = await dataDir.findBusyReason();
+        if (earlyBusyReason) {
+            throw new Error(`Cannot change the data folder while ${earlyBusyReason}.`);
+        }
+        if (!(await gate.close(dataDir.drainTimeoutMs ?? DRAIN_TIMEOUT_MS))) {
+            throw new Error("Taskflow is still finishing other work. Try again in a moment.");
+        }
+        // Writing the pointer is the commit point. Before it, a failure keeps
+        // the old folder and reopens the gate; after it, the gate stays closed
+        // until the restart.
+        let committed = false;
+        try {
+            const busyReason = await dataDir.findBusyReason();
+            if (busyReason) {
+                throw new Error(`Cannot change the data folder while ${busyReason}.`);
+            }
+            const commit = async () => {
+                if (newPath === baseDir) await clearDataLocation(baseDir);
+                else await writeDataLocation(baseDir, newPath);
+                committed = true;
+            };
+            // "adopt" points at the data already there and moves nothing.
+            if (mode === "adopt") {
+                await commit();
+            } else {
+                const leftovers = await migrateDataDir(dataDir.current, newPath, commit);
+                for (const path of leftovers) {
+                    console.error(`Data folder moved, but could not remove ${path}`);
+                }
+            }
+        } catch (error) {
+            if (!committed) {
+                gate.open();
+                throw error;
+            }
+            console.error("Data folder changed, but cleaning up failed:", error);
         }
 
-        // Determine if new path is the default base dir
-        const isReturningToDefault = newPath === config.baseDir;
-
-        if (isReturningToDefault) {
-            await clearDataLocation(config.baseDir);
-        } else {
-            await writeDataLocation(config.baseDir, newPath);
-        }
-
-        // Update in-memory config
-        updateConfigDataDir(newPath);
-
-        // Ensure all directories exist in the new location
-        await ensureDirectories();
-
-        // Re-initialize task store with new paths
-        await taskStore.updateConfig({
-            projectsFile: config.projectsFile,
-            tasksDir: config.tasksDir,
-            archiveDir: config.archiveDir,
-            sessionLogsDir: config.sessionLogsDir,
-            taskLogsDir: config.taskLogsDir,
-            masterSessionsFile: config.masterSessionsFile,
-        });
-
-        return {
-            dataDir: config.dataDir,
-            baseDir: config.baseDir,
-            isDefault: isDefaultDataDir(),
-        } satisfies DataDirResponse;
+        dataDir.requestRestart();
+        return { ...info(newPath), restarting: true };
     });
 }
