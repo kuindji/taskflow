@@ -22,13 +22,25 @@ Today:
 Work:
 1. Add the missing items to `DATA_ITEMS`; keep the existing conflict
    handling for a destination that already has data.
+   A failure part way leaves data split today: items move one by one and
+   each source is removed (`data-dir-migrator.ts:78,153`) while the location
+   pointer is written only afterwards (`handlers/settings.ts:104`). Copy every
+   item first, write the pointer only when all are in place, delete sources
+   last; on failure remove the copies and keep the old folder and pointer.
+   (Same-filesystem `rename` may stay if completed renames are rolled back on
+   failure.)
 2. Before moving, refuse with a clear error if any session is running or a
    flow run is running/paused on this backend. UI shows it. A one-time check
    is not enough: the scheduler admits launches on its own
    (`scheduler-service.ts:223`) and store writes can recreate moved items
    mid-move. Hold a migration gate from the check until restart: the
    scheduler fires nothing, and session/flow starts and data writes are
-   refused.
+   refused. Requests admitted before the gate can still finish during the
+   move (`createSession` awaits store reads before it spawns,
+   `session-lifecycle.ts:401`; `FlowStore.withMutation` bodies read then
+   write, `flow-store.ts:127`). So: close admission, wait for in-flight
+   launches and store mutations to drain, then run the busy check, then move.
+   On any failure, release the gate.
 3. After a successful move, the backend must come back on the new folder.
    Pick one, based on what Electron and a headless backend can do:
    - Electron respawns the backend (add a restart to `backend-manager`,
@@ -49,7 +61,9 @@ Work:
    simpler choice unless there is a reason against it.
 4. The "Data Folder Changed" alert text matches what happens.
 
-Tests: migrator moves the new items; the refusal while busy; a scheduled
+Tests: migrator moves the new items; a failure after some items are copied
+leaves the old folder complete and still configured; a write and a launch
+admitted before the gate finish before the move starts; the refusal while busy; a scheduled
 launch and a data write during the move are refused; the no-restarter path
 leaves data readable; whatever restart signal is added. Owner check: change and reset the folder in the
 packaged app.

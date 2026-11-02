@@ -35,7 +35,19 @@ Work:
   Add one keyed by resolved path around read-compare-write, used by every
   `FILE_WRITE` (with or without `expected`), so two writes with the same
   `expected` cannot both pass. Absent field → today's behaviour otherwise.
-- Editor: remember what was loaded; on `FILE_CHANGED` for its path, re-read;
+- UI helpers: `file-store` `readFile` returns only the content and
+  `writeFile` discards the response (`stores/file-store.ts:438,445`); a
+  resolved conflict result would reach the editor's success path and clear
+  dirty (`EditorPaneImpl.tsx:119`). Extend them: `readFile` also returns the
+  hash of what it read, `writeFile` takes `expected` and returns the typed
+  result. Both panes must check it before treating a save as done.
+- Which events count: the watcher sends collapsed batches as directory
+  events with `recursive: true` (`backend/src/services/file-watcher.ts:224`),
+  so a checkout or a large agent edit may name only an ancestor. The editor
+  reacts to an exact-path event or a recursive event covering its file, from
+  its own backend. Move the coverage test in `MarkdownPaneImpl.tsx:275-283`
+  into a shared helper and use it in both panes.
+- Editor: remember what was loaded; on a covering `FILE_CHANGED`, re-read;
   clean → replace the model content keeping cursor/scroll where possible;
   dirty → show the bar. Save sends `expected`; on conflict show
   Reload / Overwrite (Overwrite resends without `expected`).
@@ -52,7 +64,8 @@ Work:
   surface an error.
 
 Tests: backend write with matching / mismatched / absent expected; editor
-reload-clean, bar-dirty, save conflict, no self-reload; checkbox conflict
+reload-clean, bar-dirty (exact and recursive-ancestor events), save conflict
+through the real `file-store` helpers leaves the buffer dirty, no self-reload; checkbox conflict
 retry; two concurrent writes with the same `expected`, exactly one wins;
 dirty model unmounted and remounted, then external edit and save, conflicts;
 split panes on one model share the baseline. Owner check: edit a file in the editor while an agent edits it.

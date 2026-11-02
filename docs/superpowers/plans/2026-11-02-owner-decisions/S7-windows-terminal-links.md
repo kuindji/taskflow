@@ -24,13 +24,23 @@ Work:
   the backend expects.
 - POSIX behaviour unchanged. Keep one provider with a path-flavour helper;
   no copy of the provider.
-- Drop paths: quote/escape for the session's shell on Windows the way the
-  POSIX branch does for POSIX shells. The URI-list branch
+- Drop paths: today `shellQuote` (`terminal/terminal-utils.ts:17`) applies
+  POSIX quoting to every session, agents included. The pane does not know a
+  shell session's shell: `SessionRef` (`shared/src/types/task.ts:7`) has no
+  field for it, though `createSession` has the shell path
+  (`session-lifecycle.ts:539`) and Windows offers pwsh, powershell, cmd and
+  bash (`shell-detector.ts:97`). Record the shell name on shell
+  `SessionRef`s at creation and pass it to the pane. Quoting dialects:
+  POSIX (POSIX backends as today, bash on Windows), PowerShell (single
+  quotes, `'` doubled), cmd (double quotes; Windows names cannot contain
+  `"`). Agent sessions and shell refs without the field on a Windows backend
+  use double quotes. The URI-list branch
   (`TerminalPane.tsx:490`) uses `new URL(uri).pathname`, which turns
   `file:///C:/repo/a.ts` into `/C:/repo/a.ts`; convert file URIs per flavour
   before making the path relative and quoting it.
 
 Tests: table tests for the provider in both flavours (existing
 `terminal-link-provider.test.ts`, `terminal-links.test.ts`); drop-path
-quoting for Windows, including a drive-letter file URI with spaces; a
+quoting for cmd, PowerShell and an agent session on Windows, with spaces and
+apostrophes, including a drive-letter file URI; a
 Windows backend attached from a macOS UI gets Windows links.

@@ -1,11 +1,12 @@
 # Handoff
 
-Next: step R (plan review, round 2). Round 1 (Codex gpt-6.1-sol) found 16
-material issues; all verified and folded into S1, S3–S9 (S2 had none). Round 2
-should re-check the sections, especially the new parts: S3 inherited-vs-chosen
-fields in `AgentOptionsPanel`, S5 migration gate and restart choice, S6
-IP-literal rule and (uid, address) pair detection, S9 typed conflict result
-and per-path write lock.
+Next: step R (plan review, round 3). Round 2 found 6 material issues; 5
+verified and folded (S5 drain in-flight work before the move + no split data
+on a failed move; S7 drop quoting per recorded shell; S9 file-store helpers
+carry hash/result + recursive ancestor events). The 6th (S6: change the
+discovery listener) was rejected: the listener switches a row's address in
+place once the old one is quiet, so the registry change suffices; S6 wording
+corrected. Round 3 should re-check only those round-2 folds (S5, S6, S7, S9).
 
 ## Notes
 

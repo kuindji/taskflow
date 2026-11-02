@@ -29,10 +29,14 @@ Decision: re-point automatically only when the SSH host key matches.
   checked. Use instead: re-point only when `record.host` is an IP literal
   (what discovery saves); a hand-typed hostname is left alone. No new field.
 - The registry's discovery callback (`backend-registry.ts:229`) only reacts
-  to a uid that was not present before, so a new address for a uid still in
-  the list (old beacon not yet expired, or the same machine re-announcing
-  from a new IP) is never seen. Detect new (uid, address) pairs on their own;
-  forget a pair's probe attempt when that pair leaves the list.
+  to a uid that was not present before, so an address change for a uid
+  already listed is never seen. The listener keeps one row per (hostname,
+  instance) and switches that row's address in place once the old address
+  has been silent for two announce intervals (`discovery/socket.ts:367`); a
+  new IP therefore arrives as the same row with a new `address`, not as a
+  second row. Detect (uid, address) pairs that were not present before;
+  forget a pair's probe attempt when that pair leaves the list. No listener
+  change: its incumbent rule is what keeps two same-named machines apart.
 - Serialize with the existing per-backend registry mutation queue.
 
 ## A10 R2-2: remembered port taken by another instance
@@ -51,6 +55,6 @@ Decision: `GET /` names the instance; the readiness probe requires a match.
   `Taskflow backend`), e.g. local readiness checks in Electron or the CLI.
 
 Tests: records/registry tests for re-point on key match, no re-point on
-mismatch, no re-point for a hostname record, a new address while the old
-beacon is still listed, one probe per pair until it disappears and comes back; probe test for match, mismatch, legacy body; backend test for the
+mismatch, no re-point for a hostname record, a listed row whose address
+changes in place for the same uid, one probe per pair until it disappears and comes back; probe test for match, mismatch, legacy body; backend test for the
 new `/` body.
