@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { CliRendererConfig } from "@opentui/core";
-import { OpenTuiRuntimeOwner, type OwnedRenderer } from "./runtime";
+import { OpenTuiRuntimeOwner } from "./runtime";
 
 type TestRenderer = Awaited<ReturnType<typeof createTestRenderer>>;
 
@@ -42,7 +42,7 @@ describe("OpenTUI runtime", () => {
             createRenderer: async (config) => {
                 captured.config = config;
                 config.onDestroy?.();
-                return { destroy() {}, isDestroyed: true } as OwnedRenderer;
+                return { destroy() {}, isDestroyed: true };
             },
         });
         await owner.create();
@@ -69,7 +69,7 @@ describe("OpenTUI runtime", () => {
                 return {
                     isDestroyed: false,
                     destroy: () => order.push("destroy"),
-                } as OwnedRenderer;
+                };
             },
         });
         owner.ownSocket({ close: () => order.push("socket") });

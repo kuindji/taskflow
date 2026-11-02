@@ -178,12 +178,12 @@ describe("FlowStore", () => {
     it("does not discard an owner load after an unrelated owner update", async () => {
         const net = fakeNet();
         let resolveLoad: ((value: { runs: FlowRun[] }) => void) | undefined;
-        net.request = (<T>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type !== MSG.FLOW_RUNS_LIST) throw new Error(`unexpected ${type}`);
             return new Promise((resolve) => {
                 resolveLoad = resolve as (value: { runs: FlowRun[] }) => void;
             });
-        }) as NetLike["request"];
+        };
         const store = new FlowStore(net);
 
         const loading = store.loadRun({ kind: "project", projectId: "p2" });
@@ -198,10 +198,10 @@ describe("FlowStore", () => {
     it("relists when a run finishes while its owner's first load is in flight", async () => {
         const net = fakeNet();
         const resolvers: Array<(value: { runs: FlowRun[] }) => void> = [];
-        net.request = (<T>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type !== MSG.FLOW_RUNS_LIST) throw new Error(`unexpected ${type}`);
             return new Promise((resolve) => resolvers.push(resolve as never));
-        }) as NetLike["request"];
+        };
         const store = new FlowStore(net);
 
         const loading = store.loadRun({ kind: "project", projectId: "p1" });

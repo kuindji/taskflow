@@ -16,8 +16,11 @@ export function HostedBrowserPane({ tab }: { tab: BrowserTab }) {
     const bridge = window.taskflow?.browser;
     // Navigation changes tab.url; reading it through a ref keeps the view
     // from being hidden and shown again on every page load.
+    // Synced in an effect, not during render; `update` below reads it in a later frame.
     const url = useRef(tab.url);
-    url.current = tab.url;
+    useEffect(() => {
+        url.current = tab.url;
+    }, [tab.url]);
     useEffect(() => setInputUrl(tab.url), [tab.url]);
     useEffect(
         () =>

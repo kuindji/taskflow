@@ -8,4 +8,4 @@
 
 > **Important:** Don't export until neccessary. If something is exported by never used anywhere, it should not be exported.
 
-> **Important:** Avoid disabling eslint rules when working on linting issues. Try to find proper solution.
+> **Important:** Avoid disabling lint rules (oxlint, config in `.oxlintrc.json`) when working on linting issues. Try to find proper solution.

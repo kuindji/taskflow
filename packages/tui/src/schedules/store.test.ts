@@ -67,12 +67,12 @@ describe("ScheduleStore", () => {
         const store = new ScheduleStore(net);
         await store.load("p1");
         let resolveLoad: ((value: { schedules: Schedule[] }) => void) | undefined;
-        net.request = (<T>(type: string): Promise<T> => {
+        net.request = <T>(type: string): Promise<T> => {
             if (type !== MSG.SCHEDULE_LIST) throw new Error(`unexpected ${type}`);
             return new Promise((resolve) => {
                 resolveLoad = resolve as (value: { schedules: Schedule[] }) => void;
             });
-        }) as NetLike["request"];
+        };
 
         const loading = store.load("p2");
         expect(store.schedules).toEqual([]);
@@ -101,10 +101,10 @@ describe("ScheduleStore", () => {
         expect(store.schedules.map((item) => item.id)).toEqual(["s2"]);
 
         let resolveLoad: ((value: { schedules: Schedule[] }) => void) | undefined;
-        net.request = (<T>(): Promise<T> =>
+        net.request = <T>(): Promise<T> =>
             new Promise((resolve) => {
                 resolveLoad = resolve as (value: { schedules: Schedule[] }) => void;
-            })) as NetLike["request"];
+            });
         const loading = store.load("p1");
         net.emit(MSG.SCHEDULE_DELETED, { id: "s2" });
         resolveLoad?.({ schedules: [schedule("s2")] });

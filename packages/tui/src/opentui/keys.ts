@@ -67,7 +67,7 @@ const exactTextRoute =
         text: string,
     ): ((input: CommandRouteInput) => UiCommand | null) =>
     (input) =>
-        input.text === text ? ({ kind } as UiCommand) : null;
+        input.text === text ? { kind } : null;
 
 const COMMAND_METADATA: readonly CommandMetadata[] = [
     {

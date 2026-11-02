@@ -1,0 +1,237 @@
+// Oxlint config for the whole repo. `bun run lint` is plain `oxlint`.
+//
+// Rules are parity with the old ESLint setup (js recommended + typescript-eslint
+// strictTypeChecked + react-hooks v7 + react-refresh, with our overrides), not more. Every
+// category is off, so a rule is on only if it is listed here. ESLint rules with no oxlint
+// equivalent were dropped: no-dupe-args and no-octal (strict mode covers them),
+// react-hooks/config, react-hooks/gating and react-hooks/component-hook-factories (oxlint
+// has fixed React Compiler options), no-undef (off for TS anyway; JS files are ignored) and
+// no-useless-assignment (nursery in oxlint). Rules our ESLint config switched off
+// (no-unnecessary-condition, no-confusing-void-expression, unbound-method, require-await)
+// are simply not listed.
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "categories": {
+        "correctness": "off",
+        "nursery": "off",
+        "pedantic": "off",
+        "perf": "off",
+        "restriction": "off",
+        "style": "off",
+        "suspicious": "off"
+    },
+    "plugins": ["eslint", "typescript", "react"],
+    // Type-aware rules (oxlint-tsgolint) on for every run, so plain `oxlint` in scripts and
+    // editors never silently skips them.
+    // reportUnusedDisableDirectives: ESLint warned about stale disable comments by default.
+    "options": { "typeAware": true, "reportUnusedDisableDirectives": "warn" },
+    "ignorePatterns": [
+        "**/dist/",
+        "**/.worktrees/",
+        // ESLint only linted TS; plain JS here is build/packaging scripts.
+        "**/*.js",
+        "**/*.mjs",
+        "**/*.cjs",
+        "**/vite.config.ts",
+        "electron/build.ts",
+        // Plan-review repro scratch: deliberately contains code that does not typecheck,
+        // and is not part of any workspace tsconfig.
+        "plan-review/**",
+        // Throwaway spike evidence, run by hand; not part of any workspace tsconfig.
+        "docs/superpowers/plans/**/spike/**"
+    ],
+    "rules": {
+        // js recommended (minus what typescript-eslint turns off for TS files)
+        "for-direction": "error",
+        "no-async-promise-executor": "error",
+        "no-case-declarations": "error",
+        "no-compare-neg-zero": "error",
+        "no-cond-assign": "error",
+        // Oxlint also flags literal comparisons like `1 < 2`; ESLint did not.
+        "no-constant-binary-expression": ["error", { "checkRelationalComparisons": false }],
+        "no-constant-condition": "error",
+        "no-control-regex": "error",
+        "no-debugger": "error",
+        "no-delete-var": "error",
+        "no-dupe-else-if": "error",
+        "no-duplicate-case": "error",
+        "no-empty": "error",
+        "no-empty-character-class": "error",
+        "no-empty-pattern": "error",
+        "no-empty-static-block": "error",
+        "no-ex-assign": "error",
+        "no-extra-boolean-cast": "error",
+        "no-fallthrough": "error",
+        "no-global-assign": "error",
+        "no-invalid-regexp": "error",
+        // ESLint's defaults also checked JSX text, regexes and templates; oxlint's skip them.
+        "no-irregular-whitespace": [
+            "error",
+            { "skipJSXText": false, "skipRegExps": false, "skipTemplates": false }
+        ],
+        "no-loss-of-precision": "error",
+        "no-misleading-character-class": "error",
+        "no-nonoctal-decimal-escape": "error",
+        "no-prototype-builtins": "error",
+        "no-regex-spaces": "error",
+        "no-self-assign": "error",
+        "no-shadow-restricted-names": "error",
+        "no-sparse-arrays": "error",
+        "no-unassigned-vars": "error",
+        "no-unsafe-finally": "error",
+        "no-unsafe-optional-chaining": "error",
+        "no-unused-labels": "error",
+        "no-unused-private-class-members": "error",
+        "no-useless-backreference": "error",
+        "no-useless-catch": "error",
+        "no-useless-escape": "error",
+        "preserve-caught-error": "error",
+        "require-yield": "error",
+        "use-isnan": "error",
+        "valid-typeof": "error",
+
+        // typescript-eslint eslint-recommended (turned on for TS files)
+        "no-var": "error",
+        "prefer-const": "error",
+        "prefer-rest-params": "error",
+        "prefer-spread": "error",
+
+        // typescript-eslint strictTypeChecked
+        "no-array-constructor": "error",
+        "no-unused-expressions": "error",
+        "no-useless-constructor": "error",
+        // Only a value used solely as a type is missed here (typescript-eslint flagged it).
+        "no-unused-vars": [
+            "error",
+            {
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_",
+                "caughtErrorsIgnorePattern": "^_"
+            }
+        ],
+        "typescript/await-thenable": "error",
+        "typescript/ban-ts-comment": ["error", { "minimumDescriptionLength": 10 }],
+        "typescript/no-array-delete": "error",
+        "typescript/no-base-to-string": "error",
+        "typescript/no-deprecated": "error",
+        "typescript/no-duplicate-enum-values": "error",
+        "typescript/no-duplicate-type-constituents": "error",
+        "typescript/no-dynamic-delete": "error",
+        "typescript/no-empty-object-type": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-extra-non-null-assertion": "error",
+        "typescript/no-extraneous-class": "error",
+        "typescript/no-floating-promises": "error",
+        "typescript/no-for-in-array": "error",
+        "typescript/no-implied-eval": "error",
+        "typescript/no-invalid-void-type": "error",
+        "typescript/no-meaningless-void-operator": "error",
+        "typescript/no-misused-new": "error",
+        // JSX handlers may return promises (React ignores the return value).
+        "typescript/no-misused-promises": [
+            "error",
+            { "checksVoidReturn": { "attributes": false } }
+        ],
+        "typescript/no-misused-spread": "error",
+        "typescript/no-mixed-enums": "error",
+        "typescript/no-namespace": "error",
+        "typescript/no-non-null-asserted-nullish-coalescing": "error",
+        "typescript/no-non-null-asserted-optional-chain": "error",
+        "typescript/no-non-null-assertion": "warn",
+        "typescript/no-redundant-type-constituents": "error",
+        "typescript/no-require-imports": "error",
+        "typescript/no-this-alias": "error",
+        "typescript/no-unnecessary-boolean-literal-compare": "error",
+        "typescript/no-unnecessary-template-expression": "error",
+        "typescript/no-unnecessary-type-arguments": "error",
+        "typescript/no-unnecessary-type-assertion": "error",
+        "typescript/no-unnecessary-type-constraint": "error",
+        "typescript/no-unnecessary-type-conversion": "error",
+        "typescript/no-unnecessary-type-parameters": "error",
+        "typescript/no-unsafe-argument": "error",
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-call": "error",
+        "typescript/no-unsafe-declaration-merging": "error",
+        "typescript/no-unsafe-enum-comparison": "error",
+        "typescript/no-unsafe-function-type": "error",
+        "typescript/no-unsafe-member-access": "error",
+        "typescript/no-unsafe-return": "error",
+        "typescript/no-unsafe-unary-minus": "error",
+        "typescript/no-useless-default-assignment": "error",
+        "typescript/no-wrapper-object-types": "error",
+        "typescript/only-throw-error": "error",
+        "typescript/prefer-as-const": "error",
+        "typescript/prefer-literal-enum-member": "error",
+        "typescript/prefer-namespace-keyword": "error",
+        "typescript/prefer-promise-reject-errors": "error",
+        "typescript/prefer-reduce-type-parameter": "error",
+        "typescript/prefer-return-this-type": "error",
+        "typescript/related-getter-setter-pairs": "error",
+        "typescript/restrict-plus-operands": [
+            "error",
+            {
+                "allowAny": false,
+                "allowBoolean": false,
+                "allowNullish": false,
+                "allowNumberAndString": false,
+                "allowRegExp": false
+            }
+        ],
+        "typescript/restrict-template-expressions": [
+            "error",
+            { "allowNumber": true, "allowBoolean": true }
+        ],
+        "typescript/return-await": ["error", "error-handling-correctness-only"],
+        "typescript/triple-slash-reference": "error",
+        "typescript/unified-signatures": "error",
+        "typescript/use-unknown-in-catch-callback-variable": "error"
+    },
+    "overrides": [
+        // Runtime globals per package, as in the old ESLint config. no-global-assign only
+        // knows a name is a read-only global if it is declared here.
+        {
+            "files": [
+                "packages/backend/src/**/*.ts",
+                "packages/backend/tests/**/*.ts",
+                "packages/shared/src/**/*.ts",
+                "packages/shared/tests/**/*.ts",
+                "packages/tui/src/**/*.ts"
+            ],
+            "env": { "node": true },
+            "globals": { "Bun": "readonly", "WebSocket": "readonly", "MessageEvent": "readonly" }
+        },
+        {
+            "files": ["electron/src/**/*.ts"],
+            "env": { "node": true }
+        },
+        {
+            "files": ["packages/ui/src/**/*.ts", "packages/ui/src/**/*.tsx"],
+            "env": { "browser": true }
+        },
+        {
+            // UI: react-hooks v7 recommended (React Compiler rules) + react-refresh.
+            "files": ["packages/ui/src/**/*.ts", "packages/ui/src/**/*.tsx"],
+            "rules": {
+                "react/rules-of-hooks": "error",
+                "react/exhaustive-deps": "warn",
+                "react/static-components": "error",
+                "react/use-memo": "error",
+                "react/preserve-manual-memoization": "error",
+                "react/incompatible-library": "warn",
+                "react/immutability": "error",
+                "react/globals": "error",
+                "react/refs": "error",
+                "react/error-boundaries": "error",
+                "react/purity": "error",
+                "react/set-state-in-render": "error",
+                "react/unsupported-syntax": "warn",
+                "react/only-export-components": ["warn", { "allowConstantExport": true }]
+            }
+        },
+        {
+            // Non-null assertions are common in test assertions.
+            "files": ["**/tests/**/*.ts"],
+            "rules": { "typescript/no-non-null-assertion": "off" }
+        }
+    ]
+}

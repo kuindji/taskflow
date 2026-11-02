@@ -35,10 +35,10 @@ export function App() {
     const rootStyle = useMemo(
         () =>
             general
-                ? ({
+                ? {
                       fontFamily: general.fontFamily,
                       fontSize: general.fontSize,
-                  } as React.CSSProperties)
+                  }
                 : undefined,
         [general],
     );

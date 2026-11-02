@@ -329,7 +329,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
             return {
                 splitByWorkspace: {
                     ...s.splitByWorkspace,
-                    [workspaceKey]: { open: true, ratio: 0.5, activePane: "left" as PaneId },
+                    [workspaceKey]: { open: true, ratio: 0.5, activePane: "left" },
                 },
             };
         });

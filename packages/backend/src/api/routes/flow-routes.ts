@@ -15,7 +15,6 @@ import {
     isAgentType,
     type ActionDefinition,
     type AgentAvailability,
-    type AgentType,
     type FlowDefinition,
     type WsEvent,
 } from "@taskflow/shared";
@@ -447,10 +446,7 @@ function registerFlowRoutes(deps: FlowRouteDeps): void {
             }
 
             // Validate agent type availability (shell sessions don't need agent checks)
-            if (
-                action.sessionType !== "shell" &&
-                !availableAgentTypes.has(action.sessionType as AgentType)
-            ) {
+            if (action.sessionType !== "shell" && !availableAgentTypes.has(action.sessionType)) {
                 return errorResponse(
                     `Agent type "${action.sessionType}" required by action is not available`,
                     400,

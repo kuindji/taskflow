@@ -283,7 +283,7 @@ function startAuthServer(
             },
         },
     });
-    servers.push(server as Server<unknown>);
+    servers.push(server);
     return server.port ?? 0;
 }
 test("a 4401 close after open rejects the pending request with BackendUnauthorizedError and does not redial", async () => {

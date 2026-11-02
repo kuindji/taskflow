@@ -14,8 +14,8 @@
         "linux-setup": "sh scripts/linux-setup.sh",
         "format": "bun fmt",
         "format:check": "bun fmt --check",
-        "lint": "eslint .",
-        "lint:fix": "eslint . --fix",
+        "lint": "oxlint",
+        "lint:fix": "oxlint --fix",
         "typecheck": "bun run --filter '*' typecheck",
         "test": "bun test",
         "build": "bun run build:backend && bun run build:ui && bun run build:electron",
@@ -43,14 +43,9 @@
         "rebuild:packaged": "bun run package"
     },
     "devDependencies": {
-        "@eslint/js": "^10.0.1",
         "@types/bun": "^1.3.10",
-        "eslint": "^10.0.3",
-        "eslint-config-prettier": "^10.1.8",
-        "eslint-plugin-react-hooks": "^7.0.1",
-        "eslint-plugin-react-refresh": "^0.5.2",
-        "globals": "^17.4.0",
-        "typescript-eslint": "^8.57.0"
+        "oxlint": "1.90.0",
+        "oxlint-tsgolint": "7.0.2005"
     },
     "dependencies": {
         "cron-parser": "^5.5.0"

@@ -141,7 +141,7 @@ function applyNullable<T extends object>(target: T, patch: { [K in keyof T]?: T[
         if (patch[key] === null) {
             Reflect.deleteProperty(target, key);
         } else if (patch[key] !== undefined) {
-            target[key] = patch[key] as T[keyof T];
+            target[key] = patch[key];
         }
     }
 }

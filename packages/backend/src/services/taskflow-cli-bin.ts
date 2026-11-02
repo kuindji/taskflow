@@ -1204,7 +1204,7 @@ async function handleSchedule(args: string[]): Promise<void> {
             const body: Record<string, unknown> = {
                 projectId,
                 expression: flags.expression,
-                expressionType: (flags.type as string) || "rate",
+                expressionType: flags.type || "rate",
             };
             if (flags.prompt) body.prompt = flags.prompt;
             if (flags.name) body.name = flags.name;

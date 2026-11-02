@@ -202,10 +202,10 @@ function registerSessionRoutes(deps: SessionRouteDeps): void {
                 // options with no type; they belong to the resolved default agent.
                 agentOptions:
                     agentOptions && typeof agentOptions === "object" && !Array.isArray(agentOptions)
-                        ? ({
+                        ? {
                               type: resolvedType,
                               ...agentOptions,
-                          } as import("@taskflow/shared").AgentLaunchOptions)
+                          }
                         : undefined,
             });
 

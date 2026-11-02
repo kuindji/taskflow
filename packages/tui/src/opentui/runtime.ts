@@ -156,4 +156,4 @@ class OpenTuiRuntimeOwner {
 }
 
 export { OpenTuiRuntimeOwner };
-export type { OwnedRenderer, RuntimeOwnerOptions };
+export type { RuntimeOwnerOptions };

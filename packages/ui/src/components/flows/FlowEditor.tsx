@@ -111,7 +111,7 @@ function FlowEditor({
             {
                 id: crypto.randomUUID(),
                 actionId: action.id,
-            } as FlowActionEntry,
+            },
         ]);
     }, []);
 
@@ -121,7 +121,7 @@ function FlowEditor({
             {
                 id: crypto.randomUUID(),
                 inline: { name: "", prompt: "", sessionType: "claude" },
-            } as FlowActionEntry,
+            },
         ]);
     }, []);
 

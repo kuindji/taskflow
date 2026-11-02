@@ -121,7 +121,7 @@ describe("session creation model", () => {
                 ...settings.claude,
                 accounts: [{ id: "c-work", name: "work", homeDir: "/h" }],
             },
-        } as AppSettings;
+        };
         const items = buildSessionPickerItems(agents, shells, withAccounts);
         const claudeWork = items.find((item) => item.label === "Claude · work");
         expect(claudeWork).toMatchObject({

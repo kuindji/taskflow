@@ -540,7 +540,7 @@ describe("buildAgentLaunchSpec native resume", () => {
                 type,
                 undefined,
                 SKILL,
-                { type } as never,
+                { type },
                 undefined,
                 false,
                 false,

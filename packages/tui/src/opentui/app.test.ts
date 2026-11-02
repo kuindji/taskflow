@@ -1,13 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { BoxRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
-import type {
-    AppSettings,
-    Project,
-    SessionCreatePayload,
-    SessionRef,
-    Task,
-} from "@taskflow/shared";
+import type { Project, SessionCreatePayload, SessionRef, Task } from "@taskflow/shared";
 import { MSG, TASK_DELETE_TIMEOUT_MS } from "@taskflow/shared";
 import { ArchiveStore } from "../archive/store";
 import { FlowStore } from "../flows/store";
@@ -131,7 +125,7 @@ describe("OpenTuiApp", () => {
             opencode: { defaultModel: "", autoApprove: false },
             pi: { defaultModel: "", thinking: "off", tools: "" },
             kimi: { defaultModel: "", permissionMode: "manual" },
-        } as unknown as AppSettings);
+        });
         const store = new FakeStore();
         store.masterSessions = [
             { id: "master-s1", type: "shell", label: "shell", createdAt: "now" },

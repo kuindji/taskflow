@@ -1,7 +1,7 @@
 {
     // The Electron main process runs on Node, not Bun, but `tsconfig.json` has to keep
     // `types: ["bun"]` so the colocated `*.test.ts` files resolve `bun:test` (and so
-    // ESLint's project service can place every file). That leaves `Bun` in scope for
+    // the type-aware linter can place every file in a project). That leaves `Bun` in scope for
     // `src` as well, where a stray `Bun.file()` would typecheck and then throw
     // `Bun is not defined` at runtime. This project rechecks the shipped sources alone
     // with the Bun types off, so that mistake fails `bun run typecheck`.
