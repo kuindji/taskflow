@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S3. S2 done (15a4c104, fix ce77eadc after Codex review).
+Next: S4. S3 done (f21c781d, 6efa2ec0; fixes 686129b6, 1198926f after two Codex rounds).
 
 ## Notes
 
@@ -13,6 +13,7 @@ Next: S3. S2 done (15a4c104, fix ce77eadc after Codex review).
   with a time cap before blaming your change. Seen again in S2:
   `wiki-index.test.ts` (watch restart) and `taskflow-cli.test.ts` "names the
   master owner…" (~4.3s alone against the 5s timeout) failed only under load.
+  In S3 that test timed out even alone, on the pre-S3 commit too.
 - `ApiRouter` does not percent-decode path params; only routes that call
   `decodeURIComponent` themselves accept encoded ids. Do not `url_encode` ids
   in the shell CLI.
@@ -23,3 +24,8 @@ Next: S3. S2 done (15a4c104, fix ce77eadc after Codex review).
   and the schedule stays disabled with no next run shown; the theme file
   picker no longer offers `.terminal`.
 - S2: none needed; both CLIs were checked against a sandboxed live backend.
+- S3: Run with options (Claude, Codex) shows "Default (<value>, from
+  Settings)" on each field; the Settings pages still say "Default"/"Model
+  default". Save an action with untouched fields, change the Settings
+  effort, run it: the session uses the new effort. A schedule with type
+  "Default" runs the Settings default agent.
