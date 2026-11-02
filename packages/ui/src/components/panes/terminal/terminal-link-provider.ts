@@ -237,6 +237,17 @@ function createFilePathLinkProvider(
     };
 }
 
+/**
+ * A path inside the explorer's tree as its nodes spell it. A Windows backend
+ * lists them with forward slashes (`file-watcher.ts` `normalizePath`).
+ */
+function treeNodePath(treePath: string, relative: string, flavour: PathFlavour): string {
+    if (relative === "") return treePath;
+    const spell = (path: string) => (flavour === "windows" ? path.replace(/\\/g, "/") : path);
+    const root = spell(treePath);
+    return `${root.endsWith("/") ? root.slice(0, -1) : root}/${spell(relative)}`;
+}
+
 async function handlePathActivation(
     text: string,
     workingDir: string | null,
@@ -265,11 +276,13 @@ async function handlePathActivation(
         // A moved session's directory can lie outside the explorer's tree,
         // which cannot show it: Finder can, on this machine.
         const { treePath } = useFileStore.getState();
-        const inTree = treePath !== null && relativeTo(treePath, resolved, flavour) !== null;
-        if (isExternal || (!inTree && isLocal)) {
+        const inTree = treePath !== null ? relativeTo(treePath, resolved, flavour) : null;
+        if (isExternal || (inTree === null && isLocal)) {
             window.taskflow?.showItemInFolder(nativePath(resolved, flavour));
-        } else if (inTree) {
-            void useFileStore.getState().expandToPathAndLoad(resolved);
+        } else if (treePath !== null && inTree !== null) {
+            void useFileStore
+                .getState()
+                .expandToPathAndLoad(treeNodePath(treePath, inTree, flavour));
             if (!useUIStore.getState().fileExplorerOpen) {
                 useUIStore.getState().toggleFileExplorer();
             }

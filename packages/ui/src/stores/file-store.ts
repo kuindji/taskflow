@@ -406,17 +406,21 @@ export const useFileStore = create<FileStore>((set, get) => ({
     },
     async expandToPathAndLoad(targetPath) {
         const treePath = get().treePath;
-        if (!treePath || !targetPath.startsWith(treePath)) return;
+        if (!treePath) return;
+        // A Windows backend lists the root's nodes with forward slashes while
+        // the root keeps the spelling it was asked for (`C:\Repo`).
+        const root = targetPath.startsWith(treePath) ? treePath : treePath.replace(/\\/g, "/");
+        if (!targetPath.startsWith(root)) return;
 
         // Collect ancestor directories from root to target
         const dirsToLoad: string[] = [];
         let current = targetPath;
-        while (current !== treePath && current.length > treePath.length) {
+        while (current !== root && current.length > root.length) {
             const lastSlash = current.lastIndexOf("/");
             if (lastSlash <= 0) break;
             current = current.slice(0, lastSlash);
-            if (current.length >= treePath.length) {
-                dirsToLoad.unshift(current);
+            if (current.length >= root.length) {
+                dirsToLoad.unshift(current === root ? treePath : current);
             }
         }
 

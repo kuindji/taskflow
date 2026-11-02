@@ -179,3 +179,56 @@ describe("a Windows backend attached from a POSIX UI", () => {
         expect(statted()).toContain("C:/Repo/src/win");
     });
 });
+
+describe("a Windows directory link inside the explorer's tree", () => {
+    it("expands the tree to it, though the tree's root keeps its native spelling", async () => {
+        useBackendStore.setState({
+            machines: [
+                {
+                    id: "links",
+                    displayName: "Windows box",
+                    host: "win.local",
+                    instanceId: "main",
+                    state: "attached",
+                    isLocal: false,
+                    keepAttached: true,
+                    os: "win32",
+                },
+            ],
+        });
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                master: [
+                    { id: "s1", type: "shell", label: "Shell", sessionId: "s1", cwd: "c:\\repo" },
+                ],
+            },
+        });
+        // The root as the explorer asked for it; its nodes as the backend lists them.
+        useFileStore.setState({
+            treePath: "C:\\Repo",
+            treeBackendId: "links",
+            expandedDirs: new Set(["C:\\Repo"]),
+            tree: {
+                name: "Repo",
+                path: "C:\\Repo",
+                type: "directory",
+                loaded: true,
+                children: [
+                    {
+                        name: "pkg",
+                        path: "C:/Repo/pkg",
+                        type: "directory",
+                        loaded: true,
+                        children: [{ name: "lib", path: "C:/Repo/pkg/lib", type: "directory" }],
+                    },
+                ],
+            },
+        });
+
+        await clickDirectoryLink("pkg\\lib");
+
+        expect([...useFileStore.getState().expandedDirs]).toEqual(["C:\\Repo", "C:/Repo/pkg"]);
+        expect(useUIStore.getState().fileExplorerOpen).toBe(true);
+        expect(server.received.some((r) => r.type === MSG.FILE_LIST_DIR)).toBe(false);
+    });
+});
