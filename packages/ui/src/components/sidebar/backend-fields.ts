@@ -1,3 +1,5 @@
+import type { SwitchResult } from "@/stores/backend-store";
+
 /**
  * A port field as typed. `undefined` means left blank, which callers read as
  * "not part of this request"; `"invalid"` is a typo the caller must refuse.
@@ -30,4 +32,16 @@ function unsavedChangesMessage(files: string[]): string {
     return `Save or discard unsaved changes first: ${files.join(", ")}`;
 }
 
-export { ipcErrorMessage, parsePort, unsavedChangesMessage };
+/** Why a switch did not happen. */
+function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
+    switch (result.reason) {
+        case "dirty":
+            return unsavedChangesMessage(result.files);
+        case "unreachable":
+            return result.failure.message;
+        case "busy":
+            return "A switch is already under way.";
+    }
+}
+
+export { ipcErrorMessage, parsePort, switchRefusal, unsavedChangesMessage };

@@ -23,9 +23,9 @@ import type { NativeMenuActionMap, NativeMenuItem } from "@/lib/native-menu";
 import { cn } from "@/lib/utils";
 import { LOCAL_BACKEND_ID, useBackendStore } from "@/stores/backend-store";
 import { alert } from "@/stores/dialog-store";
-import type { MachineState, SwitchResult } from "@/stores/backend-store";
+import type { MachineState } from "@/stores/backend-store";
 import { dirtyFilePathsOn } from "@/components/panes/editor-dirty-state";
-import { ipcErrorMessage, unsavedChangesMessage } from "./backend-fields";
+import { ipcErrorMessage, switchRefusal, unsavedChangesMessage } from "./backend-fields";
 import { ConnectBackendDialog } from "./ConnectBackendDialog";
 import { ManageBackendsDialog } from "./ManageBackendsDialog";
 import { TrustHostKeyDialog } from "./TrustHostKeyDialog";
@@ -53,18 +53,6 @@ function labelOf(machine: MachineState): string {
     return machine.isLocal
         ? "This machine (local)"
         : nameOf(machine.displayName, machine.instanceId);
-}
-
-/** Why a switch did not happen. */
-export function switchRefusal(result: Exclude<SwitchResult, { ok: true }>): string {
-    switch (result.reason) {
-        case "dirty":
-            return unsavedChangesMessage(result.files);
-        case "unreachable":
-            return result.failure.message;
-        case "busy":
-            return "A switch is already under way.";
-    }
 }
 
 function statusOf(machine: MachineState, seen: boolean): string {

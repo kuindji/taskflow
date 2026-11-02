@@ -3,7 +3,7 @@ import { useWsStatus } from "@/providers/ws-context";
 import { useBackendStore } from "@/stores/backend-store";
 import { useRegisterOverlay } from "@/lib/overlay-registry";
 import { Button } from "@/components/ui/button";
-import { switchRefusal } from "@/components/sidebar/MachinesMenu";
+import { switchRefusal } from "@/components/sidebar/backend-fields";
 
 export function ConnectionOverlay() {
     const { connected, error } = useWsStatus();
