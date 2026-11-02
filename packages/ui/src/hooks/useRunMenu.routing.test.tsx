@@ -52,7 +52,6 @@ function Probe() {
         backendId: "b",
         projectId: "p",
         projectPath: "/repos/p",
-        showAgentOptions: false,
         enabled: true,
     });
     useEffect(() => {
@@ -122,7 +121,6 @@ test("a native menu's data carries the scripts on its first opening", async () =
             backendId: "b",
             projectId: "p",
             projectPath: "/repos/p",
-            showAgentOptions: false,
             enabled: false,
         });
         useEffect(() => {

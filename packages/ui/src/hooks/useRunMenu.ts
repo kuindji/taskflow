@@ -3,11 +3,10 @@ import type {
     ActionDefinition,
     AgentCommand,
     AgentCommandsListResponse,
-    AgentLaunchOptions,
     FlowInputDefinition,
     ScriptsListResponse,
 } from "@taskflow/shared";
-import { DEFAULT_TERMINAL_SHELL, MSG, type AgentType } from "@taskflow/shared";
+import { DEFAULT_TERMINAL_SHELL, MSG } from "@taskflow/shared";
 import { sendRequest } from "@/lib/connection-registry";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { useFlowStore, filterByProject } from "@/stores/flow-store";
@@ -30,7 +29,6 @@ interface UseRunMenuOptions {
     projectId: string;
     projectPath: string;
     taskId?: string;
-    showAgentOptions: boolean;
     enabled: boolean;
 }
 
@@ -49,9 +47,6 @@ interface UseRunMenuResult {
     flowInputState: FlowInputState | null;
     onFlowInputSubmit: (values: Record<string, string>) => void;
     onFlowInputCancel: () => void;
-    runOptionsAgent: AgentType | null;
-    handleRunOptionsConfirm: (agentType: AgentType, options: AgentLaunchOptions) => void;
-    handleRunOptionsOpenChange: (open: boolean) => void;
 }
 
 function useRunMenu({
@@ -59,13 +54,11 @@ function useRunMenu({
     projectId,
     projectPath,
     taskId,
-    showAgentOptions,
     enabled,
 }: UseRunMenuOptions): UseRunMenuResult {
     const [scripts, setScripts] = useState<Record<string, string>>(emptyScripts);
     const [agentCommands, setAgentCommands] = useState<AgentCommand[]>(emptyAgentCommands);
     const [flowInputState, setFlowInputState] = useState<FlowInputState | null>(null);
-    const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
 
     const agents = useAgentAvailability(backendId);
     const online = useConnectivity();
@@ -152,7 +145,6 @@ function useRunMenu({
             standaloneActions,
             activeFlowRun,
             agents,
-            showAgentOptions,
             online,
         }),
         [
@@ -163,7 +155,6 @@ function useRunMenu({
             standaloneActions,
             activeFlowRun,
             agents,
-            showAgentOptions,
             online,
         ],
     );
@@ -268,27 +259,6 @@ function useRunMenu({
         [navigate, taskId, projectId, backendId],
     );
 
-    const onRunTab = useCallback(
-        (type: AgentType, agentOptions?: AgentLaunchOptions) => {
-            if (!taskId) return;
-            navigate(true);
-            const task = useTaskStore
-                .getState()
-                .tasks.find((t) => t.backendId === backendId && t.id === taskId);
-            void useSessionStore
-                .getState()
-                .createSession(
-                    { taskId, backendId },
-                    type,
-                    undefined,
-                    task?.description || undefined,
-                    undefined,
-                    agentOptions,
-                );
-        },
-        [navigate, taskId, backendId],
-    );
-
     const onFlowInputSubmit = useCallback(
         (values: Record<string, string>) => {
             if (!flowInputState) return;
@@ -306,40 +276,14 @@ function useRunMenu({
         setFlowInputState(null);
     }, []);
 
-    const onRunTabWithOptions = useCallback((type: AgentType) => {
-        setRunOptionsAgent(type);
-    }, []);
-
-    const handleRunOptionsConfirm = useCallback(
-        (agentType: AgentType, options: AgentLaunchOptions) => {
-            setRunOptionsAgent(null);
-            onRunTab(agentType, options);
-        },
-        [onRunTab],
-    );
-
-    const handleRunOptionsOpenChange = useCallback((open: boolean) => {
-        if (!open) setRunOptionsAgent(null);
-    }, []);
-
     const callbacks: RunMenuCallbacks = useMemo(
         () => ({
             onRunScript,
             onRunAgentCommand,
             onRunAction,
             onStartFlow,
-            onRunTab: showAgentOptions ? onRunTab : undefined,
-            onRunTabWithOptions: showAgentOptions ? onRunTabWithOptions : undefined,
         }),
-        [
-            onRunScript,
-            onRunAgentCommand,
-            onRunAction,
-            onStartFlow,
-            showAgentOptions,
-            onRunTab,
-            onRunTabWithOptions,
-        ],
+        [onRunScript, onRunAgentCommand, onRunAction, onStartFlow],
     );
 
     return {
@@ -350,9 +294,6 @@ function useRunMenu({
         flowInputState,
         onFlowInputSubmit,
         onFlowInputCancel,
-        runOptionsAgent,
-        handleRunOptionsConfirm,
-        handleRunOptionsOpenChange,
     };
 }
 

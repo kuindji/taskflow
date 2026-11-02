@@ -2,11 +2,9 @@ import type {
     ActionDefinition,
     AgentAvailability,
     AgentCommand,
-    AgentType,
     FlowDefinition,
     FlowRun,
 } from "@taskflow/shared";
-import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { isAgentAvailable } from "@/hooks/useAgentAvailability";
 import type { NativeMenuItem, NativeMenuActionMap } from "@/lib/native-menu";
 
@@ -18,7 +16,6 @@ interface RunMenuData {
     standaloneActions: ActionDefinition[];
     activeFlowRun: FlowRun | null;
     agents: AgentAvailability[];
-    showAgentOptions: boolean;
     online: boolean;
 }
 
@@ -27,8 +24,6 @@ interface RunMenuCallbacks {
     onRunAgentCommand: (cmd: AgentCommand) => void;
     onStartFlow: (flowId: string) => void;
     onRunAction: (action: ActionDefinition) => void;
-    onRunTab?: (type: AgentType) => void;
-    onRunTabWithOptions?: (type: AgentType) => void;
 }
 
 /**
@@ -52,8 +47,7 @@ function hasRunMenuItems(data: RunMenuData): boolean {
         scriptNames.length > 0 ||
         (data.agentCommands.length > 0 && hasClaudeAgent) ||
         offersFlows(data) ||
-        data.standaloneActions.length > 0 ||
-        data.showAgentOptions
+        data.standaloneActions.length > 0
     );
 }
 
@@ -136,63 +130,6 @@ function buildNativeRunMenuItems(
         });
         for (const action of runnable) {
             actions[`action:${action.id}`] = () => callbacks.onRunAction(action);
-        }
-    }
-
-    if (data.showAgentOptions) {
-        if (
-            scriptNames.length > 0 ||
-            data.flows.length > 0 ||
-            data.standaloneActions.length > 0 ||
-            data.agentCommands.length > 0
-        ) {
-            items.push({ type: "separator" });
-        }
-
-        items.push({
-            type: "label",
-            label: "Run agent with task description",
-        });
-
-        for (const agentType of ALL_AGENT_TYPES) {
-            const available = isAgentAvailable(data.agents, agentType);
-            const label = AGENT_DISPLAY_NAMES[agentType];
-            const enabled = available && data.online;
-
-            if (!available) {
-                items.push({
-                    label: `${label} (not installed)`,
-                    enabled: false,
-                });
-                continue;
-            }
-
-            const submenu: NativeMenuItem[] = [{ id: `run:${agentType}`, label: "Run", enabled }];
-            if (callbacks.onRunTabWithOptions) {
-                submenu.push({
-                    id: `run-options:${agentType}`,
-                    label: "Run with options...",
-                    enabled,
-                });
-            }
-
-            items.push({
-                type: "submenu",
-                label: enabled ? label : `${label} (offline)`,
-                submenu,
-                enabled,
-            });
-
-            if (enabled) {
-                if (callbacks.onRunTab) {
-                    const onRunTab = callbacks.onRunTab;
-                    actions[`run:${agentType}`] = () => onRunTab(agentType);
-                }
-                if (callbacks.onRunTabWithOptions) {
-                    const onRunTabWithOptions = callbacks.onRunTabWithOptions;
-                    actions[`run-options:${agentType}`] = () => onRunTabWithOptions(agentType);
-                }
-            }
         }
     }
 

@@ -1,8 +1,6 @@
-import { Fragment, useMemo, type ComponentType, type ReactNode } from "react";
-import { ALL_AGENT_TYPES, AGENT_DISPLAY_NAMES } from "@taskflow/shared";
+import { useMemo, type ComponentType, type ReactNode } from "react";
 import { SquareTerminal, Workflow, Zap } from "lucide-react";
 import { ClaudeIcon } from "@/components/icons/ClaudeIcon";
-import { AGENT_META } from "@/components/workspace/tab-constants";
 import { isAgentAvailable } from "@/hooks/useAgentAvailability";
 import { canRunAction, offersFlows } from "@/lib/run-menu";
 import type { RunMenuData, RunMenuCallbacks } from "@/lib/run-menu";
@@ -23,7 +21,6 @@ interface MenuComponents {
         className?: string;
     }>;
     Separator: ComponentType<object>;
-    Label: ComponentType<{ children: ReactNode }>;
 }
 
 interface RunMenuItemsProps {
@@ -33,7 +30,7 @@ interface RunMenuItemsProps {
 }
 
 function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
-    const { Sub, SubTrigger, SubContent, Item, Separator, Label } = components;
+    const { Sub, SubTrigger, SubContent, Item, Separator } = components;
 
     const scriptNames = useMemo(() => Object.keys(data.scripts), [data.scripts]);
     const hasClaudeAgent = isAgentAvailable(data.agents, "claude");
@@ -124,46 +121,6 @@ function RunMenuItems({ data, callbacks, components }: RunMenuItemsProps) {
                             ))}
                         </SubContent>
                     </Sub>
-                </>
-            )}
-            {data.showAgentOptions && (
-                <>
-                    {(scriptNames.length > 0 ||
-                        data.flows.length > 0 ||
-                        data.standaloneActions.length > 0 ||
-                        data.agentCommands.length > 0) && <Separator />}
-                    <Label>Run agent with task description</Label>
-                    {ALL_AGENT_TYPES.map((agentType) => {
-                        const meta = AGENT_META[agentType];
-                        const available = isAgentAvailable(data.agents, agentType);
-                        const enabled = available && data.online;
-                        const Icon = meta.icon;
-                        const label = AGENT_DISPLAY_NAMES[agentType];
-                        return (
-                            <Fragment key={agentType}>
-                                <Item
-                                    disabled={!enabled}
-                                    onSelect={() => {
-                                        if (enabled) callbacks.onRunTab?.(agentType);
-                                    }}>
-                                    <Icon className="mr-2 h-4 w-4" />
-                                    {label}
-                                    {!available
-                                        ? " (not installed)"
-                                        : !data.online
-                                          ? " (offline)"
-                                          : ""}
-                                </Item>
-                                {enabled && callbacks.onRunTabWithOptions && (
-                                    <Item
-                                        onSelect={() => callbacks.onRunTabWithOptions?.(agentType)}>
-                                        <Icon className="mr-2 h-4 w-4" />
-                                        {label} with options...
-                                    </Item>
-                                )}
-                            </Fragment>
-                        );
-                    })}
                 </>
             )}
         </>

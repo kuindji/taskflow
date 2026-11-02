@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, Fragment } from "react";
+import { useMemo, useEffect, useState } from "react";
 import type {
     ActionDefinition,
     AgentCommand,
@@ -29,7 +29,6 @@ import {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
-    DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { AgentOptionsDialog } from "./AgentOptionsDialog";
 import { RunMenuItems } from "@/components/shared/RunMenuItems";
@@ -59,7 +58,6 @@ const dropdownMenuComponents: MenuComponents = {
     SubContent: DropdownMenuSubContent,
     Item: DropdownMenuItem,
     Separator: DropdownMenuSeparator,
-    Label: DropdownMenuLabel,
 };
 
 interface AgentDropdownMenuProps {
@@ -68,7 +66,6 @@ interface AgentDropdownMenuProps {
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: AgentType, agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onRunAgentCommand: (command: AgentCommand) => void;
@@ -81,13 +78,11 @@ interface AgentDropdownMenuProps {
     agentCommands: AgentCommand[];
     activeFlowRun: FlowRun | null;
     showRunButton: boolean;
-    showAgentOptions: boolean;
     allowSessionTabs: boolean;
 }
 
 function AgentDropdownMenu({
     onNewTab,
-    onRunTab,
     onRunScript,
     onRunAction,
     onRunAgentCommand,
@@ -100,13 +95,11 @@ function AgentDropdownMenu({
     agentCommands,
     activeFlowRun,
     showRunButton,
-    showAgentOptions,
     allowSessionTabs,
 }: AgentDropdownMenuProps) {
     const [shells, setShells] = useState<ShellInfo[]>([]);
     const [systemShellPath, setSystemShellPath] = useState<string | null>(null);
     const [runOptionsAgent, setRunOptionsAgent] = useState<AgentType | null>(null);
-    const [runOptionsContext, setRunOptionsContext] = useState<"newTab" | "runTab" | null>(null);
     // Agents and shells are the workspace machine's: that is where the tab runs.
     const backendId = useWorkspaceBackend();
     const { project } = useActiveWorkspace();
@@ -156,7 +149,6 @@ function AgentDropdownMenu({
 
     const defaultShellPath = resolveTerminalShellPath(shells, systemShellPath, configuredShell);
     const defaultShellSummary = getTerminalShellSummary(shells, systemShellPath, configuredShell);
-    const scriptNames = useMemo(() => Object.keys(scripts), [scripts]);
     const nativeMenus = supportsNativeMenus();
 
     const runMenuData = useMemo(
@@ -168,7 +160,6 @@ function AgentDropdownMenu({
             standaloneActions,
             activeFlowRun,
             agents,
-            showAgentOptions,
             online,
         }),
         [
@@ -179,7 +170,6 @@ function AgentDropdownMenu({
             standaloneActions,
             activeFlowRun,
             agents,
-            showAgentOptions,
             online,
         ],
     );
@@ -190,11 +180,6 @@ function AgentDropdownMenu({
             onRunAgentCommand,
             onStartFlow,
             onRunAction,
-            onRunTab: (type) => onRunTab(type),
-            onRunTabWithOptions: (type) => {
-                setRunOptionsAgent(type);
-                setRunOptionsContext("runTab");
-            },
         });
 
         await showNativeMenuAndRun(items, actions, getElementMenuPosition(target, "start"));
@@ -278,7 +263,7 @@ function AgentDropdownMenu({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
                             <RunMenuItems
-                                data={{ ...runMenuData, showAgentOptions: false }}
+                                data={runMenuData}
                                 callbacks={{
                                     onRunScript,
                                     onRunAgentCommand,
@@ -287,51 +272,6 @@ function AgentDropdownMenu({
                                 }}
                                 components={dropdownMenuComponents}
                             />
-                            {showAgentOptions && (
-                                <>
-                                    {(scriptNames.length > 0 ||
-                                        flows.length > 0 ||
-                                        standaloneActions.length > 0 ||
-                                        agentCommands.length > 0) && <DropdownMenuSeparator />}
-                                    <DropdownMenuLabel>
-                                        Run agent with task description
-                                    </DropdownMenuLabel>
-                                    {ALL_AGENT_TYPES.map((agentType) => {
-                                        const meta = AGENT_META[agentType];
-                                        const available = isAgentAvailable(agents, agentType);
-                                        const agentEnabled = available && online;
-                                        const Icon = meta.icon;
-                                        const label = AGENT_DISPLAY_NAMES[agentType];
-                                        return (
-                                            <Fragment key={agentType}>
-                                                <DropdownMenuItem
-                                                    disabled={!agentEnabled}
-                                                    onClick={() =>
-                                                        agentEnabled && onRunTab(agentType)
-                                                    }>
-                                                    <Icon className="mr-2 h-4 w-4" />
-                                                    {label}
-                                                    {!available
-                                                        ? " (not installed)"
-                                                        : !online
-                                                          ? " (offline)"
-                                                          : ""}
-                                                </DropdownMenuItem>
-                                                {agentEnabled && (
-                                                    <DropdownMenuItem
-                                                        onClick={() => {
-                                                            setRunOptionsAgent(agentType);
-                                                            setRunOptionsContext("runTab");
-                                                        }}>
-                                                        <Icon className="mr-2 h-4 w-4" />
-                                                        {label} with options...
-                                                    </DropdownMenuItem>
-                                                )}
-                                            </Fragment>
-                                        );
-                                    })}
-                                </>
-                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 ))}
@@ -354,7 +294,6 @@ function AgentDropdownMenu({
                                     if (!enabled) return;
                                     if (e.shiftKey) {
                                         setRunOptionsAgent(agentType);
-                                        setRunOptionsContext("newTab");
                                     } else {
                                         onNewTab(agentType);
                                     }
@@ -497,18 +436,9 @@ function AgentDropdownMenu({
                 }
                 agentType={runOptionsAgent}
                 onOpenChange={(open) => {
-                    if (!open) {
-                        setRunOptionsAgent(null);
-                        setRunOptionsContext(null);
-                    }
+                    if (!open) setRunOptionsAgent(null);
                 }}
-                onRun={(agentType, options) => {
-                    if (runOptionsContext === "newTab") {
-                        onNewTab(agentType, undefined, options);
-                    } else {
-                        onRunTab(agentType, options);
-                    }
-                }}
+                onRun={(agentType, options) => onNewTab(agentType, undefined, options)}
             />
         </>
     );

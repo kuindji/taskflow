@@ -340,7 +340,6 @@ export function Workspace() {
                     workspaceKey={workspace.workspaceKey}
                     projectPath={workspace.workingDir}
                     onNewTab={handleNewTab}
-                    onRunTab={() => {}}
                     onRunScript={() => {}}
                     onRunAction={handleRunAction}
                     onRunAgentCommand={handleRunAgentCommand}
@@ -357,7 +356,6 @@ export function Workspace() {
                         standaloneActions.length > 0 ||
                         (flowRunsReady && flowDefinitions.length > 0)
                     }
-                    showAgentOptions={false}
                     allowSessionTabs={true}
                     isElectron={isElectron}
                 />
@@ -394,25 +392,6 @@ export function Workspace() {
     const handleDiffTab = () => openSingletonTab("changes", "Changes");
     const handleHistoryTab = () => openSingletonTab("history", "History");
 
-    const handleRunTab = async (
-        type: "claude" | "codex" | "opencode" | "pi" | "kimi",
-        agentOptions?: AgentLaunchOptions,
-    ) => {
-        if (workspace.scope !== "task" || !workspace.task) return;
-        setFocusedPanel("workspace");
-        await createSession(
-            { taskId: workspace.task.id },
-            type,
-            undefined,
-            workspace.task.description || undefined,
-            undefined,
-            agentOptions,
-            undefined,
-            undefined,
-            focusedPaneKey(workspace.workspaceKey),
-        );
-    };
-
     const handleRunScript = async (scriptName: string) => {
         if (!workspace.workspaceKey || !backendId) return;
         const owner =
@@ -448,7 +427,6 @@ export function Workspace() {
                     workspaceKey={workspace.workspaceKey}
                     projectPath={workspace.workingDir}
                     onNewTab={handleNewTab}
-                    onRunTab={handleRunTab}
                     onRunScript={handleRunScript}
                     onRunAction={handleRunAction}
                     onRunAgentCommand={handleRunAgentCommand}
@@ -461,13 +439,11 @@ export function Workspace() {
                     agentCommands={agentCommands}
                     activeFlowRun={activeFlowRun ?? null}
                     showRunButton={
-                        workspace.scope === "task" ||
                         hasScripts ||
                         standaloneActions.length > 0 ||
                         agentCommands.length > 0 ||
                         (flowRunsReady && flowDefinitions.length > 0)
                     }
-                    showAgentOptions={workspace.scope === "task"}
                     allowSessionTabs={true}
                     isElectron={isElectron}
                 />

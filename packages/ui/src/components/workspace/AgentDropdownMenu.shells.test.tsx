@@ -85,7 +85,6 @@ test("a shell list answered after the workspace moved to another machine is not 
     const menu = () => (
         <AgentDropdownMenu
             onNewTab={(_type, shellPath) => opened.push(shellPath)}
-            onRunTab={noop}
             onRunScript={noop}
             onRunAction={noop}
             onRunAgentCommand={noop}
@@ -98,7 +97,6 @@ test("a shell list answered after the workspace moved to another machine is not 
             agentCommands={[]}
             activeFlowRun={null}
             showRunButton={false}
-            showAgentOptions={false}
             allowSessionTabs
         />
     );

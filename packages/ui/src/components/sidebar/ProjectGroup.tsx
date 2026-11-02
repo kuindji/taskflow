@@ -33,7 +33,6 @@ import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
-    ContextMenuLabel,
     ContextMenuSeparator,
     ContextMenuSub,
     ContextMenuSubContent,
@@ -55,7 +54,6 @@ const contextMenuComponents: MenuComponents = {
     SubContent: ContextMenuSubContent,
     Item: ContextMenuItem,
     Separator: ContextMenuSeparator,
-    Label: ContextMenuLabel,
 };
 
 interface ProjectGroupProps {
@@ -108,7 +106,6 @@ export function ProjectGroup({
         backendId: project.backendId,
         projectId: project.id,
         projectPath: project.path,
-        showAgentOptions: false,
         // A native menu reads its own data when it opens.
         enabled: contextMenuOpen && !nativeMenus,
     });

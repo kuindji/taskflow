@@ -48,7 +48,6 @@ function data(overrides: Partial<RunMenuData>): RunMenuData {
         standaloneActions: [],
         activeFlowRun: null,
         agents: [],
-        showAgentOptions: false,
         online: true,
         ...overrides,
     };

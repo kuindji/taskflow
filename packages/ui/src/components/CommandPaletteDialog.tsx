@@ -63,7 +63,6 @@ function CommandPaletteDialog() {
         projectId: workspace.project?.id ?? "",
         projectPath: workspace.workingDir ?? "",
         taskId: workspace.task?.id,
-        showAgentOptions: false,
         enabled: open && hasContext,
     });
 

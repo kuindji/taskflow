@@ -25,7 +25,6 @@ test("opening and closing the split keeps the left pane mounted", async () => {
             <SplitContainer
                 workspaceKey={WORKSPACE}
                 onNewTab={noop}
-                onRunTab={noop}
                 onRunScript={noop}
                 onRunAction={noop}
                 onRunAgentCommand={noop}
@@ -38,7 +37,6 @@ test("opening and closing the split keeps the left pane mounted", async () => {
                 agentCommands={[]}
                 activeFlowRun={null}
                 showRunButton={false}
-                showAgentOptions={false}
                 allowSessionTabs
             />,
         );

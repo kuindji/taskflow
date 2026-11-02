@@ -37,7 +37,6 @@ interface TabBarProps {
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: AgentType, agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onRunAgentCommand: (command: AgentCommand) => void;
@@ -50,7 +49,6 @@ interface TabBarProps {
     agentCommands: AgentCommand[];
     activeFlowRun: FlowRun | null;
     showRunButton: boolean;
-    showAgentOptions: boolean;
     allowSessionTabs: boolean;
     className?: string;
     externalDnd?: boolean;
@@ -65,7 +63,6 @@ export function TabBar({
     onTabRename,
     onTabReorder,
     onNewTab,
-    onRunTab,
     onRunScript,
     onRunAction,
     onRunAgentCommand,
@@ -78,7 +75,6 @@ export function TabBar({
     agentCommands,
     activeFlowRun,
     showRunButton,
-    showAgentOptions,
     allowSessionTabs,
     className,
     externalDnd,
@@ -128,7 +124,6 @@ export function TabBar({
             <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
                 <AgentDropdownMenu
                     onNewTab={onNewTab}
-                    onRunTab={onRunTab}
                     onRunScript={onRunScript}
                     onRunAction={onRunAction}
                     onRunAgentCommand={onRunAgentCommand}
@@ -141,7 +136,6 @@ export function TabBar({
                     agentCommands={agentCommands}
                     activeFlowRun={activeFlowRun}
                     showRunButton={showRunButton}
-                    showAgentOptions={showAgentOptions}
                     allowSessionTabs={allowSessionTabs}
                 />
             </div>

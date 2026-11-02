@@ -27,7 +27,6 @@ interface WorkspacePaneProps {
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => void;
-    onRunTab: (type: AgentType, agentOptions?: AgentLaunchOptions) => void;
     onRunScript: (scriptName: string) => void;
     onRunAction: (action: ActionDefinition) => void;
     onRunAgentCommand: (command: AgentCommand) => void;
@@ -40,7 +39,6 @@ interface WorkspacePaneProps {
     agentCommands: AgentCommand[];
     activeFlowRun: FlowRun | null;
     showRunButton: boolean;
-    showAgentOptions: boolean;
     allowSessionTabs: boolean;
     isElectron?: boolean;
     externalDnd?: boolean;
@@ -59,7 +57,6 @@ export function WorkspacePane({
     activeTabId,
     projectPath,
     onNewTab,
-    onRunTab,
     onRunScript,
     onRunAction,
     onRunAgentCommand,
@@ -72,7 +69,6 @@ export function WorkspacePane({
     agentCommands,
     activeFlowRun,
     showRunButton,
-    showAgentOptions,
     allowSessionTabs,
     isElectron,
     externalDnd,
@@ -107,7 +103,6 @@ export function WorkspacePane({
                 onTabRename={(id, newLabel) => renameTab(workspaceKey, id, newLabel)}
                 onTabReorder={(activeId, overId) => reorderTabs(workspaceKey, activeId, overId)}
                 onNewTab={onNewTab}
-                onRunTab={onRunTab}
                 onRunScript={onRunScript}
                 onRunAction={onRunAction}
                 onRunAgentCommand={onRunAgentCommand}
@@ -120,7 +115,6 @@ export function WorkspacePane({
                 agentCommands={agentCommands}
                 activeFlowRun={activeFlowRun}
                 showRunButton={showRunButton}
-                showAgentOptions={showAgentOptions}
                 allowSessionTabs={allowSessionTabs}
                 className={tabBarClassName}
                 externalDnd={externalDnd}

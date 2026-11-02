@@ -17,7 +17,6 @@ import {
     ContextMenu,
     ContextMenuContent,
     ContextMenuItem,
-    ContextMenuLabel,
     ContextMenuSeparator,
     ContextMenuSub,
     ContextMenuSubContent,
@@ -43,8 +42,6 @@ import { useRunMenu } from "@/hooks/useRunMenu";
 import { RunMenuItems } from "@/components/shared/RunMenuItems";
 import type { MenuComponents } from "@/components/shared/RunMenuItems";
 import { FlowInputDialog } from "@/components/flows/FlowInputDialog";
-import { AgentOptionsDialog } from "@/components/workspace/AgentOptionsDialog";
-import { AGENT_DISPLAY_NAMES } from "@taskflow/shared";
 import { SessionBadge } from "./SessionBadge";
 
 const contextMenuComponents: MenuComponents = {
@@ -53,7 +50,6 @@ const contextMenuComponents: MenuComponents = {
     SubContent: ContextMenuSubContent,
     Item: ContextMenuItem,
     Separator: ContextMenuSeparator,
-    Label: ContextMenuLabel,
 };
 
 const taskCardVariants = cva(
@@ -142,7 +138,6 @@ export function TaskCard({
         projectId,
         projectPath,
         taskId: task.id,
-        showAgentOptions: !archived,
         // A native menu reads its own data when it opens.
         enabled: contextMenuOpen && !nativeMenus,
     });
@@ -492,19 +487,6 @@ export function TaskCard({
                     onCancel={runMenu.onFlowInputCancel}
                 />
             )}
-            <AgentOptionsDialog
-                open={runMenu.runOptionsAgent !== null}
-                backendId={task.backendId}
-                projectId={task.projectId}
-                title={
-                    runMenu.runOptionsAgent
-                        ? `Run ${AGENT_DISPLAY_NAMES[runMenu.runOptionsAgent]} with options`
-                        : "Run agent with options"
-                }
-                agentType={runMenu.runOptionsAgent}
-                onOpenChange={runMenu.handleRunOptionsOpenChange}
-                onRun={runMenu.handleRunOptionsConfirm}
-            />
         </>
     );
 }
