@@ -36,5 +36,10 @@ Decision: remove Terminal.app from theme import.
 - UI/TUI: remove `.terminal` from any file-picker filter or list of accepted
   extensions and any "Terminal.app" label in theme import UI. Grep
   `terminal-app`, `Terminal.app`, `.terminal"`, `parseTerminalApp`.
+- Electron's theme file picker lists `"terminal"` in its extensions
+  (`electron/src/ipc-handlers.ts:226`, `select-theme-file`); the greps above
+  miss it. Remove it.
 - Keep `plist.ts` if iTerm2 still uses it.
 - Delete tests for the removed parser; update any test listing the sources.
+  Turn `theme-service.test.ts:232` ("routes .terminal files through the
+  Terminal.app parser") into a test that a `.terminal` file is rejected.

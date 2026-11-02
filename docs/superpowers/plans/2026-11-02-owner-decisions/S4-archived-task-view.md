@@ -22,10 +22,15 @@ Work:
 - After Unarchive the same task opens as a normal workspace.
 - Reuse existing task header / notes / attributes components in a read-only
   mode where they support one; do not fork them.
+- Attribute layers: `TaskInfoPanel.tsx:93` finds the parent only in live
+  `tasks`. An archived subtask's parent may be archived too: search
+  `archivedTasks` as well, as the TUI does (`tui/src/opentui/app.ts:1306`),
+  still through `resolveAttributes`.
 - Make sure nothing else treats the archived task as active (session
   creation, run menus, shortcuts that act on the active task, command
   palette task actions).
 
 Tests: selection of an archived task (click and keyboard) yields the
 read-only view; Unarchive switches to the live workspace; task-scoped
-shortcuts do nothing while it is shown. Owner check: look at it in the app.
+shortcuts do nothing while it is shown; an archived subtask of an archived
+parent shows inherited parent attributes with the child's override. Owner check: look at it in the app.

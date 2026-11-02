@@ -24,8 +24,12 @@ Work:
   `FILE_CHANGED` in `packages/ui/src`) retain the watch for the workspace
   root containing their file while mounted, so they share the explorer's
   native watcher. Wiki pages already reload from the wiki index; leave them.
+- Editor panes (`EditorPaneImpl.tsx`) retain the same way while mounted,
+  re-keyed when their backend or path changes, so S9's reload works with
+  the explorer closed. Split panes each hold their own count.
 - No backend change.
 
 Tests: file-store unit tests for counting, in-flight races, reconnect
 re-send, reset; one preview test showing a `FILE_CHANGED` refresh with the
-explorer closed.
+explorer closed; an editor pane retains on mount, re-keys on path change,
+releases on unmount.

@@ -14,8 +14,7 @@ Decision: re-point automatically only when the SSH host key matches.
   beacon from the new address is hidden behind the saved record, which keeps
   dialing the old `host`.
 - When a live beacon matches a saved record by uid but its `address` differs
-  from `record.host` (and the record was created from discovery, not typed
-  in by hand: check how records distinguish this), probe the new address
+  from `record.host`, probe the new address
   with ssh using `HostKeyAlias=<hostKeyAlias(record)>` and
   `StrictHostKeyChecking=yes` against `KNOWN_HOSTS_FILE`
   (`tunnel-args.ts:11-31`, reuse its option builder).
@@ -25,6 +24,15 @@ Decision: re-point automatically only when the SSH host key matches.
   - Mismatch or no answer → leave the record, and let the beacon show as its
     own menu entry (normal attach + trust dialog). Do not loop probes: probe a
     given (record, address) pair once per beacon appearance.
+- Records carry no origin field (`BackendRecord`,
+  `shared/src/types/backend.ts:29`), so "created from discovery" cannot be
+  checked. Use instead: re-point only when `record.host` is an IP literal
+  (what discovery saves); a hand-typed hostname is left alone. No new field.
+- The registry's discovery callback (`backend-registry.ts:229`) only reacts
+  to a uid that was not present before, so a new address for a uid still in
+  the list (old beacon not yet expired, or the same machine re-announcing
+  from a new IP) is never seen. Detect new (uid, address) pairs on their own;
+  forget a pair's probe attempt when that pair leaves the list.
 - Serialize with the existing per-backend registry mutation queue.
 
 ## A10 R2-2: remembered port taken by another instance
@@ -43,5 +51,6 @@ Decision: `GET /` names the instance; the readiness probe requires a match.
   `Taskflow backend`), e.g. local readiness checks in Electron or the CLI.
 
 Tests: records/registry tests for re-point on key match, no re-point on
-mismatch; probe test for match, mismatch, legacy body; backend test for the
+mismatch, no re-point for a hostname record, a new address while the old
+beacon is still listed, one probe per pair until it disappears and comes back; probe test for match, mismatch, legacy body; backend test for the
 new `/` body.
