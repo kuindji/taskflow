@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S6. S5 done (cd0841d6; Codex fixes b3d6dd75 after one round).
+Next: S7. S6 done (bf94a84c; Codex fix ad56e7b5 after one round).
 
 ## Notes
 
@@ -33,6 +33,10 @@ Next: S6. S5 done (cd0841d6; Codex fixes b3d6dd75 after one round).
   Changing the data folder exits the backend with `BACKEND_RESTART_EXIT_CODE`;
   Electron relaunches the app (`electron/src/backend-restart.ts`).
 
+- S6: `createServer` takes a 6th `identity` argument (the `GET /` banner,
+  `backendBanner` in `shared/src/utils/backend-banner.ts`). The registry's
+  `__setDiscoveredForTest` now runs the real discovery handler (seen, re-point).
+
 ## Owner checks
 
 - S1: in the desktop app, "Run now" on a disabled schedule starts a session
@@ -56,3 +60,17 @@ Next: S6. S5 done (cd0841d6; Codex fixes b3d6dd75 after one round).
   change is refused with "while a session is running". "Use Existing" on a
   folder with data switches to it after the relaunch. Window size/position
   may not be saved on that relaunch (the backend has already exited).
+- S6 (not driven: needs two LAN machines): give a saved discovered machine a
+  new IP (DHCP). Within ~15 s of its beacon moving, the record shows the new
+  address, stays a single row, and an attached one reconnects with no trust
+  dialog. A machine with a different host key at that address stays on the
+  old record and appears as its own menu entry. Also: with two instances on
+  one remote, a record whose remembered port the other instance took
+  reconnects to its own port instead of failing with "unauthorized".
+- S6 decision consequence for the owner: neither connect dialog (UI, TUI)
+  asks for an instance, so a manual connect defaults to `main`. A manual
+  connect by explicit port to a `dev-*` backend is now refused on first
+  attach ("Another Taskflow instance answers on port …"), because the
+  provisional record compares instances as the decision says. After a
+  handshake the uid is compared instead. Say if the dialogs should get an
+  instance field, or if provisional manual records should skip the check.
