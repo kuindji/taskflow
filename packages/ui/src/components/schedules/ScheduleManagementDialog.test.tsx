@@ -54,7 +54,7 @@ test("Run now on a disabled schedule shows the backend's refusal", async () => {
     useScheduleStore.setState({
         schedules: [{ ...disabled, backendId: "b1" }],
         fetchSchedules: () => Promise.resolve(),
-        triggerSchedule: () => Promise.reject(new Error("Schedule is disabled")),
+        triggerSchedule: () => Promise.reject(new Error("Schedule is already running")),
     });
     useFlowStore.setState({ fetchActions: () => Promise.resolve() });
     useUIStore.setState({ scheduleManagementOpen: true });
@@ -80,6 +80,6 @@ test("Run now on a disabled schedule shows the backend's refusal", async () => {
     });
 
     expect(document.querySelector("[role='alert']")?.textContent).toContain(
-        'Run now failed for "Nightly": Schedule is disabled',
+        'Run now failed for "Nightly": Schedule is already running',
     );
 });

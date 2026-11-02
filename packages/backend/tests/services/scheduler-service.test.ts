@@ -373,8 +373,9 @@ it("disabling a running schedule lets it finish without rescheduling", async () 
     expect(active()).toHaveLength(0);
     expect((await record()).runningSessionId).toBeNull();
     // Admission was released: the trigger gets past "already running".
-    await expectRejects(service.triggerNow("s1"), /^Schedule is disabled$/);
-    expect(spawned).toHaveLength(1);
+    await service.triggerNow("s1");
+    expect(spawned).toHaveLength(2);
+    expect((await record()).enabled).toBe(false);
 });
 it("a due time passed during a run catches up once after completion", async () => {
     await service.init();
@@ -427,11 +428,58 @@ it("startup recovery keeps a run triggered before the scheduler initialized", as
     await service.triggerNow("s1");
     expect(spawned).toHaveLength(2);
 });
-it("manually triggering a disabled schedule rejects without launching", async () => {
-    await save({ enabled: false });
-    await expectRejects(service.triggerNow("s1"), /^Schedule is disabled$/);
+it("manually triggering a disabled schedule runs it once and leaves it disabled", async () => {
+    await save({ enabled: false, nextRunAt: null });
+    await service.init();
+    const before = active().length;
+    await service.triggerNow("s1");
+    expect(spawned).toHaveLength(1);
+    expect(await record()).toMatchObject({
+        enabled: false,
+        nextRunAt: null,
+        runningSessionId: "session1",
+        lastRunAt: new Date(now).toISOString(),
+        lastError: null,
+    });
+    // Only the run's timeout timer was added; no due timer was armed.
+    expect(active()).toHaveLength(before + 1);
+    expect(timer(600_000)).toBeDefined();
+    await service.handleComplete("session1");
+    await drain();
+    expect(active()).toHaveLength(before);
+    expect(await record()).toMatchObject({
+        enabled: false,
+        nextRunAt: null,
+        runningSessionId: null,
+    });
+    now += 3_600_000;
+    await fireAndDrain(timer(30_000));
+    expect(spawned).toHaveLength(1);
+});
+it("a disabled schedule's failed manual spawn records the error without arming", async () => {
+    await save({ enabled: false, nextRunAt: null });
+    spawn = async () => {
+        throw new Error("boom");
+    };
+    await service.triggerNow("s1");
+    expect(await record()).toMatchObject({
+        enabled: false,
+        nextRunAt: null,
+        lastError: "Failed to spawn session: boom",
+    });
+    expect(active()).toHaveLength(0);
+});
+it("going offline during a disabled schedule's manual trigger rejects and does not defer", async () => {
+    await save({ enabled: false, nextRunAt: null });
+    const run = service.triggerNow("s1");
+    online = false;
+    await expectRejects(run, /^Cannot trigger schedule while offline$/);
+    online = true;
+    await service.resumeDeferred();
+    await drain();
     expect(spawned).toEqual([]);
-    expect((await record()).lastRunAt).toBeNull();
+    expect(await record()).toMatchObject({ enabled: false, nextRunAt: null, lastError: null });
+    expect(active()).toHaveLength(0);
 });
 it("a disabled scheduler installs no timers and rejects manual triggering", async () => {
     service = makeService(false);

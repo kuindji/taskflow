@@ -209,7 +209,7 @@ class SchedulerService {
     }
 
     private nextAfterAttempt(current: Schedule, captured: Schedule): string | null {
-        if (!current.enabled) return null;
+        if (!current.enabled) return current.nextRunAt;
         const timingChanged =
             current.expressionType !== captured.expressionType ||
             current.expression !== captured.expression ||
@@ -236,10 +236,9 @@ class SchedulerService {
                 if (source === "manual") throw new Error(`Schedule not found: ${scheduleId}`);
                 return;
             }
-            if (!schedule.enabled && source === "manual" && !this.stopped) {
-                throw new Error("Schedule is disabled");
-            }
-            if (!schedule.enabled || this.stopped) return;
+            if (this.stopped) return;
+            // "Run now" runs a disabled schedule once; it stays disabled and unarmed.
+            if (!schedule.enabled && source !== "manual") return;
             if (
                 source === "scheduled" &&
                 (!schedule.nextRunAt || !(Date.parse(schedule.nextRunAt) <= this.now()))
@@ -248,6 +247,8 @@ class SchedulerService {
                 return;
             }
             if (!this.deps.isOnline()) {
+                // A deferred disabled schedule would later fire a run nobody asked for.
+                if (!schedule.enabled) throw new Error("Cannot trigger schedule while offline");
                 this.deferredSchedules.add(scheduleId);
                 if (schedule.lastError !== "Skipped: offline") {
                     const updated = await this.deps.scheduleStore.update(scheduleId, (s) => ({

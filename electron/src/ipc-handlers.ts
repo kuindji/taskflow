@@ -223,7 +223,7 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             filters: [
                 {
                     name: "Theme Files",
-                    extensions: ["json", "toml", "yaml", "yml", "conf", "plist", "terminal"],
+                    extensions: ["json", "toml", "yaml", "yml", "conf", "plist"],
                 },
                 { name: "All Files", extensions: ["*"] },
             ],

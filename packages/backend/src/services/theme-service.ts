@@ -19,9 +19,6 @@ import {
     detectIterm2,
     parseIterm2,
     parseIterm2Xml,
-    detectTerminalApp,
-    parseTerminalApp,
-    parseTerminalAppXml,
 } from "./theme-parsers";
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -172,7 +169,6 @@ export class ThemeService {
             { app: "Kitty", detect: detectKitty, parse: parseKitty },
             { app: "Warp", detect: detectWarp, parse: parseWarp },
             { app: "iTerm2", detect: detectIterm2, parse: parseIterm2 },
-            { app: "Terminal.app", detect: detectTerminalApp, parse: parseTerminalApp },
         ];
 
         const results: Array<{ app: string; themes: ThemeSource[] }> = [];
@@ -199,8 +195,11 @@ export class ThemeService {
             throw new Error("File path must be absolute");
         }
 
-        const content = await readFile(filePath, "utf-8");
         const ext = extname(filePath).toLowerCase();
+        if (ext === ".terminal") {
+            throw new Error("Terminal.app themes are not supported.");
+        }
+        const content = await readFile(filePath, "utf-8");
         const baseName = basename(filePath, ext) || "Imported Theme";
 
         let theme: ThemeSource | null = null;
@@ -224,8 +223,6 @@ export class ThemeService {
             }
         } else if (ext === ".plist") {
             theme = parseIterm2Xml(content, baseName);
-        } else if (ext === ".terminal") {
-            theme = parseTerminalAppXml(content, baseName);
         } else if (ext === ".conf" || ext === "") {
             // Try Kitty format first, then Ghostty
             theme = parseKittyConfig(content, baseName) ?? parseGhosttyConfig(content, baseName);

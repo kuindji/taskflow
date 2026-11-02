@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile, readFile } from "fs/promises";
+import { mkdtemp, rm, writeFile, readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { win32 } from "path";
 import { tmpdir } from "os";
 import type { ThemeSource } from "@taskflow/shared";
 import { isPathInsideDirectory, ThemeService } from "../../src/services/theme-service";
+import { expectRejects } from "../expect-rejects";
 
 function makeValidSource(overrides: Partial<ThemeSource> = {}): ThemeSource {
     return {
@@ -229,7 +230,7 @@ describe("ThemeService", () => {
             expect(saved.overrides).toEqual({ "--background": "#123456" });
         });
 
-        it("routes .terminal files through the Terminal.app parser", async () => {
+        it("rejects .terminal files", async () => {
             const terminalPath = join(tempDir, "classic-dark.terminal");
             await writeFile(
                 terminalPath,
@@ -237,18 +238,16 @@ describe("ThemeService", () => {
 <plist version="1.0">
 <dict>
     <key>name</key><string>Classic Dark</string>
-    <key>TextColor</key><dict><key>Red Component</key><real>1</real><key>Green Component</key><real>1</real><key>Blue Component</key><real>1</real></dict>
     <key>BackgroundColor</key><dict><key>Red Component</key><real>0</real><key>Green Component</key><real>0</real><key>Blue Component</key><real>0</real></dict>
-    <key>ANSIBlueColor</key><dict><key>Red Component</key><real>0</real><key>Green Component</key><real>0</real><key>Blue Component</key><real>1</real></dict>
 </dict>
 </plist>`,
             );
 
-            const record = await service.importFromFile(terminalPath);
-
-            expect(record.source.name).toBe("Classic Dark");
-            expect(record.source.colors.background).toBe("#000000");
-            expect(record.source.colors.ansi.blue).toBe("#0000ff");
+            await expectRejects(
+                service.importFromFile(terminalPath),
+                /^Terminal\.app themes are not supported\.$/,
+            );
+            expect(await readdir(tempDir)).toEqual(["classic-dark.terminal"]);
         });
     });
 
