@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S4. S3 done (f21c781d, 6efa2ec0; fixes 686129b6, 1198926f after two Codex rounds).
+Next: S5. S4 done (901451c0; test fix 277d6d61 after one Codex round).
 
 ## Notes
 
@@ -14,6 +14,13 @@ Next: S4. S3 done (f21c781d, 6efa2ec0; fixes 686129b6, 1198926f after two Codex 
   `wiki-index.test.ts` (watch restart) and `taskflow-cli.test.ts` "names the
   master owner…" (~4.3s alone against the 5s timeout) failed only under load.
   In S3 that test timed out even alone, on the pre-S3 commit too.
+- UI component tests: do not `mock.module` a shared component (e.g.
+  `SplitContainer`); the mock outlives the file in a shared bun process.
+  `Workspace.flow-input.test.tsx` already does this and breaks
+  `SplitContainer.test.tsx` when both run together (pre-existing).
+- An archived task selected in the sidebar makes `useActiveWorkspace` return
+  no workspace (`selectedArchivedTask` in `task-store.ts`);
+  `ArchivedTaskView` renders it.
 - `ApiRouter` does not percent-decode path params; only routes that call
   `decodeURIComponent` themselves accept encoded ids. Do not `url_encode` ids
   in the shell CLI.
@@ -29,3 +36,8 @@ Next: S4. S3 done (f21c781d, 6efa2ec0; fixes 686129b6, 1198926f after two Codex 
   default". Save an action with untouched fields, change the Settings
   effort, run it: the session uses the new effort. A schedule with type
   "Default" runs the Settings default agent.
+- S4: in the archive view, click and Cmd+Arrow on an archived task both show
+  the read-only view (description, notes, attributes, archive date,
+  Unarchive). Unarchive opens the task's live workspace (the sidebar stays in
+  the archive view). The Task Info panel shows "Select a task or project"
+  meanwhile; the view itself carries the info.
