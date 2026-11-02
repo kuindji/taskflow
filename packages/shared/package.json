@@ -12,7 +12,7 @@
         "./remote": "./src/remote/index.ts"
     },
     "scripts": {
-        "typecheck": "tsc --noEmit"
+        "typecheck": "bun check"
     },
     "devDependencies": {
         "typescript": "^5.7.0"

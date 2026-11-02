@@ -19,7 +19,7 @@
         "build:cli:win": "bun build src/services/taskflow-cli-bin.ts --compile --target=bun-windows-x64 --outfile dist/taskflow-cli.exe",
         "build:cli:win-arm64": "bun build src/services/taskflow-cli-bin.ts --compile --target=bun-windows-arm64 --outfile dist/taskflow-cli.exe",
         "test": "bun test",
-        "typecheck": "bunx tsc --noEmit"
+        "typecheck": "bun check"
     },
     "dependencies": {
         "@taskflow/shared": "workspace:*",

@@ -12,8 +12,8 @@
         "dev:electron": "TASKFLOW_DEV=1 cd electron && bun run dev",
         "dev:tui": "bun run build:backend:bin && bun packages/tui/src/dev.ts",
         "linux-setup": "sh scripts/linux-setup.sh",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
+        "format": "bun fmt",
+        "format:check": "bun fmt --check",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "typecheck": "bun run --filter '*' typecheck",
@@ -50,8 +50,6 @@
         "eslint-plugin-react-hooks": "^7.0.1",
         "eslint-plugin-react-refresh": "^0.5.2",
         "globals": "^17.4.0",
-        "prettier": "^3.8.1",
-        "prettier-plugin-tailwindcss": "^0.7.2",
         "typescript-eslint": "^8.57.0"
     },
     "dependencies": {

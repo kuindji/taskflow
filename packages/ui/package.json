@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "bunx vite",
         "build": "bunx vite build",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "bun check"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.3.1",

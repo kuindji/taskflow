@@ -132,6 +132,6 @@ export default tseslint.config(
         },
     },
 
-    // Disable formatting rules that conflict with Prettier (must be last)
+    // Disable stylistic rules that conflict with bun fmt (Prettier-compatible output; must be last)
     eslintConfigPrettier,
 );

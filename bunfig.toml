@@ -6,3 +6,14 @@ packages = ["packages/*", "electron"]
 
 [test]
 preload = ["./packages/backend/tests/preload.ts", "./packages/ui/tests/preload.ts"]
+
+[fmt]
+printWidth = 100
+tabWidth = 4
+bracketSameLine = true
+ignorePatterns = ["*.md"]
+
+# Same scope as the former prettier-plugin-tailwindcss setup: class attributes only,
+# not class strings passed to cn/cva/clsx.
+[fmt.sortTailwindcss]
+functions = []
