@@ -39,7 +39,9 @@ function controlledNet(): NetLike & {
             requests.push({ type, payload });
             if (type !== MSG.TASK_LOG_LIST) return Promise.resolve(task("saved") as T);
             const taskId = (payload as { taskId: string }).taskId;
-            return new Promise<T>((resolve) => pending.set(taskId, resolve as (value: unknown) => void));
+            return new Promise<T>((resolve) =>
+                pending.set(taskId, resolve as (value: unknown) => void),
+            );
         },
         on(type, handler) {
             const set = listeners.get(type) ?? new Set();
@@ -105,15 +107,11 @@ describe("TaskDetailStore", () => {
         );
         expect(await store.update({ id: "t1", notes: "note" })).toEqual(task("saved"));
         expect(await store.archive("t1")).toEqual(task("saved"));
-        expect(await store.createAttribute({ taskId: "t1", name: "env" })).toEqual(
-            task("saved"),
-        );
+        expect(await store.createAttribute({ taskId: "t1", name: "env" })).toEqual(task("saved"));
         expect(await store.updateAttribute({ taskId: "t1", attrId: "a1", value: "x" })).toEqual(
             task("saved"),
         );
-        expect(await store.deleteAttribute({ taskId: "t1", attrId: "a1" })).toEqual(
-            task("saved"),
-        );
+        expect(await store.deleteAttribute({ taskId: "t1", attrId: "a1" })).toEqual(task("saved"));
         expect(net.requests.map((request) => request.type)).toEqual([
             MSG.TASK_CREATE,
             MSG.TASK_UPDATE,

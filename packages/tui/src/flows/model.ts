@@ -1,7 +1,4 @@
-import {
-    MASTER_OWNER_ID,
-    latestArtifactsByType as collapseArtifacts,
-} from "@taskflow/shared";
+import { MASTER_OWNER_ID, latestArtifactsByType as collapseArtifacts } from "@taskflow/shared";
 import type {
     ActionDefinition,
     FlowActionEntry,
@@ -51,9 +48,7 @@ function stableSelectionIndex(
     previousIndex = 0,
 ): number {
     if (items.length === 0) return -1;
-    const retained = selectedId
-        ? items.findIndex((item) => item.id === selectedId)
-        : -1;
+    const retained = selectedId ? items.findIndex((item) => item.id === selectedId) : -1;
     if (retained >= 0) return retained;
     return Math.min(Math.max(previousIndex, 0), items.length - 1);
 }

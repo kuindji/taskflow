@@ -65,9 +65,7 @@ class TaskCreate {
     }
 
     get keyHints(): string {
-        return this.pending
-            ? " Creating..."
-            : " ↑↓ Field  Space Toggle  Enter Create  Esc Cancel";
+        return this.pending ? " Creating..." : " ↑↓ Field  Space Toggle  Enter Create  Esc Cancel";
     }
 
     get selectedField(): TaskCreateField {
@@ -150,7 +148,8 @@ class TaskCreate {
     private rebuild(): void {
         for (const child of [...this.dialog.getChildren()]) child.destroy();
         for (const [index, field] of FIELDS.entries()) {
-            const unavailable = this.deps.parentId && (field === "worktree" || field === "initCommand");
+            const unavailable =
+                this.deps.parentId && (field === "worktree" || field === "initCommand");
             const value =
                 field === "worktree"
                     ? this.deps.parentId
@@ -179,7 +178,9 @@ class TaskCreate {
             this.input.focus();
         }
         if (this.pending) {
-            this.dialog.add(new TextRenderable(this.deps.renderer, { content: " Creating...", height: 1 }));
+            this.dialog.add(
+                new TextRenderable(this.deps.renderer, { content: " Creating...", height: 1 }),
+            );
         } else if (this.error) {
             this.dialog.add(
                 new TextRenderable(this.deps.renderer, { content: ` ${this.error}`, height: 1 }),

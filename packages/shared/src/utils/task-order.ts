@@ -19,7 +19,8 @@ export function sortTasksByCreatedAtDesc<T extends Task>(tasks: T[]): T[] {
             return bPinned - aPinned;
         }
 
-        const createdAtDiff = getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
+        const createdAtDiff =
+            getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt);
         if (createdAtDiff !== 0) {
             return createdAtDiff;
         }

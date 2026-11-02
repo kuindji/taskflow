@@ -522,12 +522,9 @@ async function main() {
         // Broadcast on every connect and disconnect as well, but a client
         // cannot hear the broadcast announcing its own arrival, so it asks
         // once on startup and follows the broadcasts after that.
-        router.register(
-            MSG.SYSTEM_CLIENTS,
-            async (): Promise<SystemClientsEvent> => ({
-                count: server.clientCount(),
-            }),
-        );
+        router.register(MSG.SYSTEM_CLIENTS, async (): Promise<SystemClientsEvent> => ({
+            count: server.clientCount(),
+        }));
         router.register(MSG.SHELLS_LIST, async () => ({
             shells,
             systemShellPath,

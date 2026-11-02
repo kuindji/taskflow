@@ -1,7 +1,5 @@
 export type BrowserTabScope =
-    | { kind: "task"; taskId: string }
-    | { kind: "project"; projectId: string }
-    | { kind: "master" };
+    { kind: "task"; taskId: string } | { kind: "project"; projectId: string } | { kind: "master" };
 
 export interface BrowserTab {
     id: string;

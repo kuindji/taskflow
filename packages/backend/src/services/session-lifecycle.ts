@@ -215,8 +215,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
     let acceptingMoves = true;
     const movesInFlight = new Set<Promise<SessionOwner>>();
     let recoveredSessionExitHandler:
-        | ((session: SessionRef, owner: SessionOwner, exitCode: number) => void)
-        | undefined;
+        ((session: SessionRef, owner: SessionOwner, exitCode: number) => void) | undefined;
     let recoveredSessionResumeHandler:
         | ((session: SessionRef, owner: SessionOwner) => Promise<(() => Promise<void>) | undefined>)
         | undefined;

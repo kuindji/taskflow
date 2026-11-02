@@ -34,12 +34,8 @@ function stableChangeIndex(
     previousIndex = 0,
 ): number {
     if (changes.length === 0) return -1;
-    const retained = selectedKey
-        ? changes.findIndex((change) => change.key === selectedKey)
-        : -1;
-    return retained >= 0
-        ? retained
-        : Math.min(changes.length - 1, Math.max(0, previousIndex));
+    const retained = selectedKey ? changes.findIndex((change) => change.key === selectedKey) : -1;
+    return retained >= 0 ? retained : Math.min(changes.length - 1, Math.max(0, previousIndex));
 }
 
 function stagedCount(status: GitStatusResult | null): number {

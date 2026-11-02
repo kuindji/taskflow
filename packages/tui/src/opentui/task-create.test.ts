@@ -35,7 +35,10 @@ describe("TaskCreate", () => {
             onSubmit: (payload) => submitted.push(payload),
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.setField("title", "  New task  ");
         view.setField("description", "  Do the work  ");
         view.setField("initCommand", " bun install ");
@@ -65,7 +68,10 @@ describe("TaskCreate", () => {
             onSubmit: () => submitted++,
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.handleKey(key("return", "\r"));
         await test.renderOnce();
         expect(submitted).toBe(0);
@@ -83,7 +89,10 @@ describe("TaskCreate", () => {
             onSubmit: (payload) => submitted.push(payload),
         });
         test.renderer.root.add(view.renderable);
-        cleanups.push(() => view.destroy(), () => test.renderer.destroy());
+        cleanups.push(
+            () => view.destroy(),
+            () => test.renderer.destroy(),
+        );
         view.setField("title", "Child");
         view.setField("description", "Child work");
         view.setField("initCommand", "must not be sent");

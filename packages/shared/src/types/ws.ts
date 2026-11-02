@@ -151,8 +151,7 @@ export interface TaskLogAddedEvent {
 
 // Attribute messages
 export type AttributeOwner =
-    | { taskId: string; projectId?: never }
-    | { projectId: string; taskId?: never };
+    { taskId: string; projectId?: never } | { projectId: string; taskId?: never };
 
 export type AttrCreatePayload = AttributeOwner & { name: string; value?: string };
 
@@ -387,8 +386,7 @@ export interface FileWritePayload {
 }
 
 export type FileWriteResponse =
-    | { success: true; hash: string }
-    | { success: false; conflict: true };
+    { success: true; hash: string } | { success: false; conflict: true };
 
 export interface FileStatPayload {
     path: string;

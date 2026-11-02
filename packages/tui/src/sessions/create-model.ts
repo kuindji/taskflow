@@ -61,26 +61,22 @@ function buildSessionPickerItems(
             if (!isAccountAgentType(type)) return [base];
             return [
                 base,
-                ...settings[type].accounts.map(
-                    (account): SessionPickerItem => ({
-                        kind: "agent",
-                        type,
-                        label: `${AGENT_DISPLAY_NAMES[type]} · ${account.name}`,
-                        isDefault: false,
-                        agentOptions: withAccount(defaultAgentOptions(type, settings), account.id),
-                    }),
-                ),
+                ...settings[type].accounts.map((account): SessionPickerItem => ({
+                    kind: "agent",
+                    type,
+                    label: `${AGENT_DISPLAY_NAMES[type]} · ${account.name}`,
+                    isDefault: false,
+                    agentOptions: withAccount(defaultAgentOptions(type, settings), account.id),
+                })),
             ];
         }),
-        ...shells.shells.map(
-            (shell): SessionPickerItem => ({
-                kind: "shell",
-                type: "shell",
-                label: shell.name,
-                path: shell.path,
-                isDefault: shell.path === defaultShell,
-            }),
-        ),
+        ...shells.shells.map((shell): SessionPickerItem => ({
+            kind: "shell",
+            type: "shell",
+            label: shell.name,
+            path: shell.path,
+            isDefault: shell.path === defaultShell,
+        })),
     ];
 }
 

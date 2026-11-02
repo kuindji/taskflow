@@ -51,14 +51,7 @@ import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
-    | "general"
-    | "defaults"
-    | "claude"
-    | "codex"
-    | "opencode"
-    | "pi"
-    | "kimi"
-    | "remote-agent";
+    "general" | "defaults" | "claude" | "codex" | "opencode" | "pi" | "kimi" | "remote-agent";
 
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsOpen);

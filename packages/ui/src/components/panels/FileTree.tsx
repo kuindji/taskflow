@@ -10,13 +10,7 @@ import { useFileStore } from "@/stores/file-store";
 import { FileContextMenu } from "./FileContextMenu";
 
 type GitStatusVariant =
-    | "new"
-    | "untracked"
-    | "modified"
-    | "deleted"
-    | "renamed"
-    | "ignored"
-    | "clean";
+    "new" | "untracked" | "modified" | "deleted" | "renamed" | "ignored" | "clean";
 
 const fileNodeVariants = cva("text-sm cursor-pointer", {
     variants: {

@@ -91,9 +91,7 @@ interface CodexReasoningEffortInfo {
 }
 
 type CodexAccountStatus =
-    | { state: "signed-in"; label: string }
-    | { state: "signed-out" }
-    | { state: "unknown" };
+    { state: "signed-in"; label: string } | { state: "signed-out" } | { state: "unknown" };
 
 interface CodexModelInfo {
     id: string;

@@ -9,12 +9,9 @@ interface DevServerHandlerDeps {
 }
 
 function registerDevServerHandlers({ router, devServerService }: DevServerHandlerDeps): void {
-    router.register(
-        MSG.DEV_SERVER_LIST,
-        async (): Promise<DevServerListResponse> => ({
-            devServers: await devServerService.list(),
-        }),
-    );
+    router.register(MSG.DEV_SERVER_LIST, async (): Promise<DevServerListResponse> => ({
+        devServers: await devServerService.list(),
+    }));
 
     router.register(MSG.DEV_SERVER_STOP, async (payload): Promise<DevServerStopResult> => {
         const id =

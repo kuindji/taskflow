@@ -39,7 +39,9 @@ const unblockedAt = Date.now();
 console.log(`[${rt}] ${T()} unblocked; events so far=${events} rss=${rss()}MB`);
 
 setTimeout(() => {
-    console.log(`[${rt}] ${T()} first timer ran ${Date.now() - unblockedAt}ms after unblock; events=${events} rss=${rss()}MB`);
+    console.log(
+        `[${rt}] ${T()} first timer ran ${Date.now() - unblockedAt}ms after unblock; events=${events} rss=${rss()}MB`,
+    );
 }, 0);
 
 let ticks = 0;

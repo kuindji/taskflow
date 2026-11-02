@@ -35,12 +35,9 @@ class NotificationStore {
                 const event = payload as Partial<NotificationCreatedEvent>;
                 if (!event.notification) return;
                 const notification = event.notification;
-                this.apply(
-                    () => {
-                        this.notificationList = upsert(this.notificationList, notification);
-                    },
-                    notification,
-                );
+                this.apply(() => {
+                    this.notificationList = upsert(this.notificationList, notification);
+                }, notification);
             }),
             net.on(MSG.NOTIFICATION_UPDATED, (payload) => {
                 const event = payload as Partial<NotificationUpdatedEvent>;
@@ -94,7 +91,9 @@ class NotificationStore {
         const mark = (this.deferred ??= []).length;
         let committed = false;
         try {
-            const response = await this.net.request<NotificationListResponse>(MSG.NOTIFICATION_LIST);
+            const response = await this.net.request<NotificationListResponse>(
+                MSG.NOTIFICATION_LIST,
+            );
             if (this.disposed || token !== this.loadToken) return;
             this.notificationList = response.notifications;
             committed = true;

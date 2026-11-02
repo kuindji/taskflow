@@ -131,7 +131,9 @@ describe("WikiIndexService", () => {
         await service.get(root);
         await rename(join(root, "business"), join(root, "finance"));
         const data = await waitFor(() =>
-            changes.at(-1)?.pages.some((p) => p.id === "finance/money") ? changes.at(-1) : undefined,
+            changes.at(-1)?.pages.some((p) => p.id === "finance/money")
+                ? changes.at(-1)
+                : undefined,
         );
         expect(data.pages.map((p) => p.id).sort()).toEqual(["finance/money", "index"]);
         expect(data.unresolved).toEqual([{ from: "index", target: "business/money" }]);

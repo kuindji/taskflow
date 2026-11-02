@@ -72,16 +72,14 @@ test("the old primary's teardown keeps the new primary's master browser tabs", a
     );
     try {
         setPrimary("old");
-        useSessionStore
-            .getState()
-            .syncWithMasterSessions("old", [
-                {
-                    id: "s-old",
-                    type: "shell",
-                    label: "old shell",
-                    createdAt: "2026-10-30T00:00:00Z",
-                },
-            ]);
+        useSessionStore.getState().syncWithMasterSessions("old", [
+            {
+                id: "s-old",
+                type: "shell",
+                label: "old shell",
+                createdAt: "2026-10-30T00:00:00Z",
+            },
+        ]);
         await openConnection("new", server.origin);
         await useBrowserTabStore.getState().fetchBrowserTabs("new");
         setPrimary("new");
@@ -89,9 +87,9 @@ test("the old primary's teardown keeps the new primary's master browser tabs", a
         expect(
             useSessionStore
                 .getState()
-                .tabsByWorkspace[
-                    MASTER_WORKSPACE_KEY
-                ]?.map((tab) => tab.browserTabId ?? tab.sessionId),
+                .tabsByWorkspace[MASTER_WORKSPACE_KEY]?.map(
+                    (tab) => tab.browserTabId ?? tab.sessionId,
+                ),
         ).toEqual(["m2"]);
     } finally {
         closeConnection("new", "detach");

@@ -68,8 +68,7 @@ async function loadTsconfig(filePath: string): Promise<LoadedTsconfig | null> {
     if (configFile.error) return null;
 
     const configJson = configFile.config as
-        | { compilerOptions?: Record<string, unknown> }
-        | undefined;
+        { compilerOptions?: Record<string, unknown> } | undefined;
 
     // Only the options are needed; an empty directory listing keeps TypeScript
     // from expanding `include` globs over the whole project on each request.

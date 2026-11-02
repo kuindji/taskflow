@@ -43,7 +43,9 @@ describe("toRelativeWatchPath", () => {
     });
 
     it("resolves an absolute real path against the root's real path", () => {
-        expect(toRelativeWatchPath(["/var/x", "/private/var/x"], "/private/var/x/a.txt")).toBe("a.txt");
+        expect(toRelativeWatchPath(["/var/x", "/private/var/x"], "/private/var/x/a.txt")).toBe(
+            "a.txt",
+        );
     });
 
     it("returns the empty string for the root itself", () => {

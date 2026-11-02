@@ -3,10 +3,7 @@ import type { TaskWorktreePr } from "./task";
 export type GitPrProvider = "github" | "gitlab";
 export type GitPrState = "open" | "closed" | "merged";
 export type GitPrUnavailableReason =
-    | "cli-missing"
-    | "not-authenticated"
-    | "failed"
-    | "unsupported-host";
+    "cli-missing" | "not-authenticated" | "failed" | "unsupported-host";
 export type GitCheckPrResult =
     | {
           status: "found";

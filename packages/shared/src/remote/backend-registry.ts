@@ -58,8 +58,7 @@ interface BackendPatch {
 }
 
 type AttachResult =
-    | { ok: true; origin: string; token?: string }
-    | { ok: false; failure: TunnelFailure };
+    { ok: true; origin: string; token?: string } | { ok: false; failure: TunnelFailure };
 
 function unknownFailure(message: string): TunnelFailure {
     return { kind: "unknown", message, stderr: "" };

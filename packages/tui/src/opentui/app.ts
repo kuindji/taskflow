@@ -1111,13 +1111,7 @@ class OpenTuiApp {
 
     private mountProduct(
         view:
-            | TaskDetail
-            | GitChanges
-            | Settings
-            | Notifications
-            | FlowLibrary
-            | FlowRun
-            | Schedules,
+            TaskDetail | GitChanges | Settings | Notifications | FlowLibrary | FlowRun | Schedules,
         kind: typeof this.mainView,
     ): void {
         this.productView?.destroy();
