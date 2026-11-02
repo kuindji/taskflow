@@ -636,6 +636,21 @@ describe("session handlers", () => {
         expect(args).not.toContain("--dangerously-skip-permissions");
     });
 
+    it("fills an option left unset from the Settings of launch time", async () => {
+        // A saved action with an inherited field stores no value for it, so a
+        // later Settings change reaches its next launch.
+        const saved = { type: "codex" as const, model: "gpt-test" };
+        await settingsStore.update({ codex: { defaultReasoningEffort: "xhigh" } });
+        await router.handle(MSG.SESSION_CREATE, { projectId, type: "codex", agentOptions: saved });
+        expect(ptyManager.spawns.at(-1)?.args).toContain('model_reasoning_effort="xhigh"');
+
+        await settingsStore.update({ codex: { defaultReasoningEffort: "low" } });
+        await router.handle(MSG.SESSION_CREATE, { projectId, type: "codex", agentOptions: saved });
+        const args = ptyManager.spawns.at(-1)?.args ?? [];
+        expect(args).toContain('model_reasoning_effort="low"');
+        expect(args).toContain("gpt-test");
+    });
+
     it("passes Claude's native Remote Control launch flag", async () => {
         await sessionLifecycle.createSession({
             owner: { master: true },

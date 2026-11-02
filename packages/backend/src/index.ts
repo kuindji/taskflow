@@ -1,4 +1,4 @@
-import { DISCOVERY_MAX_DISPLAY_NAME, MSG, PROTOCOL_VERSION, isAgentType } from "@taskflow/shared";
+import { DISCOVERY_MAX_DISPLAY_NAME, MSG, PROTOCOL_VERSION } from "@taskflow/shared";
 import type { NetworkSettings, SystemClientsEvent } from "@taskflow/shared";
 import { createAdvertiser } from "@taskflow/shared/discovery";
 import appPackage from "../../../electron/package.json";
@@ -41,6 +41,7 @@ import { createWorktreeSetup } from "./services/worktree-setup";
 import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
+import { resolveScheduleLaunch } from "./services/schedule-launch";
 import { createBuiltinActions } from "./services/builtin-actions";
 import { createBuiltinActionRunner } from "./services/builtin-action-runner";
 import { createScheduleNameGenerator } from "./services/schedule-name";
@@ -173,31 +174,13 @@ async function main() {
         const schedulerService = new SchedulerService({
             scheduleStore,
             spawnSession: async (schedule) => {
-                let prompt = schedule.prompt;
-                let agentType: string = schedule.agentType ?? "claude";
-                let agentOptions = schedule.agentOptions;
-
-                if (schedule.actionId) {
-                    const actions = await flowStore.getActions();
-                    const action = actions.find((a) => a.id === schedule.actionId);
-                    // Running the schedule's own (usually empty) prompt instead
-                    // would launch a session nobody asked for.
-                    if (!action) throw new Error(`Action not found: ${schedule.actionId}`);
-                    prompt = action.prompt;
-                    agentType = action.sessionType;
-                    agentOptions = action.agentOptions;
-                }
-
-                let sessionType: "shell" | import("@taskflow/shared").AgentType;
-                if (agentType === "shell") {
-                    sessionType = "shell";
-                } else if (isAgentType(agentType)) {
-                    sessionType = agentType;
-                } else {
-                    // Persisted schedules may reference removed agent types;
-                    // the scheduler records this as the run's lastError.
-                    throw new Error(`Unsupported agent type: ${agentType}`);
-                }
+                const { prompt, sessionType, agentOptions } = await resolveScheduleLaunch(
+                    schedule,
+                    {
+                        getActions: () => flowStore.getActions(),
+                        getSettings: () => settingsStore.get(),
+                    },
+                );
                 const isShell = sessionType === "shell";
 
                 const sessionId = await sessionLifecycle.createSession({
