@@ -43,7 +43,7 @@ const { startTestServer } = await import("@/lib/test-ws-server");
 const { openConnection, closeConnection } = await import("@/lib/connection-registry");
 const { resetBackend } = await import("@/stores/store-reset");
 const { default: EditorPaneImpl } = await import("./EditorPaneImpl");
-const { isEditorDirty, clearEditorDirty, clearDiskBaseline } = await import("./editor-dirty-state");
+const { isEditorDirty, clearEditorDirty, clearDiskState } = await import("./editor-dirty-state");
 
 // @ts-expect-error react act env flag, no upstream type for this global
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,6 +53,8 @@ const disk = new Map<string, string>();
 const hashOf = (content: string) => `hash:${content}`;
 /** Every write that reached the disk, in order. */
 const diskWrites: string[] = [];
+/** While set, a write lands on disk at once but is answered only when this settles. */
+let writeAnswerHold: Promise<void> | null = null;
 
 const desktop = startTestServer("desktop", (type, payload) => {
     if (type === MSG.FILE_READ) {
@@ -66,7 +68,8 @@ const desktop = startTestServer("desktop", (type, payload) => {
         }
         disk.set(path, content);
         diskWrites.push(content);
-        return { success: true, hash: hashOf(content) };
+        const answer = { success: true, hash: hashOf(content) };
+        return writeAnswerHold ? writeAnswerHold.then(() => answer) : answer;
     }
     return {};
 });
@@ -88,8 +91,9 @@ beforeEach(() => {
     monaco.reset();
     disk.clear();
     diskWrites.length = 0;
+    writeAnswerHold = null;
     clearEditorDirty("desktop", PATH);
-    clearDiskBaseline("desktop", PATH);
+    clearDiskState("desktop", PATH);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -296,5 +300,55 @@ test("split panes on one file share what the disk last held", async () => {
     // An outside edit of the clean model reaches both panes as one text.
     await editOnDisk("agent");
     expect(monaco.editors().map((editor) => editor.getValue())).toEqual(["agent", "agent"]);
+    expect(bar()).toBeNull();
+});
+
+test("an outside edit landing while a save is answered keeps its bar and the edits unsaved", async () => {
+    await openEditor("v1");
+    await type("mine");
+    let answerWrite = () => {};
+    writeAnswerHold = new Promise<void>((resolve) => {
+        answerWrite = resolve;
+    });
+    await save();
+    expect(disk.get(PATH)).toBe("mine");
+
+    // An agent rewrites the file after the save landed, before its answer.
+    await editOnDisk("agent");
+    expect(bar()).toContain("Changed on disk");
+    answerWrite();
+    await settle();
+
+    expect(bar()).toContain("Changed on disk");
+    expect(shown()).toBe("mine");
+    expect(isEditorDirty("desktop", PATH)).toBe(true);
+});
+
+test("split panes on a dirty file show one bar, and Keep mine in either clears it", async () => {
+    disk.set(PATH, "v1");
+    act(() => {
+        root.render(
+            <>
+                <EditorPaneImpl key="left" filePath={PATH} />
+                <EditorPaneImpl key="right" filePath={PATH} />
+            </>,
+        );
+    });
+    await settle();
+    const [leftPane, rightPane] = Array.from(container.children);
+    await type("mine");
+    await editOnDisk("agent");
+    expect(bar(leftPane)).toContain("Changed on disk");
+    expect(bar(rightPane)).toContain("Changed on disk");
+
+    await click("Keep mine", leftPane);
+    expect(bar(leftPane)).toBeNull();
+    expect(bar(rightPane)).toBeNull();
+
+    await save();
+    await editOnDisk("mine");
+    await type("mine again");
+    await save();
+    expect(disk.get(PATH)).toBe("mine again");
     expect(bar()).toBeNull();
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as monaco from "monaco-editor";
 import {
     DEFAULT_EDITOR_FONT_FAMILY,
@@ -39,7 +39,10 @@ import {
     clearEditorDirty,
     getDiskBaseline,
     setDiskBaseline,
-    clearDiskBaseline,
+    getDiskNotice,
+    setDiskNotice,
+    subscribeDiskNotices,
+    clearDiskState,
     getViewState,
     saveViewState,
     consumePendingLine,
@@ -47,13 +50,6 @@ import {
 import { createEditorPreviewAccess } from "./editor-preview-access";
 import { modelUriFor } from "./editor-uri";
 import { isDiskSync, queueSave, replaceFromDisk } from "./editor-disk-sync";
-
-/** Why the buffer and the disk disagree, when only the user can say which wins. */
-type DiskNotice =
-    /** The file changed under unsaved edits; `hash` names the disk text the bar is about. */
-    | { kind: "changed"; hash: string }
-    /** A save was refused because the file had changed since it was loaded. */
-    | { kind: "conflict" };
 
 const jsxCompilerOptions: monaco.languages.typescript.CompilerOptions = {
     jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
@@ -129,7 +125,9 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const [dirty, setDirty] = useState(
         () => backendId !== null && isEditorDirty(backendId, filePath),
     );
-    const [notice, setNotice] = useState<DiskNotice | null>(null);
+    const notice = useSyncExternalStore(subscribeDiskNotices, () =>
+        backendId === null ? null : getDiskNotice(backendId, filePath),
+    );
 
     /** `overwrite` writes whatever the disk holds now; a plain save refuses a changed file. */
     const save = useCallback(
@@ -149,11 +147,15 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                         );
                         if (model.isDisposed()) return;
                         if (!result.success) {
-                            setNotice({ kind: "conflict" });
+                            setDiskNotice(backendId, filePath, { kind: "conflict" });
                             return;
                         }
                         setDiskBaseline(backendId, filePath, result.hash);
-                        setNotice(null);
+                        // The file changed again after this write landed and before
+                        // its answer came: the bar about that stays, and so do the edits.
+                        const pending = getDiskNotice(backendId, filePath);
+                        if (pending?.kind === "changed" && pending.hash !== result.hash) return;
+                        setDiskNotice(backendId, filePath, null);
                         // Text typed while the write was answered is not on disk.
                         if (model.getAlternativeVersionId() !== savedVersion) return;
                         setEditorDirty(backendId, filePath, false);
@@ -190,7 +192,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
             setEditorDirty(backendId, filePath, false);
             if (model.getValue() !== disk.content) replaceFromDisk(model, disk.content);
             setDirty(false);
-            setNotice(null);
+            setDiskNotice(backendId, filePath, null);
         },
         [backendId, filePath],
     );
@@ -203,7 +205,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         // This pane's own save, or a split pane already took this text.
         if (disk.hash === getDiskBaseline(backendId, filePath)) return;
         if (disk.content !== model.getValue() && isEditorDirty(backendId, filePath)) {
-            setNotice({ kind: "changed", hash: disk.hash });
+            setDiskNotice(backendId, filePath, { kind: "changed", hash: disk.hash });
             return;
         }
         takeDiskText(model, disk);
@@ -216,11 +218,13 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
 
     /** Saving next writes over the disk text the bar was about, not over anything newer. */
     const keepMine = useCallback(() => {
-        if (notice?.kind === "changed" && backendId !== null) {
-            setDiskBaseline(backendId, filePath, notice.hash);
-        }
-        setNotice(null);
-    }, [backendId, filePath, notice]);
+        if (backendId === null) return;
+        // Read now, not from the render: another pane may have resolved it.
+        const current = getDiskNotice(backendId, filePath);
+        if (current?.kind !== "changed") return;
+        setDiskBaseline(backendId, filePath, current.hash);
+        setDiskNotice(backendId, filePath, null);
+    }, [backendId, filePath]);
 
     useEffect(() => {
         editorFontFamilyRef.current = editorFontFamily;
@@ -234,7 +238,6 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         const access = previewAccess.current;
         access.reset();
         setError(null);
-        setNotice(null);
         if (!containerRef.current) return;
         if (backendId === null) {
             setLoading(true);
@@ -328,7 +331,6 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
         const changeDisposable = editor.onDidChangeModelContent((e) => {
             if (isDiskSync(model)) {
                 // A pane on this model (perhaps another one) took the disk's text.
-                setNotice(null);
                 setDirty(isEditorDirty(backendId, filePath));
                 return;
             }
@@ -361,7 +363,7 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
                 // The machine's reset may already have disposed it.
                 if (!model.isDisposed()) model.dispose();
                 clearEditorDirty(backendId, filePath);
-                clearDiskBaseline(backendId, filePath);
+                clearDiskState(backendId, filePath);
             }
         };
     }, [backendId, filePath, readFile, save]);

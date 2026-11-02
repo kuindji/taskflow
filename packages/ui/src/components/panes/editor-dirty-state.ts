@@ -26,6 +26,21 @@ const viewStates: PerMachine<monaco.editor.ICodeEditorViewState> = new Map();
  */
 const diskBaselines: PerMachine<string> = new Map();
 
+/** Why a model's buffer and its disk disagree, when only the user can say which wins. */
+type DiskNotice =
+    /** The file changed under unsaved edits; `hash` names the disk text the bar is about. */
+    | { kind: "changed"; hash: string }
+    /** A save was refused because the file had changed since it was loaded. */
+    | { kind: "conflict" };
+
+/** Per model, like the baseline, so split panes show one bar and resolving it in one clears it in all. */
+const diskNotices: PerMachine<DiskNotice> = new Map();
+const diskNoticeListeners = new Set<() => void>();
+
+function notifyDiskNotices(): void {
+    for (const listener of diskNoticeListeners) listener();
+}
+
 /**
  * Tracks pending "go to line" requests for editor panes.
  * Used when opening a file at a specific line — the line is stored here
@@ -36,6 +51,7 @@ const pendingLines: PerMachine<number> = new Map();
 registerBackendReset("editor-dirty-state", (backendId) => {
     dirtyModels.delete(backendId);
     diskBaselines.delete(backendId);
+    if (diskNotices.delete(backendId)) notifyDiskNotices();
     viewStates.delete(backendId);
     pendingLines.delete(backendId);
 });
@@ -69,9 +85,26 @@ function setDiskBaseline(backendId: string, filePath: string, hash: string): voi
     machineMap(diskBaselines, backendId).set(filePath, hash);
 }
 
-/** For a model being disposed. */
-function clearDiskBaseline(backendId: string, filePath: string): void {
+function getDiskNotice(backendId: string, filePath: string): DiskNotice | null {
+    return diskNotices.get(backendId)?.get(filePath) ?? null;
+}
+
+function setDiskNotice(backendId: string, filePath: string, notice: DiskNotice | null): void {
+    if (getDiskNotice(backendId, filePath) === notice) return;
+    if (notice) machineMap(diskNotices, backendId).set(filePath, notice);
+    else diskNotices.get(backendId)?.delete(filePath);
+    notifyDiskNotices();
+}
+
+function subscribeDiskNotices(listener: () => void): () => void {
+    diskNoticeListeners.add(listener);
+    return () => diskNoticeListeners.delete(listener);
+}
+
+/** For a model being disposed: what it knew of the disk goes with it. */
+function clearDiskState(backendId: string, filePath: string): void {
     diskBaselines.get(backendId)?.delete(filePath);
+    setDiskNotice(backendId, filePath, null);
 }
 
 /** Paths with unsaved edits on every machine except `keepBackendId`, which a hard switch keeps. */
@@ -123,7 +156,10 @@ export {
     clearEditorDirty,
     getDiskBaseline,
     setDiskBaseline,
-    clearDiskBaseline,
+    getDiskNotice,
+    setDiskNotice,
+    subscribeDiskNotices,
+    clearDiskState,
     dirtyFilePaths,
     dirtyFilePathsOn,
     getViewState,

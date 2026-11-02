@@ -515,7 +515,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
         });
         const watched = get().watched;
         if (result.success && watched?.backendId === backendId && path.startsWith(watched.path)) {
-            await get().fetchGitStatus(backendId, watched.path);
+            // Not awaited: the write has landed, and its answer (the new hash)
+            // must reach the caller even if the status refresh is slow or fails.
+            get().fetchGitStatus(backendId, watched.path).catch(console.error);
         }
         return result;
     },

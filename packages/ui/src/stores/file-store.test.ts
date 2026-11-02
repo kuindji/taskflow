@@ -41,12 +41,18 @@ const EMPTY_LISTING = { entries: [], gitignorePatterns: [] };
 /** While set, desktop's next FILE_UNWATCH answer (that one only) waits for it. */
 let desktopNextUnwatchHold: Promise<void> | null = null;
 let readResponse: FileDiskReadResponse = { content: "", hash: "empty" };
+/** While set, desktop's git status answers wait for it. */
+let desktopGitStatusHold: Promise<void> | null = null;
 /** Desktop's shallow listings by directory; any other directory lists empty. */
 let desktopListings: Record<string, FileNode[]> = {};
 /** While set, desktop's next listing is taken at once but answered only when it resolves. */
 let desktopNextListingHold: Promise<void> | null = null;
 const desktop = startTestServer("desktop", (type, payload) => {
     if (type === MSG.FILE_READ) return readResponse;
+    if (type === MSG.FILE_WRITE) return { success: true, hash: "written" };
+    if (type === MSG.GIT_STATUS && desktopGitStatusHold) {
+        return desktopGitStatusHold.then(() => ({ status: null }));
+    }
     if (type === MSG.FILE_LIST_DIR) {
         const entries = desktopListings[(payload as { path: string }).path];
         const listing = entries ? { entries, gitignorePatterns: [] } : EMPTY_LISTING;
@@ -410,4 +416,21 @@ test("an empty complete file still returns an empty string, with its hash", asyn
         content: "",
         hash: "empty",
     });
+});
+
+test("a write's answer reaches the caller without waiting on the git status refresh", async () => {
+    let answerStatus = () => {};
+    desktopGitStatusHold = new Promise<void>((resolve) => {
+        answerStatus = resolve;
+    });
+    try {
+        // The explorer watches the repository, so the write refreshes its status.
+        const result = await useFileStore.getState().writeFile("desktop", `${root}/a.ts`, "text");
+        expect(result).toEqual({ success: true, hash: "written" });
+        // ...and that refresh is still unanswered.
+        await until(() => watchRequests(desktop, MSG.GIT_STATUS).length === 1);
+    } finally {
+        desktopGitStatusHold = null;
+        answerStatus();
+    }
 });
