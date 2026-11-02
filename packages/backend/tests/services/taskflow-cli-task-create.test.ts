@@ -49,7 +49,8 @@ function startBackend(): Recorded[] {
 
             const taskMatch = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
             if (req.method === "GET" && taskMatch) {
-                const id = decodeURIComponent(taskMatch[1]);
+                // The real router hands path params on undecoded; so does this stub.
+                const id = taskMatch[1];
                 if (id === "missing") {
                     return Response.json({ error: `Task not found: ${id}` }, { status: 404 });
                 }

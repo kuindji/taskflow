@@ -242,7 +242,7 @@ async function handleTask(args: string[]): Promise<void> {
 
         let targetProjectId: string;
         if (parentId) {
-            const parentRaw = await api("GET", `/api/tasks/${encodeURIComponent(parentId)}`);
+            const parentRaw = await api("GET", `/api/tasks/${parentId}`);
             const parent = (JSON.parse(parentRaw) as { task?: { projectId?: string } }).task;
             if (!parent?.projectId) {
                 process.stderr.write(

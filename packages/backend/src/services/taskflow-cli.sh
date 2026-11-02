@@ -238,7 +238,7 @@ case "$cmd" in
       fi
 
       if [ -n "$parent_id" ]; then
-        parent_json=$(api_request GET "$TASKFLOW_API_URL/api/tasks/$(url_encode "$parent_id")") \
+        parent_json=$(api_request GET "$TASKFLOW_API_URL/api/tasks/$parent_id") \
           || { printf '%s\n' "$parent_json" >&2; exit 1; }
         # The response leads with the task itself, so the first projectId is its own.
         target_project_id=$(printf '%s' "$parent_json" | grep -o '"projectId":"[^"]*"' | head -n1 | sed 's/^"projectId":"\(.*\)"$/\1/')
