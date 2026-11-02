@@ -196,13 +196,9 @@ case "$cmd" in
       tf_curl -sf "$TASKFLOW_API_URL/api/tasks/archived"
     elif [ "$subcmd" = "create" ]; then
       shift
-      if [ -z "$TASKFLOW_PROJECT_ID" ]; then
-        echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
-        exit 1
-      fi
       description="${1:-}"
       if [ -z "$description" ]; then
-        echo "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>]" >&2
+        echo "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>] [--subtask | --parent <taskId>]" >&2
         exit 1
       fi
       shift
@@ -210,14 +206,53 @@ case "$cmd" in
       title=""
       worktree=""
       init_command=""
+      subtask=""
+      parent_id=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --title) title="${2:-}"; shift 2 ;;
           --worktree) worktree="true"; shift ;;
           --init) init_command="${2:-}"; shift 2 ;;
+          --subtask) subtask="true"; shift ;;
+          --parent) parent_id="${2:-}"; shift 2 ;;
           *) shift ;;
         esac
       done
+
+      # Top-level by default. --subtask nests under the current task,
+      # --parent <id> under any task; either way the parent's project.
+      if [ -n "$subtask" ] && [ -n "$parent_id" ]; then
+        echo "Error: use either --subtask or --parent, not both" >&2
+        exit 1
+      fi
+      if [ -n "$subtask" ]; then
+        if [ -z "$TASKFLOW_TASK_ID" ]; then
+          echo "Error: --subtask needs a task context (TASKFLOW_TASK_ID or --task <id>)" >&2
+          exit 1
+        fi
+        parent_id="$TASKFLOW_TASK_ID"
+      fi
+      if [ -n "$parent_id" ] && [ -n "$worktree" ]; then
+        echo "Error: --worktree is not allowed when creating a subtask" >&2
+        exit 1
+      fi
+
+      if [ -n "$parent_id" ]; then
+        parent_json=$(api_request GET "$TASKFLOW_API_URL/api/tasks/$(url_encode "$parent_id")") \
+          || { printf '%s\n' "$parent_json" >&2; exit 1; }
+        # The response leads with the task itself, so the first projectId is its own.
+        target_project_id=$(printf '%s' "$parent_json" | grep -o '"projectId":"[^"]*"' | head -n1 | sed 's/^"projectId":"\(.*\)"$/\1/')
+        if [ -z "$target_project_id" ]; then
+          echo "Error: parent task not found or missing project: $parent_id" >&2
+          exit 1
+        fi
+      else
+        if [ -z "$TASKFLOW_PROJECT_ID" ]; then
+          echo "Error: TASKFLOW_PROJECT_ID is not set" >&2
+          exit 1
+        fi
+        target_project_id="$TASKFLOW_PROJECT_ID"
+      fi
 
       json_body="$(printf '"description":%s' "$(json_string "$description")")"
       if [ -n "$title" ]; then
@@ -229,10 +264,13 @@ case "$cmd" in
       if [ -n "$init_command" ]; then
         json_body="$(printf '%s,"initCommand":%s' "$json_body" "$(json_string "$init_command")")"
       fi
+      if [ -n "$parent_id" ]; then
+        json_body="$(printf '%s,"parentId":%s' "$json_body" "$(json_string "$parent_id")")"
+      fi
 
-      tf_curl -sf -X POST "$TASKFLOW_API_URL/api/projects/$TASKFLOW_PROJECT_ID/tasks" \
-        -H "Content-Type: application/json" \
-        -d "{$json_body}"
+      # api_request, not curl -sf: the backend's refusals (a subtask of a
+      # subtask, an unknown parent) are the message the caller needs.
+      api_request POST "$TASKFLOW_API_URL/api/projects/$target_project_id/tasks" "{$json_body}"
     elif [ "$subcmd" = "update" ]; then
       shift
       if [ -z "$TASKFLOW_TASK_ID" ]; then

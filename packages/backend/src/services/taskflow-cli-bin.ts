@@ -203,7 +203,7 @@ async function handleTask(args: string[]): Promise<void> {
         const description = args[1] ?? "";
         if (!description) {
             process.stderr.write(
-                "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>] [--parent <taskId>]\n",
+                "Usage: taskflow-cli task create <description> [--title <title>] [--worktree] [--init <command>] [--subtask | --parent <taskId>]\n",
             );
             process.exit(1);
         }
@@ -211,40 +211,48 @@ async function handleTask(args: string[]): Promise<void> {
             title: "string",
             worktree: "boolean",
             init: "string",
+            subtask: "boolean",
             parent: "string",
         });
 
+        // Top-level by default. `--subtask` nests under the current task,
+        // `--parent <id>` under any task; either way the parent's project.
         const parentFlag = typeof flags.parent === "string" ? flags.parent : "";
+        if (flags.subtask && parentFlag) {
+            process.stderr.write("Error: use either --subtask or --parent, not both\n");
+            process.exit(1);
+        }
         let parentId: string | undefined;
-        let targetProjectId: string;
-
-        if (taskId) {
-            if (parentFlag && parentFlag !== taskId) {
+        if (flags.subtask) {
+            if (!taskId) {
                 process.stderr.write(
-                    "Error: cannot create a subtask under a different task while running in task context\n",
+                    "Error: --subtask needs a task context (TASKFLOW_TASK_ID or --task <id>)\n",
                 );
                 process.exit(1);
             }
             parentId = taskId;
-            targetProjectId = requireProjectId();
         } else if (parentFlag) {
-            const parentRaw = await api("GET", `/api/tasks/${parentFlag}`);
-            const parent = (JSON.parse(parentRaw) as { task?: { projectId?: string } }).task;
-            if (!parent?.projectId) {
-                process.stderr.write(
-                    `Error: parent task not found or missing project: ${parentFlag}\n`,
-                );
-                process.exit(1);
-            }
             parentId = parentFlag;
-            targetProjectId = parent.projectId;
-        } else {
-            targetProjectId = requireProjectId();
         }
 
         if (parentId && flags.worktree) {
             process.stderr.write("Error: --worktree is not allowed when creating a subtask\n");
             process.exit(1);
+        }
+
+        let targetProjectId: string;
+        if (parentId) {
+            const parentRaw = await api("GET", `/api/tasks/${encodeURIComponent(parentId)}`);
+            const parent = (JSON.parse(parentRaw) as { task?: { projectId?: string } }).task;
+            if (!parent?.projectId) {
+                process.stderr.write(
+                    `Error: parent task not found or missing project: ${parentId}\n`,
+                );
+                process.exit(1);
+            }
+            targetProjectId = parent.projectId;
+        } else {
+            targetProjectId = requireProjectId();
         }
 
         const body: Record<string, unknown> = { description };

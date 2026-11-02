@@ -5,6 +5,10 @@
 `taskflow-cli task create "Investigate memory leak" --title "Memory leak in auth service"`
 `taskflow-cli task create "Feature branch work" --worktree` Create task with worktree enabled
 `taskflow-cli task create "Feature branch work" --worktree --init "bun install"` Create task with worktree and run init command
+`taskflow-cli task create "Write the migration" --subtask` Create a subtask of the current task (needs task context)
+`taskflow-cli task create "Write the migration" --parent <taskId>` Create a subtask of the given task, in that task's project
+
+`task create` makes a top-level task in the current project unless `--subtask` or `--parent` is given. The two cannot be combined, a subtask cannot have subtasks of its own, and `--worktree` is not allowed for a subtask (it shares its parent's worktree).
 
 When running in task context, the following commands work as is. Inside a session, the task context is the session's current owner, so it follows a session moved with `session move`. When not running in task context (TASKFLOW_TASK_ID env variable is not available), the following commands require `--task <id>` before any command: `taskflow-cli --task <id> command`. This applies to agent and session commands as well.
 
