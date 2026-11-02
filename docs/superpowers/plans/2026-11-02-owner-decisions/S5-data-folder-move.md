@@ -28,7 +28,10 @@ Work:
    item first, write the pointer only when all are in place, delete sources
    last; on failure remove the copies and keep the old folder and pointer.
    (Same-filesystem `rename` may stay if completed renames are rolled back on
-   failure.)
+   failure.) Writing the pointer is the commit point. Before it: roll back
+   copies and release the gate. After it: never touch the destination, keep
+   the gate closed and restart; a failed source delete is only leftover
+   cleanup (log it), not a rollback.
 2. Before moving, refuse with a clear error if any session is running or a
    flow run is running/paused on this backend. UI shows it. A one-time check
    is not enough: the scheduler admits launches on its own
@@ -62,7 +65,9 @@ Work:
 4. The "Data Folder Changed" alert text matches what happens.
 
 Tests: migrator moves the new items; a failure after some items are copied
-leaves the old folder complete and still configured; a write and a launch
+leaves the old folder complete and still configured; a source delete
+failing after another source item was already deleted keeps the complete
+new folder and the new pointer; a write and a launch
 admitted before the gate finish before the move starts; the refusal while busy; a scheduled
 launch and a data write during the move are refused; the no-restarter path
 leaves data readable; whatever restart signal is added. Owner check: change and reset the folder in the

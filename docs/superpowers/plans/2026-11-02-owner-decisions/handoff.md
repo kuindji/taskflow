@@ -1,12 +1,10 @@
 # Handoff
 
-Next: step R (plan review, round 3). Round 2 found 6 material issues; 5
-verified and folded (S5 drain in-flight work before the move + no split data
-on a failed move; S7 drop quoting per recorded shell; S9 file-store helpers
-carry hash/result + recursive ancestor events). The 6th (S6: change the
-discovery listener) was rejected: the listener switches a row's address in
-place once the old one is quiet, so the registry change suffices; S6 wording
-corrected. Round 3 should re-check only those round-2 folds (S5, S6, S7, S9).
+Next: step R (plan review, round 4). Round 3 re-checked the round-2 folds:
+S6, S7, S9 clean; S5 had one material gap, folded: the pointer write is the
+commit point of the move (roll back copies only before it; after it keep the
+destination, keep the gate closed, restart; a failed source delete is
+leftover cleanup). Round 4 should re-check only that S5 fold.
 
 ## Notes
 
