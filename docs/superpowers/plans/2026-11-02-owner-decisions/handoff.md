@@ -1,6 +1,6 @@
 # Handoff
 
-Next: S5. S4 done (901451c0; test fix 277d6d61 after one Codex round).
+Next: S6. S5 done (cd0841d6; Codex fixes b3d6dd75 after one round).
 
 ## Notes
 
@@ -25,6 +25,14 @@ Next: S5. S4 done (901451c0; test fix 277d6d61 after one Codex round).
   `decodeURIComponent` themselves accept encoded ids. Do not `url_encode` ids
   in the shell CLI.
 
+- S5 added `DataDirGate` (`services/data-dir-gate.ts`): every WS message
+  and API route goes through it (settings excepted); refused while a data
+  folder change runs. Timer-driven work started outside a request (scheduler
+  ticks, remote agent restarts, startup worktree recovery) must use
+  `tryRun`/`run`; work a request starts without awaiting uses `track`.
+  Changing the data folder exits the backend with `BACKEND_RESTART_EXIT_CODE`;
+  Electron relaunches the app (`electron/src/backend-restart.ts`).
+
 ## Owner checks
 
 - S1: in the desktop app, "Run now" on a disabled schedule starts a session
@@ -41,3 +49,10 @@ Next: S5. S4 done (901451c0; test fix 277d6d61 after one Codex round).
   Unarchive). Unarchive opens the task's live workspace (the sidebar stays in
   the archive view). The Task Info panel shows "Select a task or project"
   meanwhile; the view itself carries the info.
+- S5: in the packaged app, change the data folder (sessions closed): the
+  confirm says Taskflow restarts, the app relaunches on the new folder with
+  projects, tasks, flows, actions, schedules and notifications intact, and the
+  old folder is empty. Reset to default the same way. With a session open the
+  change is refused with "while a session is running". "Use Existing" on a
+  folder with data switches to it after the relaunch. Window size/position
+  may not be saved on that relaunch (the backend has already exited).
