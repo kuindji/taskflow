@@ -24,6 +24,9 @@ export interface SessionRef {
     agentOptions?: AgentLaunchOptions;
     /** Effective agent home dir the session was launched with; resume reuses it. */
     agentHomeDir?: string;
+    /** Shell sessions only: the shell's name (`pwsh`, `cmd`, `bash`…), which
+     *  decides how a path dropped on its terminal is quoted. */
+    shell?: string;
     /** Flow ownership retained across backend restarts. */
     flow?: {
         flowId: string;

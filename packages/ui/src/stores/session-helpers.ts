@@ -32,6 +32,8 @@ interface Tab {
     movable?: true;
     /** The session's recorded working directory; it does not change when the session moves. */
     cwd?: string;
+    /** shell tabs only — the shell's name, as the session record has it. */
+    shell?: string;
     /** markdown tabs only — which pane the tab currently shows. Absent means "preview". */
     mode?: "preview" | "edit";
     /** markdown tabs only — scroll offset of the preview pane, restored across pane swaps. */
@@ -91,6 +93,7 @@ function createSessionTab(session: SessionRef): Tab {
         ...(session.trayExclude && { trayExclude: true }),
         ...(isMovableSession(session) && { movable: true }),
         ...(session.cwd && { cwd: session.cwd }),
+        ...(session.shell && { shell: session.shell }),
     };
 }
 

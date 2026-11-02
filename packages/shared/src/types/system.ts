@@ -25,6 +25,9 @@ export interface SystemInfo {
      *  provisional record onto this and merges duplicates. Absent on an older
      *  backend, which is refused on protocolVersion first. */
     backendUid?: string;
+    /** The backend's `process.platform`: how its paths are spelled. Absent on
+     *  an older backend, which is read as POSIX. */
+    os?: string;
 }
 
 export interface DesktopUpdateState {

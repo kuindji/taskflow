@@ -35,7 +35,7 @@ type AttachResult = Awaited<ReturnType<Bridge["attachBackend"]>>;
  * `{}`. `holdInfo`, when given, decides when each SYSTEM_INFO answer is sent.
  */
 function startBackend(
-    info: () => { protocolVersion: number; backendUid?: string },
+    info: () => { protocolVersion: number; backendUid?: string; os?: string },
     holdInfo?: (answer: () => void) => void,
     answerLists = true,
     holdRequest?: (type: string, answer: () => void) => void,
@@ -149,6 +149,38 @@ describe("backend store attach", () => {
         ]);
         // The same socket, now reachable under the uid.
         expect(await sendRequest<Record<string, never>>("abc123", "ping")).toEqual({});
+    });
+
+    test("the row keeps the OS the handshake reports, across a refresh", async () => {
+        const backend = startBackend(() => ({
+            protocolVersion: PROTOCOL_VERSION,
+            backendUid: "abc123",
+            os: "win32",
+        }));
+        cleanups.push(backend.stop);
+        seedRow("abc123");
+        main.attachBackend = () => Promise.resolve({ ok: true, origin: backend.origin });
+        main.confirmBackend = () => Promise.resolve({ id: "abc123", merged: false });
+
+        await store.getState().attach("abc123");
+        expect(row("abc123")?.os).toBe("win32");
+
+        const original = bridge.listBackends;
+        bridge.listBackends = () =>
+            Promise.resolve([
+                {
+                    id: "abc123",
+                    displayName: "desktop",
+                    host: "desktop.local",
+                    instanceId: "main",
+                    attached: true,
+                    saved: true,
+                    seen: true,
+                },
+            ]);
+        cleanups.push(() => (bridge.listBackends = original));
+        await store.getState().refresh();
+        expect(row("abc123")?.os).toBe("win32");
     });
 
     test("a machine whose projects and tasks cannot be loaded ends offline with the reason", async () => {

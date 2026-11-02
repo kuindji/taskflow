@@ -2,8 +2,6 @@ import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { captureTerminalViewport, getRestoreViewportLine } from "@/lib/terminal-viewport";
 
-const SHELL_UNSAFE = /[^a-zA-Z0-9_./:@=+-]/;
-
 interface FitResult {
     measured: boolean;
     resized: boolean;
@@ -12,11 +10,6 @@ interface FitResult {
 interface TerminalViewportSnapshot {
     isAtBottom: boolean;
     viewportY: number;
-}
-
-function shellQuote(path: string): string {
-    if (!SHELL_UNSAFE.test(path)) return path;
-    return `'${path.replace(/'/g, "'\\''")}'`;
 }
 
 function fitTerminal(fit: FitAddon, term: Terminal): FitResult {
@@ -50,4 +43,4 @@ function restoreViewport(term: Terminal, snapshot: TerminalViewportSnapshot): vo
 }
 
 export type { FitResult, TerminalViewportSnapshot };
-export { shellQuote, fitTerminal, refreshTerminal, captureViewport, restoreViewport };
+export { fitTerminal, refreshTerminal, captureViewport, restoreViewport };

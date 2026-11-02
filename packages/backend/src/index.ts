@@ -517,6 +517,7 @@ async function main() {
             hostname: hostname(),
             protocolVersion: PROTOCOL_VERSION,
             backendUid: config.backendUid,
+            os: process.platform,
         });
         // Broadcast on every connect and disconnect as well, but a client
         // cannot hear the broadcast announcing its own arrival, so it asks

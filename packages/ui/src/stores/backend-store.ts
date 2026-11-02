@@ -57,6 +57,9 @@ export type MachineState = {
     /** What the handshake reported. `rehandshake` refuses a socket that
      *  answers with a different one: that is a different backend on the port. */
     backendUid?: string;
+    /** The backend's `process.platform`, from the handshake: how its paths are
+     *  spelled. Absent until the first handshake, or from an older backend. */
+    os?: string;
 };
 
 /** Local is not a record; main answers its attach with the local origin. */
@@ -491,6 +494,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             state: automatic ? "reconnecting" : "attached",
             failure: undefined,
             backendUid: info.backendUid,
+            os: info.os,
         });
         followSocket(liveId);
         const liveAttempt = attempts.get(liveId);
@@ -553,6 +557,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
                 state: previous?.state ?? "offline",
                 failure: previous?.failure,
                 backendUid: previous?.backendUid,
+                os: previous?.os,
                 // Main persists `attached` only once the tunnel is open, so a
                 // refresh landing mid-attach would read the old `false` and
                 // drop the section of a machine the user just ticked.
@@ -676,7 +681,7 @@ export const useBackendStore = create<BackendStore>((_set, get) => ({
             patch(id, { failure: unknownFailure("A different backend answered on this port") });
             return;
         }
-        patch(id, { state: "attached", failure: undefined });
+        patch(id, { state: "attached", failure: undefined, os: info.os });
         await get().bootstrapBackend(id);
         if (
             attempts.get(id) === attempt &&

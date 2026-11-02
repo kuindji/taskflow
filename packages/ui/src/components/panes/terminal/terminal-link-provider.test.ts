@@ -115,3 +115,67 @@ describe("a bare filename with a line and column", () => {
         ).toEqual(["/repo/app.ts"]);
     });
 });
+
+describe("a Windows backend attached from a POSIX UI", () => {
+    beforeEach(() => {
+        useBackendStore.setState({
+            machines: [
+                {
+                    id: "links",
+                    displayName: "Windows box",
+                    host: "win.local",
+                    instanceId: "main",
+                    state: "attached",
+                    isLocal: false,
+                    keepAttached: true,
+                    os: "win32",
+                },
+            ],
+        });
+        useSessionStore.setState({
+            tabsByWorkspace: {
+                master: [
+                    {
+                        id: "s1",
+                        type: "shell",
+                        label: "Shell",
+                        sessionId: "s1",
+                        cwd: "C:\\Repo",
+                        shell: "pwsh",
+                    },
+                ],
+            },
+        });
+    });
+
+    async function linksOf(text: string): Promise<string[]> {
+        const term = await createTerminalWithText(text, 120);
+        const provider = createFilePathLinkProvider(term, "s1", undefined, undefined, true);
+        const links = await new Promise<ILink[] | undefined>((resolve) =>
+            provider.provideLinks(1, resolve),
+        );
+        return (links ?? []).map((l) => l.text);
+    }
+
+    function statted(): string[] {
+        return server.received
+            .filter((r) => r.type === MSG.FILE_STAT)
+            .map((r) => (r.payload as { path: string }).path);
+    }
+
+    it("links drive-letter and backslash paths inside the cwd, not outside it", async () => {
+        const links = await linksOf(
+            "at c:/repo/src/app.ts:12:3 and src\\lib\\x.ts, not D:\\other\\a.ts or ..\\up.ts",
+        );
+
+        expect(links).toEqual(["c:/repo/src/app.ts:12:3", "src\\lib\\x.ts"]);
+    });
+
+    it("stats a bare name and a clicked path as the backend's file tree spells them", async () => {
+        expect(await linksOf("see app.ts:4 here")).toEqual(["app.ts:4"]);
+        expect(statted()).toEqual(["C:/Repo/app.ts"]);
+
+        await clickDirectoryLink("src\\win");
+        expect(statted()).toContain("C:/Repo/src/win");
+    });
+});

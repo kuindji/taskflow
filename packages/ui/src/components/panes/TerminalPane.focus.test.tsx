@@ -38,7 +38,6 @@ void mock.module("@/components/panes/terminal/terminal-lifecycle", () => ({
     scheduleDetach: () => {},
 }));
 void mock.module("@/components/panes/terminal/terminal-utils", () => ({
-    shellQuote: (path: string) => path,
     fitTerminal: () => ({ measured: true, resized: false }),
     refreshTerminal: () => {},
     captureViewport: () => null,

@@ -27,6 +27,7 @@ describe("system handlers", () => {
             hostname: "test-host",
             protocolVersion: 1,
             backendUid: "0123456789abcdef0123456789abcdef",
+            os: "win32",
         });
 
         const result = (await router.handle(MSG.SYSTEM_INFO, {})) as SystemInfo;
@@ -38,6 +39,7 @@ describe("system handlers", () => {
             hostname: "test-host",
             protocolVersion: 1,
             backendUid: "0123456789abcdef0123456789abcdef",
+            os: "win32",
         });
     });
 });

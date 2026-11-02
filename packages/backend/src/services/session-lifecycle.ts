@@ -745,6 +745,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         bootId: config.bootId,
                         state: "live",
                         cwd,
+                        ...(type === "shell" && shell && { shell: shellName(shell) }),
                         ...(effectiveAgentOptions && { agentOptions: effectiveAgentOptions }),
                         ...(accountHomeDir && { agentHomeDir: accountHomeDir }),
                         ...(opts.resumeSession?.nativeSessionId
@@ -1123,6 +1124,12 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
         setRecoveredSessionExitHandler,
         setRecoveredSessionResumeHandler,
     };
+}
+
+/** `C:\Windows\System32\cmd.exe` → `cmd`, `/bin/zsh` → `zsh`. */
+function shellName(shellPath: string): string {
+    const file = shellPath.split(/[/\\]/).pop() ?? shellPath;
+    return file.replace(/\.exe$/i, "").toLowerCase();
 }
 
 export { createSessionLifecycle };

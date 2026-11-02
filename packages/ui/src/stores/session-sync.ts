@@ -54,13 +54,15 @@ function syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): T
         const resumeAvailable = sessionState === "interrupted" && Boolean(session.nativeSessionId);
         const movable = isMovableSession(session) ? true : undefined;
         const cwd = session.cwd;
+        const shell = session.shell;
         if (
             tab.type === session.type &&
             tab.label === label &&
             tab.sessionState === sessionState &&
             tab.resumeAvailable === resumeAvailable &&
             tab.movable === movable &&
-            tab.cwd === cwd
+            tab.cwd === cwd &&
+            tab.shell === shell
         ) {
             next.push(tab);
         } else {
@@ -72,6 +74,7 @@ function syncPaneTabs(existing: Tab[], sessionsById: Map<string, SessionRef>): T
                 resumeAvailable,
                 movable,
                 cwd,
+                shell,
                 ...(tab.autoTitle !== true && { label }),
             });
         }

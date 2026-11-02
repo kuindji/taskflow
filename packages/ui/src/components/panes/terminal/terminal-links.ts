@@ -4,11 +4,22 @@ import { findSessionTab, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useTaskStore } from "@/stores/task-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useBackendStore } from "@/stores/backend-store";
 import {
     getTaskWorkspaceKey,
     getProjectWorkspaceKey,
+    workspaceBackendId,
     workspaceOwner,
 } from "@/hooks/useActiveWorkspace";
+import {
+    fileUriToPath,
+    nativePath,
+    pathFlavour,
+    quoteDialect,
+    relativeTo,
+    shellQuote,
+    type PathFlavour,
+} from "@/lib/path-flavour";
 
 function getWorkspaceKey(taskId?: string, projectId?: string, master?: boolean): string | null {
     if (taskId) return getTaskWorkspaceKey(taskId);
@@ -45,22 +56,85 @@ function getWorkingDir(
     return findSessionTab(sessionId)?.tab.cwd ?? ownerWorkingDir(taskId, projectId, master);
 }
 
+/** How the machine with this id spells paths, from what its handshake reported. */
+function backendPathFlavour(backendId: string | null): PathFlavour {
+    return pathFlavour(useBackendStore.getState().machines.find((m) => m.id === backendId)?.os);
+}
+
+interface SessionDrop {
+    flavour: PathFlavour;
+    root: string | null;
+    quote: (text: string) => string;
+}
+
+function sessionDrop(
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): SessionDrop {
+    const { workspaceKey } = sessionWorkspace(sessionId, taskId, projectId, master);
+    const flavour = backendPathFlavour(workspaceKey ? workspaceBackendId(workspaceKey) : null);
+    const dialect = quoteDialect(flavour, findSessionTab(sessionId)?.tab.shell);
+    return {
+        flavour,
+        root: getWorkingDir(sessionId, taskId, projectId, master),
+        quote: (text) => shellQuote(text, dialect),
+    };
+}
+
 /**
- * A path dropped onto a session's terminal, relative to the session's own cwd
- * when it lies inside it, else absolute.
+ * Relative to the session's own cwd when it lies inside it, else absolute;
+ * as the shell spells it either way. The explorer's Windows paths use
+ * forward slashes, which cmd reads as switches.
  */
-function droppedPath(
-    absolutePath: string,
+function relativeDropPath(drop: SessionDrop, absolutePath: string): string {
+    const relative = drop.root ? relativeTo(drop.root, absolutePath, drop.flavour) : null;
+    return relative ? relative : nativePath(absolutePath, drop.flavour);
+}
+
+/**
+ * What dropping these paths types into the session's terminal: each made
+ * relative where it can be and quoted for the session's shell, space-joined.
+ */
+function droppedPaths(
+    absolutePaths: string[],
     sessionId: string,
     taskId?: string,
     projectId?: string,
     master?: boolean,
 ): string {
-    const root = getWorkingDir(sessionId, taskId, projectId, master);
-    if (root && absolutePath.startsWith(root + "/")) {
-        return absolutePath.slice(root.length + 1);
-    }
-    return absolutePath;
+    const drop = sessionDrop(sessionId, taskId, projectId, master);
+    return absolutePaths.map((path) => drop.quote(relativeDropPath(drop, path))).join(" ");
+}
+
+/** As `droppedPaths`, for the `file:` URIs of a `text/uri-list`; null when it has none. */
+function droppedUris(
+    uriList: string,
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): string | null {
+    const drop = sessionDrop(sessionId, taskId, projectId, master);
+    const paths = uriList
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("file://"))
+        .map((uri) => fileUriToPath(uri.trim(), drop.flavour))
+        .filter((path) => path !== null);
+    if (paths.length === 0) return null;
+    return paths.map((path) => drop.quote(relativeDropPath(drop, path))).join(" ");
+}
+
+/** Dropped plain text, quoted for the session's shell. */
+function droppedText(
+    text: string,
+    sessionId: string,
+    taskId?: string,
+    projectId?: string,
+    master?: boolean,
+): string {
+    return sessionDrop(sessionId, taskId, projectId, master).quote(text);
 }
 
 /**
@@ -132,7 +206,10 @@ function createWebLinkHandler(
 
 export {
     getWorkingDir,
-    droppedPath,
+    backendPathFlavour,
+    droppedPaths,
+    droppedUris,
+    droppedText,
     sessionWorkspace,
     openUrlInApp,
     openExternalUrl,

@@ -17,7 +17,6 @@ import {
     scheduleDetach,
 } from "./terminal/terminal-lifecycle";
 import {
-    shellQuote,
     fitTerminal,
     refreshTerminal,
     captureViewport,
@@ -25,7 +24,7 @@ import {
 } from "./terminal/terminal-utils";
 import { MarkdownInputHelper } from "./terminal/MarkdownInputHelper";
 import { releaseInputDraft } from "./terminal/terminal-input-draft";
-import { droppedPath } from "./terminal/terminal-links";
+import { droppedPaths, droppedText, droppedUris } from "./terminal/terminal-links";
 import { useTerminalModifierBlur } from "./terminal/useTerminalModifierBlur";
 import type { Tab } from "@/stores/session-helpers";
 import { Button } from "@/components/ui/button";
@@ -439,10 +438,6 @@ function TerminalPane({
             }
         }
 
-        function toRelative(absolutePath: string): string {
-            return droppedPath(absolutePath, sessionId, taskId, projectId, master);
-        }
-
         function forwardInput(data: string) {
             terminalCache
                 .get(sessionId)
@@ -464,9 +459,9 @@ function TerminalPane({
             // Internal file tree drop
             const taskflowPath = e.dataTransfer.getData("application/x-taskflow-path");
             if (taskflowPath) {
-                const relative = toRelative(taskflowPath);
-                console.debug("[drop] taskflow path:", taskflowPath, "->", relative);
-                forwardInput(shellQuote(relative));
+                const input = droppedPaths([taskflowPath], sessionId, taskId, projectId, master);
+                console.debug("[drop] taskflow path:", taskflowPath, "->", input);
+                forwardInput(input);
                 return;
             }
 
@@ -478,11 +473,11 @@ function TerminalPane({
                     const file = files[i];
                     const filePath = window.taskflow?.getPathForFile(file) ?? "";
                     console.debug("[drop] file:", file.name, "path:", filePath);
-                    if (filePath) paths.push(shellQuote(toRelative(filePath)));
+                    if (filePath) paths.push(filePath);
                 }
                 if (paths.length > 0) {
                     console.debug("[drop] sending paths:", paths);
-                    forwardInput(paths.join(" "));
+                    forwardInput(droppedPaths(paths, sessionId, taskId, projectId, master));
                 }
                 return;
             }
@@ -490,13 +485,10 @@ function TerminalPane({
             // Fallback: URI list (macOS Finder sometimes uses this)
             const uriList = e.dataTransfer.getData("text/uri-list");
             if (uriList) {
-                const filePaths = uriList
-                    .split("\n")
-                    .filter((line) => line.startsWith("file://"))
-                    .map((uri) => decodeURIComponent(new URL(uri).pathname));
-                if (filePaths.length > 0) {
-                    console.debug("[drop] uri-list paths:", filePaths);
-                    forwardInput(filePaths.map((p) => shellQuote(toRelative(p))).join(" "));
+                const input = droppedUris(uriList, sessionId, taskId, projectId, master);
+                if (input !== null) {
+                    console.debug("[drop] uri-list paths:", input);
+                    forwardInput(input);
                     return;
                 }
             }
@@ -505,7 +497,7 @@ function TerminalPane({
             const plainText = e.dataTransfer.getData("text/plain");
             if (plainText) {
                 console.debug("[drop] plain text:", plainText);
-                forwardInput(shellQuote(plainText));
+                forwardInput(droppedText(plainText, sessionId, taskId, projectId, master));
             }
         }
 

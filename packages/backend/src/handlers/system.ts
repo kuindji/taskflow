@@ -10,13 +10,22 @@ interface SystemHandlerDeps {
     hostname: string;
     protocolVersion: number;
     backendUid: string;
+    os: string;
 }
 
 export function registerSystemHandlers(deps: SystemHandlerDeps): void {
-    const { router, editors, homedir, schedulerEnabled, hostname, protocolVersion, backendUid } =
-        deps;
+    const {
+        router,
+        editors,
+        homedir,
+        schedulerEnabled,
+        hostname,
+        protocolVersion,
+        backendUid,
+        os,
+    } = deps;
 
     router.register(MSG.SYSTEM_INFO, async (): Promise<SystemInfo> => {
-        return { editors, homedir, schedulerEnabled, hostname, protocolVersion, backendUid };
+        return { editors, homedir, schedulerEnabled, hostname, protocolVersion, backendUid, os };
     });
 }

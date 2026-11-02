@@ -582,6 +582,24 @@ describe("session handlers", () => {
         expect(project?.sessions[0]?.id).toBe(created.sessionId);
     });
 
+    it("records a shell session's shell name, and none on an agent session", async () => {
+        const shell = (await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "shell",
+            shell: testShell,
+        })) as { sessionId: string };
+        const agent = (await router.handle(MSG.SESSION_CREATE, {
+            projectId,
+            type: "codex",
+        })) as { sessionId: string };
+
+        const sessions = (await store.getProject(projectId))?.sessions ?? [];
+        expect(sessions.find((s) => s.id === shell.sessionId)?.shell).toBe(
+            isWindows ? "cmd" : "sh",
+        );
+        expect(sessions.find((s) => s.id === agent.sessionId)?.shell).toBeUndefined();
+    });
+
     it("uses the task worktree path as the session cwd when available", async () => {
         const task = await store.createTask({
             projectId,

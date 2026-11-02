@@ -10,7 +10,13 @@ import { registerBackendReset } from "@/stores/store-reset";
 import { useBackendStore } from "@/stores/backend-store";
 import { isLocalBackend } from "@/hooks/useIsLocalBackend";
 import { getWrappedLineWindow, getWrappedRangeForMatch } from "@/lib/terminal-wrapped-links";
-import { getWorkingDir, openExternalFile, sessionWorkspace } from "./terminal-links";
+import { nativePath, resolveWithin, relativeTo, type PathFlavour } from "@/lib/path-flavour";
+import {
+    backendPathFlavour,
+    getWorkingDir,
+    openExternalFile,
+    sessionWorkspace,
+} from "./terminal-links";
 
 // Absolute: /path/to/file with optional :line:col
 const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+))?)?)/g;
@@ -20,6 +26,16 @@ const ABS_PATH_RE = /(?<![/\w.@+-])(\/[\w.@+-]+(?:\/[\w.@+-]*)*(?::(\d+)(?::(\d+
 // because the file:stat check at click time gracefully handles non-existent paths.
 const REL_PATH_RE =
     /(?<![/\w.@+-])((?:\.\.?\/)?[\w.@+-]+\/[\w.@+\-/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+
+// Windows: C:\path\file or C:/path/file, and relative paths with either separator.
+const WINDOWS_ABS_PATH_RE = /(?<![\w.@+\-\\/])([A-Za-z]:[\\/][\w.@+\-\\/]*(?::(\d+)(?::(\d+))?)?)/g;
+const WINDOWS_REL_PATH_RE =
+    /(?<![\\/\w.@+-])((?:\.\.?[\\/])?[\w.@+-]+[\\/][\w.@+\-\\/]*[\w.@+-](?::(\d+)(?::(\d+))?)?)/g;
+
+const PATH_RES: Record<PathFlavour, RegExp[]> = {
+    posix: [ABS_PATH_RE, REL_PATH_RE],
+    windows: [WINDOWS_ABS_PATH_RE, WINDOWS_REL_PATH_RE],
+};
 
 // Bare filenames: dotfiles (.gitignore, .env.local) or files with extensions (package.json, CLAUDE.md),
 // with optional :line:col (app.ts:42:3). Bounded by whitespace, sentence punctuation, or line edges to avoid false positives on embedded substrings.
@@ -37,36 +53,9 @@ function trimTrailingPunctuation(match: string): string {
     return match.replace(TRAILING_PUNCT_RE, "");
 }
 
-/** Collapse `.` and `..` segments in an absolute path without filesystem I/O. */
-function normalizePath(absolute: string): string {
-    const parts = absolute.split("/");
-    const stack: string[] = [];
-    for (const p of parts) {
-        if (p === "..") stack.pop();
-        else if (p && p !== ".") stack.push(p);
-    }
-    return "/" + stack.join("/");
-}
-
-function resolvePath(raw: string, workingDir: string | null): string | null {
-    if (!raw) return null;
-    const pathOnly = raw.replace(/:\d+(?::\d+)?$/, "");
-    if (pathOnly.startsWith("/")) {
-        // Absolute: must be within workingDir
-        if (!workingDir) return null;
-        if (pathOnly !== workingDir && !pathOnly.startsWith(workingDir + "/")) {
-            return null;
-        }
-        return pathOnly;
-    }
-    // Relative: resolve against workingDir
-    if (!workingDir) return null;
-    const normalized = normalizePath(workingDir + "/" + pathOnly);
-    // Reject paths that escape workingDir via ../
-    if (normalized !== workingDir && !normalized.startsWith(workingDir + "/")) {
-        return null;
-    }
-    return normalized;
+function resolvePath(raw: string, workingDir: string | null, flavour: PathFlavour): string | null {
+    if (!raw || !workingDir) return null;
+    return resolveWithin(raw.replace(/:\d+(?::\d+)?$/, ""), workingDir, flavour);
 }
 
 // ─── File stat cache for bare-name link validation ──────────────────────────
@@ -124,9 +113,14 @@ function createFilePathLinkProvider(
     master?: boolean,
 ): ILinkProvider {
     // Resolved at click time: the session may have moved since this terminal mounted.
-    const activate = (text: string, workingDir: string | null, event: MouseEvent) => {
+    const activate = (
+        text: string,
+        workingDir: string | null,
+        flavour: PathFlavour,
+        event: MouseEvent,
+    ) => {
         const { workspaceKey, owner } = sessionWorkspace(sessionId, taskId, projectId, master);
-        void handlePathActivation(text, workingDir, workspaceKey, event, owner);
+        void handlePathActivation(text, workingDir, flavour, workspaceKey, event, owner);
     };
 
     return {
@@ -138,11 +132,15 @@ function createFilePathLinkProvider(
             }
 
             const workingDir = getWorkingDir(sessionId, taskId, projectId, master);
+            const { workspaceKey } = sessionWorkspace(sessionId, taskId, projectId, master);
+            const backendId = workspaceKey ? workspaceBackendId(workspaceKey) : null;
+            // The session's machine spells the paths it prints, not this one.
+            const flavour = backendPathFlavour(backendId);
             const lineText = wrappedLine.text;
             const links: ILink[] = [];
             const seen = new Set<string>();
 
-            for (const re of [ABS_PATH_RE, REL_PATH_RE]) {
+            for (const re of PATH_RES[flavour]) {
                 re.lastIndex = 0;
                 let match: RegExpExecArray | null;
                 while ((match = re.exec(lineText)) !== null) {
@@ -156,7 +154,7 @@ function createFilePathLinkProvider(
                     if (seen.has(key)) continue;
                     seen.add(key);
 
-                    const resolved = resolvePath(trimmed, workingDir);
+                    const resolved = resolvePath(trimmed, workingDir, flavour);
                     if (!resolved) continue;
 
                     const range = getWrappedRangeForMatch(
@@ -171,7 +169,7 @@ function createFilePathLinkProvider(
                         range,
                         text: trimmed,
                         activate(event: MouseEvent, text: string) {
-                            activate(text, workingDir, event);
+                            activate(text, workingDir, flavour, event);
                         },
                     });
                 }
@@ -198,7 +196,7 @@ function createFilePathLinkProvider(
                 seen.add(key);
 
                 // Without the :line:col suffix; null when it escapes workingDir.
-                const resolved = resolvePath(trimmed, workingDir);
+                const resolved = resolvePath(trimmed, workingDir, flavour);
                 if (!resolved) continue;
 
                 const range = getWrappedRangeForMatch(
@@ -215,7 +213,7 @@ function createFilePathLinkProvider(
                         range,
                         text: trimmed,
                         activate(event: MouseEvent, text: string) {
-                            activate(text, workingDir, event);
+                            activate(text, workingDir, flavour, event);
                         },
                     },
                 });
@@ -227,8 +225,6 @@ function createFilePathLinkProvider(
             }
 
             // Validate bare candidates against filesystem before exposing as links
-            const { workspaceKey } = sessionWorkspace(sessionId, taskId, projectId, master);
-            const backendId = workspaceKey ? workspaceBackendId(workspaceKey) : null;
             void Promise.all(bareCandidates.map((c) => cachedFileStat(backendId, c.resolved))).then(
                 (results) => {
                     for (let i = 0; i < results.length; i++) {
@@ -244,11 +240,12 @@ function createFilePathLinkProvider(
 async function handlePathActivation(
     text: string,
     workingDir: string | null,
+    flavour: PathFlavour,
     workspaceKey: string | null,
     event: MouseEvent,
     owner?: SessionOwnerRef,
 ): Promise<void> {
-    const resolved = resolvePath(text, workingDir);
+    const resolved = resolvePath(text, workingDir, flavour);
     if (!resolved) return;
 
     const lineMatch = text.match(/:(\d+)(?::(\d+))?$/);
@@ -268,10 +265,9 @@ async function handlePathActivation(
         // A moved session's directory can lie outside the explorer's tree,
         // which cannot show it: Finder can, on this machine.
         const { treePath } = useFileStore.getState();
-        const inTree =
-            treePath !== null && (resolved === treePath || resolved.startsWith(treePath + "/"));
+        const inTree = treePath !== null && relativeTo(treePath, resolved, flavour) !== null;
         if (isExternal || (!inTree && isLocal)) {
-            window.taskflow?.showItemInFolder(resolved);
+            window.taskflow?.showItemInFolder(nativePath(resolved, flavour));
         } else if (inTree) {
             void useFileStore.getState().expandToPathAndLoad(resolved);
             if (!useUIStore.getState().fileExplorerOpen) {
@@ -280,7 +276,7 @@ async function handlePathActivation(
         }
     } else {
         if (isExternal) {
-            openExternalFile(resolved, { line, col });
+            openExternalFile(nativePath(resolved, flavour), { line, col });
         } else {
             void openFileInApp(resolved, workspaceKey, owner, line);
         }
