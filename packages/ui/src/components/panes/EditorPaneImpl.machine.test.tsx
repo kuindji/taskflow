@@ -112,7 +112,19 @@ const pendingReads: ((content: string) => void)[] = [];
 const resolveRead = (content: string) => {
     for (const resolve of pendingReads.splice(0)) resolve(content);
 };
+/** Watches held by the panes, as "backend path"; a release removes one. */
+const heldWatches: string[] = [];
 const fileStore = {
+    retainWatch: (backendId: string, path: string) => {
+        const key = `${backendId} ${path}`;
+        heldWatches.push(key);
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            heldWatches.splice(heldWatches.indexOf(key), 1);
+        };
+    },
     readFile: () =>
         new Promise<string>((resolve) => {
             pendingReads.push(resolve);
@@ -126,7 +138,23 @@ const fileStore = {
 const writes: string[] = [];
 let writeHold: Promise<void> = Promise.resolve();
 await mock.module("@/stores/file-store", () => ({
-    useFileStore: () => fileStore,
+    useFileStore: (selector?: (s: typeof fileStore) => unknown) =>
+        selector ? selector(fileStore) : fileStore,
+}));
+
+await mock.module("@/hooks/useActiveWorkspace", () => ({
+    MASTER_WORKSPACE_KEY: "master",
+    getTaskWorkspaceKey: (id: string) => `task:${id}`,
+    getProjectWorkspaceKey: (id: string) => `project:${id}`,
+    workspaceBackendId: () => "desktop",
+    workspaceOwner: () => ({}),
+    useActiveWorkspace: () => ({
+        scope: "project" as const,
+        task: null,
+        project: { id: "p1", path: "/repo", backendId: "desktop" },
+        workingDir: "/repo",
+        workspaceKey: "project:p1",
+    }),
 }));
 
 const useBackend = create<{ id: string | null }>(() => ({ id: "desktop" }));
@@ -151,6 +179,7 @@ beforeEach(() => {
     editors.clear();
     pendingReads.length = 0;
     writes.length = 0;
+    heldWatches.length = 0;
     writeHold = Promise.resolve();
     clearEditorDirty("desktop", "/repo/a.ts");
     useBackend.setState({ id: "desktop" });
@@ -294,4 +323,53 @@ test("a second pane's read answered after typing in the first keeps the typed te
     // Both panes offer to save it.
     expect(right.getModel()).toBe(left.getModel());
     expect(container.textContent?.match(/Save/g)?.length).toBe(2);
+});
+
+test("an editor holds its workspace root's watch while mounted, following its machine and path", async () => {
+    await act(async () => {
+        root.render(<EditorPaneImpl filePath="/repo/a.ts" />);
+    });
+    expect(heldWatches).toEqual(["desktop /repo"]);
+
+    // Same root: the watch is kept, not released and taken again.
+    await act(async () => {
+        root.render(<EditorPaneImpl filePath="/repo/src/b.ts" />);
+    });
+    expect(heldWatches).toEqual(["desktop /repo"]);
+
+    await act(async () => {
+        useBackend.setState({ id: "laptop" });
+    });
+    expect(heldWatches).toEqual(["laptop /repo"]);
+
+    // A file outside the workspace has no root of it to watch.
+    await act(async () => {
+        root.render(<EditorPaneImpl filePath="/elsewhere/c.ts" />);
+    });
+    expect(heldWatches).toEqual([]);
+
+    await act(async () => {
+        root.render(<EditorPaneImpl filePath="/repo/a.ts" />);
+    });
+    expect(heldWatches).toEqual(["laptop /repo"]);
+    act(() => root.unmount());
+    expect(heldWatches).toEqual([]);
+    root = createRoot(container);
+});
+
+test("split panes on one file each hold the watch", async () => {
+    await act(async () => {
+        root.render(
+            <>
+                <EditorPaneImpl key="left" filePath="/repo/a.ts" />
+                <EditorPaneImpl key="right" filePath="/repo/a.ts" />
+            </>,
+        );
+    });
+    expect(heldWatches).toEqual(["desktop /repo", "desktop /repo"]);
+
+    await act(async () => {
+        root.render(<EditorPaneImpl key="right" filePath="/repo/a.ts" />);
+    });
+    expect(heldWatches).toEqual(["desktop /repo"]);
 });

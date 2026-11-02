@@ -17,6 +17,7 @@ const files = new Map<string, string>();
 // object per call hands out new `readFile`/`writeFile` identities every render,
 // which makes the pane's `loadContent` unstable and re-read the file forever.
 const fileStore = {
+    retainWatch: () => () => {},
     readFile: (_backendId: string, path: string) => Promise.resolve(files.get(path) ?? ""),
     writeFile: (_backendId: string, path: string, content: string) => {
         files.set(path, content);

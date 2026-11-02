@@ -15,6 +15,7 @@ import { useTaskStore } from "@/stores/task-store";
 import { useUIStore } from "@/stores/ui-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
+import { useWorkspaceFileWatch } from "@/hooks/useWorkspaceFileWatch";
 import {
     getTaskWorkspaceKey,
     getProjectWorkspaceKey,
@@ -104,6 +105,8 @@ function EditorPaneImpl({ filePath }: EditorPaneImplProps) {
     const editorWordWrapRef = useRef(editorWordWrap);
     const { readFile, writeFile } = useFileStore();
     const backendId = useWorkspaceBackend();
+    // Keeps FILE_CHANGED coming for this file while the explorer is closed.
+    useWorkspaceFileWatch(backendId, filePath);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [dirty, setDirty] = useState(

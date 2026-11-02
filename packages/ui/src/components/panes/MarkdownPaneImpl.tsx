@@ -35,6 +35,7 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { useWikiRoot } from "@/hooks/useWikiRoot";
 import { useWikiStore } from "@/stores/wiki-store";
 import { useWorkspaceBackend } from "@/hooks/useWorkspaceBackend";
+import { useWorkspaceFileWatch } from "@/hooks/useWorkspaceFileWatch";
 import { rawFileUrl } from "@/lib/backend-url";
 import { openFileInApp } from "@/lib/open-file";
 import { useActiveWorkspace } from "@/hooks/useActiveWorkspace";
@@ -130,6 +131,7 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
     );
     const wikiRoot = useWikiRoot();
     const backendId = useWorkspaceBackend();
+    useWorkspaceFileWatch(backendId, filePath);
     const wikiIndex = useWikiStore((s) =>
         backendId && wikiRoot ? s.indexByBackend[backendId]?.[wikiRoot] : undefined,
     );
@@ -284,10 +286,9 @@ function MarkdownPaneImpl({ filePath, tabId, workspaceKey }: MarkdownPaneImplPro
         });
     }, [backendId, filePath, loadContent]);
 
-    // FILE_CHANGED only arrives while something (the file explorer) watches the
-    // folder, and opening the Wiki panel closes the explorer. The wiki index is
-    // watched on its own, so a wiki page also reloads when its indexed mtime
-    // moves. Keyed by path: a navigation is loaded by the effect above.
+    // FILE_CHANGED covers files under the workspace root this pane watches. A
+    // wiki page also reloads when its indexed mtime moves (the wiki index is
+    // watched on its own), which covers a wiki outside the workspace. Keyed by path: a navigation is loaded by the effect above.
     const wikiPageMtime = useMemo(
         () =>
             wikiPageId === null

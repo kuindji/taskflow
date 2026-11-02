@@ -31,6 +31,7 @@ function releaseReads() {
 // every render would make `loadContent` unstable and re-read the file on each
 // re-render, which is not how the pane behaves in the app.
 const fileStore = {
+    retainWatch: () => () => {},
     readFile: (_backendId: string, path: string) => {
         if (path !== heldPath) return Promise.resolve(files.get(path) ?? "");
         return new Promise<string>((resolve) => {

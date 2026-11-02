@@ -42,11 +42,9 @@ function FileExplorer() {
 
         void fetchTree(backendId, workingDir);
         void fetchGitStatus(backendId, workingDir);
-        void watchPath(backendId, workingDir);
+        watchPath(backendId, workingDir);
 
-        return () => {
-            void unwatchPath(backendId, workingDir);
-        };
+        return () => unwatchPath(backendId, workingDir);
     }, [
         workingDir,
         backendId,

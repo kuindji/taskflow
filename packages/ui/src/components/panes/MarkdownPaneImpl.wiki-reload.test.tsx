@@ -4,14 +4,15 @@ import { createRoot, type Root } from "react-dom/client";
 import type { WikiIndexData, WikiPage } from "@taskflow/shared";
 
 /**
- * A wiki page preview must follow edits made on disk while the Wiki panel is
- * open. Opening the panel closes the file explorer, which held the only
- * FILE_WATCH, so no FILE_CHANGED arrives; the wiki index push is all there is.
+ * A wiki page preview must follow edits made on disk through the wiki index
+ * too: a wiki can lie outside the workspace root the pane watches, and then no
+ * FILE_CHANGED arrives for it; the wiki index push is all there is.
  */
 
 const files = new Map<string, string>();
 let reads = 0;
 const fileStore = {
+    retainWatch: () => () => {},
     readFile: (_backendId: string, path: string) => {
         reads += 1;
         return Promise.resolve(files.get(path) ?? "");
