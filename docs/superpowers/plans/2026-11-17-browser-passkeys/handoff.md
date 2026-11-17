@@ -6,7 +6,7 @@ Plan: `../2026-11-17-browser-passkeys.md`. Spec: `docs/superpowers/specs/2026-11
 
 ## Next step
 
-**Owner-gated: v0.17.0 draft uploaded, waiting for the owner to publish (Section 4 Step 6).** Chain stopped. Owner instructions:
+**Owner-gated: v0.17.0 published 2026-11-17 14:02 (+04), waiting for the owner's install check (Section 4 Step 6, items 2–3).** On the owner's request the agent pushed `main` (`65fd18d9`) and published the draft as latest, with no Linux assets (the owner didn't ask for them). Chain stopped. Owner instructions:
 
 1. The 0.17.0 release is a **draft** on GitHub with mac assets only (arm64 + x64 dmg/zip + blockmaps, `latest-mac.yml`) and release notes. **First push `main`** (`git push origin main`). The draft targets `main`, so publishing creates the `v0.17.0` tag at whatever `origin/main` is then. Right now `origin/main` doesn't have any of the passkeys commits. If you want Linux in it as usual, build and upload it next: `bun run build:backend:bin:linux && bun run build:ui && bun run build:electron && cd electron && GH_TOKEN=$(gh auth token) bun run publish:linux` (it uploads into the existing draft). Then publish it (GitHub UI, or `gh release edit v0.17.0 --draft=false --latest`).
 2. Your installed Taskflow (0.16.1) can't auto-update to 0.17.0, because the mac bundle ID changed. Its updater will report an error for this version; that's expected. Quit it, download the 0.17.0 arm64 dmg from the release, and replace `/Applications/Taskflow.app`. Start it, allow notifications when macOS asks, and check that the About/version shows 0.17.0. Auto-update itself can only be checked at the next release (0.17.0 → 0.17.x). Open a browser tab, go to https://webauthn.io, and register and authenticate with Touch ID (also once with the username empty). Passkeys made in the sandboxed test build don't carry over; register again. Then add a passkey on your real site and sign in with it once.
@@ -24,7 +24,7 @@ For the session that gets the reply: first `gh release view v0.17.0 --json isDra
 | 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | done, **gate passed** (base `d115dad9`) | `badb7772`, `4dc780d7`, `833216c0` |
 | 2 | Electron 45.3.3 upgrade | done (base `14ac16e9`); dev + signed smoke pass, notification pass, updater deferred; diff review clean (`reviews/impl-2-triage.md`) | `8381ca90`, `e1d6265d` |
 | 3 | Touch ID wiring + account selection | done (base `5cb6e3ea`); signed probe `uvpaa: true`, dev run clean; diff review clean (`reviews/impl-3-triage.md`) | `ed25dec4` |
-| 4 | Final review, owner checks, release | Steps 1–5 done (base `97d28c6e`): final review clean, 0.17.0 notarized, owner Touch ID check passed, draft `v0.17.0` uploaded; **Step 6 waiting for owner to publish** | `3d2ff180`, `a8825d26` |
+| 4 | Final review, owner checks, release | Steps 1–5 done (base `97d28c6e`), v0.17.0 published (tag at `65fd18d9`, mac only); **Step 6 waiting for the owner's install check** | `3d2ff180`, `a8825d26` |
 
 ## Final-review base
 
