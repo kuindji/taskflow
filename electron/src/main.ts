@@ -1,4 +1,12 @@
-import { app, BrowserWindow, dialog, nativeTheme, Notification, powerMonitor } from "electron";
+import {
+    app,
+    BrowserWindow,
+    dialog,
+    nativeTheme,
+    Notification,
+    powerMonitor,
+    session,
+} from "electron";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 
@@ -58,6 +66,7 @@ import { createBackendFetch } from "./backend-fetch";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import * as browserHost from "./browser-host";
 import { devUserDataPath } from "./dev-user-data";
+import { configureTouchIdWebAuthn, handleWebAuthnAccountSelection } from "./webauthn";
 
 declare const BUILD_GIT_BRANCH: string;
 
@@ -233,9 +242,50 @@ registerIpcHandlers({
     },
 });
 
+/** Asks which passkey to sign in with. Returns the account index, or `null` for Cancel. */
+async function chooseWebAuthnAccount(
+    relyingPartyId: string,
+    labels: string[],
+): Promise<number | null> {
+    const options: Electron.MessageBoxOptions = {
+        type: "question",
+        message: "Choose a passkey",
+        detail: `Sign in to ${relyingPartyId} as:`,
+        buttons: [...labels, "Cancel"],
+        cancelId: labels.length,
+        defaultId: 0,
+        noLink: true,
+    };
+    // A sheet on a hidden window would never be seen, and the request would hang.
+    const mainWindow = getMainWindow();
+    const { response } = mainWindow?.isVisible()
+        ? await dialog.showMessageBox(mainWindow, options)
+        : await dialog.showMessageBox(options);
+    return response < labels.length ? response : null;
+}
+
+/** Touch ID passkeys for browser tabs; before any tab view exists. */
+function setUpWebAuthn(): void {
+    const touchIdReady = configureTouchIdWebAuthn({
+        platform: process.platform,
+        isPackaged: app.isPackaged,
+        configure: (o) => app.configureWebAuthn(o),
+        warn: (m, e) => console.warn(m, e),
+    });
+    if (!touchIdReady) return;
+    session
+        .fromPartition(browserHost.BROWSER_PARTITION)
+        .on("select-webauthn-account", (_event, details, callback) => {
+            void handleWebAuthnAccountSelection(details, callback, chooseWebAuthnAccount, (m, e) =>
+                console.warn(m, e),
+            );
+        });
+}
+
 // --- App lifecycle ---
 
 void app.whenReady().then(async () => {
+    setUpWebAuthn();
     disposeRemoteWakeup = installRemoteWakeup({
         source: powerMonitor,
         notify: () => getMainWindow()?.webContents.send("remote-resume"),

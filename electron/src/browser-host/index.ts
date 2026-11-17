@@ -8,6 +8,8 @@ import { parseDevToolsActivePort } from "./debug-port";
 import { createElectronViewFactory } from "./electron-views";
 import { TabHost, type Bounds } from "./tab-host";
 
+export { BROWSER_PARTITION } from "./electron-views";
+
 let host: TabHost | undefined;
 let factory: ReturnType<typeof createElectronViewFactory> | undefined;
 

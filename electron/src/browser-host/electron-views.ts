@@ -13,6 +13,9 @@ import { isNavigableScheme, isPermissionAllowed } from "./permission-policy";
 import { postBodyHeaders } from "./post-body-headers";
 import type { Bounds, HostedView, TabHost, ViewFactory } from "./tab-host";
 
+/** The session every browser tab runs in. */
+export const BROWSER_PARTITION = "persist:browser";
+
 const parkedBounds: Bounds = { x: 0, y: 0, width: 1280, height: 800 };
 
 function isWebContents(value: unknown): value is WebContents {
@@ -35,7 +38,7 @@ export function createElectronViewFactory(deps: {
 
     function preferences(includePartition: boolean): WebPreferences {
         return {
-            ...(includePartition ? { partition: "persist:browser" } : {}),
+            ...(includePartition ? { partition: BROWSER_PARTITION } : {}),
             preload: join(app.getAppPath(), "dist", "browser-preload.js"),
             backgroundThrottling: false,
             contextIsolation: true,
@@ -46,7 +49,7 @@ export function createElectronViewFactory(deps: {
 
     function installPolicy(): void {
         if (policyInstalled) return;
-        const browserSession = session.fromPartition("persist:browser");
+        const browserSession = session.fromPartition(BROWSER_PARTITION);
         browserSession.setPermissionRequestHandler((_wc, permission, callback) => {
             callback(isPermissionAllowed(permission));
         });
