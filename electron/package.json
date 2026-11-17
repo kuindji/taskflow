@@ -54,7 +54,7 @@
             "hardenedRuntime": true,
             "gatekeeperAssess": false,
             "entitlements": "entitlements.mac.plist",
-            "entitlementsInherit": "entitlements.mac.plist",
+            "entitlementsInherit": "entitlements.inherit.mac.plist",
             "extendInfo": {
                 "NSLocalNetworkUsageDescription": "Taskflow finds other Taskflow backends on your local network so you can connect to them."
             },
