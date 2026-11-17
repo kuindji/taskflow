@@ -6,6 +6,7 @@ import { writeFile } from "fs/promises";
 import { join } from "path";
 import type { TunnelFailure } from "@taskflow/shared";
 import { downloadArtifact, isArtifactUrl } from "./artifact-download";
+import { createLastPathTracker } from "./dialog-last-path";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import type { BackendRegistry, TunnelManager } from "@taskflow/shared/remote";
 import { backendOrigin } from "./backend-url";
@@ -209,16 +210,27 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         void deps.updateController.retry();
     });
 
+    // One tracker per dialog, so picking a theme file doesn't move where the
+    // project picker opens.
+    const projectDirectoryPath = createLastPathTracker();
+    const themeFilePath = createLastPathTracker();
+    const selectFilePath = createLastPathTracker();
+
     ipcMain.handle("select-project-directory", async () => {
         const result = await dialog.showOpenDialog({
+            defaultPath: projectDirectoryPath.defaultPath(),
             properties: ["openDirectory", "createDirectory"],
         });
         if (result.canceled) return null;
-        return result.filePaths[0] ?? null;
+        const selected = result.filePaths[0];
+        if (!selected) return null;
+        projectDirectoryPath.remember(selected, "directory");
+        return selected;
     });
 
     ipcMain.handle("select-theme-file", async () => {
         const result = await dialog.showOpenDialog({
+            defaultPath: themeFilePath.defaultPath(),
             properties: ["openFile"],
             filters: [
                 {
@@ -229,7 +241,10 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
             ],
         });
         if (result.canceled) return null;
-        return result.filePaths[0] ?? null;
+        const selected = result.filePaths[0];
+        if (!selected) return null;
+        themeFilePath.remember(selected, "file");
+        return selected;
     });
 
     ipcMain.handle("select-file", async () => {
@@ -237,10 +252,13 @@ function registerIpcHandlers(deps: IpcHandlersDeps): void {
         const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
         if (!win) return null;
         const result = await dialog.showOpenDialog(win, {
+            defaultPath: selectFilePath.defaultPath(),
             properties: ["openFile"],
         });
-        if (result.canceled || result.filePaths.length === 0) return null;
-        return result.filePaths[0];
+        const selected = result.filePaths[0];
+        if (result.canceled || !selected) return null;
+        selectFilePath.remember(selected, "file");
+        return selected;
     });
 
     ipcMain.handle(
