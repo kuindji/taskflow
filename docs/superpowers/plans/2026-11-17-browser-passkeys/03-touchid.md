@@ -16,15 +16,15 @@ Electron 45 cancels every discoverable Touch ID `get()` with `NotAllowedError`, 
 - Produces: `configureTouchIdWebAuthn`, `handleWebAuthnAccountSelection`, `WEBAUTHN_KEYCHAIN_ACCESS_GROUP`, `WebAuthnDeps` (exact shapes in the plan index).
 - `webauthn.ts` imports Electron **types only** (`import type`), so its test runs under plain `bun test`. The dialog-based chooser lives in `main.ts`.
 
-- [ ] **Step 1: Record the base**: `git rev-parse HEAD` into the Section 3 status row.
+- [x] **Step 1: Record the base**: `git rev-parse HEAD` into the Section 3 status row.
 
-- [ ] **Step 2: Check the API shape**
+- [x] **Step 2: Check the API shape**
 
 Checked during plan review against `electron@45.3.3/electron.d.ts`: `app.configureWebAuthn(options: ConfigureWebAuthnOptions): void` (per-app, macOS). `Session` `on('select-webauthn-account', (event, details: SelectWebauthnAccountDetails, callback: (credentialId?: string | null) => void))`. `WebAuthnAccount` has `credentialId`, optional `userHandle`, `name`, `displayName`. Confirm these in the installed `electron.d.ts`. If anything differs, adjust the names, keep the intent, and record a Deviation.
 
 Call both inside the existing `app.whenReady()` path, before the window manager creates any view (this matches the docs' examples).
 
-- [ ] **Step 3: Write the failing tests** (`electron/src/webauthn.test.ts`, plain dependency injection, no `mock.module`)
+- [x] **Step 3: Write the failing tests** (`electron/src/webauthn.test.ts`, plain dependency injection, no `mock.module`)
 
 ```ts
 const options = {
@@ -116,14 +116,14 @@ test("no accounts cancels without asking", async () => {
 
 Run `cd electron && bun test src/webauthn.test.ts`. Expected: FAIL (module missing).
 
-- [ ] **Step 4: Implement `electron/src/webauthn.ts`**
+- [x] **Step 4: Implement `electron/src/webauthn.ts`**
 
 - `configureTouchIdWebAuthn(deps: WebAuthnDeps): boolean` does exactly the first four behaviours above. `promptReason` is `"sign in to $1"`.
 - `handleWebAuthnAccountSelection(details, callback, choose, warn): Promise<void>` does the account behaviours above. Labels are `name`, else `displayName`, else `Passkey <first 8 chars of credentialId>`. Cancel by calling `callback()` with no argument. Call `callback` exactly once on every path (`try … finally`).
 
 Run the tests. Expected: PASS.
 
-- [ ] **Step 5: Wire it in `main.ts`**
+- [x] **Step 5: Wire it in `main.ts`**
 
 At the point chosen in Step 2:
 
@@ -145,14 +145,14 @@ if (touchIdReady) {
 
 Then run typecheck, oxlint and `bun test` in `electron`. Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add electron/src/webauthn.ts electron/src/webauthn.test.ts electron/src/main.ts
 git commit -m "feat(browser): enable Touch ID passkeys in browser tabs"
 ```
 
-- [ ] **Step 7: Signed-build check**
+- [x] **Step 7: Signed-build check**
 
 Run `bun run package`. Start the binary with the packaged launch recipe (Facts) and open a tab on `https://example.com` through the API. Run the probe with `--uvpaa-only` (see its header). In this build a platform `create()` would put a real Touch ID dialog on the owner's screen, which steals focus, and a touch would leave a stray keychain item. So `create()` is left to the owner's hand check in Section 4. Expected:
 - `uvpaa: true`. **This is the required automated result.**
@@ -163,6 +163,6 @@ Also run the unsigned dev app with the dev launch recipe (never `bun run dev:ele
 
 If `uvpaa` is `false`, read the app log and the DevTools console for Electron's WebAuthn messages. Check whether the permission policy (`electron/src/browser-host/permission-policy.ts`) is being asked for something WebAuthn-related; add only that exact permission, with a test in `permission-policy.test.ts`. If it still doesn't work after that, stop and notify.
 
-- [ ] **Step 8: Diff review, then hand off**
+- [x] **Step 8: Diff review, then hand off**
 
 Run the chain's diff review against the Section 3 base and triage it. In Facts, record the probe output and the path of the signed package (`electron/release/mac-arm64/Taskflow.app`). **Next step** → "Section 4".

@@ -6,7 +6,7 @@ Plan: `../2026-11-17-browser-passkeys.md`. Spec: `docs/superpowers/specs/2026-11
 
 ## Next step
 
-Implement Section 3
+Section 4
 
 ## Status
 
@@ -17,7 +17,7 @@ Implement Section 3
 | — | Plan review round 3 | done: 3 findings confirmed (2 minor, 1 nit), folded; no blocker/major; `reviews/plan-round-3-triage.md` | see git log |
 | 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | done, **gate passed** (base `d115dad9`) | `badb7772`, `4dc780d7`, `833216c0` |
 | 2 | Electron 45.3.3 upgrade | done (base `14ac16e9`); dev + signed smoke pass, notification pass, updater deferred; diff review clean (`reviews/impl-2-triage.md`) | `8381ca90`, `e1d6265d` |
-| 3 | Touch ID wiring + account selection | pending | |
+| 3 | Touch ID wiring + account selection | done (base `5cb6e3ea`); signed probe `uvpaa: true`, dev run clean; diff review clean (`reviews/impl-3-triage.md`) | `ed25dec4` |
 | 4 | Final review, owner checks, release | pending | |
 
 ## Final-review base
@@ -56,6 +56,11 @@ Implement Section 3
 - Dev launch recipe: `app.pid` holds the `node …/cli.js` launcher, not Electron. Killing it stops Electron too. For window ids or Electron's own pid, use `pgrep -f "MacOS/Electron electron$"`. Main window = the `Taskflow` window (1400×900); `Taskflow Dev (main)` is the park window that hosts tab views.
 - Main-process inspector: `Runtime.evaluate` with `includeCommandLineAPI: true` makes `require("electron")` work directly. Scratch helpers from this session (`cdp-eval.ts`, `inspect-eval.ts`, `winid.swift`) live in the session scratchpad and are not kept. Rewrite them if needed (each is ~10 lines).
 
+- **Section 3 signed check (2026-11-17, `ed25dec4`):** `bun run package` signed with the profile (`release/mac-arm64/Taskflow.app`, entitlement has `9SX8S58CA8.com.kuindji.taskflow.webauthn`). Probe `--uvpaa-only` on example.com: `hasPKC` true, `ua` `… Chrome/156.0.8078.100 Electron/45.3.3 …`, **`uvpaa: true`**, `cma` true, `create` `skipped`. `app.log` has no WebAuthn/Touch ID/passkey line (only the known `app-update.yml` ENOENT).
+- Section 3 unsigned dev check: starts cleanly, no WebAuthn line in `app.log`, probe `uvpaa: false` (configure skipped, no listener).
+- Signed package path for Section 4: `electron/release/mac-arm64/Taskflow.app` (the `--dir` build; Section 4 Step 3 makes its own notarized build).
+- `persist:browser` is now one constant, `BROWSER_PARTITION` (`electron/src/browser-host/electron-views.ts`, re-exported from `browser-host/index.ts`). `main.ts` registers `select-webauthn-account` on it.
+
 ## Owner notes (for the final notify)
 
 - Mac bundle ID changed to `com.kuindji.taskflow`. 0.16.x can't auto-update to 0.17.0; install it by hand once (Section 4 covers the release notes).
@@ -71,3 +76,5 @@ Implement Section 3
 - Section 2: typecheck flagged `app.dock` as possibly undefined (Electron 45 typings). Fixed with `app.dock?.` in `window-manager.ts`. This isn't in the breaking-changes doc and is noted at the end of `reviews/breaking-changes-audit.md`.
 - Section 2 Step 7: the plan named the generic open-file tracker `filePath`. It became `selectFilePath` because two handlers in the same function take a `filePath` parameter, which would shadow it.
 - Section 2 Step 9: two commits instead of one (upgrade + audit + notification listener; dialog tracker).
+- Section 3: `chooseWebAuthnAccount` uses the main window as the dialog parent only when it's visible (the plan said "when there is one"). A sheet on a hidden window would leave the request pending with nothing on screen.
+- Section 3: the `persist:browser` literal became the shared constant `BROWSER_PARTITION`, so the listener and the tab views can't drift apart. `electron-views.ts` and `browser-host/index.ts` were touched for this.
