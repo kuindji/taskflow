@@ -57,6 +57,7 @@ import { registerIpcHandlers } from "./ipc-handlers";
 import { createBackendFetch } from "./backend-fetch";
 import { LOCAL_BACKEND_ID, listAttachedBackends } from "./attached-backends";
 import * as browserHost from "./browser-host";
+import { devUserDataPath } from "./dev-user-data";
 
 declare const BUILD_GIT_BRANCH: string;
 
@@ -78,7 +79,7 @@ app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
 if (process.env.TASKFLOW_DEV) {
     devBranch = BUILD_GIT_BRANCH;
     app.setName(`Taskflow Dev (${devBranch})`);
-    app.setPath("userData", join(homedir(), ".config", `taskflow-dev-${devBranch}`));
+    app.setPath("userData", devUserDataPath(process.env, homedir(), devBranch));
 }
 
 // --- Single instance lock ---
