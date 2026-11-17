@@ -2,7 +2,7 @@
 //
 // Not product code. Run it from a scratch dir that has playwright-core installed:
 //   cd <scratch> && bun add playwright-core@1.48.2
-//   bun <repo>/docs/superpowers/plans/2026-11-17-browser-passkeys/probe/webauthn-probe.ts \
+//   bun <repo>/docs/superpowers/plans/2026-11-17-browser-passkeys/spike/webauthn-probe.ts \
 //     <cdp-endpoint> <scratch>/node_modules/playwright-core/index.mjs [url]
 //
 // url defaults to https://example.com (a page that makes no WebAuthn calls of its own;
@@ -10,10 +10,17 @@
 // with "A request is already pending").
 //
 // Prints JSON: hasPKC, ua, uvpaa (isUserVerifyingPlatformAuthenticatorAvailable),
-// cma (isConditionalMediationAvailable), create (result of a 15 s create()),
-// ms (how long create() took to settle, or the race limit).
+// cma (isConditionalMediationAvailable), create (how a platform create() settled),
+// ms (how long it took).
 //
-// Baseline on Electron 33.4.11 (2026-11-17): uvpaa false, create "still pending after 20s".
+// Chromium clamps WebAuthn timeouts to at least 3 minutes, so a serviced request that
+// waits for a finger is still pending at 20 s. The probe aborts create() at 20 s and
+// reports "pending at 20s, aborted"; that result alone does not mean "not serviced".
+// The automated signal is uvpaa; the functional check is a real Touch ID touch.
+//
+// Lives under spike/ so repo lint skips it (it isn't in any workspace tsconfig).
+//
+// Baseline on Electron 33.4.11 (2026-11-17): uvpaa false, create pending at 20 s.
 
 const [endpoint, playwrightPath, url = "https://example.com"] = process.argv.slice(2);
 if (!endpoint || !playwrightPath) {
@@ -43,8 +50,10 @@ const result = await page.evaluate(async () => {
         out.cma = String(e);
     }
     const started = Date.now();
+    const controller = new AbortController();
     try {
         const pending = navigator.credentials.create({
+            signal: controller.signal,
             publicKey: {
                 challenge: crypto.getRandomValues(new Uint8Array(32)),
                 rp: { name: "probe", id: location.hostname },
@@ -62,12 +71,16 @@ const result = await page.evaluate(async () => {
                 timeout: 15000,
             },
         });
-        out.create = await Promise.race([
-            pending.then(() => "resolved"),
-            new Promise((resolve) => setTimeout(() => resolve("still pending after 20s"), 20000)),
-        ]);
+        const timer = setTimeout(() => controller.abort(), 20000);
+        try {
+            await pending;
+            out.create = "resolved";
+        } finally {
+            clearTimeout(timer);
+        }
     } catch (e) {
-        out.create = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        if (controller.signal.aborted) out.create = "pending at 20s, aborted";
+        else out.create = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     }
     out.ms = Date.now() - started;
     return out;

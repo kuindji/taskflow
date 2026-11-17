@@ -18,7 +18,7 @@
 
 Set `"electron": "45.3.3"` in `electron/package.json`, then `bun install` at the root.
 Then make sure the binary exists. Since Electron 42 the binary is downloaded on the first run of `electron`'s bin (or with `install-electron`), not at install time. Run `cd electron && bunx electron --version`.
-Expected: `v45.3.3`. If the download doesn't happen through bun, run the package's `install-electron` bin explicitly. Record what worked in `handoff.md` Facts. The dev script (`electron .`) and electron-builder must both find the binary.
+Expected: `v45.3.3`. If the download doesn't happen through bun, run the package's `install-electron` bin explicitly (`cd electron && bunx install-electron --no`). Record what worked in `handoff.md` Facts. The dev script (`electron .`) and electron-builder must both find their binary. electron-builder downloads its own Electron distribution for packaging, separately from the dev binary, so warming one doesn't prove the other: the Step 11 package build is the check for builder.
 
 - [ ] **Step 3: Typecheck, lint, test**
 
@@ -55,7 +55,7 @@ In-memory only, using `path.dirname` for files. Run the test. Expected: PASS.
 
 - [ ] **Step 7: Use it in `ipc-handlers.ts`**
 
-Create one tracker inside the handler-registration function. Pass `defaultPath: tracker.defaultPath()` to the three `showOpenDialog` calls (`select-project-directory`, `select-theme-file`, `select-file`). On a non-cancelled result, call `remember(result.filePaths[0], <kind>)`. Leave `showSaveDialog` as it is: it already passes a Downloads-based `defaultPath`.
+Inside the handler-registration function, create one tracker per dialog, so that picking a theme file doesn't move where the project picker opens: `projectDirectoryPath`, `themeFilePath`, `filePath`. Pass `defaultPath: <its tracker>.defaultPath()` to each of the three `showOpenDialog` calls (`select-project-directory`, `select-theme-file`, `select-file`). On a non-cancelled result with a path, call `remember(result.filePaths[0], <kind>)`. Leave `showSaveDialog` as it is: it passes a Downloads-based `defaultPath` when there's a name, and Downloads is now the default otherwise, which suits saves.
 
 - [ ] **Step 8: Notification failure logging**
 
@@ -71,22 +71,24 @@ git commit -m "build(electron): upgrade to 45.3.3"
 
 - [ ] **Step 10: Dev-run smoke (sandboxed)**
 
-Run `bun run build` at the root. Then in the background: `cd electron && TASKFLOW_DEV=1 TASKFLOW_CONFIG_DIR=<abs scratch> bunx electron . > <scratch>/dev.log 2>&1`. Check each of these and record pass/fail in `handoff.md`:
-- `Backend started on port` in the log; no uncaught errors.
-- Open a tab: `POST /api/browser/tabs` (see Facts). Then `bun probe/webauthn-probe.ts <endpoint> <playwright-core>`. Expected: `ua` contains `Electron/45.3.3`. `uvpaa` is still `false` here (nothing is configured yet).
+Run `bun run build` at the root. Then start the dev app with the **dev** launch recipe in `handoff.md` Facts. Never use `bun run dev:electron`: its `TASKFLOW_DEV=1` only applies to `cd`, so it runs against the owner's real profile and data. Check each of these and record pass/fail in `handoff.md`:
+- `Backend started on port` in the log; no uncaught errors; `$S/electron-user-data/` is in use.
+- Open a tab with the recipe's authenticated `POST /api/browser/tabs`. Then, from the repo root, run `bun docs/superpowers/plans/2026-11-17-browser-passkeys/spike/webauthn-probe.ts "$ENDPOINT" <scratch>/node_modules/playwright-core/index.mjs` (install per the probe header). Expected: `ua` contains `Electron/45.3.3`. `uvpaa` is still `false` here (nothing is configured yet).
 - Playwright through the endpoint: `page.click` on a link navigates. On a test page, `window.open` creates a child that shows up in `GET /api/browser/tabs` with `parentId`.
 - Main window renderer over the app debug port (`DevToolsActivePort`): `Runtime.evaluate("document.title")` works, and a screenshot by window id shows the UI.
-- Create a session in the seeded project over the WS API and check the terminal produces output (see the dev-backend sandbox notes in the agent-browser handoff Facts).
-Then kill the app.
+- Over the recipe's WS connection: `project:add` a scratch git repo, `session:create` a `shell` session (`/bin/zsh`) in it, send `session:input` `echo smoke-ok\r`, and see `smoke-ok` in a `terminal:output` frame. Check the payload shapes in `packages/shared/src/types/ws.ts` first.
+Then stop the app with the recipe's stop command.
 
 - [ ] **Step 11: Signed-package smoke**
 
-Run `bun run package`, then start the binary sandboxed (Facts). Check:
+Run `bun run package`, then start the binary with the **packaged** launch recipe (Facts). Check:
 - it launches;
-- the codesign entitlements are unchanged from Section 1;
+- the codesign entitlements and the embedded profile are unchanged from Section 1 (rerun Section 1 Step 11's checks);
 - a tab opens through the API.
+- **Notification:** send the recipe's `POST /api/notifications`. Pass if, within 15 s, `app.log` has no `Desktop notification failed` line, and a Notification Center banner for the app shows up in the on-screen window list (list windows without activating anything, e.g. a `swift -e` one-liner with `CGWindowListCopyWindowInfo`; banners are owned by `NotificationCenter`). If the window list can't show it, use `log show --last 2m --predicate 'process == "usernoted" OR process == "NotificationCenter"' | grep -i taskflow` as the evidence instead. A `failed` line, or no evidence at all, is a fail: stop and notify, because the spec forbids shipping broken notifications.
+- **Updater:** over the app debug port (`$S/electron-user-data/DevToolsActivePort`), evaluate `window.taskflow.getUpdateState()` in the main window. Pass if it settles to a no-update/available state with a `checkedAt` time and `app.log` has no `[updater] Error`. Record the state.
 
-A desktop notification shows when a backend notification arrives. To trigger one, use the WS/HTTP API the notification poller reads (`packages/backend` notifications), or `taskflow-cli notify` pointed at the sandbox backend (`TASKFLOW_API_URL`). If a notification can't be triggered sandboxed, record "not verified" rather than guessing. Kill the app.
+Stop the app with the recipe's stop command.
 
 - [ ] **Step 12: Diff review, then hand off**
 

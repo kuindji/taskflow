@@ -29,6 +29,7 @@ integrated browser on their Mac via Touch ID.
   `platformPasskeys`, which is limited to domains the app is associated with
   (AASA file on the site) — useless for arbitrary sites. Not pursued.
 - Phone/QR (hybrid) passkeys and a Chrome-like account picker — Electron has neither.
+  (A minimal native account chooser *is* in scope; see Part 2.)
 - Making passkeys work in unsigned dev runs (`bun run dev:electron`). Touch ID needs the
   signed bundle's entitlement; dev runs may keep hanging.
 - Windows Hello / Linux work. Not tested; only typecheck and tests must pass (see
@@ -57,14 +58,21 @@ integrated browser on their Mac via Touch ID.
   Until called, platform authenticator requests are not serviced. Credentials are
   device-bound (Secure Enclave), per-session-partition, not synced. Docs:
   https://github.com/electron/electron/blob/main/docs/api/app.md
-- Open fact: Electron docs single out `associated-domains` as provisioning-profile
-  backed, implying `keychain-access-groups` is not. Apple treats
-  `keychain-access-groups` as a restricted entitlement on macOS in some contexts. It is
-  **unverified** whether a Developer ID signed build with this entitlement launches and
-  works without an embedded provisioning profile. This must be verified first in the
-  WebAuthn part (see below); if a profile is needed, the owner creates a Developer ID
-  provisioning profile for `com.taskflow.app` in the Apple Developer portal and the
-  build embeds it (`mac.provisioningProfile` in electron-builder).
+- Provisioning profile (resolved in plan review round 1): Apple TN3125 ("Entitlements
+  on macOS") says `keychain-access-groups` is a restricted entitlement that must be
+  authorized by a provisioning profile. So the owner creates a Developer ID provisioning
+  profile for `com.taskflow.app` in the Apple Developer portal, and the build embeds it
+  (`mac.provisioningProfile` in electron-builder) together with the
+  `com.apple.application-identifier` and `com.apple.developer.team-identifier`
+  entitlements. osx-sign doesn't add those for apps without App Sandbox.
+- Discoverable-credential sign-in (resolved in plan review round 1): Electron 45 cancels
+  every discoverable Touch ID `get()` with `NotAllowedError`, even with one matching
+  credential, unless the session has a `select-webauthn-account` listener
+  (`docs/api/session.md`).
+- Test sandbox: with `TASKFLOW_DEV=1`, Electron's `userData` is
+  `~/.config/taskflow-dev-<branch>` regardless of `TASKFLOW_CONFIG_DIR`, and
+  `bun run dev:electron` doesn't actually pass `TASKFLOW_DEV` to Electron. Test runs need
+  `userData` inside `TASKFLOW_CONFIG_DIR` and must not use that script.
 
 ### Electron 34–45 breaking changes that touch this codebase
 
@@ -112,11 +120,12 @@ A preflight, then two parts, in order.
 ### Part 0 — Entitlement preflight (builder-check call, made by Claude)
 
 The `keychain-access-groups` signing question does not depend on the Electron version,
-so answer it before the expensive upgrade: sign the current Electron 33 package with
-the entitlement added and see whether it launches. If it only launches with an embedded
-Developer ID provisioning profile, stop and hand off to the owner, who creates the
-profile for `com.taskflow.app` in the Apple Developer portal; the build then embeds it.
-Do not start Part 1 until the entitlement is known to work, with or without a profile.
+so answer it before the expensive upgrade. First make dev runs keep Electron's
+`userData` inside `TASKFLOW_CONFIG_DIR`. Then sign the current Electron 33 package with
+the entitlement added and launch it without a profile (evidence only), and hand off to
+the owner, who creates the Developer ID profile for `com.taskflow.app`. The build then
+embeds the profile, and the signed, profile-backed app must launch. Do not start Part 1
+until it does.
 
 ### Part 1 — Electron 33 → 45.3.3 upgrade
 
@@ -125,7 +134,7 @@ Do not start Part 1 until the entitlement is known to work, with or without a pr
 - Make the binary download work under the new on-demand model for `bun install`,
   `bun run dev:electron`, and packaging.
 - Fix every breaking change that applies (list above + full doc audit).
-- Verify: typecheck/lint/tests; `bun run dev:electron` app runs (sessions, terminals,
+- Verify: typecheck/lint/tests; the sandboxed dev app runs (sessions, terminals,
   browser tabs, agent CDP via `taskflow-cli browser open` + Playwright); a signed
   `bun run package` build launches, notifications show, updater initializes.
 
@@ -136,10 +145,15 @@ Do not start Part 1 until the entitlement is known to work, with or without a pr
 - In main, on macOS, call
   `app.configureWebAuthn({ touchID: { keychainAccessGroup: "9SX8S58CA8.com.taskflow.app.webauthn", promptReason: "sign in to $1" } })`
   so it is in effect before any browser tab makes a WebAuthn request.
-- Verify first that the signed build with the entitlement launches (provisioning
-  profile question above). Then in a signed build: on webauthn.io, register and
-  authenticate with Touch ID; `isUserVerifyingPlatformAuthenticatorAvailable()` is
-  `true`; then one real site of the owner's choosing.
+- Register `select-webauthn-account` on the `persist:browser` session (only when
+  configure succeeded): one matching account is picked automatically (Touch ID still
+  needs a finger); several → a native `dialog.showMessageBox` chooser with Cancel;
+  none/cancel/error → cancel. The callback runs exactly once.
+- Verify in a signed build: `isUserVerifyingPlatformAuthenticatorAvailable()` is
+  `true`; on webauthn.io, register and authenticate with Touch ID, including with an
+  empty username (discoverable) and with two accounts (chooser + cancel); then one real
+  site of the owner's choosing. WebAuthn timeouts are clamped to ≥ 3 minutes by
+  Chromium, so automated checks can't use "settles within N s" as a signal.
 - Agent tabs share the partition, so they can trigger the Touch ID prompt; the prompt
   needs a physical finger, so no extra gating.
 

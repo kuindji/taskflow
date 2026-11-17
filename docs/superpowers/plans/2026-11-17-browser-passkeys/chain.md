@@ -35,7 +35,7 @@ Write the reason under **Next step** in `handoff.md` before notifying. Don't pus
 
 ## Plan review rounds ("Plan review round N")
 
-1. Run a prompted review. Brief (save as `reviews/plan-round-N-prompt.md`): review the spec and the plan (index, chain, sections 01–04, probe) against the real code in `electron/`; look for wrong file/line claims, wrong Electron 45 / electron-builder 26 assumptions (especially `app.configureWebAuthn`, the on-demand binary download from Electron 42, signing/entitlements, provisioning profiles), missing spec requirements, unsafe or irreversible steps not owner-gated. Round N>1: also check that round N−1's fixes hold. Report to `reviews/plan-round-N.md`.
+1. Run a prompted review. Brief (save as `reviews/plan-round-N-prompt.md`): review the spec and the plan (index, chain, handoff, sections 01–04, `spike/webauthn-probe.ts`) against the real code in `electron/`; look for wrong file/line claims, wrong Electron 45 / electron-builder 26 assumptions (especially `app.configureWebAuthn`, the on-demand binary download from Electron 42, signing/entitlements, provisioning profiles), missing spec requirements, unsafe or irreversible steps not owner-gated. Round N>1: also check that round N−1's fixes hold. Report to `reviews/plan-round-N.md`.
 2. Verify every finding against the code/docs yourself. One line each in `reviews/plan-round-N-triage.md`: `confirmed` / `rejected` + why.
 3. Fold confirmed findings into the section files (and the spec if it changes the design). Add a line to "Plan review log" in the index.
 4. Any confirmed blocker/major → **Next step** "Plan review round N+1". Otherwise → "Implement Section 1". Cap: if round 3 still has a confirmed blocker/major, stop and notify.
