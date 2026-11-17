@@ -47,7 +47,15 @@ integrated browser on their Mac via Touch ID.
 - Current: `electron ^33.0.0` (33.4.11), `electron-builder ^26.8.1`,
   `@electron/notarize ^3.1.1`, bun workspace. Electron main-process code lives in
   `electron/src/`; built by `electron/build.ts` to `electron/dist/`.
-- Mac signing: identity `Ivan Kuindzhi (9SX8S58CA8)`, `appId` `com.taskflow.app`,
+- Bundle ID (changed in Section 1, owner decision 2026-11-17): `com.taskflow.app` is registered
+  to another Apple team, so no App ID or profile can exist for it. The mac build uses
+  `build.mac.appId` = `com.kuindji.taskflow`; the top-level `appId` stays `com.taskflow.app`, so
+  Windows/Linux (NSIS GUID, AppUserModelID) don't change. Cost: installed mac copies can't
+  auto-update across the change, because Squirrel.Mac checks the update against the running app's
+  designated requirement (`identifier "com.taskflow.app" …`). Every mac install needs one manual
+  reinstall, and macOS asks again for permissions keyed by bundle ID (notifications, local network).
+  App data stays put (`userData` follows the product name `Taskflow`).
+- Mac signing: identity `Ivan Kuindzhi (9SX8S58CA8)`, mac `appId` `com.kuindji.taskflow`,
   hardened runtime, `entitlements.mac.plist` used for both `entitlements` and
   `entitlementsInherit`, notarized via `scripts/notarize.js`.
 - Owner's machine: Apple silicon, macOS 27 (Darwin 27.2). Electron 44 drops macOS 12 —
@@ -61,7 +69,7 @@ integrated browser on their Mac via Touch ID.
 - Provisioning profile (resolved in plan review round 1): Apple TN3125 ("Entitlements
   on macOS") says `keychain-access-groups` is a restricted entitlement that must be
   authorized by a provisioning profile. So the owner creates a Developer ID provisioning
-  profile for `com.taskflow.app` in the Apple Developer portal, and the build embeds it
+  profile for `com.kuindji.taskflow` in the Apple Developer portal, and the build embeds it
   (`mac.provisioningProfile` in electron-builder) together with the
   `com.apple.application-identifier` and `com.apple.developer.team-identifier`
   entitlements. osx-sign doesn't add those for apps without App Sandbox.
@@ -123,7 +131,7 @@ The `keychain-access-groups` signing question does not depend on the Electron ve
 so answer it before the expensive upgrade. First make dev runs keep Electron's
 `userData` inside `TASKFLOW_CONFIG_DIR`. Then sign the current Electron 33 package with
 the entitlement added and launch it without a profile (evidence only), and hand off to
-the owner, who creates the Developer ID profile for `com.taskflow.app`. The build then
+the owner, who creates the Developer ID profile for `com.kuindji.taskflow`. The build then
 embeds the profile, and the signed, profile-backed app must launch. Do not start Part 1
 until it does.
 
@@ -143,9 +151,9 @@ until it does.
 ### Part 2 — Touch ID passkeys
 
 - Add to `entitlements.mac.plist`:
-  `keychain-access-groups` = [`9SX8S58CA8.com.taskflow.app.webauthn`].
+  `keychain-access-groups` = [`9SX8S58CA8.com.kuindji.taskflow.webauthn`].
 - In main, on macOS, call
-  `app.configureWebAuthn({ touchID: { keychainAccessGroup: "9SX8S58CA8.com.taskflow.app.webauthn", promptReason: "sign in to $1" } })`
+  `app.configureWebAuthn({ touchID: { keychainAccessGroup: "9SX8S58CA8.com.kuindji.taskflow.webauthn", promptReason: "sign in to $1" } })`
   so it is in effect before any browser tab makes a WebAuthn request.
 - Register `select-webauthn-account` on the `persist:browser` session (only when
   configure succeeded): one matching account is picked automatically; several → a
@@ -168,8 +176,9 @@ until it does.
   first. The plan then ends with a version bump and a published mac release
   (`release:mac-all` path, notarized). `release:mac-all` uploads to a GitHub **draft**
   (electron-builder's default); the owner publishes the draft, optionally after adding
-  Linux assets as in earlier releases. The owner confirms that the installed 0.16.1 app
-  auto-updates to it and that passkeys work in the updated app. Uploading and
+  Linux assets as in earlier releases. The owner installs 0.17.0 by hand over 0.16.1 (the
+  mac bundle ID change rules out auto-update across it) and confirms that passkeys work
+  in the installed app. Uploading and
   publishing are owner-gated: the agent asks before uploading and never publishes the
   draft itself.
 - **Windows/Linux: typecheck and tests only.** No Windows or Linux artifacts are built

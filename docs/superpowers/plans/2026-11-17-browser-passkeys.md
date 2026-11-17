@@ -4,7 +4,7 @@
 
 **Goal:** "Sign in with passkey" works in Taskflow's integrated browser on the owner's Mac through Touch ID.
 
-**Architecture:** Upgrade Electron 33.4.11 → 45.3.3, which has a macOS Touch ID platform authenticator for WebAuthn. Add the `keychain-access-groups` entitlement `9SX8S58CA8.com.taskflow.app.webauthn` to the signed app, authorized by an embedded Developer ID provisioning profile (a restricted entitlement on macOS, Apple TN3125). Call `app.configureWebAuthn({ touchID })` at startup and register a `select-webauthn-account` listener on the `persist:browser` session, so tabs can create device-bound passkeys and sign in with them. A preflight first fixes the test sandbox and proves the entitlement + profile can be signed and launched at all.
+**Architecture:** Upgrade Electron 33.4.11 → 45.3.3, which has a macOS Touch ID platform authenticator for WebAuthn. Add the `keychain-access-groups` entitlement `9SX8S58CA8.com.kuindji.taskflow.webauthn` to the signed app, authorized by an embedded Developer ID provisioning profile (a restricted entitlement on macOS, Apple TN3125). Call `app.configureWebAuthn({ touchID })` at startup and register a `select-webauthn-account` listener on the `persist:browser` session, so tabs can create device-bound passkeys and sign in with them. A preflight first fixes the test sandbox and proves the entitlement + profile can be signed and launched at all.
 
 **Tech Stack:** Bun, TypeScript, Electron 45.3.3, electron-builder 26, `@electron/notarize`, bun:test, Playwright (`playwright-core`, probe only, not a dependency), Codex CLI (`gpt-6.1-sol`) for reviews.
 
@@ -30,11 +30,12 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
 
 ## Cross-section interfaces (fixed names)
 
+- Mac bundle ID: `build.mac.appId` = `com.kuindji.taskflow` (Section 1; `com.taskflow.app` belongs to another Apple team). The top-level `appId` stays `com.taskflow.app` for Windows/Linux. Consequences are in the spec ("Bundle ID").
 - Keychain access group, used verbatim in the entitlement and the code:
-  `9SX8S58CA8.com.taskflow.app.webauthn`
+  `9SX8S58CA8.com.kuindji.taskflow.webauthn`
 - Entitlement files (Section 1 creates the split; later sections use these exact paths):
   - `electron/entitlements.mac.plist` — main app: the existing four keys + `keychain-access-groups`
-    + `com.apple.application-identifier` (`9SX8S58CA8.com.taskflow.app`) + `com.apple.developer.team-identifier` (`9SX8S58CA8`).
+    + `com.apple.application-identifier` (`9SX8S58CA8.com.kuindji.taskflow`) + `com.apple.developer.team-identifier` (`9SX8S58CA8`).
   - `electron/entitlements.inherit.mac.plist` — helpers: the existing four keys only.
   - `electron/package.json` `build.mac.entitlementsInherit` → `entitlements.inherit.mac.plist`;
     `build.mac.provisioningProfile` → `build/embedded.provisionprofile` (file committed at `electron/build/embedded.provisionprofile`).
@@ -42,7 +43,7 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
   - `export function devUserDataPath(env: Readonly<Record<string, string | undefined>>, home: string, branch: string): string`
     — `<TASKFLOW_CONFIG_DIR>/electron-user-data` when set (absolute, else throws), otherwise `<home>/.config/taskflow-dev-<branch>`. Used only when `TASKFLOW_DEV` is set.
 - WebAuthn module (Section 3): `electron/src/webauthn.ts`
-  - `export const WEBAUTHN_KEYCHAIN_ACCESS_GROUP = "9SX8S58CA8.com.taskflow.app.webauthn";` (not exported unless the test needs it — the test does)
+  - `export const WEBAUTHN_KEYCHAIN_ACCESS_GROUP = "9SX8S58CA8.com.kuindji.taskflow.webauthn";` (not exported unless the test needs it — the test does)
   - `export function configureTouchIdWebAuthn(deps: WebAuthnDeps): boolean`
   - `interface WebAuthnDeps { platform: NodeJS.Platform; isPackaged: boolean; configure(options: Electron.ConfigureWebAuthnOptions): void; warn(message: string, error?: unknown): void }`
     (type name checked in `electron@45.3.3/electron.d.ts`)
@@ -83,3 +84,4 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
 - Round 1 (2026-11-17): 8 Codex findings + 2 own, all 10 confirmed (8 major, 2 minor) and folded (`reviews/plan-round-1-triage.md`). Added: account-selection listener, profile as the expected path, dev `userData` sandbox fix, full smoke recipe, abort-based probe under `spike/`, positive notification/updater/real-site gates. Next: round 2.
 - Round 2 (2026-11-17): 5 Codex findings + 2 own, all 7 confirmed (3 major, 4 minor) and folded (`reviews/plan-round-2-triage.md`). Changed: the release uploads a GitHub draft that the owner publishes; the notification gate checks `Notification.getHistory()` for a unique message; the owner flow is touch-then-choose; the recipe and Session B checks are fixed; the real-site passkey is cleaned up; Section 3 probes with `--uvpaa-only`. Next: round 3.
 - Round 3 (2026-11-17): 3 Codex findings, all confirmed (2 minor, 1 nit), no blocker/major; folded (`reviews/plan-round-3-triage.md`). Changed: the launch recipe's process guard matches the repo-root dev launch; sandbox `taskflow-cli` use is spelled out (URL and token set after the scrub); the updater pass condition names the real `idle` state. Next: Implement Section 1.
+- Section 1 (2026-11-17, not a review): Apple refused App ID `com.taskflow.app` (taken by another team). Owner chose `com.kuindji.taskflow` for mac only; the plan, spec and entitlement were updated. Section 2 Step 11 and Section 4 Steps 5–6 were adjusted for the new ID (notification permission, no auto-update across the change).

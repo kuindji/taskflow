@@ -72,7 +72,7 @@ Create `electron/entitlements.inherit.mac.plist` with exactly the current four k
 ```xml
 <key>keychain-access-groups</key>
 <array>
-    <string>9SX8S58CA8.com.taskflow.app.webauthn</string>
+    <string>9SX8S58CA8.com.kuindji.taskflow.webauthn</string>
 </array>
 ```
 
@@ -94,7 +94,7 @@ codesign -d --entitlements - --xml "$APP" | plutil -p -
 codesign -d --entitlements - --xml "$APP/Contents/Frameworks/Taskflow Helper (Renderer).app" | plutil -p -
 ls "$APP/Contents/embedded.provisionprofile"
 ```
-Expected: verify passes. The main app shows `keychain-access-groups` = `9SX8S58CA8.com.taskflow.app.webauthn`, the renderer helper does not, and no `embedded.provisionprofile` exists.
+Expected: verify passes. The main app shows `keychain-access-groups` = `9SX8S58CA8.com.kuindji.taskflow.webauthn`, the renderer helper does not, and no `embedded.provisionprofile` exists.
 
 - [ ] **Step 7: Launch sandboxed (evidence only)**
 
@@ -119,8 +119,8 @@ Note for later sessions (put it in Facts): until Session B lands, a signed build
 If `electron/build/embedded.provisionprofile` already exists, set **Next step** → "Section 1 profile" and continue the chain normally.
 
 Otherwise, stop the chain and notify: `Passkeys: preflight needs a Developer ID provisioning profile`. Under **Next step** in `handoff.md`, write "Section 1 profile (waiting for the owner)" and these owner instructions:
-1. Apple Developer portal → Certificates, Identifiers & Profiles → Identifiers. Make sure an explicit App ID `com.taskflow.app` exists for team 9SX8S58CA8. No extra capabilities are needed: the profile grants `9SX8S58CA8.*` keychain groups by default.
-2. Profiles → "+" → Distribution → **Developer ID** → App ID `com.taskflow.app` → certificate "Developer ID Application: Ivan Kuindzhi (9SX8S58CA8)" → name it → Generate → Download.
+1. Apple Developer portal → Certificates, Identifiers & Profiles → Identifiers. Make sure an explicit App ID `com.kuindji.taskflow` exists for team 9SX8S58CA8. No extra capabilities are needed: the profile grants `9SX8S58CA8.*` keychain groups by default.
+2. Profiles → "+" → Distribution → **Developer ID** → App ID `com.kuindji.taskflow` → certificate "Developer ID Application: Ivan Kuindzhi (9SX8S58CA8)" → name it → Generate → Download.
 3. Save it as `electron/build/embedded.provisionprofile`, then start a session with the usual chain prompt.
 
 ## Session B ("Section 1 profile")
@@ -141,14 +141,14 @@ for i in 0 1 2 3; do plutil -extract DeveloperCertificates.$i raw "$S/profile.pl
 security find-identity -v -p codesigning | grep "Developer ID Application: Ivan Kuindzhi (9SX8S58CA8)"
 ```
 All of these must hold, or stop and notify with what's wrong:
-- `Entitlements` has `com.apple.application-identifier` = `9SX8S58CA8.com.taskflow.app`, `com.apple.developer.team-identifier` = `9SX8S58CA8`, and `keychain-access-groups` contains `9SX8S58CA8.*` or `9SX8S58CA8.com.taskflow.app.webauthn`;
+- `Entitlements` has `com.apple.application-identifier` = `9SX8S58CA8.com.kuindji.taskflow`, `com.apple.developer.team-identifier` = `9SX8S58CA8`, and `keychain-access-groups` contains `9SX8S58CA8.*` or `9SX8S58CA8.com.kuindji.taskflow.webauthn`;
 - `TeamIdentifier.0` = `9SX8S58CA8`; `ExpirationDate` is in the future; `ProvisionsAllDevices` = `true` (a Developer ID profile);
 - one `DeveloperCertificates` SHA-1 equals the hash `find-identity` prints for the Developer ID Application identity.
 
 - [ ] **Step 10: Embed it**
 
 - `electron/package.json`: `build.mac.provisioningProfile` = `"build/embedded.provisionprofile"`.
-- `electron/entitlements.mac.plist` (main app only, not the inherit plist): add `com.apple.application-identifier` = `9SX8S58CA8.com.taskflow.app` and `com.apple.developer.team-identifier` = `9SX8S58CA8`. osx-sign won't add them for us: its automatic entitlements are skipped for apps without `com.apple.security.app-sandbox`.
+- `electron/entitlements.mac.plist` (main app only, not the inherit plist): add `com.apple.application-identifier` = `9SX8S58CA8.com.kuindji.taskflow` and `com.apple.developer.team-identifier` = `9SX8S58CA8`. osx-sign won't add them for us: its automatic entitlements are skipped for apps without `com.apple.security.app-sandbox`.
 
 - [ ] **Step 11: Rebuild, verify, launch**
 
@@ -164,7 +164,7 @@ codesign -dv "$APP" 2>&1 | grep TeamIdentifier
 ```
 Expected:
 - verify passes;
-- the main app's entitlements are exactly the four keys + `keychain-access-groups` (`9SX8S58CA8.com.taskflow.app.webauthn`) + `com.apple.application-identifier` (`9SX8S58CA8.com.taskflow.app`) + `com.apple.developer.team-identifier` (`9SX8S58CA8`);
+- the main app's entitlements are exactly the four keys + `keychain-access-groups` (`9SX8S58CA8.com.kuindji.taskflow.webauthn`) + `com.apple.application-identifier` (`9SX8S58CA8.com.kuindji.taskflow`) + `com.apple.developer.team-identifier` (`9SX8S58CA8`);
 - the renderer helper has only the four keys;
 - `profile-ok` is printed;
 - `TeamIdentifier=9SX8S58CA8`.

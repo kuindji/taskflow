@@ -29,7 +29,7 @@ Call both inside the existing `app.whenReady()` path, before the window manager 
 ```ts
 const options = {
     touchID: {
-        keychainAccessGroup: "9SX8S58CA8.com.taskflow.app.webauthn",
+        keychainAccessGroup: "9SX8S58CA8.com.kuindji.taskflow.webauthn",
         promptReason: "sign in to $1",
     },
 };

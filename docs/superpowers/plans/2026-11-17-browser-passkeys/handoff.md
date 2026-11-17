@@ -6,12 +6,7 @@ Plan: `../2026-11-17-browser-passkeys.md`. Spec: `docs/superpowers/specs/2026-11
 
 ## Next step
 
-Section 1 profile (waiting for the owner). Session A (Steps 1–8) is done; the chain stopped at the owner-gated Step 8.
-
-Owner:
-1. Apple Developer portal → Certificates, Identifiers & Profiles → Identifiers. Make sure an explicit App ID `com.taskflow.app` exists for team 9SX8S58CA8. No extra capabilities are needed: the profile grants `9SX8S58CA8.*` keychain groups by default.
-2. Profiles → "+" → Distribution → **Developer ID** → App ID `com.taskflow.app` → certificate "Developer ID Application: Ivan Kuindzhi (9SX8S58CA8)" → name it → Generate → Download.
-3. Save it as `electron/build/embedded.provisionprofile`, then start a session with the usual chain prompt (Session B runs `01-preflight.md` Steps 9–12).
+Implement Section 2
 
 ## Status
 
@@ -20,7 +15,7 @@ Owner:
 | — | Plan review round 1 | done: 10 findings confirmed (8 major, 2 minor), folded; `reviews/plan-round-1-triage.md` | see git log |
 | — | Plan review round 2 | done: 7 findings confirmed (3 major, 4 minor), folded; `reviews/plan-round-2-triage.md` | see git log |
 | — | Plan review round 3 | done: 3 findings confirmed (2 minor, 1 nit), folded; no blocker/major; `reviews/plan-round-3-triage.md` | see git log |
-| 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | A done (base `d115dad9`); B waits for the owner's profile | `badb7772`, `4dc780d7` |
+| 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | done, **gate passed** (base `d115dad9`) | `badb7772`, `4dc780d7`, `833216c0` |
 | 2 | Electron 45.3.3 upgrade | pending | |
 | 3 | Touch ID wiring + account selection | pending | |
 | 4 | Final review, owner checks, release | pending | |
@@ -35,8 +30,13 @@ Owner:
 - Electron 45.3.3 typings: `ConfigureWebAuthnOptions`, `SelectWebauthnAccountDetails`, `WebAuthnAccount`; Chromium clamps WebAuthn timeouts to ≥ 3 min. Apple TN3125: `keychain-access-groups` needs a profile on macOS.
 - No-profile launch (Section 1 Step 7, signed Electron 33 build with `keychain-access-groups`): **killed** at exec (exit 137, SIGKILL, empty `app.log`). `taskgated-helper: com.taskflow.app: Unsatisfied entitlements: keychain-access-groups` → `Disallowing: com.taskflow.app`. So a signed build of `main` does not launch until Session B embeds the profile. Nothing gets released before Section 4.
 - Step 3 fix proven by an unsigned dev launch (recipe, Electron 33): alive, backend up, `$S/electron-user-data/` populated, `~/.config/taskflow-dev-main` mtime unchanged.
-- On Electron 33 no `DevToolsActivePort` is written in `$S/electron-user-data/`. Use the `DevTools listening on ws://…` line in `app.log` for the app debug port.
+- `DevToolsActivePort` lands in `$S/electron-user-data/` for the packaged build, but wasn't there for the unsigned dev run (Electron 33). In that case use the `DevTools listening on ws://…` line in `app.log`.
 - In zsh, `log` is a builtin. Call `/usr/bin/log show …` for AMFI lines. The useful predicate includes `process == "taskgated-helper"` (that's where the rejection is logged, not `amfid`/`kernel`).
+- **Mac bundle ID is `com.kuindji.taskflow`** (`build.mac.appId`; top-level `appId` stays `com.taskflow.app` for Windows/Linux). Apple refused App ID `com.taskflow.app` because another team owns it. App ID `com.kuindji.taskflow` (description "Taskflow") was registered 2026-11-17. Keychain group: `9SX8S58CA8.com.kuindji.taskflow.webauthn`.
+- Profile `electron/build/embedded.provisionprofile` ("Taskflow Developer ID", portal id `6WZA99DX76`): app id `9SX8S58CA8.com.kuindji.taskflow`, keychain groups `9SX8S58CA8.*`, `ProvisionsAllDevices` true, cert SHA-1 `DDE285C9…2C4886` = signing identity. Profile `ExpirationDate` 2044-11-12. The embedded Developer ID cert expires 2027-02-01.
+- **Gate passed** (Section 1 Step 11, Electron 33, `833216c0`). `codesign --verify --deep --strict` is OK. Main-app entitlements are the 4 keys + group + application-identifier + team-identifier, the renderer helper has only the 4 keys, the embedded profile matches the repo file (`profile-ok`), `TeamIdentifier=9SX8S58CA8`, and the DR is `identifier "com.kuindji.taskflow" …`. Sandboxed launch: alive at 16 s, backend up, `taskgated-helper: allowing entitlement(s) for com.kuindji.taskflow due to provisioning profile`.
+- A `bun run package` (`--dir`) bundle has no `app-update.yml`. The packaged launch logs `[updater] Error: ENOENT … app-update.yml` (baseline, Electron 33). See Section 2 Step 11.
+- Notification permission is per bundle ID. `com.kuindji.taskflow` may not be authorized yet; Section 2 Step 11 says how to treat that.
 - **Launch recipe** (every app run). Work from the repo root. Shell state doesn't persist between Bash calls, so start each call with the setup line and re-derive what it needs:
   - Setup: `S=<absolute dir in this session's scratchpad>/run; mkdir -p "$S"` (same `S` all session). Before launching, `pgrep -fl "release/mac-arm64/Taskflow.app|MacOS/Electron (electron|\.)( |$)"` must print nothing that isn't yours; if it does, stop and ask.
   - Scrub: where a command below says `X`, write out this full prefix (`X` is not a real command): `env -u TASKFLOW_API_URL -u TASKFLOW_API_TOKEN -u TASKFLOW_SESSION_ID -u TASKFLOW_PROJECT_ID -u TASKFLOW_TASK_ID -u TASKFLOW_PORT_FILE -u TASKFLOW_RESTARTABLE`. Use it for the sandbox app launch, so nothing reaches the owner's real backend. Talk to the sandbox backend with `curl`/WS; no step needs `taskflow-cli` there. If one ever does, write the prefix and then `TASKFLOW_API_URL=http://127.0.0.1:$PORT TASKFLOW_API_TOKEN=$TOKEN` (the CLI exits without a URL). Don't use it for the chain's own `taskflow-cli` calls (`log`, `notify`, `agent run`, `session close`): those need this session's real context. `curl` calls carry an explicit URL and token, so they don't need it.
@@ -52,8 +52,12 @@ Owner:
 
 ## Owner notes (for the final notify)
 
+- Mac bundle ID changed to `com.kuindji.taskflow`. 0.16.x can't auto-update to 0.17.0; install it by hand once (Section 4 covers the release notes).
+- Profile backup: `~/Downloads/Taskflow_Developer_ID.provisionprofile` (same bytes as the repo file). When the Developer ID Application cert is renewed (current one expires 2027-02-01), regenerate the profile in the portal with the new cert and replace `electron/build/embedded.provisionprofile`. Otherwise signed builds won't launch.
+
 - Root `package.json` `dev:electron` (`TASKFLOW_DEV=1 cd electron && bun run dev`): the variable only reaches `cd`, so Electron runs in non-dev mode. Not fixed in this plan.
 
 ## Deviations
 
+- Section 1: the owner logged in to the Apple Developer portal and asked the agent to do the profile steps. Session A and Session B both ran in one session. The agent registered App ID `com.kuindji.taskflow` (owner's choice after `com.taskflow.app` was refused) and created the profile. Plan, spec and entitlement were updated for the new ID; Section 2 Step 11 and Section 4 Steps 5–6 were adjusted.
 - Section 1 Step 7: the signed app was killed before `main.ts` ran, so it couldn't prove the Step 3 fix. Added one unsigned dev launch (same recipe) to prove it.
