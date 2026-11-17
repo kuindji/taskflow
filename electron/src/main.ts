@@ -188,6 +188,10 @@ const notificationPoller = createNotificationPoller({
                       },
             );
         });
+        // Since Electron 42 (UNNotification), unsigned builds get `failed` instead of a banner.
+        desktopNotification.on("failed", (_event, error) => {
+            console.warn("Desktop notification failed:", error);
+        });
         desktopNotification.show();
     },
 });

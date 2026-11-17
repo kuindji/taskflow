@@ -217,13 +217,13 @@ function saveWindowState(): Promise<Response | undefined> | null {
 
 function showDockIcon(): void {
     if (process.platform === "darwin") {
-        void app.dock.show();
+        void app.dock?.show();
     }
 }
 
 function hideDockIcon(): void {
     if (process.platform === "darwin") {
-        app.dock.hide();
+        app.dock?.hide();
     }
 }
 
