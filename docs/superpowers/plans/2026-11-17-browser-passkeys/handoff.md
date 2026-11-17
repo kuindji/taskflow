@@ -6,7 +6,18 @@ Plan: `../2026-11-17-browser-passkeys.md`. Spec: `docs/superpowers/specs/2026-11
 
 ## Next step
 
-Section 4
+**Owner-gated: waiting for the owner's Touch ID check (Section 4 Step 4).** Chain stopped. Owner instructions:
+
+1. Keep your normal Taskflow running. From the repo root, start the test build sandboxed so it never touches your real data:
+   `TASKFLOW_DEV=1 TASKFLOW_CONFIG_DIR=/tmp/passkeys-check electron/release/mac-arm64/Taskflow.app/Contents/MacOS/Taskflow`
+   (`TASKFLOW_CONFIG_DIR` now also holds the browser profile.)
+2. In a browser tab in that window, open https://webauthn.io. Enter a username, click **Register**, and touch Touch ID. Then click **Authenticate** and touch again. Both should succeed.
+3. Passkey sign-in without a username: reload webauthn.io, leave the username empty, and click **Authenticate**. It should go straight to Touch ID (one passkey) and succeed.
+4. Two accounts: register a second username, reload, leave the username empty, and click **Authenticate**. Touch ID asks first; touch it. Then a "Choose a passkey" dialog lists both accounts. Pick one: it signs in as that account. Repeat (touch again) and click **Cancel** in the chooser: the page reports a failure and nothing hangs.
+5. A real site you use: add a passkey, sign out, and sign back in with it. Then delete that passkey in the site's account settings. Passkeys are tied to the browser profile, so this one only works in this test build. You'll check the real site again in the installed app after the update.
+6. If all of this works, start a session with "Passkeys: upload approved". That uploads 0.17.0 to a GitHub **draft** release; you publish it yourself. If anything fails, start a session with "Passkeys: owner check failed: <what you saw>".
+
+For the session that gets the reply: on "upload approved", do Section 4 Step 5 (the Step 3 notarized build passed, see Facts). On a failure, follow the failure paragraph at the end of Section 4 Step 4.
 
 ## Status
 
@@ -18,7 +29,7 @@ Section 4
 | 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | done, **gate passed** (base `d115dad9`) | `badb7772`, `4dc780d7`, `833216c0` |
 | 2 | Electron 45.3.3 upgrade | done (base `14ac16e9`); dev + signed smoke pass, notification pass, updater deferred; diff review clean (`reviews/impl-2-triage.md`) | `8381ca90`, `e1d6265d` |
 | 3 | Touch ID wiring + account selection | done (base `5cb6e3ea`); signed probe `uvpaa: true`, dev run clean; diff review clean (`reviews/impl-3-triage.md`) | `ed25dec4` |
-| 4 | Final review, owner checks, release | pending | |
+| 4 | Final review, owner checks, release | Steps 1–3 done (base `97d28c6e`): final review clean (`reviews/final-triage.md`), 0.17.0 notarized build passes all checks; **Step 4 waiting for owner** | `3d2ff180`, `a8825d26` |
 
 ## Final-review base
 
@@ -60,6 +71,9 @@ Section 4
 - Section 3 unsigned dev check: starts cleanly, no WebAuthn line in `app.log`, probe `uvpaa: false` (configure skipped, no listener).
 - Signed package path for Section 4: `electron/release/mac-arm64/Taskflow.app` (the `--dir` build; Section 4 Step 3 makes its own notarized build).
 - `persist:browser` is now one constant, `BROWSER_PARTITION` (`electron/src/browser-host/electron-views.ts`, re-exported from `browser-host/index.ts`). `main.ts` registers `select-webauthn-account` on it.
+
+- **Section 4 Step 3 (2026-11-17, `a8825d26`):** `bun run dist` built `Taskflow-0.17.0-arm64-mac.{dmg,zip}` (+ blockmaps, `latest-mac.yml`). The repo's own notarize hook notarized the app; electron-builder logs `skipped macOS notarization` for its built-in step, which is expected. `spctl` → `accepted`, `source=Notarized Developer ID`; stapler validate OK. Profile-backed checks all pass (verify, entitlements, renderer has 4 keys, `profile-ok`, `TeamIdentifier=9SX8S58CA8`, DR `com.kuindji.taskflow`), `CFBundleShortVersionString` 0.17.0, `app-update.yml` present. Sandboxed launch: alive, backend up, `taskgated-helper` allows via profile. **Updater check passed**: `getUpdateState()` → `status: "idle"`, `checkedAt` set, no `[updater] Error`. Probe `--uvpaa-only`: `uvpaa: true`, UA `TaskflowDev(main)/0.17.0 … Electron/45.3.3`. Notification check was not deferred (passed in Section 2), so the owner list has no extra item.
+- `notarytool history --keychain-profile taskflow-notarize` works (credentials OK for Step 5).
 
 ## Owner notes (for the final notify)
 
