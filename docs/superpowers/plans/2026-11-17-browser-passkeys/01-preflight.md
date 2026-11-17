@@ -127,7 +127,10 @@ Otherwise, stop the chain and notify: `Passkeys: preflight needs a Developer ID 
 
 - [ ] **Step 9: Inspect the profile before using it**
 
+Pick this session's scratch dir `S` as in the launch recipe (Facts). Shell state doesn't persist, so set `S` at the top of every Bash call that uses it.
+
 ```bash
+S=<absolute dir in this session's scratchpad>/run; mkdir -p "$S"
 P=electron/build/embedded.provisionprofile
 security cms -D -i "$P" > "$S/profile.plist"
 plutil -extract Entitlements xml1 -o - "$S/profile.plist"
@@ -149,10 +152,22 @@ All of these must hold, or stop and notify with what's wrong:
 
 - [ ] **Step 11: Rebuild, verify, launch**
 
-Rerun Steps 5–6 and check, in addition:
-- the main app's signed entitlements are the four keys + `keychain-access-groups` + both identifiers, and the renderer helper still has only the four;
-- `cmp "$APP/Contents/embedded.provisionprofile" electron/build/embedded.provisionprofile` succeeds;
-- `codesign -dv "$APP" 2>&1 | grep TeamIdentifier` → `9SX8S58CA8`.
+Rebuild with `bun run package` (repo root), as in Step 5. Step 6's "no `embedded.provisionprofile`" expectation no longer applies. Run these **profile-backed checks** instead (Section 2 Step 11 and Section 4 Step 3 reuse this list):
+
+```bash
+APP=electron/release/mac-arm64/Taskflow.app
+codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -d --entitlements - --xml "$APP" | plutil -p -
+codesign -d --entitlements - --xml "$APP/Contents/Frameworks/Taskflow Helper (Renderer).app" | plutil -p -
+cmp "$APP/Contents/embedded.provisionprofile" electron/build/embedded.provisionprofile && echo profile-ok
+codesign -dv "$APP" 2>&1 | grep TeamIdentifier
+```
+Expected:
+- verify passes;
+- the main app's entitlements are exactly the four keys + `keychain-access-groups` (`9SX8S58CA8.com.taskflow.app.webauthn`) + `com.apple.application-identifier` (`9SX8S58CA8.com.taskflow.app`) + `com.apple.developer.team-identifier` (`9SX8S58CA8`);
+- the renderer helper has only the four keys;
+- `profile-ok` is printed;
+- `TeamIdentifier=9SX8S58CA8`.
 
 Then launch sandboxed exactly as in Step 7. **Pass:** alive after 15 s, `Backend started on port` in the log, and no AMFI/taskgated rejection for Taskflow. **Fail:** gate failed. Record the AMFI lines in `handoff.md`, stop and notify `Passkeys: Section 1 gate failed`.
 

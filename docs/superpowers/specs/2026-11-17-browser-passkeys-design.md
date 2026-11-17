@@ -132,11 +132,13 @@ until it does.
 - Pin `electron` to 45.3.3 (latest stable on 2026-11-17) in `electron/package.json`;
   update `electron-builder`/`@electron/notarize`/`electron-updater` only if 45 needs it.
 - Make the binary download work under the new on-demand model for `bun install`,
-  `bun run dev:electron`, and packaging.
+  the dev launch (`electron .` from `electron/`, run sandboxed per the plan's launch
+  recipe, not through the broken `bun run dev:electron`), and packaging.
 - Fix every breaking change that applies (list above + full doc audit).
 - Verify: typecheck/lint/tests; the sandboxed dev app runs (sessions, terminals,
   browser tabs, agent CDP via `taskflow-cli browser open` + Playwright); a signed
-  `bun run package` build launches, notifications show, updater initializes.
+  `bun run package` build launches, a unique smoke notification shows up in
+  Notification Center (`Notification.getHistory()`), updater initializes.
 
 ### Part 2 — Touch ID passkeys
 
@@ -146,13 +148,16 @@ until it does.
   `app.configureWebAuthn({ touchID: { keychainAccessGroup: "9SX8S58CA8.com.taskflow.app.webauthn", promptReason: "sign in to $1" } })`
   so it is in effect before any browser tab makes a WebAuthn request.
 - Register `select-webauthn-account` on the `persist:browser` session (only when
-  configure succeeded): one matching account is picked automatically (Touch ID still
-  needs a finger); several → a native `dialog.showMessageBox` chooser with Cancel;
-  none/cancel/error → cancel. The callback runs exactly once.
+  configure succeeded): one matching account is picked automatically; several → a
+  native `dialog.showMessageBox` chooser with Cancel; none/cancel/error → cancel. The
+  callback runs exactly once. Chromium asks for Touch ID *before* it hands the
+  matching accounts to this listener, so the user touches first and then chooses.
 - Verify in a signed build: `isUserVerifyingPlatformAuthenticatorAvailable()` is
   `true`; on webauthn.io, register and authenticate with Touch ID, including with an
-  empty username (discoverable) and with two accounts (chooser + cancel); then one real
-  site of the owner's choosing. WebAuthn timeouts are clamped to ≥ 3 minutes by
+  empty username (discoverable) and with two accounts (touch, then chooser + cancel);
+  then one real site of the owner's choosing. Touch ID credentials are tied to the
+  browser profile (Electron keeps a per-profile metadata secret), so passkeys made in a
+  sandboxed test build don't show up in the installed app. WebAuthn timeouts are clamped to ≥ 3 minutes by
   Chromium, so automated checks can't use "settles within N s" as a signal.
 - Agent tabs share the partition, so they can trigger the Touch ID prompt; the prompt
   needs a physical finger, so no extra gating.
@@ -161,9 +166,12 @@ until it does.
 
 - **Mac: local verification plus a real release.** Verify on a local signed package
   first. The plan then ends with a version bump and a published mac release
-  (`release:mac-all` path, notarized). The owner confirms that the installed 0.16.1 app
-  auto-updates to it and that passkeys work in the updated app. Publishing is an
-  owner-gated step: the agent asks before running it.
+  (`release:mac-all` path, notarized). `release:mac-all` uploads to a GitHub **draft**
+  (electron-builder's default); the owner publishes the draft, optionally after adding
+  Linux assets as in earlier releases. The owner confirms that the installed 0.16.1 app
+  auto-updates to it and that passkeys work in the updated app. Uploading and
+  publishing are owner-gated: the agent asks before uploading and never publishes the
+  draft itself.
 - **Windows/Linux: typecheck and tests only.** No Windows or Linux artifacts are built
   in this plan. Packaging-script changes for the new Electron download model must not
   obviously break those paths, but they are not exercised.

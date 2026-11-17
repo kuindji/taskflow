@@ -2,8 +2,8 @@
 
 **Goal:** In the signed app, browser tabs see a working platform authenticator. `isUserVerifyingPlatformAuthenticatorAvailable()` returns `true`, `create()` is serviced, and passkey sign-in (`get()` with discoverable credentials) can pick an account. The owner's real-finger checks are in Section 4.
 
-Electron 45 cancels every discoverable Touch ID `get()` with `NotAllowedError`, even when only one credential matches, unless the session has a `select-webauthn-account` listener (`docs/api/session.md` at v45.3.3). So this section adds that listener as well as `configureWebAuthn`:
-- one matching account → picked automatically (Touch ID still asks for a finger);
+Electron 45 cancels every discoverable Touch ID `get()` with `NotAllowedError`, even when only one credential matches, unless the session has a `select-webauthn-account` listener (`docs/api/session.md` at v45.3.3). So this section adds that listener as well as `configureWebAuthn`. Chromium asks for Touch ID first and only then passes the matching accounts to the listener (`device/fido/mac/get_assertion_operation.mm`: `PromptTouchId` → `GenerateResponses`; then `AuthenticatorCommonImpl::OnSignResponse` → `SelectAccount`, Chromium 156.0.8078.100). So the user touches first, then chooses:
+- one matching account → picked automatically;
 - several → a native `dialog.showMessageBox` lists them, plus Cancel;
 - none, Cancel, or an error → the request is cancelled (`NotAllowedError` in the page).
 
@@ -154,10 +154,9 @@ git commit -m "feat(browser): enable Touch ID passkeys in browser tabs"
 
 - [ ] **Step 7: Signed-build check**
 
-Run `bun run package`. Start the binary with the packaged launch recipe (Facts) and open a tab on `https://example.com` through the API. Note the on-screen window list (without activating anything, e.g. `swift -e` with `CGWindowListCopyWindowInfo`), then run the probe. While `create()` is pending (the probe holds it for 20 s), list the windows again. Expected:
+Run `bun run package`. Start the binary with the packaged launch recipe (Facts) and open a tab on `https://example.com` through the API. Run the probe with `--uvpaa-only` (see its header). In this build a platform `create()` would put a real Touch ID dialog on the owner's screen, which steals focus, and a touch would leave a stray keychain item. So `create()` is left to the owner's hand check in Section 4. Expected:
 - `uvpaa: true`. **This is the required automated result.**
-- `create` is either `pending at 20s, aborted` or an error such as `NotAllowedError`. Chromium clamps WebAuthn timeouts to at least 3 minutes, so pending at 20 s is normal for a request waiting for a finger. The probe aborts it, which also dismisses any prompt.
-- Window evidence: record any window that appeared during `create()` (owner name and title, e.g. a LocalAuthentication / Touch ID sheet). This is evidence for the owner's check, not a gate.
+- `create` is `skipped`.
 - `app.log` has no WebAuthn warning from `configureTouchIdWebAuthn`.
 
 Also run the unsigned dev app with the dev launch recipe (never `bun run dev:electron`). It starts cleanly and logs no WebAuthn error, because configure is skipped and no listener is registered.
@@ -166,4 +165,4 @@ If `uvpaa` is `false`, read the app log and the DevTools console for Electron's 
 
 - [ ] **Step 8: Diff review, then hand off**
 
-Run the chain's diff review against the Section 3 base and triage it. In Facts, record the probe output, the window evidence, and the path of the signed package (`electron/release/mac-arm64/Taskflow.app`). **Next step** → "Section 4".
+Run the chain's diff review against the Section 3 base and triage it. In Facts, record the probe output and the path of the signed package (`electron/release/mac-arm64/Taskflow.app`). **Next step** → "Section 4".

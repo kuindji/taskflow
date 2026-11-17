@@ -81,11 +81,11 @@ Then stop the app with the recipe's stop command.
 
 - [ ] **Step 11: Signed-package smoke**
 
-Run `bun run package`, then start the binary with the **packaged** launch recipe (Facts). Check:
+Run `bun run package`, then start the binary with the **packaged** launch recipe (Facts), adding `--inspect=127.0.0.1:0` after the binary path (main-process inspector, for the notification check; the build config sets no `electronFuses`, so the flag is allowed). Check:
 - it launches;
-- the codesign entitlements and the embedded profile are unchanged from Section 1 (rerun Section 1 Step 11's checks);
+- the profile-backed checks in Section 1 Step 11 ("Profile-backed checks") all still pass;
 - a tab opens through the API.
-- **Notification:** send the recipe's `POST /api/notifications`. Pass if, within 15 s, `app.log` has no `Desktop notification failed` line, and a Notification Center banner for the app shows up in the on-screen window list (list windows without activating anything, e.g. a `swift -e` one-liner with `CGWindowListCopyWindowInfo`; banners are owned by `NotificationCenter`). If the window list can't show it, use `log show --last 2m --predicate 'process == "usernoted" OR process == "NotificationCenter"' | grep -i taskflow` as the evidence instead. A `failed` line, or no evidence at all, is a fail: stop and notify, because the spec forbids shipping broken notifications.
+- **Notification:** send the recipe's `POST /api/notifications` with a unique message, `passkeys smoke <unix time>`. Then read the delivered notifications in the main process: take the `Debugger listening on ws://…` URL from `app.log`, connect to it (a small Bun WebSocket script in `$S`), and send `Runtime.evaluate` with `includeCommandLineAPI: true`, `awaitPromise: true`, `returnByValue: true` and the expression `require("electron").Notification.getHistory().then((ns) => ns.map((n) => n.body))`. If `require` isn't defined there, use `process.mainModule.require` (main is CommonJS, `electron/build.ts:71`). **Pass:** within 15 s, the list contains the exact unique message and `app.log` has no `Desktop notification failed` line. **Fail:** a `failed` line, or the inspector works but the message never shows up. Then stop and notify, because the spec forbids shipping broken notifications. **Deferred:** if the inspector can't be reached at all, record "notification check deferred" in `handoff.md` Facts with why. Section 4 then adds it to the owner's pre-release check. Logs or window lists can be recorded as supporting evidence but never count as a pass.
 - **Updater:** over the app debug port (`$S/electron-user-data/DevToolsActivePort`), evaluate `window.taskflow.getUpdateState()` in the main window. Pass if it settles to a no-update/available state with a `checkedAt` time and `app.log` has no `[updater] Error`. Record the state.
 
 Stop the app with the recipe's stop command.

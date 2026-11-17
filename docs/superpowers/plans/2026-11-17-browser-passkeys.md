@@ -26,7 +26,7 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
 **Owner-gated steps** (the chain stops and notifies; the agent never does these on its own):
 - creating a Developer ID provisioning profile in the Apple Developer portal (Section 1, expected);
 - the hand checks with a real finger on Touch ID, including one real site (Section 4);
-- publishing the GitHub release (Section 4).
+- uploading the GitHub draft release (Section 4, after the owner's approval); publishing that draft is done by the owner, never the agent.
 
 ## Cross-section interfaces (fixed names)
 
@@ -73,7 +73,7 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
 - `configure` throwing (missing entitlement, older macOS) must not crash startup (Section 3 test: `configure` throws → returns `false`, `warn` called once).
 - Passkey sign-in (`get()` with discoverable credentials) needs the `select-webauthn-account` listener: one account auto-picked, several → dialog, cancel/error → `callback()` exactly once (Section 3 tests).
 - Agent CDP access to tabs after the Chromium jump (Section 2 smoke: `taskflow-cli browser open` endpoint + Playwright `connectOverCDP` works, popups still open as tabs).
-- Notifications on unsigned dev runs now fail (Electron 42 `UNNotification`); the failure must be logged, not crash (Section 2: `failed` listener).
+- Notifications on unsigned dev runs now fail (Electron 42 `UNNotification`); the failure must be logged, not crash (Section 2: `failed` listener). On the signed build a unique smoke message must show up in `Notification.getHistory()` (Section 2 Step 11).
 - Open dialogs default to Downloads after Electron 43; the project-directory picker must reopen where the user last picked (Section 2 tests on `createLastPathTracker`).
 
 ## Plan review log
@@ -81,3 +81,4 @@ Each section is a file in `2026-11-17-browser-passkeys/`, written to be done in 
 (Chain sessions append one line per review round here.)
 
 - Round 1 (2026-11-17): 8 Codex findings + 2 own, all 10 confirmed (8 major, 2 minor) and folded (`reviews/plan-round-1-triage.md`). Added: account-selection listener, profile as the expected path, dev `userData` sandbox fix, full smoke recipe, abort-based probe under `spike/`, positive notification/updater/real-site gates. Next: round 2.
+- Round 2 (2026-11-17): 5 Codex findings + 2 own, all 7 confirmed (3 major, 4 minor) and folded (`reviews/plan-round-2-triage.md`). Changed: the release uploads a GitHub draft that the owner publishes; the notification gate checks `Notification.getHistory()` for a unique message; the owner flow is touch-then-choose; the recipe and Session B checks are fixed; the real-site passkey is cleaned up; Section 3 probes with `--uvpaa-only`. Next: round 3.
