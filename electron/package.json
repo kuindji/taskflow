@@ -50,11 +50,13 @@
         "mac": {
             "category": "public.app-category.developer-tools",
             "artifactName": "${productName}-${version}-${arch}-mac.${ext}",
+            "appId": "com.kuindji.taskflow",
             "identity": "Ivan Kuindzhi (9SX8S58CA8)",
             "hardenedRuntime": true,
             "gatekeeperAssess": false,
             "entitlements": "entitlements.mac.plist",
             "entitlementsInherit": "entitlements.inherit.mac.plist",
+            "provisioningProfile": "build/embedded.provisionprofile",
             "extendInfo": {
                 "NSLocalNetworkUsageDescription": "Taskflow finds other Taskflow backends on your local network so you can connect to them."
             },

@@ -12,7 +12,11 @@
     <true/>
     <key>keychain-access-groups</key>
     <array>
-        <string>9SX8S58CA8.com.taskflow.app.webauthn</string>
+        <string>9SX8S58CA8.com.kuindji.taskflow.webauthn</string>
     </array>
+    <key>com.apple.application-identifier</key>
+    <string>9SX8S58CA8.com.kuindji.taskflow</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>9SX8S58CA8</string>
 </dict>
 </plist>
