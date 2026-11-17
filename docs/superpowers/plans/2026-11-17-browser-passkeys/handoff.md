@@ -6,18 +6,13 @@ Plan: `../2026-11-17-browser-passkeys.md`. Spec: `docs/superpowers/specs/2026-11
 
 ## Next step
 
-**Owner-gated: waiting for the owner's Touch ID check (Section 4 Step 4).** Chain stopped. Owner instructions:
+**Owner-gated: v0.17.0 draft uploaded, waiting for the owner to publish (Section 4 Step 6).** Chain stopped. Owner instructions:
 
-1. Keep your normal Taskflow running. From the repo root, start the test build sandboxed so it never touches your real data:
-   `TASKFLOW_DEV=1 TASKFLOW_CONFIG_DIR=/tmp/passkeys-check electron/release/mac-arm64/Taskflow.app/Contents/MacOS/Taskflow`
-   (`TASKFLOW_CONFIG_DIR` now also holds the browser profile.)
-2. In a browser tab in that window, open https://webauthn.io. Enter a username, click **Register**, and touch Touch ID. Then click **Authenticate** and touch again. Both should succeed.
-3. Passkey sign-in without a username: reload webauthn.io, leave the username empty, and click **Authenticate**. It should go straight to Touch ID (one passkey) and succeed.
-4. Two accounts: register a second username, reload, leave the username empty, and click **Authenticate**. Touch ID asks first; touch it. Then a "Choose a passkey" dialog lists both accounts. Pick one: it signs in as that account. Repeat (touch again) and click **Cancel** in the chooser: the page reports a failure and nothing hangs.
-5. A real site you use: add a passkey, sign out, and sign back in with it. Then delete that passkey in the site's account settings. Passkeys are tied to the browser profile, so this one only works in this test build. You'll check the real site again in the installed app after the update.
-6. If all of this works, start a session with "Passkeys: upload approved". That uploads 0.17.0 to a GitHub **draft** release; you publish it yourself. If anything fails, start a session with "Passkeys: owner check failed: <what you saw>".
+1. The 0.17.0 release is a **draft** on GitHub with mac assets only (arm64 + x64 dmg/zip + blockmaps, `latest-mac.yml`) and release notes. **First push `main`** (`git push origin main`). The draft targets `main`, so publishing creates the `v0.17.0` tag at whatever `origin/main` is then. Right now `origin/main` doesn't have any of the passkeys commits. If you want Linux in it as usual, build and upload it next: `bun run build:backend:bin:linux && bun run build:ui && bun run build:electron && cd electron && GH_TOKEN=$(gh auth token) bun run publish:linux` (it uploads into the existing draft). Then publish it (GitHub UI, or `gh release edit v0.17.0 --draft=false --latest`).
+2. Your installed Taskflow (0.16.1) can't auto-update to 0.17.0, because the mac bundle ID changed. Its updater will report an error for this version; that's expected. Quit it, download the 0.17.0 arm64 dmg from the release, and replace `/Applications/Taskflow.app`. Start it, allow notifications when macOS asks, and check that the About/version shows 0.17.0. Auto-update itself can only be checked at the next release (0.17.0 → 0.17.x). Open a browser tab, go to https://webauthn.io, and register and authenticate with Touch ID (also once with the username empty). Passkeys made in the sandboxed test build don't carry over; register again. Then add a passkey on your real site and sign in with it once.
+3. Reply "Passkeys: release confirmed" or "Passkeys: release check failed: <what you saw>".
 
-For the session that gets the reply: on "upload approved", do Section 4 Step 5 (the Step 3 notarized build passed, see Facts). On a failure, follow the failure paragraph at the end of Section 4 Step 4.
+For the session that gets the reply: first `gh release view v0.17.0 --json isDraft` must print `"isDraft": false` (if it's still a draft, tell the owner and stop). Then do Section 4 Step 7.
 
 ## Status
 
@@ -29,7 +24,7 @@ For the session that gets the reply: on "upload approved", do Section 4 Step 5 (
 | 1 | Sandbox fix + entitlement/profile preflight (gate), sessions A and B | done, **gate passed** (base `d115dad9`) | `badb7772`, `4dc780d7`, `833216c0` |
 | 2 | Electron 45.3.3 upgrade | done (base `14ac16e9`); dev + signed smoke pass, notification pass, updater deferred; diff review clean (`reviews/impl-2-triage.md`) | `8381ca90`, `e1d6265d` |
 | 3 | Touch ID wiring + account selection | done (base `5cb6e3ea`); signed probe `uvpaa: true`, dev run clean; diff review clean (`reviews/impl-3-triage.md`) | `ed25dec4` |
-| 4 | Final review, owner checks, release | Steps 1–3 done (base `97d28c6e`): final review clean (`reviews/final-triage.md`), 0.17.0 notarized build passes all checks; **Step 4 waiting for owner** | `3d2ff180`, `a8825d26` |
+| 4 | Final review, owner checks, release | Steps 1–5 done (base `97d28c6e`): final review clean, 0.17.0 notarized, owner Touch ID check passed, draft `v0.17.0` uploaded; **Step 6 waiting for owner to publish** | `3d2ff180`, `a8825d26` |
 
 ## Final-review base
 
@@ -74,6 +69,10 @@ For the session that gets the reply: on "upload approved", do Section 4 Step 5 (
 
 - **Section 4 Step 3 (2026-11-17, `a8825d26`):** `bun run dist` built `Taskflow-0.17.0-arm64-mac.{dmg,zip}` (+ blockmaps, `latest-mac.yml`). The repo's own notarize hook notarized the app; electron-builder logs `skipped macOS notarization` for its built-in step, which is expected. `spctl` → `accepted`, `source=Notarized Developer ID`; stapler validate OK. Profile-backed checks all pass (verify, entitlements, renderer has 4 keys, `profile-ok`, `TeamIdentifier=9SX8S58CA8`, DR `com.kuindji.taskflow`), `CFBundleShortVersionString` 0.17.0, `app-update.yml` present. Sandboxed launch: alive, backend up, `taskgated-helper` allows via profile. **Updater check passed**: `getUpdateState()` → `status: "idle"`, `checkedAt` set, no `[updater] Error`. Probe `--uvpaa-only`: `uvpaa: true`, UA `TaskflowDev(main)/0.17.0 … Electron/45.3.3`. Notification check was not deferred (passed in Section 2), so the owner list has no extra item.
 - `notarytool history --keychain-profile taskflow-notarize` works (credentials OK for Step 5).
+
+- **Owner Touch ID check passed (2026-11-17)**, reported in the Section 4 session. Upload approved in the same session.
+- **Section 4 Step 5 (2026-11-17):** `bun run release:mac-all` built, notarized (repo hook) and uploaded. `gh release view v0.17.0`: `draft: true`, target `main`, 9 assets (arm64 + x64 dmg/zip + 4 blockmaps + `latest-mac.yml`, which lists both arches). Both bundles (`release/mac-arm64`, x64 at `release/mac`): `spctl` accepted / Notarized Developer ID, keychain group entitlement present, `profile-ok`, version 0.17.0. Release notes set (manual install once, permissions re-asked, data kept, passkeys, Electron 45, dialog fix). `main` was not pushed (chain rule); the owner pushes before publishing.
+- The owner asked for the "Release Taskflow" Taskflow action (`f061f606…`) to be revised. Added: pre-check 5 (the provisioning profile isn't expired and lists the signing cert, and the cert isn't expired) and a post-build check of both mac bundles (spctl, keychain entitlement, `profile-ok`). The rest of the flow is unchanged (`bun run release` = mac-all + linux, then publish).
 
 ## Owner notes (for the final notify)
 
