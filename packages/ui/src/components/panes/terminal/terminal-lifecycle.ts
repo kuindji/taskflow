@@ -139,6 +139,7 @@ function getOrCreateTerminal(
 
     const terminalSettings = useSettingsStore.getState().settings?.terminal;
     const lastTerminalSize = useSessionStore.getState().lastTerminalSize;
+    const openWebLink = createWebLinkHandler(sessionId, taskId, projectId, master);
     const term = new Terminal({
         cols: lastTerminalSize?.cols ?? undefined,
         rows: lastTerminalSize?.rows ?? undefined,
@@ -152,11 +153,15 @@ function getOrCreateTerminal(
         scrollback: TERMINAL_SCROLLBACK,
         cursorBlink: true,
         allowProposedApi: true,
+        // OSC 8 hyperlinks (emitted by e.g. Claude Code). Without a handler
+        // xterm falls back to a confirm() dialog. Non-http(s) URIs are
+        // filtered out by xterm since allowNonHttpProtocols stays unset.
+        linkHandler: { activate: openWebLink },
     });
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon(createWebLinkHandler(sessionId, taskId, projectId, master)));
+    term.loadAddon(new WebLinksAddon(openWebLink));
 
     // Create a dedicated wrapper div that persists across mounts
     const element = document.createElement("div");
