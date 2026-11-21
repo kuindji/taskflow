@@ -5,6 +5,8 @@ import {
     type KeyEvent,
 } from "@opentui/core";
 import {
+    ANTIGRAVITY_EFFORT_LEVELS,
+    ANTIGRAVITY_MODES,
     CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
@@ -195,6 +197,47 @@ function settingsItems(
             (value) => ({
                 kimi: { permissionMode: value as AppSettings["kimi"]["permissionMode"] },
             }),
+        ),
+        item(
+            "antigravity-model",
+            "Antigravity model",
+            settings.antigravity.defaultModel,
+            [{ value: "", label: "Antigravity default" }, ...choices.models.antigravity],
+            (value) => ({ antigravity: { defaultModel: value } }),
+        ),
+        item(
+            "antigravity-effort",
+            "Antigravity effort",
+            settings.antigravity.defaultEffort,
+            textOptions(["default", ...ANTIGRAVITY_EFFORT_LEVELS]),
+            (value) => ({
+                antigravity: {
+                    defaultEffort: value as AppSettings["antigravity"]["defaultEffort"],
+                },
+            }),
+        ),
+        item(
+            "antigravity-mode",
+            "Antigravity mode",
+            settings.antigravity.mode,
+            textOptions(ANTIGRAVITY_MODES),
+            (value) => ({
+                antigravity: { mode: value as AppSettings["antigravity"]["mode"] },
+            }),
+        ),
+        item(
+            "antigravity-sandbox",
+            "Antigravity sandbox",
+            String(settings.antigravity.sandbox),
+            booleanOptions,
+            (value) => ({ antigravity: { sandbox: value === "true" } }),
+        ),
+        item(
+            "antigravity-skip-permissions",
+            "Antigravity skip permissions",
+            String(settings.antigravity.dangerouslySkipPermissions),
+            booleanOptions,
+            (value) => ({ antigravity: { dangerouslySkipPermissions: value === "true" } }),
         ),
         ...projects.map((project) =>
             item(

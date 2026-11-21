@@ -128,6 +128,19 @@ function defaultAgentOptions(type: AgentType, settings: AppSettings): AgentLaunc
                 ...(settings.kimi.defaultModel ? { model: settings.kimi.defaultModel } : {}),
                 permissionMode: settings.kimi.permissionMode,
             };
+        case "antigravity":
+            return {
+                type,
+                ...(settings.antigravity.defaultModel
+                    ? { model: settings.antigravity.defaultModel }
+                    : {}),
+                ...(settings.antigravity.defaultEffort !== "default"
+                    ? { effort: settings.antigravity.defaultEffort }
+                    : {}),
+                mode: settings.antigravity.mode,
+                sandbox: settings.antigravity.sandbox,
+                dangerouslySkipPermissions: settings.antigravity.dangerouslySkipPermissions,
+            };
     }
 }
 

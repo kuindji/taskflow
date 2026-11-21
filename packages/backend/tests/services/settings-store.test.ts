@@ -61,6 +61,13 @@ const DEFAULT_KIMI = {
     defaultModel: "",
     permissionMode: "manual" as const,
 };
+const DEFAULT_ANTIGRAVITY = {
+    defaultModel: "",
+    defaultEffort: "default" as const,
+    mode: "manual" as const,
+    sandbox: false,
+    dangerouslySkipPermissions: false,
+};
 const DEFAULT_APPEARANCE = { theme: "catppuccin-mocha" };
 const DEFAULT_NETWORK = { discoverable: true, displayName: "" };
 const DEFAULT_REMOTE_AGENT = {
@@ -157,6 +164,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
+            antigravity: DEFAULT_ANTIGRAVITY,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
             network: DEFAULT_NETWORK,
@@ -192,6 +200,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
+            antigravity: DEFAULT_ANTIGRAVITY,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
             network: DEFAULT_NETWORK,
@@ -235,6 +244,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
+            antigravity: DEFAULT_ANTIGRAVITY,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
             network: DEFAULT_NETWORK,
@@ -268,6 +278,7 @@ describe("SettingsStore", () => {
             opencode: DEFAULT_OPENCODE,
             pi: DEFAULT_PI,
             kimi: DEFAULT_KIMI,
+            antigravity: DEFAULT_ANTIGRAVITY,
             appearance: DEFAULT_APPEARANCE,
             remoteAgent: DEFAULT_REMOTE_AGENT,
             network: DEFAULT_NETWORK,

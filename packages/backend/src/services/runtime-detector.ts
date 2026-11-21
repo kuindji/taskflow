@@ -7,6 +7,7 @@ import type {
     CodexModelsResponse,
     CodexReasoningEffort,
     KimiModelInfo,
+    AntigravityModelInfo,
     OpenCodeModelInfo,
     PiModelInfo,
     PiModelsResponse,
@@ -90,7 +91,16 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
     return runtimes;
 }
 
-const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi"];
+const KNOWN_AGENTS: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi", "antigravity"];
+
+const AGENT_CLI_COMMANDS: Record<AgentType, string> = {
+    claude: "claude",
+    codex: "codex",
+    opencode: "opencode",
+    pi: "pi",
+    kimi: "kimi",
+    antigravity: "agy",
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -422,7 +432,7 @@ export async function detectAgents(): Promise<AgentAvailability[]> {
     // slowest single agent (capped by captureCliOutput) rather than their sum.
     return Promise.all(
         KNOWN_AGENTS.map(async (type): Promise<AgentAvailability> => {
-            const path = Bun.which(type, { PATH });
+            const path = Bun.which(AGENT_CLI_COMMANDS[type], { PATH });
             if (!path) {
                 return { type, available: false, path: "", version: "" };
             }
@@ -639,4 +649,40 @@ export async function fetchKimiModels(): Promise<KimiModelInfo[]> {
     const output = await runCliCommand("kimi", ["provider", "list", "--json"]);
     if (!output) return [];
     return parseKimiModelsOutput(output);
+}
+
+const ANTIGRAVITY_MODEL_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/;
+
+export function parseAntigravityModelsOutput(output: string): AntigravityModelInfo[] {
+    const seen = new Set<string>();
+    const models: AntigravityModelInfo[] = [];
+    for (const rawLine of output.split("\n")) {
+        // Strip any carriage-return spinner prefix if output came from a TTY.
+        const line = rawLine.split("\r").pop()?.trim() ?? "";
+        if (!line) continue;
+        const tabIndex = line.indexOf("\t");
+        let id: string;
+        let displayName: string;
+        if (tabIndex >= 0) {
+            id = line.slice(0, tabIndex).trim();
+            displayName = line.slice(tabIndex + 1).trim();
+        } else {
+            const cols = line.split(/\s{2,}/);
+            if (cols.length < 2) continue;
+            id = cols[0].trim();
+            displayName = cols.slice(1).join(" ").trim();
+        }
+        if (!id || !displayName || !ANTIGRAVITY_MODEL_ID_PATTERN.test(id) || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        models.push({ id, displayName });
+    }
+    return models;
+}
+
+export async function fetchAntigravityModels(): Promise<AntigravityModelInfo[]> {
+    const output = await runCliCommand("agy", ["models"]);
+    if (!output) return [];
+    return parseAntigravityModelsOutput(output);
 }

@@ -1,6 +1,6 @@
-type AgentType = "claude" | "codex" | "opencode" | "pi" | "kimi";
+type AgentType = "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity";
 
-const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi"];
+const ALL_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "pi", "kimi", "antigravity"];
 
 // Persisted stores may still contain removed agent types (e.g. "gemini", "cursor");
 // use this guard at load/render/spawn boundaries instead of casting.
@@ -14,6 +14,7 @@ const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
     opencode: "OpenCode",
     pi: "Pi",
     kimi: "Kimi",
+    antigravity: "Antigravity",
 };
 
 const ACCOUNT_AGENT_TYPES = ["claude", "codex"] as const;
@@ -160,12 +161,40 @@ interface KimiModelInfo {
     contextWindow: string;
 }
 
+const ANTIGRAVITY_MODES = ["manual", "accept-edits", "auto", "plan"] as const;
+const ANTIGRAVITY_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+type AntigravityMode = (typeof ANTIGRAVITY_MODES)[number];
+type AntigravityEffortLevel = (typeof ANTIGRAVITY_EFFORT_LEVELS)[number];
+
+interface AntigravityLaunchOptions {
+    type: Extract<AgentType, "antigravity">;
+    /** Model ID from `agy models`, e.g. "gemini-4-neon-high" — passed to `--model`. */
+    model?: string;
+    /** Reasoning effort — passed to `--effort`. */
+    effort?: AntigravityEffortLevel;
+    /** "manual" passes `--settings '{"agentMode":""}'`; others pass `--mode <value>`. */
+    mode?: AntigravityMode;
+    /** `true` passes `--sandbox`; `false` overrides `enableTerminalSandbox: false` via `--settings`. */
+    sandbox?: boolean;
+    /** Auto-approve all tool permission requests (`--dangerously-skip-permissions`). */
+    dangerouslySkipPermissions?: boolean;
+}
+
+interface AntigravityModelInfo {
+    /** Model ID, e.g. "gemini-4-neon-high". */
+    id: string;
+    /** Display name, e.g. "Gemini 4 Neon (High)". */
+    displayName: string;
+}
+
 type AgentLaunchOptions =
     | ClaudeLaunchOptions
     | CodexLaunchOptions
     | OpenCodeLaunchOptions
     | PiLaunchOptions
-    | KimiLaunchOptions;
+    | KimiLaunchOptions
+    | AntigravityLaunchOptions;
 
 interface AgentAvailability {
     type: AgentType;
@@ -188,6 +217,8 @@ export {
     CODEX_APPROVAL_POLICIES,
     CODEX_REASONING_EFFORTS,
     KIMI_PERMISSION_MODES,
+    ANTIGRAVITY_MODES,
+    ANTIGRAVITY_EFFORT_LEVELS,
 };
 
 export type {
@@ -211,6 +242,10 @@ export type {
     KimiPermissionMode,
     KimiLaunchOptions,
     KimiModelInfo,
+    AntigravityMode,
+    AntigravityEffortLevel,
+    AntigravityLaunchOptions,
+    AntigravityModelInfo,
     AgentLaunchOptions,
     AgentAvailability,
     OpenCodeModelInfo,

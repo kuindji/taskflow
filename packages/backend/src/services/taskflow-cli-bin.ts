@@ -1313,8 +1313,8 @@ async function handleAgent(args: string[]): Promise<void> {
                 "dangerously-skip-permissions": "boolean",
                 "permission-mode": "string",
                 effort: "string",
-                // Codex
-                sandbox: "string",
+                // Codex / Antigravity
+                sandbox: agentType === "antigravity" ? "boolean" : "string",
                 "approval-policy": "string",
                 "reasoning-effort": "string",
                 "dangerously-bypass-approvals-and-sandbox": "boolean",
@@ -1322,6 +1322,8 @@ async function handleAgent(args: string[]): Promise<void> {
                 yolo: "boolean",
                 // OpenCode
                 "auto-approve": "boolean",
+                // Antigravity
+                mode: "string",
             });
 
             // An explicit --task carries its own project (the backend resolves
@@ -1367,6 +1369,12 @@ async function handleAgent(args: string[]): Promise<void> {
                     agentOptions.reasoningEffort = flags["reasoning-effort"];
             } else if (agentType === "opencode") {
                 if (flags["auto-approve"]) agentOptions.autoApprove = true;
+            } else if (agentType === "antigravity") {
+                if (flags.mode) agentOptions.mode = flags.mode;
+                if (flags.effort) agentOptions.effort = flags.effort;
+                if (flags.sandbox) agentOptions.sandbox = true;
+                if (flags["dangerously-skip-permissions"])
+                    agentOptions.dangerouslySkipPermissions = true;
             }
 
             // With no agent named, the account goes to the backend's default

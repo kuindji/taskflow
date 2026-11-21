@@ -11,6 +11,8 @@ import {
     type CodexReasoningEffort,
     type PiThinkingLevel,
     type KimiPermissionMode,
+    type AntigravityEffortLevel,
+    type AntigravityMode,
 } from "@taskflow/shared";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw } from "lucide-react";
@@ -23,6 +25,7 @@ import { CodexOptions } from "@/components/shared/CodexOptions";
 import { OpenCodeOptions } from "@/components/shared/OpenCodeOptions";
 import { PiOptions } from "@/components/shared/PiOptions";
 import { KimiOptions } from "@/components/shared/KimiOptions";
+import { AntigravityOptions } from "@/components/shared/AntigravityOptions";
 import { AgentAccountSelect } from "@/components/shared/AgentAccountSelect";
 import { useAgentAvailability } from "@/hooks/useAgentAvailability";
 import { normalizeAgentOptions } from "@/lib/normalize-agent-options";
@@ -92,6 +95,7 @@ function AgentOptionsPanel({
     const opencodeValue = matchingValue?.type === "opencode" ? matchingValue : undefined;
     const piValue = matchingValue?.type === "pi" ? matchingValue : undefined;
     const kimiValue = matchingValue?.type === "kimi" ? matchingValue : undefined;
+    const antigravityValue = matchingValue?.type === "antigravity" ? matchingValue : undefined;
 
     // A stored field loads as chosen; an absent one as "default", which stays
     // out of the payload so the backend fills it from the machine's Settings
@@ -111,6 +115,13 @@ function AgentOptionsPanel({
     const defaultPiTools = piValue?.tools ?? null;
     const defaultKimiPermissionMode: Inheritable<KimiPermissionMode> =
         kimiValue?.permissionMode ?? "default";
+    const defaultAntigravityEffort: Inheritable<AntigravityEffortLevel> =
+        antigravityValue?.effort ?? "default";
+    const defaultAntigravityMode: Inheritable<AntigravityMode> =
+        antigravityValue?.mode ?? "default";
+    const defaultAntigravitySandbox: Inheritable<boolean> = antigravityValue?.sandbox ?? "default";
+    const defaultAntigravitySkipPermissions: Inheritable<boolean> =
+        antigravityValue?.dangerouslySkipPermissions ?? "default";
     // Claude's model picker spells "unset" as "default", the others as "".
     const defaultModel = matchingValue?.model ?? (agentType === "claude" ? "default" : "");
 
@@ -139,6 +150,12 @@ function AgentOptionsPanel({
     const [piThinking, setPiThinking] = useState(defaultPiThinking);
     const [piTools, setPiTools] = useState(defaultPiTools);
     const [kimiPermissionMode, setKimiPermissionMode] = useState(defaultKimiPermissionMode);
+    const [antigravityEffort, setAntigravityEffort] = useState(defaultAntigravityEffort);
+    const [antigravityMode, setAntigravityMode] = useState(defaultAntigravityMode);
+    const [antigravitySandbox, setAntigravitySandbox] = useState(defaultAntigravitySandbox);
+    const [antigravitySkipPermissions, setAntigravitySkipPermissions] = useState(
+        defaultAntigravitySkipPermissions,
+    );
     const [account, setAccount] = useState<string>(defaultAccount);
 
     const isFirstRender = useRef(true);
@@ -171,6 +188,12 @@ function AgentOptionsPanel({
         } else if (agentType === "kimi") {
             setKimiPermissionMode(defaultKimiPermissionMode);
             setModel(defaultModel);
+        } else if (agentType === "antigravity") {
+            setAntigravityEffort(defaultAntigravityEffort);
+            setAntigravityMode(defaultAntigravityMode);
+            setAntigravitySandbox(defaultAntigravitySandbox);
+            setAntigravitySkipPermissions(defaultAntigravitySkipPermissions);
+            setModel(defaultModel);
         }
     }, [
         agentType,
@@ -184,6 +207,10 @@ function AgentOptionsPanel({
         defaultPiThinking,
         defaultPiTools,
         defaultKimiPermissionMode,
+        defaultAntigravityEffort,
+        defaultAntigravityMode,
+        defaultAntigravitySandbox,
+        defaultAntigravitySkipPermissions,
         defaultModel,
         defaultAccount,
     ]);
@@ -260,12 +287,35 @@ function AgentOptionsPanel({
         [model, kimiPermissionMode, headless],
     );
 
+    const buildAntigravityOptions = useCallback(
+        (): AgentLaunchOptions => ({
+            type: "antigravity",
+            model: model || undefined,
+            effort: antigravityEffort === "default" ? undefined : antigravityEffort,
+            mode: headless || antigravityMode === "default" ? undefined : antigravityMode,
+            sandbox: headless || antigravitySandbox === "default" ? undefined : antigravitySandbox,
+            dangerouslySkipPermissions:
+                headless || antigravitySkipPermissions === "default"
+                    ? undefined
+                    : antigravitySkipPermissions,
+        }),
+        [
+            model,
+            antigravityEffort,
+            antigravityMode,
+            antigravitySandbox,
+            antigravitySkipPermissions,
+            headless,
+        ],
+    );
+
     const buildOptions = useCallback((): AgentLaunchOptions => {
         if (agentType === "claude") return buildClaudeOptions();
         if (agentType === "codex") return buildCodexOptions();
         if (agentType === "opencode") return buildOpenCodeOptions();
         if (agentType === "pi") return buildPiOptions();
         if (agentType === "kimi") return buildKimiOptions();
+        if (agentType === "antigravity") return buildAntigravityOptions();
         return { type: "codex" };
     }, [
         agentType,
@@ -274,6 +324,7 @@ function AgentOptionsPanel({
         buildOpenCodeOptions,
         buildPiOptions,
         buildKimiOptions,
+        buildAntigravityOptions,
     ]);
 
     const emitChange = useCallback(() => {
@@ -387,6 +438,22 @@ function AgentOptionsPanel({
                     permissionMode={kimiPermissionMode}
                     onModelChange={setModel}
                     onPermissionModeChange={setKimiPermissionMode}
+                />
+            ) : agentType === "antigravity" ? (
+                <AntigravityOptions
+                    headless={headless}
+                    settings={settings?.antigravity ?? null}
+                    backendId={agentBackendId}
+                    modelValue={model}
+                    effortValue={antigravityEffort}
+                    modeValue={antigravityMode}
+                    sandboxValue={antigravitySandbox}
+                    dangerouslySkipPermissionsValue={antigravitySkipPermissions}
+                    onModelChange={setModel}
+                    onEffortChange={setAntigravityEffort}
+                    onModeChange={setAntigravityMode}
+                    onSandboxChange={setAntigravitySandbox}
+                    onDangerouslySkipPermissionsChange={setAntigravitySkipPermissions}
                 />
             ) : null}
 

@@ -6,7 +6,7 @@ export type SessionStatus = "working" | "attention" | "initializing";
 
 export interface SessionRef {
     id: string;
-    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity" | "shell" | "editor";
     label: string;
     createdAt: string;
     instance?: string;

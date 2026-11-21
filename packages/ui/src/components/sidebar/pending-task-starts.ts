@@ -5,7 +5,7 @@ import type { Scoped } from "@/lib/backend-scope";
 export type PendingTaskStart =
     | {
           kind: "session";
-          type: "claude" | "codex" | "opencode" | "pi" | "kimi";
+          type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity";
           description: string;
           agentOptions?: AgentLaunchOptions;
       }

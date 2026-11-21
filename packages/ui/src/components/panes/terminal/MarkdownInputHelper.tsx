@@ -10,7 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { Tab } from "@/stores/session-helpers";
 
-const AGENT_SESSION_TYPES: ReadonlySet<Tab["type"]> = new Set(["claude", "codex", "opencode"]);
+const AGENT_SESSION_TYPES: ReadonlySet<Tab["type"]> = new Set([
+    "claude",
+    "codex",
+    "opencode",
+    "antigravity",
+]);
 
 const DEFAULT_WIDTH = 480;
 const DEFAULT_HEIGHT = 220;

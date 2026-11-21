@@ -12,6 +12,7 @@ interface Tab {
         | "opencode"
         | "pi"
         | "kimi"
+        | "antigravity"
         | "shell"
         | "editor"
         | "changes"
@@ -50,6 +51,7 @@ function getDefaultSessionLabel(type: Tab["type"]): string {
     if (type === "opencode") return "OpenCode";
     if (type === "pi") return "Pi";
     if (type === "kimi") return "Kimi";
+    if (type === "antigravity") return "Antigravity";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -67,6 +69,7 @@ const KNOWN_TAB_SESSION_TYPES: ReadonlySet<string> = new Set([
     "opencode",
     "pi",
     "kimi",
+    "antigravity",
     "shell",
     "editor",
 ]);
@@ -174,7 +177,8 @@ function usesTerminalActivityStatus(
         type === "codex" ||
         type === "opencode" ||
         type === "pi" ||
-        type === "kimi"
+        type === "kimi" ||
+        type === "antigravity"
     );
 }
 

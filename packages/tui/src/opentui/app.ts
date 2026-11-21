@@ -2237,7 +2237,7 @@ class OpenTuiApp {
                     runtimes: [],
                     shells: [],
                     editors: [],
-                    models: { codex: [], opencode: [], pi: [], kimi: [] },
+                    models: { codex: [], opencode: [], pi: [], kimi: [], antigravity: [] },
                     systemInfo: null,
                 },
                 this.deps.store.projects,

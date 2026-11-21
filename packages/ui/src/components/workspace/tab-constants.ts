@@ -5,6 +5,7 @@ import { CodexIcon } from "@/components/icons/CodexIcon";
 import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 import { PiIcon } from "@/components/icons/PiIcon";
 import { KimiIcon } from "@/components/icons/KimiIcon";
+import { AntigravityIcon } from "@/components/icons/AntigravityIcon";
 
 const AGENT_META: Record<
     AgentType,
@@ -18,6 +19,7 @@ const AGENT_META: Record<
     opencode: { icon: OpenCodeIcon, colorClass: "text-opencode" },
     pi: { icon: PiIcon, colorClass: "text-primary" },
     kimi: { icon: KimiIcon, colorClass: "text-primary" },
+    antigravity: { icon: AntigravityIcon, colorClass: "text-primary" },
 };
 
 const tabVariants = cva(
@@ -30,6 +32,7 @@ const tabVariants = cva(
                 opencode: "text-opencode",
                 pi: "text-primary",
                 kimi: "text-primary",
+                antigravity: "text-primary",
                 shell: "text-info",
                 editor: "text-muted-foreground",
                 changes: "text-muted-foreground",

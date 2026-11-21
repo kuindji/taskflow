@@ -20,6 +20,7 @@ import {
 import { getEditorById } from "./editor-detector";
 import type { TrayStateTracker } from "./tray-state-tracker";
 import { mkdirSync } from "fs";
+import { dirname } from "path";
 import { config } from "../config";
 import { filterTaskSessions, filterProjectSessions } from "./instance-filter";
 import { normalizePiLaunchOptions } from "./pi-options";
@@ -46,7 +47,7 @@ type SessionOwner = SessionOwnerRef;
 
 interface CreateSessionOpts {
     owner: SessionOwner;
-    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity" | "shell" | "editor";
     label?: string;
     prompt?: string;
     systemPrompt?: string;
@@ -86,6 +87,8 @@ function isAutonomousAgent(
         return !!opts.dangerouslyBypassApprovalsAndSandbox || opts.approvalPolicy === "never";
     if (opts.type === "kimi")
         return opts.permissionMode === "auto" || opts.permissionMode === "yolo";
+    if (opts.type === "antigravity")
+        return !!opts.dangerouslySkipPermissions || opts.mode === "auto";
     return "dontAskQuestions" in opts && !!opts.dontAskQuestions;
 }
 
@@ -156,6 +159,17 @@ function settingsToAgentOptions(type: AgentType, settings: AppSettings): AgentLa
                 permissionMode: s.permissionMode === "manual" ? undefined : s.permissionMode,
             };
         }
+        case "antigravity": {
+            const s = settings.antigravity;
+            return {
+                type: "antigravity",
+                model: s.defaultModel || undefined,
+                effort: s.defaultEffort === "default" ? undefined : s.defaultEffort,
+                mode: s.mode,
+                sandbox: s.sandbox,
+                dangerouslySkipPermissions: s.dangerouslySkipPermissions || undefined,
+            };
+        }
     }
 }
 
@@ -174,6 +188,8 @@ function mergeAgentOptions(
             return explicit?.type === "pi" ? { ...defaults, ...explicit } : defaults;
         case "kimi":
             return explicit?.type === "kimi" ? { ...defaults, ...explicit } : defaults;
+        case "antigravity":
+            return explicit?.type === "antigravity" ? { ...defaults, ...explicit } : defaults;
     }
 }
 
@@ -183,6 +199,7 @@ function getBaseSessionLabel(type: CreateSessionOpts["type"]): string {
     if (type === "opencode") return "OpenCode";
     if (type === "pi") return "Pi";
     if (type === "kimi") return "Kimi";
+    if (type === "antigravity") return "Antigravity";
     if (type === "editor") return "Editor";
     return `${type} session`;
 }
@@ -564,6 +581,7 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                         : { mode: "new", id: newNativeSessionId },
                 );
                 if (spec.instructionFile) {
+                    mkdirSync(dirname(spec.instructionFile.path), { recursive: true });
                     await writeFileAtomic(spec.instructionFile.path, spec.instructionFile.content);
                 }
                 command = spec.command;

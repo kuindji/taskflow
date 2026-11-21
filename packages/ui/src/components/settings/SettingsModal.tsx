@@ -24,6 +24,8 @@ import {
     type DataDirInfo,
     type PiThinkingLevel,
     type KimiPermissionMode,
+    type AntigravityEffortLevel,
+    type AntigravityMode,
     type EditorInfo,
     type MarkdownWidth,
     type SystemInfoResponse,
@@ -47,11 +49,20 @@ import { AgentAccountsSection } from "./sections/AgentAccountsSection";
 import { OpenCodeSection } from "./sections/OpenCodeSection";
 import { PiSection } from "./sections/PiSection";
 import { KimiSection } from "./sections/KimiSection";
+import { AntigravitySection } from "./sections/AntigravitySection";
 import { ClaudeOptions } from "@/components/shared/ClaudeOptions";
 import { RemoteSection } from "./sections/RemoteSection";
 
 type SectionKey =
-    "general" | "defaults" | "claude" | "codex" | "opencode" | "pi" | "kimi" | "remote-agent";
+    | "general"
+    | "defaults"
+    | "claude"
+    | "codex"
+    | "opencode"
+    | "pi"
+    | "kimi"
+    | "antigravity"
+    | "remote-agent";
 
 function SettingsModal() {
     const open = useUIStore((s) => s.settingsOpen);
@@ -431,6 +442,41 @@ function SettingsModal() {
         [updateSettings],
     );
 
+    const handleAntigravityModel = useCallback(
+        (defaultModel: string) => {
+            void updateSettings({ antigravity: { defaultModel } });
+        },
+        [updateSettings],
+    );
+
+    const handleAntigravityEffort = useCallback(
+        (defaultEffort: AntigravityEffortLevel | "default") => {
+            void updateSettings({ antigravity: { defaultEffort } });
+        },
+        [updateSettings],
+    );
+
+    const handleAntigravityMode = useCallback(
+        (mode: AntigravityMode) => {
+            void updateSettings({ antigravity: { mode } });
+        },
+        [updateSettings],
+    );
+
+    const handleAntigravitySandbox = useCallback(
+        (sandbox: boolean) => {
+            void updateSettings({ antigravity: { sandbox } });
+        },
+        [updateSettings],
+    );
+
+    const handleAntigravitySkipPermissions = useCallback(
+        (dangerouslySkipPermissions: boolean) => {
+            void updateSettings({ antigravity: { dangerouslySkipPermissions } });
+        },
+        [updateSettings],
+    );
+
     // --- Remote section handler ---
 
     const handleRemoteUpdate = useCallback(
@@ -450,6 +496,7 @@ function SettingsModal() {
         { key: "opencode", label: "OpenCode" },
         { key: "pi", label: "Pi" },
         { key: "kimi", label: "Kimi" },
+        { key: "antigravity", label: "Antigravity" },
         ...(claudeAvailable ? [{ key: "remote-agent" as const, label: "Remote Agent" }] : []),
     ];
 
@@ -606,6 +653,27 @@ function SettingsModal() {
                                     permissionMode={settings.kimi.permissionMode}
                                     onModelChange={handleKimiModel}
                                     onPermissionModeChange={handleKimiPermissionMode}
+                                />
+                            </div>
+                        )}
+
+                        {section === "antigravity" && (
+                            <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+                                <AntigravitySection
+                                    defaultModel={settings.antigravity.defaultModel}
+                                    defaultEffort={settings.antigravity.defaultEffort}
+                                    mode={settings.antigravity.mode}
+                                    sandbox={settings.antigravity.sandbox}
+                                    dangerouslySkipPermissions={
+                                        settings.antigravity.dangerouslySkipPermissions
+                                    }
+                                    onModelChange={handleAntigravityModel}
+                                    onEffortChange={handleAntigravityEffort}
+                                    onModeChange={handleAntigravityMode}
+                                    onSandboxChange={handleAntigravitySandbox}
+                                    onDangerouslySkipPermissionsChange={
+                                        handleAntigravitySkipPermissions
+                                    }
                                 />
                             </div>
                         )}

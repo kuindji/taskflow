@@ -1,6 +1,10 @@
 import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import type { SessionType } from "@taskflow/shared";
-import { KIMI_PERMISSION_MODES } from "@taskflow/shared";
+import {
+    ANTIGRAVITY_EFFORT_LEVELS,
+    ANTIGRAVITY_MODES,
+    KIMI_PERMISSION_MODES,
+} from "@taskflow/shared";
 
 /**
  * Normalize agent options for a given agent/session type.
@@ -73,6 +77,24 @@ function normalizeAgentOptions(
                     )
                         ? agentOptions.permissionMode
                         : undefined,
+            };
+        case "antigravity":
+            if (agentOptions.type !== "antigravity") return undefined;
+            return {
+                type: "antigravity",
+                model: agentOptions.model,
+                effort:
+                    agentOptions.effort &&
+                    (ANTIGRAVITY_EFFORT_LEVELS as readonly string[]).includes(agentOptions.effort)
+                        ? agentOptions.effort
+                        : undefined,
+                mode:
+                    agentOptions.mode &&
+                    (ANTIGRAVITY_MODES as readonly string[]).includes(agentOptions.mode)
+                        ? agentOptions.mode
+                        : undefined,
+                sandbox: agentOptions.sandbox,
+                dangerouslySkipPermissions: agentOptions.dangerouslySkipPermissions,
             };
         default:
             return undefined;

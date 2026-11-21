@@ -7,6 +7,7 @@ import {
     parseCodexAppServerOutput,
     parsePiModelsOutput,
     parseKimiModelsOutput,
+    parseAntigravityModelsOutput,
 } from "../../src/services/runtime-detector";
 
 describe("detectRuntimes", () => {
@@ -765,5 +766,39 @@ describe("Pi RPC discovery", () => {
             ended: 1,
             streamsCancelled: 2,
         });
+    });
+});
+
+describe("parseAntigravityModelsOutput", () => {
+    it("parses tab-separated non-TTY agy models output", () => {
+        const output = [
+            "gemini-4-neon-high\tGemini 4 Neon (High)",
+            "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
+            "claude-opus-5-5-high\tClaude Opus 5.5 (High)",
+        ].join("\n");
+        expect(parseAntigravityModelsOutput(output)).toEqual([
+            { id: "gemini-4-neon-high", displayName: "Gemini 4 Neon (High)" },
+            { id: "gemini-3.8-flash-low", displayName: "Gemini 3.8 Flash (Low)" },
+            { id: "claude-opus-5-5-high", displayName: "Claude Opus 5.5 (High)" },
+        ]);
+    });
+
+    it("parses space-aligned TTY output, strips spinner prefixes, and deduplicates", () => {
+        const output = [
+            "\r⠋ Fetching available models...\rgemini-4-neon-high              Gemini 4 Neon (High)",
+            "gemini-4-neon-high              Gemini 4 Neon (High)",
+            "Fetching available models...",
+            "gpt-oss-120b-medium             GPT-OSS 120B (Medium)",
+        ].join("\n");
+        expect(parseAntigravityModelsOutput(output)).toEqual([
+            { id: "gemini-4-neon-high", displayName: "Gemini 4 Neon (High)" },
+            { id: "gpt-oss-120b-medium", displayName: "GPT-OSS 120B (Medium)" },
+        ]);
+    });
+
+    it("returns empty array for error output", () => {
+        expect(parseAntigravityModelsOutput("Failed to start: operation not permitted\n")).toEqual(
+            [],
+        );
     });
 });

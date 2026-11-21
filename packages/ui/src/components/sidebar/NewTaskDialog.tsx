@@ -37,7 +37,7 @@ export interface NewTaskSubmission {
     description: string;
     worktree: boolean;
     parentId?: string;
-    startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi";
+    startWith?: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity";
     agentOptions?: AgentLaunchOptions;
     startWithFlowId?: string;
     initCommand?: string;
@@ -143,6 +143,7 @@ export function NewTaskDialog({
     const opencodeAvailable = isAgentAvailable(agents, "opencode");
     const piAvailable = isAgentAvailable(agents, "pi");
     const kimiAvailable = isAgentAvailable(agents, "kimi");
+    const antigravityAvailable = isAgentAvailable(agents, "antigravity");
 
     const getProjectDefaultInitCommand = useCallback(
         (targetProjectId: string) =>
@@ -399,6 +400,9 @@ export function NewTaskDialog({
                                 </SelectItem>
                                 <SelectItem value="kimi" disabled={!kimiAvailable}>
                                     Kimi{!kimiAvailable ? " (not installed)" : ""}
+                                </SelectItem>
+                                <SelectItem value="antigravity" disabled={!antigravityAvailable}>
+                                    Antigravity{!antigravityAvailable ? " (not installed)" : ""}
                                 </SelectItem>
                                 {flows.length > 0 && <SelectItem value="flow">Flow</SelectItem>}
                             </SelectContent>

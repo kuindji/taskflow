@@ -3,6 +3,7 @@ import {
     INTERNAL_EDITORS,
     MSG,
     type AgentListResponse,
+    type AntigravityModelsResponse,
     type AppSettings,
     type CodexModelsResponse,
     type KimiModelsResponse,
@@ -36,6 +37,7 @@ interface SettingsChoices {
         opencode: Choice[];
         pi: Choice[];
         kimi: Choice[];
+        antigravity: Choice[];
     };
     systemInfo: SystemInfo | null;
 }
@@ -45,7 +47,7 @@ const EMPTY_CHOICES: SettingsChoices = {
     runtimes: [],
     shells: [],
     editors: [],
-    models: { codex: [], opencode: [], pi: [], kimi: [] },
+    models: { codex: [], opencode: [], pi: [], kimi: [], antigravity: [] },
     systemInfo: null,
 };
 
@@ -157,6 +159,7 @@ class SettingsStore {
                 this.net.request<OpenCodeModelsResponse>(MSG.OPENCODE_MODELS),
                 this.net.request<PiModelsResponse>(MSG.PI_MODELS),
                 this.net.request<KimiModelsResponse>(MSG.KIMI_MODELS),
+                this.net.request<AntigravityModelsResponse>(MSG.ANTIGRAVITY_MODELS),
             ]),
         ]);
         if (this.disposed || token !== this.loadToken) return;
@@ -168,6 +171,7 @@ class SettingsStore {
         const opencode = modelValue(1) as OpenCodeModelsResponse | null;
         const pi = modelValue(2) as PiModelsResponse | null;
         const kimi = modelValue(3) as KimiModelsResponse | null;
+        const antigravity = modelValue(4) as AntigravityModelsResponse | null;
         if (epoch === this.settingsEpoch) this.settingsSnapshot = settings;
         this.choiceSnapshot = {
             agents: agents.agents
@@ -199,6 +203,11 @@ class SettingsStore {
                     })) ?? [],
                 kimi:
                     kimi?.models.map((model) => ({
+                        value: model.id,
+                        label: model.displayName,
+                    })) ?? [],
+                antigravity:
+                    antigravity?.models.map((model) => ({
                         value: model.id,
                         label: model.displayName,
                     })) ?? [],

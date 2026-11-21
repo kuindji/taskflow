@@ -1337,6 +1337,8 @@ case "$cmd" in
         # OpenCode-specific
         agent_auto_approve=""
         agent_yolo=""
+        # Antigravity-specific
+        agent_mode=""
         while [ $# -gt 0 ]; do
           case "$1" in
             --prompt) agent_prompt="${2:-}"; shift 2 ;;
@@ -1345,12 +1347,18 @@ case "$cmd" in
             --label) agent_label="${2:-}"; shift 2 ;;
             --model) agent_model="${2:-}"; shift 2 ;;
             --account) agent_account="${2:-}"; shift 2 ;;
-            # Claude
+            # Claude / Antigravity
             --dangerously-skip-permissions) agent_skip_permissions="true"; shift ;;
             --permission-mode) agent_permission_mode="${2:-}"; shift 2 ;;
             --effort) agent_effort="${2:-}"; shift 2 ;;
-            # Codex
-            --sandbox) agent_sandbox="${2:-}"; shift 2 ;;
+            # Codex / Antigravity
+            --sandbox)
+              if [ "$agent_type" = "antigravity" ]; then
+                agent_sandbox="true"; shift
+              else
+                agent_sandbox="${2:-}"; shift 2
+              fi
+              ;;
             --approval-policy) agent_approval_policy="${2:-}"; shift 2 ;;
             --reasoning-effort) agent_reasoning_effort="${2:-}"; shift 2 ;;
             --dangerously-bypass-approvals-and-sandbox) agent_yolo="true"; shift ;;
@@ -1358,6 +1366,8 @@ case "$cmd" in
             --yolo) agent_yolo="true"; shift ;;
             # OpenCode
             --auto-approve) agent_auto_approve="true"; shift ;;
+            # Antigravity
+            --mode) agent_mode="${2:-}"; shift 2 ;;
             *) shift ;;
           esac
         done
@@ -1433,6 +1443,19 @@ case "$cmd" in
         elif [ "$agent_type" = "opencode" ]; then
           if [ -n "$agent_auto_approve" ]; then
             _append_opt '"autoApprove":true'
+          fi
+        elif [ "$agent_type" = "antigravity" ]; then
+          if [ -n "$agent_mode" ]; then
+            _append_opt "$(printf '"mode":%s' "$(json_string "$agent_mode")")"
+          fi
+          if [ -n "$agent_effort" ]; then
+            _append_opt "$(printf '"effort":%s' "$(json_string "$agent_effort")")"
+          fi
+          if [ -n "$agent_sandbox" ]; then
+            _append_opt '"sandbox":true'
+          fi
+          if [ -n "$agent_skip_permissions" ]; then
+            _append_opt '"dangerouslySkipPermissions":true'
           fi
         fi
         # With no agent named, the account goes to the backend's default agent,

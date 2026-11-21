@@ -167,6 +167,37 @@ describe("buildHeadlessCommand", () => {
         ).toEqual({ command: "kimi", args: ["-p", "P", "-m", "kimi-code/k3"] });
     });
 
+    it("antigravity: stream-json over stdin with model and effort, interactive flags ignored", () => {
+        expect(
+            buildHeadlessCommand(
+                "antigravity",
+                {
+                    type: "antigravity",
+                    model: "gemini-3.8-flash-low",
+                    effort: "low",
+                    mode: "auto",
+                    sandbox: true,
+                    dangerouslySkipPermissions: true,
+                },
+                "- Title for: x",
+            ),
+        ).toEqual({
+            command: "agy",
+            args: [
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--disable-slash-commands",
+                "--model",
+                "gemini-3.8-flash-low",
+                "--effort",
+                "low",
+            ],
+            stdin: `${JSON.stringify({ event: "user", message: { content: "- Title for: x" } })}\n`,
+        });
+    });
+
     it("ignores options that belong to another agent", () => {
         expect(buildHeadlessCommand("claude", { type: "codex", model: "x" }, "P").args).toEqual([
             "-p",
@@ -194,6 +225,48 @@ describe("runHeadlessAgent", () => {
         stubSpawn(() => ({ stdout: "ok" }));
         await runHeadlessAgent({ type: "kimi", prompt: "P", env: {} });
         expect(calls[0].stdin).toBe("");
+    });
+
+    it("antigravity: streams large prompts over stdin and extracts response from stream-json result", async () => {
+        const hugePrompt = "diff\n".repeat(300_000);
+        stubSpawn(() => ({
+            stdout: [
+                JSON.stringify({ event: "init", conversation_id: "c1" }),
+                JSON.stringify({
+                    event: "step_update",
+                    step_update: { step_type: "agent_response", text_delta: "feat: huge diff" },
+                }),
+                JSON.stringify({
+                    event: "result",
+                    result: { status: "SUCCESS", response: "  feat: huge diff\n" },
+                }),
+            ].join("\n"),
+        }));
+        const out = await runHeadlessAgent({
+            type: "antigravity",
+            prompt: hugePrompt,
+            env: {},
+        });
+        expect(out).toBe("feat: huge diff");
+        expect(calls[0].cmd).not.toContain(hugePrompt);
+        expect(JSON.parse(calls[0].stdin)).toEqual({
+            event: "user",
+            message: { content: hugePrompt },
+        });
+    });
+
+    it("antigravity: surfaces stream-json error events", async () => {
+        stubSpawn(() => ({
+            stdout: JSON.stringify({
+                event: "result",
+                result: { status: "ERROR", response: "", error: "model unavailable" },
+            }),
+            exitCode: 1,
+        }));
+        await expectRejects(
+            runHeadlessAgent({ type: "antigravity", prompt: "P", env: {} }),
+            /model unavailable/,
+        );
     });
 
     it("throws on a non-zero exit and on empty output", async () => {

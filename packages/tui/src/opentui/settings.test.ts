@@ -36,6 +36,13 @@ const settings = {
     opencode: { defaultModel: "", autoApprove: false },
     pi: { defaultModel: "" },
     kimi: { defaultModel: "", permissionMode: "manual" },
+    antigravity: {
+        defaultModel: "",
+        defaultEffort: "default",
+        mode: "manual",
+        sandbox: false,
+        dangerouslySkipPermissions: false,
+    },
 } as unknown as AppSettings;
 const project: Project = {
     id: "p1",

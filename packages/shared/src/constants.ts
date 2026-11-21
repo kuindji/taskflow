@@ -107,6 +107,7 @@ export const MSG = {
     OPENCODE_MODELS: "opencode:models",
     PI_MODELS: "pi:models",
     KIMI_MODELS: "kimi:models",
+    ANTIGRAVITY_MODELS: "antigravity:models",
 
     // Terminal
     TERMINAL_OUTPUT: "terminal:output",

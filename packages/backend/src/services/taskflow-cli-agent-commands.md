@@ -21,3 +21,8 @@ Codex-specific flags: --sandbox "<mode>", --approval-policy "<policy>", --reason
 --yolo bypasses Codex approvals and sandboxing. --dangerously-bypass-approvals-and-sandbox is the explicit alias.
 OpenCode-specific flags: --auto-approve.
 --auto-approve enables auto-approval of all actions.
+Antigravity-specific flags: --mode "<mode>", --effort "<level>", --sandbox, --dangerously-skip-permissions.
+--mode sets execution mode (manual, accept-edits, auto, plan).
+--effort sets reasoning effort (low, medium, high, xhigh, max).
+--sandbox enables terminal sandbox restrictions.
+--dangerously-skip-permissions auto-approves all tool permission requests.

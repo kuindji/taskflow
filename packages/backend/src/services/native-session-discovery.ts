@@ -1,14 +1,18 @@
 import { createHash, randomUUID } from "crypto";
+import { existsSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import { mkdir, readdir, readFile, rm, stat } from "fs/promises";
 import type { Dirent } from "fs";
+import { Database } from "bun:sqlite";
 import type { AgentType } from "@taskflow/shared";
 import { buildShellPath } from "./shell-path";
 
 interface NativeSessionCandidate {
     id: string;
     cwd?: string;
+    cwds?: string[];
     createdAt: number;
 }
 
@@ -152,6 +156,98 @@ async function kimiCandidates(since: number, homeDir?: string): Promise<NativeSe
     return [...byId.values()];
 }
 
+interface AntigravitySummaryRow {
+    conversation_id: string;
+    workspace_uris: string;
+    last_modified_time: string;
+}
+
+const ANTIGRAVITY_SUMMARY_QUERY =
+    "SELECT conversation_id, workspace_uris, last_modified_time FROM conversation_summaries WHERE parent_conversation_id = ''";
+
+function queryAntigravitySummaries(dbPath: string): AntigravitySummaryRow[] {
+    const readFrom = (target: string): AntigravitySummaryRow[] => {
+        const db = new Database(target, { readonly: true });
+        try {
+            return db.query<AntigravitySummaryRow, []>(ANTIGRAVITY_SUMMARY_QUERY).all();
+        } finally {
+            db.close();
+        }
+    };
+
+    try {
+        return readFrom(dbPath);
+    } catch {
+        // A cleanly closed WAL database has no -wal/-shm sidecars, so SQLite's
+        // plain readonly open fails with SQLITE_CANTOPEN trying to create -shm.
+        // Fall back to immutable only when no -wal sidecar exists so live WAL
+        // rows are never bypassed.
+        if (!existsSync(dbPath) || existsSync(`${dbPath}-wal`)) return [];
+        try {
+            return readFrom(`${pathToFileURL(dbPath).href}?mode=ro&immutable=1`);
+        } catch {
+            return [];
+        }
+    }
+}
+
+/**
+ * Antigravity CLI records conversations in `<home>/conversation_summaries.db`
+ * (`workspace_uris` holds a JSON array of `file://` URIs, including any `--add-dir`
+ * directories), and `agy --conversation <id>` resumes by `conversation_id`.
+ */
+async function antigravityCandidates(
+    since: number,
+    homeDir?: string,
+): Promise<NativeSessionCandidate[]> {
+    const home = homeDir ?? join(homedir(), ".gemini", "antigravity-cli");
+    const dbPath = join(home, "conversation_summaries.db");
+    const rows = queryAntigravitySummaries(dbPath);
+    const candidates: NativeSessionCandidate[] = [];
+    for (const row of rows) {
+        if (!row.conversation_id) continue;
+        let cwds: string[] = [];
+        try {
+            const uris = JSON.parse(row.workspace_uris) as unknown;
+            if (Array.isArray(uris)) {
+                cwds = uris.flatMap((uri) => {
+                    if (typeof uri !== "string") return [];
+                    try {
+                        return [fileURLToPath(uri)];
+                    } catch {
+                        return [];
+                    }
+                });
+            }
+        } catch {
+            // Ignore malformed URI lists
+        }
+        const parsedTime = Date.parse(row.last_modified_time.replace(" ", "T"));
+        let createdAt = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : 0;
+        if (createdAt === 0) {
+            try {
+                const info = await stat(join(home, "conversations", `${row.conversation_id}.db`));
+                createdAt = info.birthtimeMs || info.mtimeMs;
+            } catch {
+                continue;
+            }
+        }
+        if (createdAt < since) continue;
+        candidates.push({
+            id: row.conversation_id,
+            cwd: cwds[0],
+            cwds: cwds.length > 0 ? cwds : undefined,
+            createdAt,
+        });
+    }
+    return candidates;
+}
+
+function matchesCwd(candidate: NativeSessionCandidate, cwd: string): boolean {
+    if (candidate.cwds) return candidate.cwds.includes(cwd);
+    return !candidate.cwd || candidate.cwd === cwd;
+}
+
 async function candidatesFor(
     type: AgentType,
     since: number,
@@ -160,6 +256,7 @@ async function candidatesFor(
     if (type === "codex") return codexCandidates(since, homeDir);
     if (type === "opencode") return openCodeCandidates(since);
     if (type === "kimi") return kimiCandidates(since, homeDir);
+    if (type === "antigravity") return antigravityCandidates(since, homeDir);
     return [];
 }
 
@@ -206,7 +303,7 @@ async function discoverNativeSessionId(
     const deadline = Date.now() + DISCOVERY_TIMEOUT_MS;
     while (Date.now() < deadline) {
         const recent = await candidatesFor(type, since, homeDir);
-        const cwdMatches = recent.filter((candidate) => !candidate.cwd || candidate.cwd === cwd);
+        const cwdMatches = recent.filter((candidate) => matchesCwd(candidate, cwd));
         const unique = [
             ...new Set(
                 cwdMatches.map((candidate) => candidate.id).filter((id) => !baselineIds.has(id)),
@@ -226,9 +323,7 @@ async function captureNativeSessionIds(
 ): Promise<Set<string>> {
     const existing = await candidatesFor(type, 0, homeDir);
     return new Set(
-        existing
-            .filter((candidate) => !candidate.cwd || candidate.cwd === cwd)
-            .map((candidate) => candidate.id),
+        existing.filter((candidate) => matchesCwd(candidate, cwd)).map((candidate) => candidate.id),
     );
 }
 

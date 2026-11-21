@@ -15,12 +15,31 @@ interface MockAgentSettings {
     dangerouslyBypassApprovalsAndSandbox?: boolean;
 }
 
+interface MockAntigravitySettings {
+    defaultModel: string;
+    defaultEffort: string;
+    mode: string;
+    sandbox: boolean;
+    dangerouslySkipPermissions: boolean;
+}
+
 interface MockSettings {
     claude: MockAgentSettings;
     codex: MockAgentSettings;
+    antigravity: MockAntigravitySettings;
 }
 
-let settings: MockSettings = { claude: { accounts: [] }, codex: { accounts: [] } };
+let settings: MockSettings = {
+    claude: { accounts: [] },
+    codex: { accounts: [] },
+    antigravity: {
+        defaultModel: "",
+        defaultEffort: "default",
+        mode: "manual",
+        sandbox: false,
+        dangerouslySkipPermissions: false,
+    },
+};
 
 function useSettingsStore<T>(selector: (state: { settings: MockSettings }) => T): T {
     return selector({ settings });
@@ -140,6 +159,13 @@ beforeEach(() => {
     settings = {
         claude: { accounts: [{ id: "acc-1", name: "personal", homeDir: "/homes/personal" }] },
         codex: { accounts: [{ id: "acc-1", name: "personal", homeDir: "/homes/personal" }] },
+        antigravity: {
+            defaultModel: "",
+            defaultEffort: "default",
+            mode: "manual",
+            sandbox: false,
+            dangerouslySkipPermissions: false,
+        },
     };
 });
 
@@ -203,7 +229,7 @@ test("session mode leaves unset fields out so launch-time Settings fill them", (
     expect(lastEmitted()).toEqual({ type: "codex" });
     unmount();
 
-    for (const agentType of ["opencode", "pi", "kimi"] as const) {
+    for (const agentType of ["opencode", "pi", "kimi", "antigravity"] as const) {
         mountWith(agentType, {});
         expect(JSON.parse(JSON.stringify(lastEmitted()))).toEqual({ type: agentType });
         unmount();
@@ -282,6 +308,46 @@ test("session mode sends an explicit off so the machine default cannot override 
 
     mountWith("kimi", { value: { type: "kimi", permissionMode: "manual" } });
     expect(lastEmitted()).toMatchObject({ type: "kimi", permissionMode: "manual" });
+    unmount();
+
+    mountWith("antigravity", {
+        value: {
+            type: "antigravity",
+            mode: "manual",
+            sandbox: false,
+            dangerouslySkipPermissions: false,
+        },
+    });
+    expect(lastEmitted()).toMatchObject({
+        type: "antigravity",
+        mode: "manual",
+        sandbox: false,
+        dangerouslySkipPermissions: false,
+    });
+});
+
+test("headless antigravity keeps model and effort and drops interactive flags", () => {
+    settings.antigravity.mode = "auto";
+    settings.antigravity.sandbox = true;
+    settings.antigravity.dangerouslySkipPermissions = true;
+    mountWith("antigravity", {
+        headless: true,
+        value: {
+            type: "antigravity",
+            model: "gemini-3.8-flash-low",
+            effort: "low",
+            mode: "auto",
+            sandbox: true,
+            dangerouslySkipPermissions: true,
+        },
+    });
+    const options = lastEmitted();
+    if (options.type !== "antigravity") throw new Error("expected antigravity options");
+    expect(options.model).toBe("gemini-3.8-flash-low");
+    expect(options.effort).toBe("low");
+    expect(options.mode).toBeUndefined();
+    expect(options.sandbox).toBeUndefined();
+    expect(options.dangerouslySkipPermissions).toBeUndefined();
 });
 
 test("headless pi leaves thinking off unset", () => {

@@ -125,6 +125,13 @@ describe("OpenTuiApp", () => {
             opencode: { defaultModel: "", autoApprove: false },
             pi: { defaultModel: "", thinking: "off", tools: "" },
             kimi: { defaultModel: "", permissionMode: "manual" },
+            antigravity: {
+                defaultModel: "",
+                defaultEffort: "default",
+                mode: "manual",
+                sandbox: false,
+                dangerouslySkipPermissions: false,
+            },
         });
         const store = new FakeStore();
         store.masterSessions = [

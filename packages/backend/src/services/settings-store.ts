@@ -4,6 +4,8 @@ import { KeyedQueue } from "./keyed-queue";
 import { writeJsonAtomic } from "./write-file-atomic";
 import {
     ALL_AGENT_TYPES,
+    ANTIGRAVITY_EFFORT_LEVELS,
+    ANTIGRAVITY_MODES,
     CLAUDE_EFFORT_LEVELS,
     CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
@@ -25,6 +27,7 @@ import {
 } from "@taskflow/shared";
 import type {
     AgentAccount,
+    AntigravitySettings,
     AppSettings,
     ClaudeSettings,
     CodexSettings,
@@ -100,6 +103,13 @@ const DEFAULTS: AppSettings = {
         defaultModel: "",
         permissionMode: "manual",
     },
+    antigravity: {
+        defaultModel: "",
+        defaultEffort: "default",
+        mode: "manual",
+        sandbox: false,
+        dangerouslySkipPermissions: false,
+    },
     appearance: {
         theme: DEFAULT_THEME_ID,
     },
@@ -129,6 +139,7 @@ function createDefaultSettings(): AppSettings {
         opencode: { ...DEFAULTS.opencode },
         pi: { ...DEFAULTS.pi },
         kimi: { ...DEFAULTS.kimi },
+        antigravity: { ...DEFAULTS.antigravity },
         appearance: { ...DEFAULTS.appearance },
         remoteAgent: { ...DEFAULTS.remoteAgent },
         network: { ...DEFAULTS.network },
@@ -305,6 +316,37 @@ function normalizeClaudeSettings(settings: ClaudeSettings, defaults: ClaudeSetti
     return changed;
 }
 
+function normalizeAntigravitySettings(
+    settings: AntigravitySettings,
+    defaults: AntigravitySettings,
+): boolean {
+    let changed = false;
+    if (typeof settings.defaultModel !== "string") {
+        settings.defaultModel = defaults.defaultModel;
+        changed = true;
+    }
+    if (
+        settings.defaultEffort !== "default" &&
+        !(ANTIGRAVITY_EFFORT_LEVELS as readonly unknown[]).includes(settings.defaultEffort)
+    ) {
+        settings.defaultEffort = defaults.defaultEffort;
+        changed = true;
+    }
+    if (!(ANTIGRAVITY_MODES as readonly unknown[]).includes(settings.mode)) {
+        settings.mode = defaults.mode;
+        changed = true;
+    }
+    if (typeof settings.sandbox !== "boolean") {
+        settings.sandbox = defaults.sandbox;
+        changed = true;
+    }
+    if (typeof settings.dangerouslySkipPermissions !== "boolean") {
+        settings.dangerouslySkipPermissions = defaults.dangerouslySkipPermissions;
+        changed = true;
+    }
+    return changed;
+}
+
 function normalizeRemoteAgentSettings(
     settings: RemoteAgentSettings,
     defaults: RemoteAgentSettings,
@@ -413,6 +455,7 @@ export class SettingsStore {
                 opencode: { ...defaults.opencode, ...parsed.opencode },
                 pi: { ...defaults.pi, ...parsed.pi },
                 kimi: { ...defaults.kimi, ...parsed.kimi },
+                antigravity: { ...defaults.antigravity, ...parsed.antigravity },
                 appearance: { ...defaults.appearance, ...parsed.appearance },
                 remoteAgent: { ...defaults.remoteAgent, ...parsed.remoteAgent },
                 network: { ...defaults.network, ...parsed.network },
@@ -438,6 +481,9 @@ export class SettingsStore {
             needsMigration =
                 normalizeClaudeSettings(result.claude, defaults.claude) || needsMigration;
             needsMigration = normalizeCodexSettings(result.codex, defaults.codex) || needsMigration;
+            needsMigration =
+                normalizeAntigravitySettings(result.antigravity, defaults.antigravity) ||
+                needsMigration;
             needsMigration =
                 normalizeRemoteAgentSettings(result.remoteAgent, defaults.remoteAgent) ||
                 needsMigration;
@@ -492,6 +538,10 @@ export class SettingsStore {
         }
         if (partial.kimi) {
             applyNullable(current.kimi, partial.kimi);
+        }
+        if (partial.antigravity) {
+            applyNullable(current.antigravity, partial.antigravity);
+            normalizeAntigravitySettings(current.antigravity, DEFAULTS.antigravity);
         }
         if (partial.appearance) {
             applyNullable(current.appearance, partial.appearance);

@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SettingInput } from "@/components/settings/SettingInput";
+import { ModelDefaultOption } from "@/components/settings/ModelDefaultOption";
+import { ChevronDownIcon } from "lucide-react";
+import { sendRequest } from "@/lib/connection-registry";
+import { MSG } from "@taskflow/shared";
+import type { AntigravityModelInfo, AntigravityModelsResponse } from "@taskflow/shared";
+
+interface AntigravityModelSelectProps {
+    /** The machine whose Antigravity CLI lists the models. */
+    backendId: string | null;
+    value: string;
+    onChange: (model: string) => void;
+    /** Session pickers: label of the unset model, which Settings fills. */
+    inheritedLabel?: string;
+}
+
+function AntigravityModelSelect({
+    backendId,
+    value,
+    onChange,
+    inheritedLabel,
+}: AntigravityModelSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [models, setModels] = useState<AntigravityModelInfo[] | null>(null);
+    const [search, setSearch] = useState("");
+    const [fetchFailed, setFetchFailed] = useState(false);
+    const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+
+    // Another machine has its own models.
+    useEffect(() => {
+        setModels(null);
+        setFetchFailed(false);
+    }, [backendId]);
+
+    useEffect(() => {
+        if (!open || !backendId || models !== null || fetchFailed) return;
+        let cancelled = false;
+        sendRequest<AntigravityModelsResponse>(backendId, MSG.ANTIGRAVITY_MODELS, {})
+            .then((res) => {
+                if (!cancelled) setModels(res.models);
+            })
+            .catch(() => {
+                if (!cancelled) setFetchFailed(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, backendId, models, fetchFailed]);
+
+    useEffect(() => {
+        setPortalContainer(
+            containerRef.current?.closest<HTMLElement>("[data-slot='dialog-content']") ?? null,
+        );
+    }, []);
+
+    const handleOpenChange = useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
+            setSearch("");
+            requestAnimationFrame(() => searchRef.current?.focus());
+        }
+        setOpen(nextOpen);
+    }, []);
+
+    const filtered = useMemo(() => {
+        if (!models) return [];
+        if (!search) return models;
+        const lower = search.toLowerCase();
+        return models.filter(
+            (m) =>
+                m.id.toLowerCase().includes(lower) || m.displayName.toLowerCase().includes(lower),
+        );
+    }, [models, search]);
+
+    const handleSelect = useCallback(
+        (key: string) => {
+            onChange(key);
+            setOpen(false);
+        },
+        [onChange],
+    );
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" && search) {
+                onChange(search);
+                setOpen(false);
+            }
+        },
+        [search, onChange],
+    );
+
+    const displayLabel = useMemo(() => {
+        if (!value) return null;
+        const match = models?.find((m) => m.id === value);
+        return match ? match.displayName : value;
+    }, [value, models]);
+
+    if (fetchFailed) {
+        return (
+            <SettingInput
+                value={value}
+                placeholder={inheritedLabel ?? "e.g. gemini-4-neon-high"}
+                onChange={(e) => onChange(e.target.value)}
+                size="sm"
+                className="text-[13px]"
+            />
+        );
+    }
+
+    return (
+        <div ref={containerRef} className="min-w-0">
+            <Popover open={open} onOpenChange={handleOpenChange}>
+                <PopoverTrigger asChild>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full min-w-0 justify-between overflow-hidden text-[13px] font-normal">
+                        <span className="min-w-0 flex-1 truncate text-left">
+                            {displayLabel || inheritedLabel || "Select model..."}
+                        </span>
+                        <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                    container={portalContainer ?? undefined}
+                    className="w-[--radix-popover-trigger-width] min-w-80 p-0"
+                    align="start">
+                    <div className="border-border border-b p-2">
+                        <Input
+                            ref={searchRef}
+                            placeholder="Search models... (Enter for custom)"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="h-7 text-sm"
+                        />
+                    </div>
+                    <div className="max-h-60 overflow-y-auto p-1">
+                        {models !== null && !search && (
+                            <ModelDefaultOption
+                                agent="Antigravity"
+                                inheritedLabel={inheritedLabel}
+                                selected={!value}
+                                onSelect={() => handleSelect("")}
+                            />
+                        )}
+                        {models === null ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                Loading models...
+                            </div>
+                        ) : models.length === 0 ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                No models available
+                            </div>
+                        ) : filtered.length === 0 ? (
+                            <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                                No matches — press Enter to use custom value
+                            </div>
+                        ) : (
+                            filtered.map((m) => (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    className={`hover:bg-accent hover:text-accent-foreground flex w-full cursor-default flex-col items-start gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden ${
+                                        m.id === value ? "bg-accent text-accent-foreground" : ""
+                                    }`}
+                                    onClick={() => handleSelect(m.id)}>
+                                    <span className="truncate">{m.displayName}</span>
+                                    <span className="text-muted-foreground truncate text-[11px]">
+                                        {m.id}
+                                    </span>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </PopoverContent>
+            </Popover>
+        </div>
+    );
+}
+
+export { AntigravityModelSelect };

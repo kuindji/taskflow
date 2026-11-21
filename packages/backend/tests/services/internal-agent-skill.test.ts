@@ -533,6 +533,7 @@ describe("buildAgentLaunchSpec native resume", () => {
             ["opencode", ["--session", "native-id"]],
             ["pi", ["--session", "native-id"]],
             ["kimi", ["--session", "native-id"]],
+            ["antigravity", ["--conversation", "native-id"]],
         ] as const;
 
         for (const [type, expectedPair] of cases) {
@@ -582,6 +583,82 @@ describe("buildAgentLaunchSpec native resume", () => {
         const index = spec.args.indexOf("--session");
         expect(spec.args[index + 1]).toBe("/sessions/new.jsonl");
         expect(spec.args.at(-1)).toBe("Start work");
+    });
+
+    it("builds Antigravity launch spec with AGENTS.md instructionFile, --add-dir, options and --prompt-interactive", () => {
+        const spec = buildAgentLaunchSpec(
+            "antigravity",
+            "- Fix bug",
+            SKILL,
+            {
+                type: "antigravity",
+                model: "gemini-4-neon-high",
+                effort: "xhigh",
+                mode: "accept-edits",
+                sandbox: true,
+                dangerouslySkipPermissions: true,
+            },
+            "Extra system note",
+        );
+        expect(spec.command).toBe("agy");
+        expect(spec.instructionFile).toBeDefined();
+        expect(spec.instructionFile!.path.endsWith("/AGENTS.md")).toBe(true);
+        expect(spec.instructionFile!.content).toContain("Extra system note");
+        expect(spec.args).toContain("--model");
+        expect(spec.args).toContain("gemini-4-neon-high");
+        expect(spec.args).toContain("--effort");
+        expect(spec.args).toContain("xhigh");
+        expect(spec.args).toContain("--mode");
+        expect(spec.args).toContain("accept-edits");
+        expect(spec.args).toContain("--sandbox");
+        expect(spec.args).toContain("--dangerously-skip-permissions");
+        expect(spec.args).toContain("--add-dir");
+        expect(spec.args).toContain(dirname(spec.instructionFile!.path));
+        expect(spec.args).toContain(dirname(SKILL));
+        expect(spec.args).toContain("--prompt-interactive=- Fix bug");
+    });
+
+    it("enforces manual mode and explicit sandbox disable via one session settings override", () => {
+        const spec = buildAgentLaunchSpec("antigravity", undefined, SKILL, {
+            type: "antigravity",
+            mode: "manual",
+            sandbox: false,
+        });
+        expect(spec.args).not.toContain("--mode");
+        expect(spec.args).not.toContain("--sandbox");
+        expect(spec.args).not.toContain("--dangerously-skip-permissions");
+        const settingsFlags = spec.args.filter((arg) => arg === "--settings");
+        expect(settingsFlags).toHaveLength(1);
+        const settingsIdx = spec.args.indexOf("--settings");
+        expect(JSON.parse(spec.args[settingsIdx + 1])).toEqual({
+            agentMode: "",
+            enableTerminalSandbox: false,
+        });
+    });
+
+    it("overrides native sandbox when sandbox is explicitly false with non-manual mode", () => {
+        const spec = buildAgentLaunchSpec("antigravity", undefined, SKILL, {
+            type: "antigravity",
+            mode: "accept-edits",
+            sandbox: false,
+        });
+        expect(spec.args).toContain("--mode");
+        expect(spec.args).toContain("accept-edits");
+        expect(spec.args).not.toContain("--sandbox");
+        const settingsIdx = spec.args.indexOf("--settings");
+        expect(settingsIdx).toBeGreaterThanOrEqual(0);
+        expect(JSON.parse(spec.args[settingsIdx + 1])).toEqual({
+            enableTerminalSandbox: false,
+        });
+    });
+
+    it("omits mode and sandbox overrides for Antigravity when unset", () => {
+        const spec = buildAgentLaunchSpec("antigravity", undefined, SKILL, {
+            type: "antigravity",
+        });
+        expect(spec.args).not.toContain("--mode");
+        expect(spec.args).not.toContain("--sandbox");
+        expect(spec.args).not.toContain("--settings");
     });
 });
 

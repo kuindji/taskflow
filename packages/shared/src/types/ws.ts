@@ -20,6 +20,7 @@ import type {
     OpenCodeModelInfo,
     PiModelInfo,
     KimiModelInfo,
+    AntigravityModelInfo,
 } from "./agent";
 import type { ThemeRecord, ThemeSource } from "./theme";
 import type { SearchFileResult, SearchMatch, SearchResult } from "./search";
@@ -168,7 +169,7 @@ export interface SessionCreatePayload {
     taskId?: string;
     projectId?: string;
     master?: boolean;
-    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "shell" | "editor";
+    type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity" | "shell" | "editor";
     label?: string;
     prompt?: string;
     shell?: string; // full path, e.g. "/bin/zsh" — required when type is 'shell'
@@ -327,6 +328,10 @@ export interface PiModelsResponse {
 
 export interface KimiModelsResponse {
     models: KimiModelInfo[];
+}
+
+export interface AntigravityModelsResponse {
+    models: AntigravityModelInfo[];
 }
 
 // Wiki messages

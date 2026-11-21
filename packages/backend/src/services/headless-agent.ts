@@ -2,7 +2,11 @@ import { randomUUID } from "crypto";
 import { readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { CLAUDE_EFFORT_LEVELS, CODEX_REASONING_EFFORTS } from "@taskflow/shared";
+import {
+    ANTIGRAVITY_EFFORT_LEVELS,
+    CLAUDE_EFFORT_LEVELS,
+    CODEX_REASONING_EFFORTS,
+} from "@taskflow/shared";
 import type { AgentLaunchOptions, AgentType } from "@taskflow/shared";
 import { normalizePiLaunchOptions } from "./pi-options";
 import type { fetchPiModels } from "./runtime-detector";
@@ -89,10 +93,82 @@ function buildHeadlessCommand(
             if (options?.type === "kimi" && options.model) args.push("-m", options.model);
             return { command: "kimi", args };
         }
+        case "antigravity": {
+            const args = [
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--disable-slash-commands",
+            ];
+            if (options?.type === "antigravity") {
+                if (options.model) args.push("--model", options.model);
+                if (
+                    options.effort &&
+                    (ANTIGRAVITY_EFFORT_LEVELS as readonly string[]).includes(options.effort)
+                )
+                    args.push("--effort", options.effort);
+            }
+            return {
+                command: "agy",
+                args,
+                stdin: `${JSON.stringify({ event: "user", message: { content: prompt } })}\n`,
+            };
+        }
         default:
             // Compile-time unreachable; persisted data can still smuggle removed agent types.
             throw new Error(`Unsupported agent type: ${String(type)}`);
     }
+}
+
+function parseAntigravityStreamOutput(stdout: string): {
+    response: string;
+    error?: string;
+} {
+    let resultResponse: string | undefined;
+    let resultError: string | undefined;
+    let deltaText = "";
+    for (const rawLine of stdout.split("\n")) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (typeof parsed !== "object" || parsed === null) continue;
+        const record = parsed as Record<string, unknown>;
+        if (
+            record.event === "result" &&
+            typeof record.result === "object" &&
+            record.result !== null
+        ) {
+            const result = record.result as Record<string, unknown>;
+            if (result.status === "ERROR") {
+                resultError =
+                    typeof result.error === "string" && result.error.trim()
+                        ? result.error.trim()
+                        : "Antigravity returned an error";
+            }
+            if (typeof result.response === "string") {
+                resultResponse = result.response;
+            }
+        } else if (
+            record.event === "step_update" &&
+            typeof record.step_update === "object" &&
+            record.step_update !== null
+        ) {
+            const update = record.step_update as Record<string, unknown>;
+            if (update.step_type === "agent_response" && typeof update.text_delta === "string") {
+                deltaText += update.text_delta;
+            }
+        }
+    }
+    return {
+        response: (resultResponse ?? deltaText).trim(),
+        ...(resultError ? { error: resultError } : {}),
+    };
 }
 
 /** Run an agent one-shot and return its trimmed answer. Throws on failure, timeout or empty output. */
@@ -158,13 +234,24 @@ async function runHeadlessAgent(
         }
 
         const [stdout, stderr, exitCode] = result;
+        const antigravityStream =
+            request.type === "antigravity" ? parseAntigravityStreamOutput(stdout) : null;
         if (exitCode !== 0) {
-            const detail = stderr.trim().slice(0, 500);
+            const detail = (stderr.trim() || antigravityStream?.error || "").slice(0, 500);
             throw new Error(
                 `${command} exited with code ${exitCode}${detail ? `: ${detail}` : ""}`,
             );
         }
-        const output = (outputFile ? await readFile(outputFile, "utf-8") : stdout).trim();
+        if (antigravityStream?.error) {
+            throw new Error(`${command}: ${antigravityStream.error.slice(0, 500)}`);
+        }
+        const output = (
+            outputFile
+                ? await readFile(outputFile, "utf-8")
+                : antigravityStream
+                  ? antigravityStream.response
+                  : stdout
+        ).trim();
         if (!output) throw new Error(`${command} returned no output`);
         return output;
     } finally {

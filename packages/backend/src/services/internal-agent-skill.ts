@@ -19,6 +19,8 @@ import browserCommandsMd from "./taskflow-cli-browser-commands.md" with { type: 
 import otherCommandsMd from "./taskflow-cli-other-commands.md" with { type: "text" };
 import type { AgentLaunchOptions, AgentType, LinkedProject } from "@taskflow/shared";
 import {
+    ANTIGRAVITY_EFFORT_LEVELS,
+    ANTIGRAVITY_MODES,
     CLAUDE_EFFORT_LEVELS,
     CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
@@ -335,6 +337,58 @@ export function buildAgentLaunchSpec(
             ],
             env: { KIMI_CODE_NO_AUTO_UPDATE: "1" },
             initialInput: prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : undefined,
+        };
+    }
+
+    if (type === "antigravity") {
+        const content = `${systemPrompt.trim()}\n`;
+        const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
+        const promptDir = join(dirname(skillPath), `${AGENT_PROMPT_FILE_PREFIX}agy-${hash}`);
+        const promptPath = join(promptDir, "AGENTS.md");
+        const optionArgs: string[] = [];
+        const sessionSettings: Record<string, unknown> = {};
+        if (agentOptions?.type === "antigravity") {
+            if (agentOptions.model) optionArgs.push("--model", agentOptions.model);
+            if (
+                agentOptions.effort &&
+                (ANTIGRAVITY_EFFORT_LEVELS as readonly string[]).includes(agentOptions.effort)
+            )
+                optionArgs.push("--effort", agentOptions.effort);
+            if (
+                agentOptions.mode &&
+                (ANTIGRAVITY_MODES as readonly string[]).includes(agentOptions.mode)
+            ) {
+                if (agentOptions.mode === "manual") {
+                    sessionSettings.agentMode = "";
+                } else {
+                    optionArgs.push("--mode", agentOptions.mode);
+                }
+            }
+            if (agentOptions.sandbox === true) {
+                optionArgs.push("--sandbox");
+            } else if (agentOptions.sandbox === false) {
+                sessionSettings.enableTerminalSandbox = false;
+            }
+            if (agentOptions.dangerouslySkipPermissions)
+                optionArgs.push("--dangerously-skip-permissions");
+        }
+        if (Object.keys(sessionSettings).length > 0) {
+            optionArgs.push("--settings", JSON.stringify(sessionSettings));
+        }
+        return {
+            command: "agy",
+            args: [
+                ...optionArgs,
+                "--add-dir",
+                promptDir,
+                "--add-dir",
+                dirname(skillPath),
+                ...(nativeSession?.mode === "resume" && nativeSession.id
+                    ? ["--conversation", nativeSession.id]
+                    : []),
+                ...(prompt ? [`--prompt-interactive=${prompt}`] : []),
+            ],
+            instructionFile: { path: promptPath, content },
         };
     }
 

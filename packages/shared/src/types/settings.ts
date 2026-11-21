@@ -8,6 +8,8 @@ import type {
     CodexReasoningEffort,
     PiThinkingLevel,
     KimiPermissionMode,
+    AntigravityEffortLevel,
+    AntigravityMode,
 } from "./agent";
 
 export interface GeneralSettings {
@@ -53,6 +55,14 @@ export interface PiSettings {
 export interface KimiSettings {
     defaultModel: string;
     permissionMode: KimiPermissionMode;
+}
+
+export interface AntigravitySettings {
+    defaultModel: string;
+    defaultEffort: AntigravityEffortLevel | "default";
+    mode: AntigravityMode;
+    sandbox: boolean;
+    dangerouslySkipPermissions: boolean;
 }
 
 export interface TerminalSettings {
@@ -126,6 +136,7 @@ export interface AppSettings {
     opencode: OpenCodeSettings;
     pi: PiSettings;
     kimi: KimiSettings;
+    antigravity: AntigravitySettings;
     appearance: AppearanceSettings;
     remoteAgent: RemoteAgentSettings;
     network: NetworkSettings;
@@ -162,6 +173,7 @@ export interface SettingsUpdatePayload {
     opencode?: NullablePartial<OpenCodeSettings>;
     pi?: NullablePartial<PiSettings>;
     kimi?: NullablePartial<KimiSettings>;
+    antigravity?: NullablePartial<AntigravitySettings>;
     appearance?: NullablePartial<AppearanceSettings>;
     remoteAgent?: NullablePartial<RemoteAgentSettings>;
     network?: NullablePartial<NetworkSettings>;

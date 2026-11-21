@@ -54,6 +54,13 @@ function settings(): AppSettings {
         opencode: { defaultModel: "", autoApprove: false },
         pi: { defaultModel: "", thinking: "off", tools: "" },
         kimi: { defaultModel: "", permissionMode: "manual" },
+        antigravity: {
+            defaultModel: "",
+            defaultEffort: "default",
+            mode: "manual",
+            sandbox: false,
+            dangerouslySkipPermissions: false,
+        },
         appearance: { theme: "default" },
         remoteAgent: { autoStart: false, appName: "", headless: false, permissionMode: "default" },
         network: { discoverable: true, displayName: "" },
@@ -148,7 +155,8 @@ function fakeNet(
             if (
                 type === MSG.OPENCODE_MODELS ||
                 type === MSG.PI_MODELS ||
-                type === MSG.KIMI_MODELS
+                type === MSG.KIMI_MODELS ||
+                type === MSG.ANTIGRAVITY_MODELS
             ) {
                 return { models: [] } as T;
             }
@@ -179,6 +187,7 @@ describe("SettingsStore", () => {
             { value: "gpt-current", label: "GPT Current" },
         ]);
         expect(net.requests.map((request) => request.type)).toContain(MSG.KIMI_MODELS);
+        expect(net.requests.map((request) => request.type)).toContain(MSG.ANTIGRAVITY_MODELS);
         store.dispose();
     });
 

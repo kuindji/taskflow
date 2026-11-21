@@ -1,5 +1,7 @@
 import {
     ALL_AGENT_TYPES,
+    ANTIGRAVITY_EFFORT_LEVELS,
+    ANTIGRAVITY_MODES,
     CLAUDE_EFFORT_LEVELS,
     CLAUDE_PERMISSION_MODES,
     CODEX_APPROVAL_POLICIES,
@@ -147,6 +149,22 @@ function validateAgentOptions(
             optionalString(options.model, `${path}.model`);
             if (options.permissionMode !== undefined)
                 oneOf(options.permissionMode, KIMI_PERMISSION_MODES, `${path}.permissionMode`);
+            break;
+        case "antigravity":
+            exactKeys(
+                options,
+                ["type", "model", "effort", "mode", "sandbox", "dangerouslySkipPermissions"],
+                path,
+            );
+            optionalString(options.model, `${path}.model`);
+            if (options.effort !== undefined)
+                oneOf(options.effort, ANTIGRAVITY_EFFORT_LEVELS, `${path}.effort`);
+            if (options.mode !== undefined) oneOf(options.mode, ANTIGRAVITY_MODES, `${path}.mode`);
+            optionalBoolean(options.sandbox, `${path}.sandbox`);
+            optionalBoolean(
+                options.dangerouslySkipPermissions,
+                `${path}.dangerouslySkipPermissions`,
+            );
             break;
     }
     return options as unknown as AgentLaunchOptions;

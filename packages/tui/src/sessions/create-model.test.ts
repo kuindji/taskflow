@@ -9,6 +9,7 @@ const agents: AgentListResponse = {
         { type: "opencode", available: false, path: "", version: "" },
         { type: "pi", available: true, path: "/pi", version: "1" },
         { type: "kimi", available: false, path: "", version: "" },
+        { type: "antigravity", available: false, path: "", version: "" },
     ],
 };
 const shells: ShellListResponse = {
@@ -40,6 +41,13 @@ const settings = {
     opencode: { defaultModel: "", autoApprove: false },
     pi: { defaultModel: "", thinking: "off", tools: "" },
     kimi: { defaultModel: "", permissionMode: "manual" },
+    antigravity: {
+        defaultModel: "",
+        defaultEffort: "default",
+        mode: "manual",
+        sandbox: false,
+        dangerouslySkipPermissions: false,
+    },
 } as unknown as AppSettings;
 
 describe("session creation model", () => {

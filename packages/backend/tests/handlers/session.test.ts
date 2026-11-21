@@ -259,6 +259,37 @@ describe("session handlers", () => {
         }
     });
 
+    it("gives Antigravity project instructions via AGENTS.md and enforces default manual mode", async () => {
+        const rule = `Always run typecheck (${tempDir})`;
+        await store.updateProject(projectId, { prompt: rule });
+        const task = await store.createTask({ projectId, title: "Agy", description: "" });
+        await sessionLifecycle.createSession({ owner: { taskId: task.id }, type: "antigravity" });
+
+        const spawn = ptyManager.spawns.at(-1);
+        expect(spawn?.command).toBe("agy");
+        const args = spawn?.args ?? [];
+        const settingsIdx = args.indexOf("--settings");
+        expect(settingsIdx).toBeGreaterThanOrEqual(0);
+        expect(JSON.parse(args[settingsIdx + 1])).toEqual({
+            agentMode: "",
+            enableTerminalSandbox: false,
+        });
+        expect(args).not.toContain("--mode");
+        expect(args).not.toContain("--sandbox");
+
+        const addDirIdx = args.indexOf("--add-dir");
+        expect(addDirIdx).toBeGreaterThanOrEqual(0);
+        const promptDir = args[addDirIdx + 1];
+        try {
+            const content = await readFile(join(promptDir, "AGENTS.md"), "utf8");
+            expect(content).toContain("You are running inside Taskflow application");
+            expect(content).toContain("This session is scoped to a specific task.");
+            expect(content).toContain(`## Project Instructions\n\n${rule}`);
+        } finally {
+            await rm(promptDir, { recursive: true, force: true });
+        }
+    });
+
     it("a new Pi session records the session file it was launched on, without discovery", async () => {
         const task = await store.createTask({ projectId, title: "Pi", description: "" });
         const id = await sessionLifecycle.createSession({ owner: { taskId: task.id }, type: "pi" });

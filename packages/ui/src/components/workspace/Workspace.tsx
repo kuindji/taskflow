@@ -176,7 +176,7 @@ export function Workspace() {
     }
 
     const handleNewTab = async (
-        type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "browser" | "shell",
+        type: "claude" | "codex" | "opencode" | "pi" | "kimi" | "antigravity" | "browser" | "shell",
         shellPath?: string,
         agentOptions?: AgentLaunchOptions,
     ) => {
