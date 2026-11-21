@@ -1393,3 +1393,40 @@ describe("taskflow-cli authentication", () => {
         expect(argv[0]).not.toContain("-K");
     });
 });
+
+describe("taskflow-cli schedule conditions", () => {
+    it("sends the script on create and supports clearing it on update", async () => {
+        const { cliPath, env, captureFile } = await setupCliHarness();
+        const script = 'test -s "inbox with spaces" && printf "ready"';
+        const created = runCli(
+            cliPath,
+            [
+                "schedule",
+                "create",
+                "--expression",
+                "rate(1 minute)",
+                "--prompt",
+                "Triage",
+                "--condition-script",
+                script,
+            ],
+            {
+                ...env,
+                TASKFLOW_PROJECT_ID: "p1",
+            },
+        );
+        expect(created.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toMatchObject({
+            conditionScript: script,
+        });
+        const cleared = runCli(
+            cliPath,
+            ["schedule", "update", "s1", "--condition-script", ""],
+            env,
+        );
+        expect(cleared.status).toBe(0);
+        expect(JSON.parse((await readCapturedRequest(captureFile)).data)).toEqual({
+            conditionScript: "",
+        });
+    });
+});

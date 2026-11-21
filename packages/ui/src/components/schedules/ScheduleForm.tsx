@@ -63,6 +63,7 @@ function ScheduleForm({
     const [pickedActionId, setActionId] = useState<string>(schedule?.actionId ?? "");
     const [name, setName] = useState(schedule?.name ?? "");
     const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
+    const [conditionScript, setConditionScript] = useState(schedule?.conditionScript ?? "");
     const [expressionType, setExpressionType] = useState<"cron" | "rate">(
         schedule?.expressionType ?? "rate",
     );
@@ -127,6 +128,7 @@ function ScheduleForm({
                 name: schedule?.name,
                 actionId: schedule?.actionId,
                 prompt: schedule?.prompt,
+                conditionScript: schedule?.conditionScript,
                 expression: schedule?.expression ?? "rate(30 minutes)",
                 expressionType: schedule?.expressionType ?? "rate",
                 agentType: schedule?.agentType ?? "",
@@ -144,6 +146,7 @@ function ScheduleForm({
                 name,
                 actionId,
                 prompt,
+                conditionScript,
                 expression,
                 expressionType,
                 agentType,
@@ -161,6 +164,7 @@ function ScheduleForm({
             name,
             projectId,
             prompt,
+            conditionScript,
             timeout,
             useAction,
         ],
@@ -185,6 +189,7 @@ function ScheduleForm({
                     name: name || undefined,
                     actionId: actionId || null,
                     prompt: useAction ? undefined : prompt,
+                    conditionScript: conditionScript.trim() ? conditionScript : null,
                     expression,
                     expressionType,
                     agentType: useAction ? null : agentType || null,
@@ -198,6 +203,7 @@ function ScheduleForm({
                     name: name || undefined,
                     actionId: actionId || undefined,
                     prompt: useAction ? undefined : prompt,
+                    conditionScript: conditionScript.trim() ? conditionScript : undefined,
                     expression,
                     expressionType,
                     agentType: useAction ? undefined : agentType || undefined,
@@ -219,6 +225,7 @@ function ScheduleForm({
         actionId,
         useAction,
         prompt,
+        conditionScript,
         expression,
         expressionType,
         agentType,
@@ -382,6 +389,26 @@ function ScheduleForm({
                         />
                     </div>
                 )}
+
+                <div className="space-y-1.5">
+                    <Label htmlFor="schedule-condition" className="text-xs">
+                        Condition script (optional)
+                    </Label>
+                    <ExpandableTextarea
+                        showInfoButton={false}
+                        id="schedule-condition"
+                        className="min-h-[80px] font-mono text-xs"
+                        dialogTitle="Schedule condition script"
+                        value={conditionScript}
+                        onChange={(e) => setConditionScript(e.target.value)}
+                        placeholder="./scripts/should-run.sh"
+                    />
+                    <p className="text-muted-foreground text-[11px]">
+                        Runs in the project folder on its machine before each run, including Run
+                        now. Exit 0 to run, 1 to skip. Other exits or a 30-second timeout report an
+                        error. Leave empty to always run.
+                    </p>
+                </div>
 
                 {/* Schedule expression */}
                 <div className="space-y-1.5">

@@ -87,10 +87,12 @@ it("WS schedule:create returns the due time creation stored", async () => {
     const created = (await router.handle(MSG.SCHEDULE_CREATE, {
         projectId: "p1",
         name: "Hourly",
+        conditionScript: "test -s inbox",
         prompt: "Work",
         expression: "rate(1 hour)",
         expressionType: "rate",
     })) as Schedule;
+    expect(created.conditionScript).toBe("test -s inbox");
     expect(created.nextRunAt).toBe("2026-10-30T11:00:00.000Z");
     expect(await store.getById(created.id)).toEqual(created);
 });
@@ -104,4 +106,14 @@ it("HTTP and WS type-only edits validate the merged expression", async () => {
     await expectRejects(router.handle(MSG.SCHEDULE_UPDATE, { id: "s1", expressionType: "cron" }));
     expect(await store.getById("s1")).toEqual(before);
     expect(events).toEqual([]);
+});
+
+it("WS persists, updates and clears a condition without moving the due time", async () => {
+    expect((await update({ conditionScript: "test -s inbox" })).conditionScript).toBe(
+        "test -s inbox",
+    );
+    expect((await update({ name: "Renamed" })).conditionScript).toBe("test -s inbox");
+    expect((await update({ conditionScript: null })).conditionScript).toBeUndefined();
+    expect((await store.getById("s1"))?.nextRunAt).toBe(due);
+    await expectRejects(update({ conditionScript: false }));
 });

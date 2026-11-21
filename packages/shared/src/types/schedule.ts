@@ -7,6 +7,8 @@ interface Schedule {
     projectId: string;
     name: string;
     prompt: string;
+    /** Shell script: exit 0 runs, exit 1 skips, other exits fail the check. */
+    conditionScript?: string;
     actionId?: string;
     agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
@@ -31,6 +33,7 @@ interface ScheduleCreatePayload {
     projectId: string;
     name?: string;
     prompt?: string;
+    conditionScript?: string;
     actionId?: string;
     agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
@@ -44,6 +47,7 @@ interface ScheduleUpdatePayload {
     id: string;
     name?: string;
     prompt?: string;
+    conditionScript?: string | null;
     actionId?: string | null;
     agentType?: ScheduleSessionType | null;
     agentOptions?: AgentLaunchOptions | null;

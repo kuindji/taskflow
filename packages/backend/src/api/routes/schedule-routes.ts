@@ -1,3 +1,4 @@
+import { normalizeConditionScript } from "../../services/schedule-condition";
 import type { ApiRouter } from "../router";
 import type { FlowStore } from "../../services/flow-store";
 import type { ScheduleStore } from "../../services/schedule-store";
@@ -50,7 +51,9 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return errorResponse('Field "expressionType" must be "cron" or "rate"', 400);
         }
 
+        let conditionScript: string | undefined;
         try {
+            conditionScript = normalizeConditionScript(body.conditionScript);
             validateExpression(expression, expressionType);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Invalid expression";
@@ -76,6 +79,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             projectId,
             name,
             prompt: typeof body.prompt === "string" ? body.prompt : "",
+            conditionScript,
             actionId: typeof body.actionId === "string" ? body.actionId : undefined,
             agentType:
                 body.agentType === "shell" || isAgentType(body.agentType)
@@ -115,11 +119,23 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
+        if ("conditionScript" in body) {
+            try {
+                normalizeConditionScript(body.conditionScript);
+            } catch (err) {
+                return errorResponse(
+                    err instanceof Error ? err.message : "Invalid condition script",
+                    400,
+                );
+            }
+        }
         try {
             const result = await scheduleStore.updateDefinition(params.id, (existing) => {
                 const next: Schedule = { ...existing, updatedAt: new Date().toISOString() };
                 if (typeof body.name === "string") next.name = body.name;
                 if (typeof body.prompt === "string") next.prompt = body.prompt;
+                if ("conditionScript" in body)
+                    next.conditionScript = normalizeConditionScript(body.conditionScript);
                 if ("actionId" in body)
                     next.actionId = typeof body.actionId === "string" ? body.actionId : undefined;
                 if (typeof body.expression === "string") next.expression = body.expression;

@@ -100,6 +100,7 @@ it("HTTP POST returns the due time creation stored", async () => {
             body: JSON.stringify({
                 projectId: "p1",
                 name: "Hourly",
+                conditionScript: "test -s inbox",
                 prompt: "Work",
                 expression: "rate(1 hour)",
                 expressionType: "rate",
@@ -109,6 +110,7 @@ it("HTTP POST returns the due time creation stored", async () => {
     if (!response) throw new Error("Missing route");
     expect(response.status).toBe(201);
     const created = (await response.json()) as Schedule;
+    expect(created.conditionScript).toBe("test -s inbox");
     expect(created.nextRunAt).toBe("2026-10-30T11:00:00.000Z");
     expect(await store.getById(created.id)).toEqual(created);
 });
@@ -123,4 +125,14 @@ it("HTTP and WS type-only edits validate the merged expression", async () => {
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(await store.getById("s1")).toEqual(before);
     expect(events).toEqual([]);
+});
+
+it("HTTP persists, updates and clears a condition without moving the due time", async () => {
+    expect((await updated({ conditionScript: "test -s inbox" })).conditionScript).toBe(
+        "test -s inbox",
+    );
+    expect((await updated({ name: "Renamed" })).conditionScript).toBe("test -s inbox");
+    expect((await updated({ conditionScript: "" })).conditionScript).toBeUndefined();
+    expect((await updated({ conditionScript: null })).nextRunAt).toBe(due);
+    expect((await patch({ conditionScript: false })).status).toBe(400);
 });

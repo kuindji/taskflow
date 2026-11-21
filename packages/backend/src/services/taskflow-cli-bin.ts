@@ -1191,13 +1191,14 @@ async function handleSchedule(args: string[]): Promise<void> {
                 expression: "string",
                 type: "string",
                 prompt: "string",
+                "condition-script": "string",
                 name: "string",
                 timeout: "string",
                 agent: "string",
             });
             if (!flags.expression) {
                 process.stderr.write(
-                    "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type]\n",
+                    "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--condition-script script] [--name n] [--timeout m] [--agent type]\n",
                 );
                 process.exit(1);
             }
@@ -1207,6 +1208,8 @@ async function handleSchedule(args: string[]): Promise<void> {
                 expressionType: flags.type || "rate",
             };
             if (flags.prompt) body.prompt = flags.prompt;
+            if (flags["condition-script"] !== undefined)
+                body.conditionScript = flags["condition-script"];
             if (flags.name) body.name = flags.name;
             if (flags.timeout) {
                 const t = Number(flags.timeout);
@@ -1224,13 +1227,14 @@ async function handleSchedule(args: string[]): Promise<void> {
             const schedId = subArgs[0] ?? "";
             if (!schedId) {
                 process.stderr.write(
-                    "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]\n",
+                    "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--condition-script script] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]\n",
                 );
                 process.exit(1);
             }
             const { flags } = parseFlags(subArgs.slice(1), {
                 name: "string",
                 prompt: "string",
+                "condition-script": "string",
                 expression: "string",
                 type: "string",
                 timeout: "string",
@@ -1240,6 +1244,8 @@ async function handleSchedule(args: string[]): Promise<void> {
             const body: Record<string, unknown> = {};
             if (flags.name !== undefined) body.name = flags.name;
             if (flags.prompt !== undefined) body.prompt = flags.prompt;
+            if (flags["condition-script"] !== undefined)
+                body.conditionScript = flags["condition-script"];
             if (flags.expression !== undefined) body.expression = flags.expression;
             if (flags.type !== undefined) body.expressionType = flags.type;
             if (flags.timeout !== undefined) {

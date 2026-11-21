@@ -36,6 +36,7 @@ function serializeScheduleState({
     name,
     actionId,
     prompt,
+    conditionScript,
     expression,
     expressionType,
     agentType,
@@ -48,6 +49,7 @@ function serializeScheduleState({
     name: string | undefined;
     actionId: string | undefined;
     prompt: string | undefined;
+    conditionScript?: string;
     expression: string;
     expressionType: "cron" | "rate";
     agentType: ScheduleSessionType | "";
@@ -60,6 +62,7 @@ function serializeScheduleState({
         name: name || undefined,
         actionId: actionId || undefined,
         prompt: useAction ? undefined : prompt,
+        conditionScript: conditionScript?.trim() ? conditionScript : undefined,
         expression,
         expressionType,
         agentType: useAction ? undefined : agentType || undefined,

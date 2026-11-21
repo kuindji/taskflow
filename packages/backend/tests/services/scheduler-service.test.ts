@@ -6,6 +6,7 @@ import type { Schedule, WsEvent } from "@taskflow/shared";
 import { MSG } from "@taskflow/shared";
 import { ScheduleStore } from "../../src/services/schedule-store";
 import { SchedulerService, validateExpression } from "../../src/services/scheduler-service";
+import { runScheduleCondition } from "../../src/services/schedule-condition";
 import { DataDirGate } from "../../src/services/data-dir-gate";
 import { expectRejects } from "../expect-rejects";
 
@@ -23,6 +24,7 @@ let events: WsEvent[];
 let spawned: Schedule[];
 let closed: string[];
 let spawn: (schedule: Schedule) => Promise<Spawn>;
+let checkCondition: ((schedule: Schedule, signal: AbortSignal) => Promise<boolean>) | undefined;
 let onClose: (id: string) => void;
 let exits: Promise<void>[];
 
@@ -42,6 +44,10 @@ function makeService(
             return () => {
                 timer.cancelled = true;
             };
+        },
+        checkCondition: (schedule, signal) => {
+            if (!checkCondition) throw new Error("Unexpected condition check");
+            return checkCondition(schedule, signal);
         },
         spawnSession: async (schedule) => {
             spawned.push(schedule);
@@ -131,6 +137,7 @@ beforeEach(async () => {
     exits = [];
     onClose = () => {};
     spawn = async () => ({ sessionId: `session${spawned.length}`, isShell: false });
+    checkCondition = undefined;
     service = makeService();
     await save();
 });
@@ -602,3 +609,107 @@ it("tells connected clients a schedule was deleted", async () => {
     await service.onScheduleDeleted("s1", null);
     expect(events).toEqual([{ type: MSG.SCHEDULE_DELETED, payload: { id: "s1" } }]);
 });
+
+it("a false condition advances the due time without a session or a new lastRunAt", async () => {
+    await save({ conditionScript: "exit 1", lastError: "old error" });
+    let checks = 0;
+    checkCondition = async () => {
+        checks++;
+        return false;
+    };
+    await service.init();
+    now += 60_000;
+    await fireAndDrain(timer(60_000));
+    expect(checks).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(await record()).toMatchObject({
+        lastRunAt: null,
+        lastError: null,
+        runningSessionId: null,
+        nextRunAt: new Date(now + 60_000).toISOString(),
+    });
+    checkCondition = async () => true;
+    now += 60_000;
+    await fireAndDrain(timer(60_000));
+    expect(spawned).toHaveLength(1);
+});
+it("manual triggers respect a condition, including on a disabled schedule", async () => {
+    await save({ conditionScript: "exit 1", enabled: false, nextRunAt: null });
+    checkCondition = async () => false;
+    await service.triggerNow("s1");
+    expect(spawned).toEqual([]);
+    expect(await record()).toMatchObject({ enabled: false, nextRunAt: null, lastError: null });
+    checkCondition = async () => true;
+    await service.triggerNow("s1");
+    expect(spawned).toHaveLength(1);
+});
+it("a failed condition records an error and retries at the next occurrence", async () => {
+    await save({ conditionScript: "exit 2" });
+    checkCondition = async () => {
+        throw new Error("Condition script exited with code 2");
+    };
+    await service.triggerNow("s1");
+    expect(spawned).toEqual([]);
+    expect(await record()).toMatchObject({
+        lastRunAt: null,
+        runningSessionId: null,
+        lastError: "Condition check failed: Condition script exited with code 2",
+        nextRunAt: new Date(now + 60_000).toISOString(),
+    });
+});
+it("reserves a schedule while its condition is pending", async () => {
+    await save({ conditionScript: "check" });
+    const pending = Promise.withResolvers<boolean>();
+    const entered = Promise.withResolvers<undefined>();
+    checkCondition = () => {
+        entered.resolve(undefined);
+        return pending.promise;
+    };
+    const first = service.triggerNow("s1");
+    await entered.promise;
+    await expectRejects(service.triggerNow("s1"), "already running");
+    pending.resolve(true);
+    await first;
+    expect(spawned).toHaveLength(1);
+});
+for (const action of ["delete", "disable", "shutdown"] as const) {
+    it(`${action} cancels a pending condition without launching a session`, async () => {
+        await save({ conditionScript: "check" });
+        const pending = Promise.withResolvers<boolean>();
+        const entered = Promise.withResolvers<AbortSignal>();
+        checkCondition = (_schedule, signal) => {
+            entered.resolve(signal);
+            return pending.promise;
+        };
+        const running = service.triggerNow("s1");
+        const signal = await entered.promise;
+        if (action === "delete") {
+            await store.delete("s1");
+            await service.onScheduleDeleted("s1", null);
+        } else if (action === "disable") await edit({ enabled: false });
+        else service.shutdown();
+        expect(signal.aborted).toBe(true);
+        pending.resolve(true);
+        await running;
+        expect(spawned).toEqual([]);
+    });
+}
+it.skipIf(process.platform === "win32")(
+    "checks a real inbox fixture before launching",
+    async () => {
+        await save({ conditionScript: "test -s inbox" });
+        checkCondition = (schedule, signal) =>
+            runScheduleCondition(schedule.conditionScript ?? "", {
+                cwd: dir,
+                env: process.env,
+                signal,
+                shell: "/bin/sh",
+            });
+        await Bun.write(join(dir, "inbox"), "");
+        await service.triggerNow("s1");
+        expect(spawned).toEqual([]);
+        await Bun.write(join(dir, "inbox"), "New item");
+        await service.triggerNow("s1");
+        expect(spawned).toHaveLength(1);
+    },
+);

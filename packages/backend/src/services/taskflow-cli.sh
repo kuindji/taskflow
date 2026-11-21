@@ -1205,6 +1205,7 @@ case "$cmd" in
         sched_expression=""
         sched_expression_type="rate"
         sched_prompt=""
+        sched_condition_script=""
         sched_name=""
         sched_timeout=""
         sched_agent_type=""
@@ -1213,6 +1214,7 @@ case "$cmd" in
             --expression) sched_expression="${2:-}"; shift 2 ;;
             --type) sched_expression_type="${2:-}"; shift 2 ;;
             --prompt) sched_prompt="${2:-}"; shift 2 ;;
+            --condition-script) sched_condition_script="${2:-}"; shift 2 ;;
             --name) sched_name="${2:-}"; shift 2 ;;
             --timeout) sched_timeout="${2:-}"; shift 2 ;;
             --agent) sched_agent_type="${2:-}"; shift 2 ;;
@@ -1220,7 +1222,7 @@ case "$cmd" in
           esac
         done
         if [ -z "$sched_expression" ]; then
-          echo "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--name n] [--timeout m] [--agent type]" >&2
+          echo "Usage: taskflow-cli schedule create --expression <expr> [--type cron|rate] [--prompt p] [--condition-script script] [--name n] [--timeout m] [--agent type]" >&2
           exit 1
         fi
         payload=$(printf '"projectId":%s,"expression":%s,"expressionType":%s' \
@@ -1229,6 +1231,9 @@ case "$cmd" in
           "$(json_string "$sched_expression_type")")
         if [ -n "$sched_prompt" ]; then
           payload=$(printf '%s,"prompt":%s' "$payload" "$(json_string "$sched_prompt")")
+        fi
+        if [ -n "$sched_condition_script" ]; then
+          payload=$(printf '%s,"conditionScript":%s' "$payload" "$(json_string "$sched_condition_script")")
         fi
         if [ -n "$sched_name" ]; then
           payload=$(printf '%s,"name":%s' "$payload" "$(json_string "$sched_name")")
@@ -1249,7 +1254,7 @@ case "$cmd" in
       update)
         sched_id="${1:-}"
         if [ -z "$sched_id" ]; then
-          echo "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]" >&2
+          echo "Usage: taskflow-cli schedule update <id> [--name n] [--prompt p] [--condition-script script] [--expression e] [--type cron|rate] [--timeout m] [--enable] [--disable]" >&2
           exit 1
         fi
         shift
@@ -1258,6 +1263,7 @@ case "$cmd" in
           case "$1" in
             --name) payload=$(printf '%s"name":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --prompt) payload=$(printf '%s"prompt":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
+            --condition-script) payload=$(printf '%s"conditionScript":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --expression) payload=$(printf '%s"expression":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --type) payload=$(printf '%s"expressionType":%s,' "$payload" "$(json_string "${2:-}")"); shift 2 ;;
             --timeout)

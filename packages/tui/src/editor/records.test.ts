@@ -187,6 +187,7 @@ describe("record YAML", () => {
             name: "Old",
             prompt: "old",
             actionId: "action-1",
+            conditionScript: "test -s inbox",
             agentType: "codex",
             agentOptions: { type: "codex", model: "old" },
             expression: "5m",
@@ -202,7 +203,11 @@ describe("record YAML", () => {
         };
         expect(
             parseScheduleDraft(serializeSchedule(existing, false), context, false),
-        ).toMatchObject({ prompt: undefined, actionId: "action-1" });
+        ).toMatchObject({
+            prompt: undefined,
+            actionId: "action-1",
+            conditionScript: "test -s inbox",
+        });
 
         const draft = parseScheduleDraft(
             "name: Updated\nprompt: echo ok\nexpression: 10m\nexpressionType: rate\ntimeout: 45\nenabled: false\n",
@@ -213,6 +218,7 @@ describe("record YAML", () => {
             id: "schedule-1",
             name: "Updated",
             prompt: "echo ok",
+            conditionScript: null,
             actionId: null,
             agentType: null,
             agentOptions: null,

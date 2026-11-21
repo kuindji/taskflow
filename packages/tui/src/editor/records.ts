@@ -57,6 +57,7 @@ interface ScheduleDraft {
     projectId?: string;
     name: string;
     prompt?: string;
+    conditionScript?: string;
     actionId?: string;
     agentType?: ScheduleSessionType;
     agentOptions?: AgentLaunchOptions;
@@ -229,6 +230,7 @@ function parseScheduleDraft(
             "projectId",
             "name",
             "prompt",
+            "conditionScript",
             "actionId",
             "agentType",
             "agentOptions",
@@ -270,6 +272,7 @@ function parseScheduleDraft(
         projectId,
         name: requiredString(value.name, "name"),
         prompt: prompt?.trim() ? prompt : undefined,
+        conditionScript: optionalString(value.conditionScript, "conditionScript"),
         actionId,
         agentType,
         agentOptions: validateAgentOptions(value.agentOptions, agentType, "agentOptions"),
@@ -320,6 +323,7 @@ function schedulePayload(
         id: existing.id,
         name: draft.name,
         prompt: draft.prompt ?? "",
+        conditionScript: draft.conditionScript ?? null,
         actionId: draft.actionId ?? null,
         agentType: draft.agentType ?? null,
         agentOptions: draft.agentOptions ?? null,
@@ -370,6 +374,7 @@ function serializeSchedule(recordValue: ScheduleDraft | Schedule, creating: bool
         projectId,
         name,
         prompt,
+        conditionScript,
         actionId,
         agentType,
         agentOptions,
@@ -385,6 +390,7 @@ function serializeSchedule(recordValue: ScheduleDraft | Schedule, creating: bool
             // The backend keeps an old prompt when a schedule switches to an
             // action and runs the action; emitting both fails validation.
             prompt: actionId ? undefined : prompt || undefined,
+            conditionScript,
             actionId,
             agentType,
             agentOptions,
@@ -393,7 +399,11 @@ function serializeSchedule(recordValue: ScheduleDraft | Schedule, creating: bool
             timeout,
             enabled,
         },
-        [...ENUM_COMMENTS, "# expressionType: cron, rate"],
+        [
+            ...ENUM_COMMENTS,
+            "# expressionType: cron, rate",
+            "# conditionScript: shell script in project folder; exit 0 runs, 1 skips; 30-second timeout",
+        ],
     );
 }
 

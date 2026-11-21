@@ -85,3 +85,60 @@ test("a schedule opened before the actions load keeps its action", async () => {
     expect(container.textContent).toContain("Action: Build");
     expect(container.textContent).not.toContain("old prompt");
 });
+
+for (const withAction of [false, true]) {
+    test(`saves and clears a condition with ${withAction ? "an action" : "a custom prompt"}`, async () => {
+        const saved: unknown[] = [];
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const root = createRoot(container);
+        // React handles clicks at this root. Keep synthetic clicks away from
+        // Monaco's document-level Safari clipboard listener in happy-dom.
+        container.addEventListener("click", (event) => event.stopPropagation());
+        cleanups.push(() => {
+            act(() => root.unmount());
+            container.remove();
+        });
+        await act(async () => {
+            root.render(
+                <ScheduleForm
+                    schedule={{
+                        ...schedule,
+                        actionId: withAction ? action.id : undefined,
+                        conditionScript: "test -s inbox",
+                    }}
+                    projects={[project]}
+                    actions={[action]}
+                    onSave={(payload) => {
+                        saved.push(payload);
+                        return Promise.resolve();
+                    }}
+                    onCancel={() => {}}
+                />,
+            );
+        });
+        const textarea = container.querySelector<HTMLTextAreaElement>("#schedule-condition");
+        const saveButton = [...container.querySelectorAll("button")].find(
+            (b) => b.textContent === "Save",
+        );
+        if (!textarea || !saveButton) throw new Error("Missing condition field or save button");
+        expect(textarea.value).toBe("test -s inbox");
+        expect(saveButton.disabled).toBe(true);
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+        for (const value of ["python3 scripts/check.py", ""]) {
+            await act(async () => {
+                setter?.call(textarea, value);
+                textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            });
+            expect(saveButton.disabled).toBe(false);
+            await act(async () => {
+                saveButton.click();
+            });
+            expect(saved.at(-1)).toMatchObject({
+                id: schedule.id,
+                conditionScript: value || null,
+                actionId: withAction ? action.id : null,
+            });
+        }
+    });
+}

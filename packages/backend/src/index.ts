@@ -1,4 +1,5 @@
 import {
+    backendHttpOrigin,
     BACKEND_RESTART_EXIT_CODE,
     DISCOVERY_MAX_DISPLAY_NAME,
     MSG,
@@ -54,6 +55,8 @@ import { createWorktreeSetup } from "./services/worktree-setup";
 import { ChangeTracker } from "./services/change-tracker";
 import { ensureCliScript } from "./services/internal-agent-skill";
 import { FlowStore } from "./services/flow-store";
+import { runScheduleCondition } from "./services/schedule-condition";
+import { buildShellPath } from "./services/shell-path";
 import { resolveScheduleLaunch } from "./services/schedule-launch";
 import { createBuiltinActions } from "./services/builtin-actions";
 import { createBuiltinActionRunner } from "./services/builtin-action-runner";
@@ -209,6 +212,23 @@ async function main() {
         const scheduleStore = new ScheduleStore(config.schedulesFile);
         const schedulerService = new SchedulerService({
             scheduleStore,
+            checkCondition: async (schedule, signal) => {
+                const project = await store.getProject(schedule.projectId);
+                if (!project) throw new Error(`Project not found: ${schedule.projectId}`);
+                return await runScheduleCondition(schedule.conditionScript ?? "", {
+                    cwd: project.path,
+                    shell: systemShellPath ?? undefined,
+                    signal,
+                    env: {
+                        ...process.env,
+                        PATH: buildShellPath(),
+                        TASKFLOW_API_URL: backendHttpOrigin(serverPort),
+                        TASKFLOW_API_TOKEN: apiToken,
+                        TASKFLOW_PROJECT_ID: project.id,
+                        TASKFLOW_SCHEDULE_ID: schedule.id,
+                    },
+                });
+            },
             spawnSession: async (schedule) => {
                 const { prompt, sessionType, agentOptions } = await resolveScheduleLaunch(
                     schedule,

@@ -682,3 +682,34 @@ describe("taskflow-cli binary: project move", () => {
         ]);
     });
 });
+
+describe("taskflow-cli binary: schedule conditions", () => {
+    it("sends scripts on create and supports clearing on update", async () => {
+        const requests = startServer(null);
+        const script = 'test -s "inbox with spaces"';
+        expect(
+            (
+                await runBin(
+                    [
+                        "schedule",
+                        "create",
+                        "--expression",
+                        "rate(1 minute)",
+                        "--prompt",
+                        "Triage",
+                        "--condition-script",
+                        script,
+                    ],
+                    { TASKFLOW_PROJECT_ID: "p1" },
+                )
+            ).status,
+        ).toBe(0);
+        expect(JSON.parse(requests.at(-1)?.body ?? "{}")).toMatchObject({
+            conditionScript: script,
+        });
+        expect(
+            (await runBin(["schedule", "update", "s1", "--condition-script", ""], {})).status,
+        ).toBe(0);
+        expect(JSON.parse(requests.at(-1)?.body ?? "{}")).toEqual({ conditionScript: "" });
+    });
+});

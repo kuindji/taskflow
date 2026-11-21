@@ -1,3 +1,4 @@
+import { normalizeConditionScript } from "../services/schedule-condition";
 import { randomUUID } from "crypto";
 import { MSG } from "@taskflow/shared";
 import type {
@@ -52,6 +53,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
             // Validate expression before persisting
             validateExpression(payload.expression, payload.expressionType);
 
+            const conditionScript = normalizeConditionScript(payload.conditionScript);
             const now = new Date().toISOString();
             let name = payload.name?.trim() || "";
             if (!name) {
@@ -69,6 +71,7 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                 projectId: payload.projectId,
                 name,
                 prompt: payload.prompt ?? "",
+                conditionScript,
                 actionId: payload.actionId,
                 agentType: payload.agentType,
                 agentOptions: payload.agentOptions,
@@ -102,6 +105,8 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                 };
                 if (payload.name !== undefined) next.name = payload.name;
                 if (payload.prompt !== undefined) next.prompt = payload.prompt;
+                if ("conditionScript" in payload)
+                    next.conditionScript = normalizeConditionScript(payload.conditionScript);
                 if ("actionId" in payload) next.actionId = payload.actionId ?? undefined;
                 if (payload.expression !== undefined) next.expression = payload.expression;
                 if (payload.expressionType !== undefined)

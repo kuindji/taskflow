@@ -11,6 +11,7 @@ interface SpawnResult {
 interface SchedulerDeps {
     scheduleStore: ScheduleStore;
     spawnSession: (schedule: Schedule) => Promise<SpawnResult>;
+    checkCondition?: (schedule: Schedule, signal: AbortSignal) => Promise<boolean>;
     closeSession: (sessionId: string) => void;
     broadcast: (event: WsEvent) => void;
     isOnline: () => boolean;
@@ -76,6 +77,7 @@ class SchedulerService {
     private launching = new Set<string>();
     private earlyExits = new Map<string, number>();
     private admitted = new Set<string>();
+    private conditionChecks = new Map<string, AbortController>();
     private deferredSchedules = new Set<string>();
     private cancelTick: (() => void) | null = null;
     private initialization: Promise<void> | null = null;
@@ -266,6 +268,41 @@ class SchedulerService {
                 return;
             }
             this.deferredSchedules.delete(scheduleId);
+            if (schedule.conditionScript?.trim()) {
+                const controller = new AbortController();
+                this.conditionChecks.set(scheduleId, controller);
+                let shouldRun = false;
+                let lastError: string | null = null;
+                try {
+                    if (!this.deps.checkCondition) throw new Error("Condition runner unavailable");
+                    shouldRun = await this.deps.checkCondition(schedule, controller.signal);
+                } catch (error) {
+                    lastError = `Condition check failed: ${error instanceof Error ? error.message : String(error)}`;
+                } finally {
+                    if (this.conditionChecks.get(scheduleId) === controller)
+                        this.conditionChecks.delete(scheduleId);
+                }
+                if (this.stopped || controller.signal.aborted) return;
+                const latest = await this.deps.scheduleStore.getById(scheduleId);
+                if (
+                    this.stopped ||
+                    controller.signal.aborted ||
+                    !latest ||
+                    (source === "scheduled" && !latest.enabled)
+                )
+                    return;
+                if (!shouldRun) {
+                    const updated = await this.deps.scheduleStore.update(scheduleId, (current) => ({
+                        ...current,
+                        lastError,
+                        nextRunAt: this.nextAfterAttempt(current, schedule),
+                        updatedAt: new Date(this.now()).toISOString(),
+                    }));
+                    this.broadcastUpdated(updated);
+                    rearm = true;
+                    return;
+                }
+            }
             this.launching.add(scheduleId);
             try {
                 result = await this.deps.spawnSession(schedule);
@@ -412,16 +449,20 @@ class SchedulerService {
     }
 
     async onScheduleUpdated(scheduleId: string, timingChanged: boolean): Promise<void> {
+        const schedule = await this.deps.scheduleStore.getById(scheduleId);
+        if (timingChanged && schedule && !schedule.enabled)
+            this.conditionChecks.get(scheduleId)?.abort();
         if (timingChanged) {
             this.clearTimer(scheduleId);
             this.deferredSchedules.delete(scheduleId);
             await this.scheduleNext(scheduleId);
         }
-        const schedule = await this.deps.scheduleStore.getById(scheduleId);
-        if (schedule) this.broadcastUpdated(schedule);
+        const latest = await this.deps.scheduleStore.getById(scheduleId);
+        if (latest) this.broadcastUpdated(latest);
     }
 
     async onScheduleDeleted(scheduleId: string, runningSessionId: string | null): Promise<void> {
+        this.conditionChecks.get(scheduleId)?.abort();
         this.clearTimer(scheduleId);
         this.clearTimeoutTimer(scheduleId);
         this.deferredSchedules.delete(scheduleId);
@@ -452,6 +493,8 @@ class SchedulerService {
 
     shutdown(): void {
         this.stopped = true;
+        for (const controller of this.conditionChecks.values()) controller.abort();
+        this.conditionChecks.clear();
         this.cancelTick?.();
         this.cancelTick = null;
         for (const cancel of this.timers.values()) cancel();
