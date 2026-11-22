@@ -212,6 +212,71 @@ describe("session handlers", () => {
         await rm(tempDir, { recursive: true, force: true });
     });
 
+    it.each(["project", "task", "scheduled"] as const)(
+        "unarchives a project when a %s agent starts and broadcasts its visibility",
+        async (scope) => {
+            await store.updateProject(projectId, { hidden: true });
+            const task =
+                scope === "task"
+                    ? await store.createTask({ projectId, title: "Fix error", description: "" })
+                    : null;
+
+            const sessionId = await sessionLifecycle.createSession({
+                owner: task ? { taskId: task.id } : { projectId },
+                type: "claude",
+                internal: scope === "scheduled",
+            });
+
+            expect((await store.getProject(projectId))?.hidden).toBe(false);
+            expect(events).toContainEqual({
+                type: MSG.PROJECT_UPDATED,
+                payload: expect.objectContaining({ id: projectId, hidden: false }),
+            });
+            if (task) {
+                expect(
+                    (await store.getTask(task.id))?.sessions.map((session) => session.id),
+                ).toEqual([sessionId]);
+            } else {
+                expect((await store.getProject(projectId))?.sessions).toHaveLength(
+                    scope === "scheduled" ? 0 : 1,
+                );
+            }
+        },
+    );
+
+    it("keeps a project archived when an agent fails to spawn", async () => {
+        await store.updateProject(projectId, { hidden: true });
+        const spawn = spyOn(ptyManager, "spawn").mockImplementation(() => {
+            throw new Error("Agent executable missing");
+        });
+        try {
+            await expectRejects(
+                sessionLifecycle.createSession({ owner: { projectId }, type: "claude" }),
+                "Agent executable missing",
+            );
+            expect((await store.getProject(projectId))?.hidden).toBe(true);
+            expect(events.filter((event) => event.type === MSG.PROJECT_UPDATED)).toEqual([]);
+        } finally {
+            spawn.mockRestore();
+        }
+    });
+
+    it("keeps a project archived when a shell or master agent starts", async () => {
+        await store.updateProject(projectId, { hidden: true });
+        await sessionLifecycle.createSession({
+            owner: { projectId },
+            type: "shell",
+            shell: testShell,
+        });
+        await sessionLifecycle.createSession({
+            owner: { master: true },
+            type: "claude",
+            cwd: tempDir,
+            internal: true,
+        });
+        expect((await store.getProject(projectId))?.hidden).toBe(true);
+    });
+
     it("a saved Pi action or schedule sends --thinking high when xhigh is unsupported", async () => {
         const options = {
             type: "pi" as const,

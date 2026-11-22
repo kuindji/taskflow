@@ -837,6 +837,15 @@ function createSessionLifecycle(deps: SessionLifecycleDeps) {
                     if (ptyManager.has(sessionId)) owners.set(sessionId, spawnOwner);
                 });
             }
+            // Automated agents also need to bring their project back into the
+            // sidebar, including scheduled sessions that have no visible tab.
+            if (project?.hidden && isAgentType(type)) {
+                const updatedProject = await taskStore.updateProject(project.id, { hidden: false });
+                broadcast({
+                    type: MSG.PROJECT_UPDATED,
+                    payload: filterProjectSessions(updatedProject, config.instanceId),
+                });
+            }
         } catch (error) {
             // The owner or the resumed ref went away while the agent was starting
             // (the task was deleted or archived, or the session closed): nothing
