@@ -31,7 +31,6 @@ function normalizeTimeout(timeout: string | number | undefined): number {
 }
 
 function serializeScheduleState({
-    includeProjectId,
     projectId,
     name,
     actionId,
@@ -44,7 +43,6 @@ function serializeScheduleState({
     timeout,
     useAction,
 }: {
-    includeProjectId: boolean;
     projectId: string;
     name: string | undefined;
     actionId: string | undefined;
@@ -58,7 +56,7 @@ function serializeScheduleState({
     useAction: boolean;
 }) {
     return JSON.stringify({
-        projectId: includeProjectId ? projectId : undefined,
+        projectId,
         name: name || undefined,
         actionId: actionId || undefined,
         prompt: useAction ? undefined : prompt,

@@ -32,7 +32,7 @@ import {
     scheduleActionOptions,
     serializeScheduleState,
 } from "./schedule-helpers";
-import { activeProjects, selectableProjectId } from "@/lib/project-visibility";
+import { selectableProjectId, selectableProjects } from "@/lib/project-visibility";
 
 interface ScheduleFormProps {
     schedule: Schedule | null;
@@ -55,7 +55,10 @@ function ScheduleForm({
 }: ScheduleFormProps) {
     const isEditing = schedule !== null;
     const [saving, setSaving] = useState(false);
-    const projectOptions = useMemo(() => activeProjects(projects), [projects]);
+    const projectOptions = useMemo(
+        () => selectableProjects(projects, schedule?.projectId ? [schedule.projectId] : []),
+        [projects, schedule],
+    );
     const initialProjectId =
         schedule?.projectId ?? selectableProjectId(projects, defaultProjectId) ?? "";
 
@@ -123,7 +126,6 @@ function ScheduleForm({
     const initialSnapshot = useMemo(
         () =>
             serializeScheduleState({
-                includeProjectId: !isEditing,
                 projectId: initialProjectId,
                 name: schedule?.name,
                 actionId: schedule?.actionId,
@@ -136,12 +138,11 @@ function ScheduleForm({
                 timeout: schedule?.timeout ?? 30,
                 useAction: Boolean(schedule?.actionId),
             }),
-        [initialProjectId, isEditing, schedule],
+        [initialProjectId, schedule],
     );
     const currentSnapshot = useMemo(
         () =>
             serializeScheduleState({
-                includeProjectId: !isEditing,
                 projectId,
                 name,
                 actionId,
@@ -160,7 +161,6 @@ function ScheduleForm({
             agentType,
             expression,
             expressionType,
-            isEditing,
             name,
             projectId,
             prompt,
@@ -174,7 +174,7 @@ function ScheduleForm({
     const canSave =
         (useAction || prompt.trim().length > 0) &&
         expression.trim().length > 0 &&
-        (isEditing || projectId.length > 0);
+        projectId.length > 0;
 
     const handleSave = useCallback(async () => {
         if (!canSave || saving || !hasChanges) return;
@@ -186,6 +186,7 @@ function ScheduleForm({
             if (isEditing) {
                 const payload: ScheduleUpdatePayload = {
                     id: schedule.id,
+                    projectId,
                     name: name || undefined,
                     actionId: actionId || null,
                     prompt: useAction ? undefined : prompt,
@@ -197,6 +198,7 @@ function ScheduleForm({
                     timeout: effectiveTimeout,
                 };
                 await onSave(payload);
+                setActionId(actionId);
             } else {
                 const payload: ScheduleCreatePayload = {
                     projectId,
@@ -270,24 +272,24 @@ function ScheduleForm({
             )}
 
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
-                {/* Project selector — only on create */}
-                {!isEditing && (
-                    <div className="space-y-1.5">
-                        <Label className="text-xs">Project</Label>
-                        <Select value={projectId} onValueChange={setProjectId}>
-                            <SelectTrigger size="sm" className="text-xs">
-                                <SelectValue placeholder="Select project" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {projectOptions.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                        {p.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                )}
+                {/* Project selector */}
+                <div className="space-y-1.5">
+                    <Label htmlFor="schedule-project" className="text-xs">
+                        Project
+                    </Label>
+                    <Select value={projectId} onValueChange={setProjectId}>
+                        <SelectTrigger id="schedule-project" size="sm" className="text-xs">
+                            <SelectValue placeholder="Select project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {projectOptions.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                    {p.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
                 {/* Action selector */}
                 {availableActions.length > 0 && (

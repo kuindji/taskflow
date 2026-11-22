@@ -119,6 +119,11 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
             return errorResponse("Invalid JSON body", 400);
         }
 
+        if ("projectId" in body) {
+            if (typeof body.projectId !== "string" || !body.projectId.trim()) {
+                return errorResponse('Field "projectId" must be a non-empty string', 400);
+            }
+        }
         if ("conditionScript" in body) {
             try {
                 normalizeConditionScript(body.conditionScript);
@@ -132,6 +137,7 @@ function registerScheduleRoutes(deps: ScheduleRouteDeps): void {
         try {
             const result = await scheduleStore.updateDefinition(params.id, (existing) => {
                 const next: Schedule = { ...existing, updatedAt: new Date().toISOString() };
+                if (typeof body.projectId === "string") next.projectId = body.projectId;
                 if (typeof body.name === "string") next.name = body.name;
                 if (typeof body.prompt === "string") next.prompt = body.prompt;
                 if ("conditionScript" in body)

@@ -117,3 +117,13 @@ it("WS persists, updates and clears a condition without moving the due time", as
     expect((await store.getById("s1"))?.nextRunAt).toBe(due);
     await expectRejects(update({ conditionScript: false }));
 });
+
+it("WS schedule:update updates projectId without moving the due time and rejects invalid values", async () => {
+    const moved = await update({ projectId: "p2" });
+    expect(moved.projectId).toBe("p2");
+    expect(moved.nextRunAt).toBe(due);
+    await expectRejects(update({ projectId: "" }));
+    await expectRejects(update({ projectId: "   " }));
+    await expectRejects(update({ projectId: null }));
+    expect((await store.getById("s1"))?.projectId).toBe("p2");
+});

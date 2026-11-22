@@ -136,3 +136,13 @@ it("HTTP persists, updates and clears a condition without moving the due time", 
     expect((await updated({ conditionScript: null })).nextRunAt).toBe(due);
     expect((await patch({ conditionScript: false })).status).toBe(400);
 });
+
+it("HTTP PATCH updates projectId without moving the due time and rejects invalid values", async () => {
+    const moved = await updated({ projectId: "p2" });
+    expect(moved.projectId).toBe("p2");
+    expect(moved.nextRunAt).toBe(due);
+    expect((await patch({ projectId: "" })).status).toBe(400);
+    expect((await patch({ projectId: "   " })).status).toBe(400);
+    expect((await patch({ projectId: null })).status).toBe(400);
+    expect((await store.getById("s1"))?.projectId).toBe("p2");
+});

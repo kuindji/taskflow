@@ -45,6 +45,7 @@ interface ScheduleCreatePayload {
 
 interface ScheduleUpdatePayload {
     id: string;
+    projectId?: string;
     name?: string;
     prompt?: string;
     conditionScript?: string | null;

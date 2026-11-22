@@ -103,6 +103,12 @@ function registerScheduleHandlers(deps: ScheduleHandlerDeps): void {
                     ...existing,
                     updatedAt: new Date().toISOString(),
                 };
+                if (payload.projectId !== undefined) {
+                    if (typeof payload.projectId !== "string" || !payload.projectId.trim()) {
+                        throw new Error('Field "projectId" must be a non-empty string');
+                    }
+                    next.projectId = payload.projectId;
+                }
                 if (payload.name !== undefined) next.name = payload.name;
                 if (payload.prompt !== undefined) next.prompt = payload.prompt;
                 if ("conditionScript" in payload)
